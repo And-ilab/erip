@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<style>
+* { box-sizing: border-box; margin:0; padding:0; }
+body {
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  background: #F4F6F8;
+  color: #20282F;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+.app { width: 1680px; min-height: 900px; background:#F4F6F8; display:flex; flex-direction:column; }
+
+/* Верхняя панель */
+.topbar {
+  background: #0F4761;
+  color: #fff;
+  display:flex; align-items:center;
+  height: 46px; padding:0 14px;
+  gap: 18px;
+}
+.topbar .grid-btn { opacity:.9; display:flex; align-items:center; }
+.topbar .appname { font-weight:600; font-size:14.5px; letter-spacing:.2px; }
+.topbar nav { display:flex; gap:20px; font-size:13px; opacity:.92; }
+.topbar nav span { cursor:default; padding:2px 0; }
+.topbar nav span.active { border-bottom:2px solid #fff; font-weight:600; opacity:1; }
+.topbar .spacer { flex:1; }
+.topbar .tools { display:flex; align-items:center; gap:16px; opacity:.95; }
+.topbar .company { display:flex; align-items:center; gap:6px; font-size:12.5px; background:rgba(255,255,255,.12); padding:4px 10px; border-radius:5px; }
+.topbar .avatar { width:26px; height:26px; border-radius:50%; background:#3E7590; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; }
+.badge-dot { position:relative; }
+.badge-dot::after { content:attr(data-n); position:absolute; top:-6px; right:-8px; background:#B8862E; color:#fff; font-size:9px; font-weight:700; border-radius:7px; padding:1px 4px; line-height:1.3; }
+
+/* Хлебные крошки + панель поиска */
+.subbar {
+  background:#fff; border-bottom:1px solid #DCE3E8;
+  display:flex; align-items:center; padding:10px 16px; gap:14px;
+}
+.btn {
+  background:#0F4761; color:#fff; border:none; border-radius:5px;
+  padding:7px 14px; font-size:12.5px; font-weight:600; cursor:default;
+  display:flex; align-items:center; gap:6px;
+}
+.btn.secondary { background:#fff; color:#20282F; border:1px solid #DCE3E8; }
+.btn.small { padding:4px 9px; font-size:11.5px; }
+.crumbs { display:flex; align-items:center; gap:6px; font-size:12.5px; color:#6B7785; }
+.crumbs b { color:#20282F; font-weight:600; }
+.searchwrap { flex:1; display:flex; align-items:center; gap:8px; }
+.searchbox {
+  flex:1; display:flex; align-items:center; gap:8px; border:1px solid #DCE3E8;
+  border-radius:5px; padding:6px 10px; background:#fcfdfd; max-width:900px;
+}
+.chip {
+  display:flex; align-items:center; gap:6px; background:#E8F1F5; color:#156082;
+  border-radius:4px; padding:3px 8px; font-size:12px; font-weight:600;
+}
+.searchbox input { border:none; outline:none; background:transparent; font-size:12.5px; flex:1; color:#6B7785; }
+.viewswitch { display:flex; border:1px solid #DCE3E8; border-radius:5px; overflow:hidden; }
+.viewswitch .v { padding:6px 9px; display:flex; color:#6B7785; border-right:1px solid #DCE3E8; background:#fff; }
+.viewswitch .v:last-child { border-right:none; }
+.viewswitch .v.active { background:#E8F1F5; color:#156082; }
+
+.body { flex:1; padding:16px 20px; }
+
+/* Канбан */
+.kanban { display:flex; gap:14px; align-items:flex-start; overflow:hidden; }
+.col { width:236px; flex:none; }
+.col-head { display:flex; align-items:flex-start; justify-content:space-between; padding:2px 4px 8px; gap:6px; }
+.col-head .title { font-weight:700; font-size:12.5px; text-transform:none; color:#20282F; line-height:1.3; }
+.col-head .head-actions { display:flex; align-items:center; gap:7px; flex:none; margin-top:1px; }
+.col-head .count { color:#6B7785; font-weight:600; font-size:11.5px; }
+.progressbar { height:4px; border-radius:3px; background:#DCE3E8; margin:0 4px 10px; overflow:hidden; display:flex; }
+.card {
+  background:#fff; border:1px solid #DCE3E8; border-left:3px solid #156082;
+  border-radius:6px; padding:10px 11px; margin-bottom:10px; box-shadow:0 1px 2px rgba(20,30,40,.05);
+}
+.card .top-row { display:flex; justify-content:space-between; align-items:flex-start; gap:6px;}
+.card .ls { font-weight:700; font-size:12.5px; }
+.card .addr { color:#6B7785; font-size:11.5px; margin-top:2px; line-height:1.35; }
+.card .name { font-weight:700; font-size:12.5px; line-height:1.3; }
+.card .subinfo { color:#6B7785; font-size:10.5px; margin-top:3px; line-height:1.35; }
+.card .metarow { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+.pill { font-size:10.5px; font-weight:700; border-radius:3px; padding:2px 6px; }
+.pill.g1 { background:#E7F2EA; color:#2E7D4A; }
+.pill.g2 { background:#E8F1F5; color:#156082; }
+.pill.g3 { background:#FBF0DD; color:#B8862E; }
+.pill.g4 { background:#FAE6E3; color:#B23A2E; }
+.ratedot { width:17px; height:17px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; color:#fff; }
+.rA { background:#2E7D4A; } .rB { background:#B8862E; } .rC { background:#B23A2E; }
+.card .sum { font-weight:700; font-size:13px; margin-top:7px; color:#20282F; }
+.card .sum small { font-weight:500; color:#6B7785; font-size:10.5px; }
+.card .bottom-row { display:flex; align-items:center; justify-content:space-between; margin-top:9px; }
+.card .icons { display:flex; gap:8px; color:#6B7785; align-items:center; }
+.card .icons .overdue { color:#B23A2E; font-weight:700; }
+.avatar-sm { width:23px; height:23px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9.5px; font-weight:700; color:#fff; }
+.a1{background:#156082;} .a2{background:#7C6FA8;} .a3{background:#B8862E;} .a4{background:#2E7D4A;} .a5{background:#B23A2E;} .a6{background:#5A7D93;}
+.addcol { width:180px; flex:none; }
+.addcol .btn { width:100%; justify-content:center; background:#fff; color:#6B7785; border:1px dashed #DCE3E8; }
+.col-empty { color:#B7C0C8; font-size:11.5px; text-align:center; padding:24px 6px; font-style:italic; }
+
+.footer-note { padding:8px 20px 14px; color:#6B7785; font-size:11px; border-top:1px solid #DCE3E8; background:#fff; }
+
+/* Чек-лист этапа */
+.cl-progress-wrap { display:flex; align-items:center; gap:10px; margin:14px 0 10px; }
+.cl-progress-bar { flex:1; height:6px; border-radius:4px; background:#DCE3E8; overflow:hidden; }
+.cl-progress-bar > div { height:100%; }
+.cl-progress-label { font-size:11.5px; color:#6B7785; font-weight:600; flex:none; }
+.cl-item { display:flex; gap:10px; align-items:flex-start; padding:10px 2px; border-bottom:1px solid #EEF1F3; }
+.cl-item:last-child { border-bottom:none; }
+.cl-box { width:18px; height:18px; border-radius:4px; flex:none; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+.cl-box.done { background:#2E7D4A; }
+.cl-box.pending { border:1.5px solid #DCE3E8; background:#fff; }
+.cl-txt .t1 { font-size:12.5px; font-weight:600; }
+.cl-txt .t1.done { color:#6B7785; text-decoration:line-through; text-decoration-color:#c7cdd3; }
+.cl-txt .t2 { font-size:11px; color:#6B7785; margin-top:2px; }
+.cl-footer { margin-top:8px; padding:12px 14px; background:#FBF6E9; border:1px solid #EFE1B8; border-radius:6px; font-size:12px; color:#7A5B12; display:flex; justify-content:space-between; align-items:center; gap:14px; }
+.stage-btn-disabled { background:#E4E7EA; color:#9AA4AC; padding:7px 14px; border-radius:5px; font-size:12px; font-weight:600; flex:none; }
+
+/* Оверлеи: выпадающая панель и модальное окно поверх канбана */
+.overlay-stage { position:relative; }
+.dim-layer { position:absolute; inset:0; background:rgba(15,25,35,.10); z-index:5; }
+.popover { position:absolute; background:#fff; border:1px solid #DCE3E8; border-radius:6px; box-shadow:0 14px 34px rgba(15,25,35,.22); z-index:10; }
+.modal-backdrop { position:absolute; inset:0; background:rgba(12,18,24,.5); z-index:20; }
+.modal-box { position:absolute; background:#fff; border-radius:8px; box-shadow:0 24px 60px rgba(0,0,0,.3); padding:22px 26px; z-index:21; }
+</style></head>
+<body><div class="app" style="min-height:900px;">
+
+<div class="topbar">
+  <div class="grid-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="10.5" y="3" width="6" height="6" rx="1"/><rect x="18" y="3" width="3.5" height="6" rx="1"/><rect x="3" y="10.5" width="6" height="6" rx="1"/><rect x="10.5" y="10.5" width="6" height="6" rx="1"/><rect x="18" y="10.5" width="3.5" height="6" rx="1"/></svg></div>
+  <div class="appname">Взыскание задолженности</div>
+  <nav>
+    <span class="active">Дела</span>
+    <span>Мероприятия</span>
+    <span>Претензионно-исковая работа</span>
+    <span>Отчётность</span>
+    <span>Настройка</span>
+  </nav>
+  <div class="spacer"></div>
+  <div class="tools">
+    <div class="badge-dot" data-n="5"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg></div>
+    <div class="badge-dot" data-n="12"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></div>
+    <div class="company"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="4" y="3.5" width="9" height="17"/><rect x="13" y="9" width="7" height="11.5"/><path d="M7 7h3M7 10.5h3M7 14h3M16 12.5h1.5M16 16h1.5"/></svg>РСЦ Минска<span style="opacity:.8">▾</span></div>
+    <div class="avatar">ИП</div>
+  </div>
+</div>
+<div class="subbar">
+  <button class="btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg>Новое дело</button>
+  <div class="crumbs"><span>Дела</span><span>›</span><b>Группа 2 · просрочка 1–3&nbsp;мес.</b></div>
+  <div class="searchwrap">
+    <div class="searchbox">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b97a2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg>
+      <div class="chip">Группа: Группа 2 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#156082" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+      <div class="chip">Организация: РСЦ Минска <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#156082" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+      <input placeholder="Поиск по ФИО, организации, ЛС, адресу...">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b97a2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg>
+    </div>
+  </div>
+  <div class="viewswitch">
+    <div class="v active"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M8 6.5h13M8 12h13M8 17.5h13"/><circle cx="4" cy="6.5" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17.5" r="1"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 20V10M11 20V4M18 20v-7"/></svg></div>
+  </div>
+</div>
+<div class="body">
+  <div class="kanban">
+    
+<div class="col">
+  <div class="col-head"><div class="title">Новый должник</div><div class="head-actions"><span class="count">0</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg></div></div>
+  <div class="progressbar"><div style="width:100%;background:#2E7D4A"></div></div>
+  <div class="col-empty">Нет дел на этом этапе<br>(за пределами Группы 2)</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Автообзвон/уведомления</div><div class="head-actions"><span class="count">31</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg></div></div>
+  <div class="progressbar"><div style="width:100%;background:#156082"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Иванова Анна Петровна</div><div class="subinfo">ЛС 0032451 · ул. Захарова, д.14, кв.56</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">рейтинг должника</span>
+  </div>
+  <div class="sum">842,50 р. <small>+ пеня 130,20 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg><span class=""><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Через 2 дня</span></div>
+    <div class="avatar-sm a1">ПИ</div>
+  </div>
+</div>
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">ООО «Гарант-Сервис»</div><div class="subinfo">ЛС 0038890 · ул. Есенина, д.9, кв.3</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">рейтинг должника</span>
+  </div>
+  <div class="sum">3 410,00 р. <small>+ пеня 640,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><span class=""><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Через 4 дня</span></div>
+    <div class="avatar-sm a3">НТ</div>
+  </div>
+</div>
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Ковалёв Сергей Николаевич</div><div class="subinfo">ЛС 0041207 · пр. Пушкина, д.5, кв.12</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rA">A</span>
+    <span style="color:#6B7785;font-size:11px">рейтинг должника</span>
+  </div>
+  <div class="sum">215,00 р. <small>+ пеня 8,10 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg><span class=""><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Сегодня</span></div>
+    <div class="avatar-sm a2">СМ</div>
+  </div>
+</div>
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Ефремова Ольга Ивановна</div><div class="subinfo">ЛС 0029981 · ул. Мясникова, д.22, кв.101</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">рейтинг должника</span>
+  </div>
+  <div class="sum">1 980,40 р. <small>+ пеня 410,60 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3.5c-1.4 0-2.5 1.2-2.3 2.6.6 4.4 2.7 8.4 5.9 11.5 3.1 3.2 7.1 5.3 11.5 5.9 1.4.2 2.6-.9 2.6-2.3v-2.7c0-1-.7-1.9-1.7-2.1l-3.4-.8c-.8-.2-1.6.1-2.1.7l-.8 1c-2.2-1.1-4-2.9-5.1-5.1l1-.8c.6-.5.9-1.3.7-2.1l-.8-3.4c-.2-1-1.1-1.7-2.1-1.7z"/></svg><span class=""><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Завтра</span></div>
+    <div class="avatar-sm a4">ОК</div>
+  </div>
+</div>
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Шевчук Роман Александрович</div><div class="subinfo">ЛС 0017754 · ул. Кальварийская, д.7, кв.44</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">рейтинг должника</span>
+  </div>
+  <div class="sum">760,00 р. <small>+ пеня 95,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3.5c-1.4 0-2.5 1.2-2.3 2.6.6 4.4 2.7 8.4 5.9 11.5 3.1 3.2 7.1 5.3 11.5 5.9 1.4.2 2.6-.9 2.6-2.3v-2.7c0-1-.7-1.9-1.7-2.1l-3.4-.8c-.8-.2-1.6.1-2.1.7l-.8 1c-2.2-1.1-4-2.9-5.1-5.1l1-.8c.6-.5.9-1.3.7-2.1l-.8-3.4c-.2-1-1.1-1.7-2.1-1.7z"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg><span class="overdue"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> 3 дня назад</span></div>
+    <div class="avatar-sm a1">ПИ</div>
+  </div>
+</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Предупреждение вручено</div><div class="head-actions"><span class="count">0</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg></div></div>
+  <div class="progressbar"><div style="width:100%;background:#B8862E"></div></div>
+  <div class="col-empty">Нет дел на этом этапе<br>(за пределами Группы 2)</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Отключение услуг</div><div class="head-actions"><span class="count">0</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg></div></div>
+  <div class="progressbar"><div style="width:100%;background:#C77B3E"></div></div>
+  <div class="col-empty">Нет дел на этом этапе<br>(за пределами Группы 2)</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Испол. надпись / иск</div><div class="head-actions"><span class="count">0</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg></div></div>
+  <div class="progressbar"><div style="width:100%;background:#B23A2E"></div></div>
+  <div class="col-empty">Нет дел на этом этапе<br>(за пределами Группы 2)</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">ОПИ</div><div class="head-actions"><span class="count">0</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg></div></div>
+  <div class="progressbar"><div style="width:100%;background:#7A2E2E"></div></div>
+  <div class="col-empty">Нет дел на этом этапе<br>(за пределами Группы 2)</div>
+</div>
+    <div class="addcol"><button class="btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg>Этап</button></div>
+  </div>
+</div>
+</div></body></html>

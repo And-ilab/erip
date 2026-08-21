@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<style>
+* { box-sizing: border-box; margin:0; padding:0; }
+body {
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  background: #F4F6F8;
+  color: #20282F;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+.app { width: 1680px; min-height: 900px; background:#F4F6F8; display:flex; flex-direction:column; }
+
+/* Верхняя панель */
+.topbar {
+  background: #0F4761;
+  color: #fff;
+  display:flex; align-items:center;
+  height: 46px; padding:0 14px;
+  gap: 18px;
+}
+.topbar .grid-btn { opacity:.9; display:flex; align-items:center; }
+.topbar .appname { font-weight:600; font-size:14.5px; letter-spacing:.2px; }
+.topbar nav { display:flex; gap:20px; font-size:13px; opacity:.92; }
+.topbar nav span { cursor:default; padding:2px 0; }
+.topbar nav span.active { border-bottom:2px solid #fff; font-weight:600; opacity:1; }
+.topbar .spacer { flex:1; }
+.topbar .tools { display:flex; align-items:center; gap:16px; opacity:.95; }
+.topbar .company { display:flex; align-items:center; gap:6px; font-size:12.5px; background:rgba(255,255,255,.12); padding:4px 10px; border-radius:5px; }
+.topbar .avatar { width:26px; height:26px; border-radius:50%; background:#3E7590; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; }
+.badge-dot { position:relative; }
+.badge-dot::after { content:attr(data-n); position:absolute; top:-6px; right:-8px; background:#B8862E; color:#fff; font-size:9px; font-weight:700; border-radius:7px; padding:1px 4px; line-height:1.3; }
+
+/* Хлебные крошки + панель поиска */
+.subbar {
+  background:#fff; border-bottom:1px solid #DCE3E8;
+  display:flex; align-items:center; padding:10px 16px; gap:14px;
+}
+.btn {
+  background:#0F4761; color:#fff; border:none; border-radius:5px;
+  padding:7px 14px; font-size:12.5px; font-weight:600; cursor:default;
+  display:flex; align-items:center; gap:6px;
+}
+.btn.secondary { background:#fff; color:#20282F; border:1px solid #DCE3E8; }
+.btn.small { padding:4px 9px; font-size:11.5px; }
+.crumbs { display:flex; align-items:center; gap:6px; font-size:12.5px; color:#6B7785; }
+.crumbs b { color:#20282F; font-weight:600; }
+.searchwrap { flex:1; display:flex; align-items:center; gap:8px; }
+.searchbox {
+  flex:1; display:flex; align-items:center; gap:8px; border:1px solid #DCE3E8;
+  border-radius:5px; padding:6px 10px; background:#fcfdfd; max-width:900px;
+}
+.chip {
+  display:flex; align-items:center; gap:6px; background:#E8F1F5; color:#156082;
+  border-radius:4px; padding:3px 8px; font-size:12px; font-weight:600;
+}
+.searchbox input { border:none; outline:none; background:transparent; font-size:12.5px; flex:1; color:#6B7785; }
+.viewswitch { display:flex; border:1px solid #DCE3E8; border-radius:5px; overflow:hidden; }
+.viewswitch .v { padding:6px 9px; display:flex; color:#6B7785; border-right:1px solid #DCE3E8; background:#fff; }
+.viewswitch .v:last-child { border-right:none; }
+.viewswitch .v.active { background:#E8F1F5; color:#156082; }
+
+.body { flex:1; padding:16px 20px; }
+
+/* Канбан */
+.kanban { display:flex; gap:14px; align-items:flex-start; overflow:hidden; }
+.col { width:236px; flex:none; }
+.col-head { display:flex; align-items:flex-start; justify-content:space-between; padding:2px 4px 8px; gap:6px; }
+.col-head .title { font-weight:700; font-size:12.5px; text-transform:none; color:#20282F; line-height:1.3; }
+.col-head .head-actions { display:flex; align-items:center; gap:7px; flex:none; margin-top:1px; }
+.col-head .count { color:#6B7785; font-weight:600; font-size:11.5px; }
+.progressbar { height:4px; border-radius:3px; background:#DCE3E8; margin:0 4px 10px; overflow:hidden; display:flex; }
+.card {
+  background:#fff; border:1px solid #DCE3E8; border-left:3px solid #156082;
+  border-radius:6px; padding:10px 11px; margin-bottom:10px; box-shadow:0 1px 2px rgba(20,30,40,.05);
+}
+.card .top-row { display:flex; justify-content:space-between; align-items:flex-start; gap:6px;}
+.card .ls { font-weight:700; font-size:12.5px; }
+.card .addr { color:#6B7785; font-size:11.5px; margin-top:2px; line-height:1.35; }
+.card .name { font-weight:700; font-size:12.5px; line-height:1.3; }
+.card .subinfo { color:#6B7785; font-size:10.5px; margin-top:3px; line-height:1.35; }
+.card .metarow { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+.pill { font-size:10.5px; font-weight:700; border-radius:3px; padding:2px 6px; }
+.pill.g1 { background:#E7F2EA; color:#2E7D4A; }
+.pill.g2 { background:#E8F1F5; color:#156082; }
+.pill.g3 { background:#FBF0DD; color:#B8862E; }
+.pill.g4 { background:#FAE6E3; color:#B23A2E; }
+.ratedot { width:17px; height:17px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; color:#fff; }
+.rA { background:#2E7D4A; } .rB { background:#B8862E; } .rC { background:#B23A2E; }
+.card .sum { font-weight:700; font-size:13px; margin-top:7px; color:#20282F; }
+.card .sum small { font-weight:500; color:#6B7785; font-size:10.5px; }
+.card .bottom-row { display:flex; align-items:center; justify-content:space-between; margin-top:9px; }
+.card .icons { display:flex; gap:8px; color:#6B7785; align-items:center; }
+.card .icons .overdue { color:#B23A2E; font-weight:700; }
+.avatar-sm { width:23px; height:23px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9.5px; font-weight:700; color:#fff; }
+.a1{background:#156082;} .a2{background:#7C6FA8;} .a3{background:#B8862E;} .a4{background:#2E7D4A;} .a5{background:#B23A2E;} .a6{background:#5A7D93;}
+.addcol { width:180px; flex:none; }
+.addcol .btn { width:100%; justify-content:center; background:#fff; color:#6B7785; border:1px dashed #DCE3E8; }
+
+.footer-note { padding:8px 20px 14px; color:#6B7785; font-size:11px; border-top:1px solid #DCE3E8; background:#fff; }
+
+/* Чек-лист этапа */
+.cl-progress-wrap { display:flex; align-items:center; gap:10px; margin:14px 0 10px; }
+.cl-progress-bar { flex:1; height:6px; border-radius:4px; background:#DCE3E8; overflow:hidden; }
+.cl-progress-bar > div { height:100%; }
+.cl-progress-label { font-size:11.5px; color:#6B7785; font-weight:600; flex:none; }
+.cl-item { display:flex; gap:10px; align-items:flex-start; padding:10px 2px; border-bottom:1px solid #EEF1F3; }
+.cl-item:last-child { border-bottom:none; }
+.cl-box { width:18px; height:18px; border-radius:4px; flex:none; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+.cl-box.done { background:#2E7D4A; }
+.cl-box.pending { border:1.5px solid #DCE3E8; background:#fff; }
+.cl-txt .t1 { font-size:12.5px; font-weight:600; }
+.cl-txt .t1.done { color:#6B7785; text-decoration:line-through; text-decoration-color:#c7cdd3; }
+.cl-txt .t2 { font-size:11px; color:#6B7785; margin-top:2px; }
+.cl-footer { margin-top:8px; padding:12px 14px; background:#FBF6E9; border:1px solid #EFE1B8; border-radius:6px; font-size:12px; color:#7A5B12; display:flex; justify-content:space-between; align-items:center; gap:14px; }
+.stage-btn-disabled { background:#E4E7EA; color:#9AA4AC; padding:7px 14px; border-radius:5px; font-size:12px; font-weight:600; flex:none; }
+
+/* Оверлеи: выпадающая панель и модальное окно поверх канбана */
+.overlay-stage { position:relative; }
+.dim-layer { position:absolute; inset:0; background:rgba(15,25,35,.10); z-index:5; }
+.popover { position:absolute; background:#fff; border:1px solid #DCE3E8; border-radius:6px; box-shadow:0 14px 34px rgba(15,25,35,.22); z-index:10; }
+.modal-backdrop { position:absolute; inset:0; background:rgba(12,18,24,.5); z-index:20; }
+.modal-box { position:absolute; background:#fff; border-radius:8px; box-shadow:0 24px 60px rgba(0,0,0,.3); padding:22px 26px; z-index:21; }
+
+.stagewrap { position:relative; }
+.stagewrap + .stagewrap { margin-top:26px; border-top:1px solid #DCE3E8; }
+.caption { font-size:11.5px; font-weight:700; color:#6B7785; text-transform:uppercase; letter-spacing:.03em; padding:14px 20px 0; }
+
+.dropdown {
+  background:#fff; border:1px solid #DCE3E8; border-radius:6px;
+  box-shadow:0 14px 34px rgba(20,30,40,.22); display:flex; padding:14px 0; width:620px;
+}
+.dcol { padding:0 20px; border-right:1px solid #DCE3E8; flex:1; }
+.dcol:last-child { border-right:none; }
+.dcol h4 { font-size:11px; color:#6B7785; text-transform:uppercase; letter-spacing:.03em; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.dcol .item { font-size:12.5px; padding:5px 0; color:#20282F; }
+.dcol .sep { border-top:1px solid #DCE3E8; margin:8px 0; }
+.dcol .item.link { color:#156082; font-weight:600; }
+.favinput { border:1px solid #DCE3E8; border-radius:4px; padding:5px 8px; font-size:11.5px; width:100%; margin:6px 0; color:#6B7785; }
+.favchk { display:flex; align-items:center; gap:6px; font-size:11.5px; margin-top:4px; }
+.favchk .box { width:13px; height:13px; border:1.5px solid #DCE3E8; border-radius:2px; }
+
+.dialog { background:#fff; border-radius:8px; box-shadow:0 24px 60px rgba(0,0,0,.3); padding:22px 26px; width:900px;}
+.dialog h3 { font-size:15px; font-weight:700; margin-bottom:16px; }
+.matchrow { font-size:12.5px; margin-bottom:12px; color:#20282F; }
+.matchrow b { color:#156082; }
+.rulerow { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.rulerow .fld { border:1px solid #DCE3E8; border-radius:4px; padding:6px 10px; font-size:12px; background:#fcfdfd; width:210px; display:flex; justify-content:space-between; }
+.rulerow .op { border:1px solid #DCE3E8; border-radius:4px; padding:6px 10px; font-size:12px; background:#fcfdfd; width:110px; display:flex; justify-content:space-between; }
+.rulerow .valpill { display:flex; gap:6px; flex:1; }
+.rulerow .valpill span { background:#E8F1F5; color:#156082; font-size:11.5px; font-weight:600; padding:3px 8px; border-radius:3px; }
+.rulerow .rmicons { display:flex; gap:8px; color:#bcc4cb; }
+.newrule { color:#156082; font-size:12px; font-weight:600; margin:8px 0 18px; display:inline-flex; align-items:center; gap:5px; }
+.diagbtns { display:flex; gap:10px; margin-top:6px; }
+</style></head>
+<body><div class="app" style="min-height:1000px;">
+<div class="caption">Открыта панель поиска (Фильтры / Группировать по / Избранное) — раскрывается поверх текущей канбан-доски</div>
+<div class="stagewrap" style="min-height:430px;">
+  
+<div class="topbar">
+  <div class="grid-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="10.5" y="3" width="6" height="6" rx="1"/><rect x="18" y="3" width="3.5" height="6" rx="1"/><rect x="3" y="10.5" width="6" height="6" rx="1"/><rect x="10.5" y="10.5" width="6" height="6" rx="1"/><rect x="18" y="10.5" width="3.5" height="6" rx="1"/></svg></div>
+  <div class="appname">Взыскание задолженности</div>
+  <nav><span class="active">Дела</span><span>Мероприятия</span><span>Претензионно-исковая работа</span><span>Отчётность</span><span>Настройка</span></nav>
+  <div class="spacer"></div>
+  <div class="tools">
+    <div class="badge-dot" data-n="5"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg></div>
+    <div class="badge-dot" data-n="12"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></div>
+    <div class="company"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="4" y="3.5" width="9" height="17"/><rect x="13" y="9" width="7" height="11.5"/><path d="M7 7h3M7 10.5h3M7 14h3M16 12.5h1.5M16 16h1.5"/></svg>Все организации<span style="opacity:.8">▾</span></div>
+    <div class="avatar">ИП</div>
+  </div>
+</div>
+<div class="subbar">
+  <button class="btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg>Новое дело</button>
+  <div class="crumbs"><span>Дела</span><span>›</span><b>Все группы</b></div>
+  <div class="searchwrap">
+    <div class="searchbox">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b97a2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg>
+      <div class="chip">Организация: РСЦ Минска <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#156082" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+      <input placeholder="Поиск по ФИО, организации, ЛС, адресу...">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b97a2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg>
+    </div>
+  </div>
+  <div class="viewswitch">
+    <div class="v active"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M8 6.5h13M8 12h13M8 17.5h13"/><circle cx="4" cy="6.5" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17.5" r="1"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 20V10M11 20V4M18 20v-7"/></svg></div>
+  </div>
+</div>
+<div class="body">
+  <div class="kanban">
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 1<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка до 1 мес.</div></div><div class="head-actions"><span class="count">14</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#2E7D4A"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Соловьёва Марина Дмитриевна</div><div class="subinfo">ЛС 0061102 · ул. Октябрьская, д.3, кв.15</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rA">A</span>
+    <span style="color:#6B7785;font-size:11px">Новый должник</span>
+  </div>
+  <div class="sum">310,00 р. <small>+ пеня 0,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"></div>
+    <div class="avatar-sm a4">ОК</div>
+  </div>
+</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 2<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка 1–3 мес.</div></div><div class="head-actions"><span class="count">31</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#156082"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Иванова Анна Петровна</div><div class="subinfo">ЛС 0032451 · ул. Захарова, д.14, кв.56</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">Автообзвон</span>
+  </div>
+  <div class="sum">842,50 р. <small>+ пеня 130,20 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg></div>
+    <div class="avatar-sm a1">ПИ</div>
+  </div>
+</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 3<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка 3–6 мес.</div></div><div class="head-actions"><span class="count">18</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#B8862E"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Костюк Елена Леонидовна</div><div class="subinfo">ЛС 0027745 · ул. Тимирязева, д.65, кв.9</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">Отключение услуг</span>
+  </div>
+  <div class="sum">11 200,00 р. <small>+ пеня 3 050,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 21V4h11l-2.5 3.5L17 11H6"/></svg></div>
+    <div class="avatar-sm a5">ЮК</div>
+  </div>
+</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 4<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка свыше 6 мес.</div></div><div class="head-actions"><span class="count">7</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#B23A2E"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Дубровская Наталья Павловна</div><div class="subinfo">ЛС 0044556 · ул. Красная, д.2, кв.77</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rC">C</span>
+    <span style="color:#6B7785;font-size:11px">Исполнительная надпись</span>
+  </div>
+  <div class="sum">6 780,00 р. <small>+ пеня 1 640,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 21V4h11l-2.5 3.5L17 11H6"/></svg></div>
+    <div class="avatar-sm a6">ВА</div>
+  </div>
+</div>
+</div>
+  </div>
+</div>
+  <div class="popover" style="top:96px; left:600px;">
+<div class="dropdown">
+    <div class="dcol">
+      <h4><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 5h16l-6 7.5V19l-4 2v-8.5z"/></svg> Фильтры</h4>
+      <div class="item">Мои дела</div>
+      <div class="item">Просрочка &gt; 90 дней</div>
+      <div class="item">Юридические лица</div>
+      <div class="item">Услуги приостановлены</div>
+      <div class="item">Наследственное дело</div>
+      <div class="sep"></div>
+      <div class="item">Дата возникновения долга ▸</div>
+      <div class="sep"></div>
+      <div class="item link">+ Добавить пользовательский фильтр</div>
+    </div>
+    <div class="dcol">
+      <h4><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg> Группировать по</h4>
+      <div class="item">Организация</div>
+      <div class="item">Группа задолженности</div>
+      <div class="item">Рейтинг должника (A/B/C)</div>
+      <div class="item">Этап воронки взыскания</div>
+      <div class="item">Закреплённый специалист</div>
+      <div class="sep"></div>
+      <div class="item link">+ Добавить группировку</div>
+    </div>
+    <div class="dcol">
+      <h4><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#D9A916" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z"/></svg> Избранное</h4>
+      <div class="item" style="font-weight:600">Сохранить текущий поиск</div>
+      <input class="favinput" value="Группа 3–4 · по организациям">
+      <div class="favchk"><div class="box"></div> Использовать по умолчанию</div>
+      <div class="favchk"><div class="box"></div> Общий для всех пользователей</div>
+      <div class="sep"></div>
+      <div class="item">★ Мингаз · должники &gt; 6 мес.</div>
+      <div class="item">★ Могилёвская обл. · все организации</div>
+    </div>
+</div></div>
+</div>
+<div class="caption">Нажата кнопка «Добавить пользовательский фильтр» — диалог открывается модальным окном поверх доски</div>
+<div class="stagewrap" style="min-height:460px;">
+  
+<div class="topbar">
+  <div class="grid-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="10.5" y="3" width="6" height="6" rx="1"/><rect x="18" y="3" width="3.5" height="6" rx="1"/><rect x="3" y="10.5" width="6" height="6" rx="1"/><rect x="10.5" y="10.5" width="6" height="6" rx="1"/><rect x="18" y="10.5" width="3.5" height="6" rx="1"/></svg></div>
+  <div class="appname">Взыскание задолженности</div>
+  <nav><span class="active">Дела</span><span>Мероприятия</span><span>Претензионно-исковая работа</span><span>Отчётность</span><span>Настройка</span></nav>
+  <div class="spacer"></div>
+  <div class="tools">
+    <div class="badge-dot" data-n="5"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg></div>
+    <div class="badge-dot" data-n="12"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></div>
+    <div class="company"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="4" y="3.5" width="9" height="17"/><rect x="13" y="9" width="7" height="11.5"/><path d="M7 7h3M7 10.5h3M7 14h3M16 12.5h1.5M16 16h1.5"/></svg>Все организации<span style="opacity:.8">▾</span></div>
+    <div class="avatar">ИП</div>
+  </div>
+</div>
+<div class="subbar">
+  <button class="btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg>Новое дело</button>
+  <div class="crumbs"><span>Дела</span><span>›</span><b>Все группы</b></div>
+  <div class="searchwrap">
+    <div class="searchbox">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b97a2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg>
+      <div class="chip">Организация: РСЦ Минска <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#156082" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+      <input placeholder="Поиск по ФИО, организации, ЛС, адресу...">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b97a2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg>
+    </div>
+  </div>
+  <div class="viewswitch">
+    <div class="v active"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M8 6.5h13M8 12h13M8 17.5h13"/><circle cx="4" cy="6.5" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17.5" r="1"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg></div>
+    <div class="v"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 20V10M11 20V4M18 20v-7"/></svg></div>
+  </div>
+</div>
+<div class="body">
+  <div class="kanban">
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 1<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка до 1 мес.</div></div><div class="head-actions"><span class="count">14</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#2E7D4A"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Соловьёва Марина Дмитриевна</div><div class="subinfo">ЛС 0061102 · ул. Октябрьская, д.3, кв.15</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rA">A</span>
+    <span style="color:#6B7785;font-size:11px">Новый должник</span>
+  </div>
+  <div class="sum">310,00 р. <small>+ пеня 0,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"></div>
+    <div class="avatar-sm a4">ОК</div>
+  </div>
+</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 2<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка 1–3 мес.</div></div><div class="head-actions"><span class="count">31</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#156082"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Иванова Анна Петровна</div><div class="subinfo">ЛС 0032451 · ул. Захарова, д.14, кв.56</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">Автообзвон</span>
+  </div>
+  <div class="sum">842,50 р. <small>+ пеня 130,20 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg></div>
+    <div class="avatar-sm a1">ПИ</div>
+  </div>
+</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 3<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка 3–6 мес.</div></div><div class="head-actions"><span class="count">18</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#B8862E"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Костюк Елена Леонидовна</div><div class="subinfo">ЛС 0027745 · ул. Тимирязева, д.65, кв.9</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rB">B</span>
+    <span style="color:#6B7785;font-size:11px">Отключение услуг</span>
+  </div>
+  <div class="sum">11 200,00 р. <small>+ пеня 3 050,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 21V4h11l-2.5 3.5L17 11H6"/></svg></div>
+    <div class="avatar-sm a5">ЮК</div>
+  </div>
+</div>
+</div>
+    
+<div class="col">
+  <div class="col-head"><div class="title">Группа 4<div style="font-weight:500;color:#6B7785;font-size:10.5px;margin-top:2px">просрочка свыше 6 мес.</div></div><div class="head-actions"><span class="count">7</span></div></div>
+  <div class="progressbar"><div style="width:100%;background:#B23A2E"></div></div>
+  
+<div class="card">
+  <div class="top-row">
+    <div><div class="name">Дубровская Наталья Павловна</div><div class="subinfo">ЛС 0044556 · ул. Красная, д.2, кв.77</div></div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7cdd3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3.7l2.4 5 5.5.6-4.1 3.8 1.1 5.4L12 15.7l-4.9 2.8 1.1-5.4-4.1-3.8 5.5-.6z" fill="none"/></svg>
+  </div>
+  <div class="metarow">
+    <span class="ratedot rC">C</span>
+    <span style="color:#6B7785;font-size:11px">Исполнительная надпись</span>
+  </div>
+  <div class="sum">6 780,00 р. <small>+ пеня 1 640,00 р.</small></div>
+  <div class="bottom-row">
+    <div class="icons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 21V4h11l-2.5 3.5L17 11H6"/></svg></div>
+    <div class="avatar-sm a6">ВА</div>
+  </div>
+</div>
+</div>
+  </div>
+</div>
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="top:78px; left:390px;">
+<div class="dialog">
+  <h3>Добавить пользовательский фильтр</h3>
+  <div class="matchrow">Соответствует <b>любому</b> из следующих условий: <span style="color:#6B7785">(переключатель «любому» / «всем»)</span></div>
+  <div class="rulerow">
+  <div class="fld">Группа задолженности <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="op">равно <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="valpill"><span>Группа 3</span><span>Группа 4</span></div>
+  <div class="rmicons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/></svg></div>
+</div>
+  <div class="rulerow">
+  <div class="fld">Организация <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="op">входит в <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="valpill"><span>Мингаз</span></div>
+  <div class="rmicons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/></svg></div>
+</div>
+  <div style="margin-left:26px">
+    <div class="matchrow" style="color:#6B7785">все из:</div>
+    <div class="rulerow">
+  <div class="fld">Рейтинг должника <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="op">равно <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="valpill"><span>C</span></div>
+  <div class="rmicons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/></svg></div>
+</div>
+    <div class="rulerow">
+  <div class="fld">Сумма долга <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="op">&gt; <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7785" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 8.5l7 7 7-7"/></svg></div>
+  <div class="valpill"><span>5 000 р.</span></div>
+  <div class="rmicons"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10.5" rx="1"/><rect x="16.5" y="4" width="5" height="13.5" rx="1"/></svg><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/></svg></div>
+</div>
+  </div>
+  <div class="newrule"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#156082" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"/></svg> Новое правило</div>
+  <div class="diagbtns">
+    <button class="btn">Добавить</button>
+    <button class="btn secondary">Отмена</button>
+  </div>
+</div></div>
+</div></div></body></html>
