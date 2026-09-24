@@ -1,0 +1,34 @@
+COLUMN_NAME;DATA_TYPE;COMMENTS;MODULE_NAME
+REPORT_GROUP_ID;NUMBER;ID группы отчёта;Услуги
+NETTING_MULCT_SUM;NUMBER;Взаимозачет пени;Услуги
+NETTING_SUM;NUMBER;Взаимозачет по услуге;Услуги
+CALC_SUM;NUMBER;Всего начислено;Услуги
+BALANCE_IN;NUMBER;Входящее сальдо без пени;Услуги
+BALANCE_MULCT_IN;NUMBER;Входящее сальдо пени;Услуги
+START_DATE;DATE;Дата начала действия услуги (Дата с);Услуги
+STOP_DATE;DATE;Дата окончания действия услуги (Дата по);Услуги
+BALANCE_MULCT_OUT;NUMBER;Исходящее сальдо пени;Услуги
+BALANCE_OUT;NUMBER;Исходящее сальдо с пенями;Услуги
+SERVICE_LIST_ID;NUMBER;Код договора на услугу (ID Договора);Услуги
+ACCOUNT_ID;NUMBER(15);Код ЛС (ID ЛС);Услуги
+CALCULATION_ID;NUMBER;Код операции расчета (ID Расчёта);Услуги
+PROVIDER_ID;NUMBER(15);Код поставщика услуги;Услуги
+SORT_CODE;NUMBER;Код сортировки;Услуги
+SERVICE_ID;NUMBER(9);Код услуги (ID Услуги);Услуги
+DEBT_PERIOD;DATE;Кол-во периодов долга (по DISTINCT месяцам периода долга);Услуги
+SHOT_NAME;VARCHAR2(100);Краткое наименование поставщика;Услуги
+CALC_PRIV_SUM;NUMBER;Льгота;Услуги
+SERVICE_NAME;VARCHAR2(250);Наименование услуги;Услуги
+SERVICE_NAME_REPORT;VARCHAR2(250);Наименование услуги в извещении для дополнительных;Услуги
+CALC_RESULT_SUM;NUMBER;Начислено;Услуги
+SPENT_FACT;NUMBER;Начислено (количество);Услуги
+MULCT_SUM;NUMBER;Начислено пени;Услуги
+RECALC_SUM;NUMBER;Перерасчёт;Услуги
+MULCTRECALCSUMM;NUMBER(20,2);Перерасчет по пене;Услуги
+FULL_NAME;VARCHAR2(250);Полное наименование поставщика;Услуги
+OVERDUE_DEBT;NUMBER(15,2);Просроченная задолженность;Услуги
+SHARE_MULCT_SUMM;NUMBER(20,2);Распределённая оплата пени в текущем опер. периоде;Услуги
+SHARE_SERVICE_SUMM;NUMBER(20,2);Распределённая оплата услуг в текущем опер. периоде;Услуги
+SUBS_PAY;NUMBER;Субсидия (сумма субсидии);Услуги
+TARRIF;NUMBER;Тариф;Услуги
+CALC_DATE;DATE;Фактическая дата выполнения расчета (Дата расчёта);Услуги

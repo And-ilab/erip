@@ -1,0 +1,8 @@
+[
+ {"model": "nsi.debtgroupscale", "pk": 1, "fields": {"group": 1, "name": "до 2 месяцев", "months_from": 0, "months_to": 2}},
+ {"model": "nsi.debtgroupscale", "pk": 2, "fields": {"group": 2, "name": "2–3 месяца", "months_from": 2, "months_to": 3}},
+ {"model": "nsi.debtgroupscale", "pk": 3, "fields": {"group": 3, "name": "3–6 месяцев", "months_from": 3, "months_to": 6}},
+ {"model": "nsi.debtgroupscale", "pk": 4, "fields": {"group": 4, "name": "6–12 месяцев", "months_from": 6, "months_to": 12}},
+ {"model": "nsi.debtgroupscale", "pk": 5, "fields": {"group": 5, "name": "1–3 года", "months_from": 12, "months_to": 36}},
+ {"model": "nsi.debtgroupscale", "pk": 6, "fields": {"group": 6, "name": "свыше 3 лет", "months_from": 36, "months_to": null}}
+]

@@ -1,0 +1,36 @@
+COLUMN_NAME;DATA_TYPE;COMMENTS;MODULE_NAME
+EXECUTION_ID;NUMBER;ID документа на взыскание;Оплаты
+SOURCE_RECEIPT_ID;NUMBER;ID исх. квитанции;Оплаты
+RECEIPT_ID;NUMBER;ID квитанции;Оплаты
+ACCOUNT_ID;NUMBER;ID ЛС;Оплаты
+PACKAGE_ID;NUMBER;ID пачки;Оплаты
+OTDEL;VARCHAR2(11);№ операции в ЦУ;Оплаты
+PP_NUM;VARCHAR2(16);№ ПП;Оплаты
+HOUSE_ADDRESS;VARCHAR2(250);Адрес дома;Оплаты
+ACCOUNT_ADDRESS;;Адрес ЛС;Оплаты
+ADDRESS;VARCHAR2(255);Адрес плательщика из файла;Оплаты
+BANK_ID;NUMBER;Банк - ID;Оплаты
+BANKNAME;VARCHAR2(255);Банк - Наименование;Оплаты
+PAY_DATE;DATE;Дата оплаты;Оплаты
+BANK_DATE;DATE;Дата оплаты по банку;Оплаты
+CLIENT_ACCOUNT;VARCHAR2(20);Лицевой счет;Оплаты
+CLIENT_ACCOUNT;VARCHAR2(25);Лицевой счет из файла;Оплаты
+SHOT_NAME;VARCHAR2(100);Наименование поставщика / обслуживающей организации;Оплаты
+PROVIDER_ID_JES;NUMBER;обсл. организация ЛС - ID;Оплаты
+ACC_OPER_DATE;DATE;Операционный период распределения;Оплаты
+PAY_MULCT_SUMM;NUMBER(20,2);Оплата пени по квитанции;Оплаты
+PAY_SERVICE_SUMM;NUMBER(20,2);Оплата услуг по квитанции;Оплаты
+PROVIDER_ID;NUMBER;Поставщик услуг - ID;Оплаты
+NOTES;VARCHAR2(255);Примечание;Оплаты
+SHARE_MULCT_SUM;NUMBER;Распределенная оплата пени в текущем периоде;Оплаты
+SHARE_SERVICE_SUM;NUMBER;Распределенная оплата услуг в текущем периоде;Оплаты
+RECEIPT_ID_GES;NUMBER;Связь с квитанцией (ID квитанции в pay_kvit);Оплаты
+SHARE_STATUS;NUMBER(2);Способ распределения (код);Оплаты
+PACKAGE_STATUS;NUMBER;Статус пачки;Оплаты
+REFUND_SUM;NUMBER(20,2);Сумма возврата;Оплаты
+COMMISSION_SUMM;NUMBER(20,2);Сумма комиссии расчетного агента;Оплаты
+SERVICE_ID;NUMBER(9);Услуга - ID;Оплаты
+SERVICE_NAME;VARCHAR2(250);Услуга - Наименование;Оплаты
+PAYER_REG_NAME;VARCHAR2(250);ФИО плательщика (полное);Оплаты
+CLIENT_NAME;VARCHAR2(99);ФИО плательщика из файла;Оплаты
+;ENUM('Файл', 'Ввод вручную', 'Зачисление из зарплаты');Тип оплаты;

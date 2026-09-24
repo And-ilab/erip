@@ -1,0 +1,74 @@
+[
+  {
+    "model": "notifications.messagetemplate",
+    "pk": 1,
+    "fields": {
+      "code": "debt-group-1",
+      "name": "Группа 1. Напоминание",
+      "channel": "email",
+      "subject": "Напоминание о задолженности",
+      "debt_group": 1,
+      "body": "По лицевому счёту {account} ({address}) числится задолженность {amount} руб. Срок долга: {group_name}. Просим погасить её в ближайшее время."
+    }
+  },
+  {
+    "model": "notifications.messagetemplate",
+    "pk": 2,
+    "fields": {
+      "code": "debt-group-2",
+      "name": "Группа 2. Повторное напоминание",
+      "channel": "email",
+      "subject": "Повторное напоминание о задолженности",
+      "debt_group": 2,
+      "body": "Повторно сообщаем: по лицевому счёту {account} ({address}) задолженность составляет {amount} руб. ({group_name}). Просим произвести оплату."
+    }
+  },
+  {
+    "model": "notifications.messagetemplate",
+    "pk": 3,
+    "fields": {
+      "code": "debt-group-3",
+      "name": "Группа 3. Предупреждение",
+      "channel": "email",
+      "subject": "Предупреждение о задолженности",
+      "debt_group": 3,
+      "body": "Задолженность {amount} руб. по лицевому счёту {account} ({address}) не погашена. Срок: {group_name}. При дальнейшей неоплате будут применены претензионные меры."
+    }
+  },
+  {
+    "model": "notifications.messagetemplate",
+    "pk": 4,
+    "fields": {
+      "code": "debt-group-4",
+      "name": "Группа 4. Требование об оплате",
+      "channel": "email",
+      "subject": "Требование об оплате задолженности",
+      "debt_group": 4,
+      "body": "Требуем погасить задолженность {amount} руб. по лицевому счёту {account}, адрес {address}. Срок долга: {group_name}."
+    }
+  },
+  {
+    "model": "notifications.messagetemplate",
+    "pk": 5,
+    "fields": {
+      "code": "debt-group-5",
+      "name": "Группа 5. Досудебное уведомление",
+      "channel": "email",
+      "subject": "Досудебное уведомление о задолженности",
+      "debt_group": 5,
+      "body": "Досудебное уведомление. Задолженность по лицевому счёту {account} ({address}) составляет {amount} руб. ({group_name}). При непогашении материалы будут переданы на взыскание."
+    }
+  },
+  {
+    "model": "notifications.messagetemplate",
+    "pk": 6,
+    "fields": {
+      "code": "debt-group-6",
+      "name": "Группа 6. Уведомление о длительной задолженности",
+      "channel": "email",
+      "subject": "Уведомление о длительной задолженности",
+      "debt_group": 6,
+      "body": "По лицевому счёту {account} ({address}) числится длительная задолженность {amount} руб. Группа {debt_group}: {group_name}. Просим погасить долг либо связаться с организацией."
+    }
+  }
+]

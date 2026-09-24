@@ -1,0 +1,55 @@
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+.python:
+  image: python:3.11-slim
+  cache:
+    paths: [.cache/pip]
+
+ruff:
+  extends: .python
+  stage: lint
+  script:
+    - pip install ruff
+    - ruff check app/backend app/gateway
+
+pytest-backend:
+  extends: .python
+  stage: test
+  script:
+    - cd app/backend
+    - pip install -r requirements.txt -r requirements-dev.txt
+    - pytest --cov=apps --cov-report=term
+
+pytest-gateway:
+  extends: .python
+  stage: test
+  script:
+    - cd app/gateway
+    - pip install -r requirements.txt -r requirements-dev.txt
+    - pytest --cov=app --cov-report=term
+
+ng-build:
+  image: node:20
+  stage: build
+  script:
+    - cd app/frontend
+    - npm ci
+    - npx ng build --configuration production
+  artifacts:
+    paths: [app/frontend/dist]
+
+build-images:
+  image: docker:27
+  stage: build
+  services: [docker:27-dind]
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA app/backend
+    - docker build -t $CI_REGISTRY_IMAGE/gateway:$CI_COMMIT_SHORT_SHA app/gateway
+    - docker build -t $CI_REGISTRY_IMAGE/nginx:$CI_COMMIT_SHORT_SHA -f app/frontend/Dockerfile app
+  only: [main]

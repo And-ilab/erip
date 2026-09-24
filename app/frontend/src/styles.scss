@@ -1,0 +1,28 @@
+@use '@angular/material' as mat;
+
+$theme: mat.define-theme((
+  color: (theme-type: light, primary: mat.$azure-palette),
+  density: (scale: -1),
+));
+
+html {
+  @include mat.all-component-themes($theme);
+}
+
+html, body { height: 100%; margin: 0; font-family: Roboto, "Segoe UI", Arial, sans-serif; background: #f5f7fa; }
+
+.page { padding: 16px 24px; }
+.page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; h2 { margin: 0; flex: 1; } }
+.filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.full-width { width: 100%; }
+.clickable-row { cursor: pointer; &:hover { background: #eef3fb; } }
+.muted { color: #6b7280; }
+.group-badge {
+  display: inline-block; min-width: 22px; padding: 2px 6px; border-radius: 10px; text-align: center;
+  color: #fff; font-weight: 600; font-size: 12px;
+  &.g1 { background: #22c55e; } &.g2 { background: #84cc16; } &.g3 { background: #eab308; }
+  &.g4 { background: #f97316; } &.g5 { background: #ef4444; } &.g6 { background: #7f1d1d; }
+}
+.status-failed { color: #b91c1c; } .status-sent { color: #15803d; } .status-queued { color: #1d4ed8; }
+pre.message { white-space: pre-wrap; background: #fff; border: 1px solid #e5e7eb; padding: 12px; border-radius: 6px; }
+table { width: 100%; }

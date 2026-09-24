@@ -1,0 +1,36 @@
+# Секреты. Пример настроек (.env.example) в репозиторий нужен.
+.env
+.env.*
+!.env.example
+
+# Зависимости, кэши, сборка
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+.angular/
+*.sqlite3
+gateway.db
+media/
+staticfiles/
+
+# Локальные инструменты
+.idea/
+.vscode/
+.cursor/
+
+# Распакованные docx и служебные выгрузки, это не исходники
+Служебные файлы курсора/
+
+# ОС и временные файлы Office
+.DS_Store
+Thumbs.db
+~$*
+*.log

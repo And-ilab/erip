@@ -1,0 +1,42 @@
+COLUMN_NAME;DATA_TYPE;COMMENTS;MODULE_NAME
+INFO_PARAM_ID1;NUMBER;ID доп. информации 1;Карточка ЛС
+INFO_PARAM_ID2;NUMBER;ID доп. информации 2;Карточка ЛС
+UNIQ_ATTR;NUMBER;ID признака уникальности ЛС;Карточка ЛС
+ACC_CATEGORY_ID;NUMBER;id типа объекта лс;Карточка ЛС
+HOUSE_ADDRESS_SHORT;VARCHAR2(617);Адрес дома;Карточка ЛС
+ACC_ADDRESS_SHORT;VARCHAR2(4000);Адрес ЛС запросом (Адрес);Карточка ЛС
+PAY_SUM_WRITEOFF;NUMBER;В т.ч. Списано (списание задолженности);Карточка ЛС
+BALANCE_IN;NUMBER;Входящее сальдо;Карточка ЛС
+STOP_DATE;DATE;Дата закрытия ЛС (Период действия);Карточка ЛС
+START_DATE;DATE;Дата открытия ЛС (Период действия);Карточка ЛС
+INFO_PARAM_VALUE1;VARCHAR2(250);Доп. информация 1;Карточка ЛС
+INFO_PARAM_VALUE2;VARCHAR2(250);Доп. информация 2;Карточка ЛС
+SCHEMA_NAME;VARCHAR2(30);Имя схемы;Карточка ЛС
+BALANCE_OUT;NUMBER;Исходящее сальдо;Карточка ЛС
+TOTAL_CALC_SUM;NUMBER;Итого начислено;Карточка ЛС
+HOUSE_ID;NUMBER(15);Код дома;Карточка ЛС
+ATTR_VALUE;NUMBER;Код категории жилого фонда;Карточка ЛС
+ACCOUNT_ID;NUMBER;Код ЛС;Карточка ЛС
+ACCOUNT_ID;NUMBER;Код ЛС (признак ЧУП: 1 — есть запись в VV_PRIVATE_ENTERPRISE, 0 — нет);Карточка ЛС
+PROVIDER_ID;NUMBER;Код обслуживающей организации;Карточка ЛС
+ATTR_VALUE;NUMBER;Код типа собственности;Карточка ЛС
+ROOM_COUNT;NUMBER;Кол-во комнат;Карточка ЛС
+PRIV_ACC_COUNT;NUMBER;Кол-во льготников (Льготники);Карточка ЛС
+SUBJ_COUNT;NUMBER;Кол-во человек (всех) (Проживающие);Карточка ЛС
+ATTR_VALUE_STR;VARCHAR2(50);Контактный телефон;Карточка ЛС
+ACC_CATEGORY_SHORT;VARCHAR2(50);Краткое наименование (типа объекта лс);Карточка ЛС
+CATEGORY_SHORT_NAME;VARCHAR2(50);Краткое наименование категории жилого фонда;Карточка ЛС
+SHOT_NAME;VARCHAR2(100);Краткое наименование поставщика или обслуживающей организации;Карточка ЛС
+CLIENT_ACCOUNT;VARCHAR2(20);Лицевой счёт (Номер ЛС);Карточка ЛС
+CATEGORY_NAME;VARCHAR2(100);Наименование категории жилого фонда (категория жилого фонда);Карточка ЛС
+OWNERSHIP_TYPE_NAME;VARCHAR2(250);Наименование типа собственности (тип собственности);Карточка ЛС
+UNIQ_ATTR_NAME;VARCHAR2(50);Наименование типа уникальности;Карточка ЛС
+UNSHARED_SUM;NUMBER;Нераспределённый остаток оплаты в текущем периоде (Нерасп. остаток оплаты);Карточка ЛС
+FLAT_NUMBER;VARCHAR2(50);Номер квартиры;Карточка ЛС
+ACC_TOTAL_SPACE;NUMBER;Общая площадь ЛС (Площадь);Карточка ЛС
+ACC_CATEGORY_FULL;VARCHAR2(250);Полное наименование (типа объекта лс);Карточка ЛС
+PAY_SUM;NUMBER;Распределенная оплата;Карточка ЛС
+CALC_RESULT_SUM;NUMBER;Субсидия (сумма субсидии);Карточка ЛС
+ATTR_VALUE;VARCHAR2(50);Телефон;Карточка ЛС
+UNIFIED_ACCOUNT;NUMBER(12);Уникальный единый номер ЛС (УЕН ЛС);Карточка ЛС
+SHORT_FIO;VARCHAR2(250);ФИО плательщиков (краткое) (Плательщик ФИО);Карточка ЛС

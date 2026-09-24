@@ -1,0 +1,103 @@
+COLUMN_NAME;DATA_TYPE;COMMENTS;MODULE_NAME
+EMAIL;VARCHAR2(50);E-mail;Регистрация
+HOUSE_ADDRESS;VARCHAR2(250);Адрес дома;Регистрация
+ACCOUNT_ADDRESS;;Адрес ЛС запросом (Адрес);Регистрация
+REGISTRATION_ADDRESS;VARCHAR2(100);Адрес местожительства;Регистрация
+CITIZENSHIP_NAME;VARCHAR2(250);Гражданство;Регистрация
+MAINDOCDATE;DATE;Дата выдачи;Регистрация
+LEGACY_START_DATE;DATE;Дата начала открытия наследства;Регистрация
+LEGACY_STOP_DATE;DATE;Дата окончания открытия наследства;Регистрация
+CHECK_IN_DATE;DATE;Дата прибытия;Регистрация
+SUBJ_HERITAGE_DATE;DATE;Дата принятия наследства;Регистрация
+DATE_REGISTRATION;DATE;Дата регистрации по паспорту;Регистрация
+BIRTHDAY;DATE;Дата рождения;Регистрация
+SUBJ_DEATH_DATE;DATE;Дата смерти;Регистрация
+DATE_FROM_NCP;DATE;Дата снятия с учёта по паспорту;Регистрация
+CHECK_OUT_DATE;DATE;Дата убытия;Регистрация
+WORK_PLACE_CAPACITY;VARCHAR2(250);Должность;Регистрация
+FRACTION_LAND_TAX;NUMBER;Доля плательщика в ЛС для ЖКУ;Регистрация
+PAY_PART1;VARCHAR2(81);Доля по документу 1;Регистрация
+PAY_PART2;VARCHAR2(81);Доля по документу 2;Регистрация
+PAY_PART3;VARCHAR2(81);Доля по документу 3;Регистрация
+IS_SALARY_ACCEPT;NUMBER;Зачислять оплату из зарплаты;Регистрация
+PERSONAL_NUM;VARCHAR2(100);Идентификационный номер паспорта;Регистрация
+IM;VARCHAR2(100);Имя;Регистрация
+MAINDOCORGAN;VARCHAR2(200);Кем выдан;Регистрация
+BANK_ID;NUMBER;Код банка;Регистрация
+CITIZENSHIP_ID;NUMBER;Код гражданства;Регистрация
+PAY_CONTRACT_ID1;NUMBER;Код документа 1;Регистрация
+PAY_CONTRACT_ID2;NUMBER;Код документа 2;Регистрация
+PAY_CONTRACT_ID3;NUMBER;Код документа 3;Регистрация
+HOUSE_ID;NUMBER(15);Код дома;Регистрация
+SUBJ_ID;NUMBER(20);Код лица;Регистрация
+ACCOUNT_ID;NUMBER(15);Код ЛС;Регистрация
+WORK_PLACE_ID;NUMBER;Код места работы;Регистрация
+PROVIDER_ID;NUMBER;Код обслуживающей организации;Регистрация
+REGISTRATION_ID;NUMBER(20);Код регистрации лица;Регистрация
+PAYER_REG_ID;NUMBER;Код регистрации плательщика;Регистрация
+SUBJ_PARENT_SUBJ_ID;NUMBER;Код родителя;Регистрация
+NOTE_ID;NUMBER;Код социального примечания;Регистрация
+CITIZEN_SOCIAL_CATEGORY_ID;NUMBER;Код социальной категории граждан;Регистрация
+RELATION_DEGREE_VALUE;NUMBER;Код степени родства;Регистрация
+DOC_TYPE_ID;NUMBER;Код типа документа;Регистрация
+MAINDOCTYPEID;NUMBER;Код типа основного документа;Регистрация
+PAYER_TYPE_ID;NUMBER;Код типа плательщика;Регистрация
+TEMP_ABSENT_COUNT;NUMBER;Кол-во временно отсутствующих;Регистрация
+PETS_COUNT;NUMBER;Кол-во домашних питомцев;Регистрация
+RELATIVES_COUNT;NUMBER;Кол-во зарег. близких родственников;Регистрация
+RENTERS_COUNT;NUMBER;Кол-во зарег. неблизких родственников;Регистрация
+TEMP_STAING_COUNT;NUMBER;Кол-во зарег. по месту пребывания;Регистрация
+PRIV_ACC_COUNT;NUMBER;Кол-во льготников;Регистрация
+MINOR_COUNT;NUMBER;Кол-во несовершеннолетних;Регистрация
+MAIN_SUBJ_COUNT;NUMBER;Кол-во плательщиков;Регистрация
+TEMP_WITHOUT_REG_COUNT;NUMBER;Кол-во проживающих без регистрации;Регистрация
+TENANCY_COUNT;NUMBER;Кол-во проживающих по договору найма;Регистрация
+SUBJ_COUNT;NUMBER;Кол-во человек (всех);Регистрация
+CONTACT_PHONE;VARCHAR2(50);Контактный телефон;Регистрация
+PROVIDER_NAME;VARCHAR2(100);Краткое наименование поставщика;Регистрация
+CLIENT_ACCOUNT;VARCHAR2(20);Лицевой счет;Регистрация
+BANKNAME;VARCHAR2(255);Наименование банка (PO_BANKS);Регистрация
+PAY_CONTRACT_NAME1;VARCHAR2(466);Наименование документа 1;Регистрация
+PAY_CONTRACT_NAME2;VARCHAR2(466);Наименование документа 2;Регистрация
+PAY_CONTRACT_NAME3;VARCHAR2(466);Наименование документа 3;Регистрация
+WORK_PLACE_NAME;VARCHAR2(250);Наименование предприятия;Регистрация
+RELATION_DEGREE_NAME;VARCHAR2(250);Наименование степени родства;Регистрация
+PAYER_TYPE_NAME;VARCHAR2(50);Наименование типа плательщика;Регистрация
+IS_TENANCY_EXIST;NUMBER;Наличие договора найма;Регистрация
+SUBJ_NATIONALITY;VARCHAR2(250);Национальность;Регистрация
+IDLER_VAL;NUMBER;Незанятые в экономике;Регистрация
+IDLER_DEP_VAL;NUMBER;Незанятые, выехавшие за пределы РБ;Регистрация
+OPER_DATE;DATE;Операционный период;Регистрация
+BASIS_NAME;VARCHAR2(100);Основание выдачи паспорта;Регистрация
+DOC_TYPE_NAME;VARCHAR2(100);Основной документ (краткое);Регистрация
+OT;VARCHAR2(100);Отчество;Регистрация
+SEX_NAME;VARCHAR2(4000);Пол;Регистрация
+SEX;NUMBER;Пол (код);Регистрация
+FULL_NAME;VARCHAR2(250);Полное наименование поставщика;Регистрация
+FULL_NAME;VARCHAR2(500);Полное наименование типа документа;Регистрация
+NOTES;VARCHAR2(250);Примечание;Регистрация
+IN_OUT_REASON_NAME;VARCHAR2(250);Причина прибытия/выбытия;Регистрация
+BANK_ACCOUNT;VARCHAR2(28);Расчетный счет;Регистрация
+MARITAL_STATUS_NAME;VARCHAR2(4000);Семейное положение;Регистрация
+MARITAL_STATUS;NUMBER;Семейное положение (код);Регистрация
+MAINDOCSNUM;VARCHAR2(100);Серия и номер;Регистрация
+SUBJ_IS_CHECK_OUT;NUMBER;Снят с регистрационного учёта;Регистрация
+CITIZEN_SOCIAL_CATEGORY_NAME;VARCHAR2(250);Социальная категория граждан;Регистрация
+NOTE_NAME;VARCHAR2(250);Социальное примечание;Регистрация
+LEGACY_PARAM_TYPE_NAME;VARCHAR2(4000);Способ перехода прав;Регистрация
+LEGACY_PARAM_TYPE_ID;NUMBER;Способ перехода прав (код);Регистрация
+SUBJ_IS_PROPIS;NUMBER;Статус регистрации;Регистрация
+TABEL_NUM;VARCHAR2(100);Табельный номер;Регистрация
+REG_TYPE_NAME;VARCHAR2(250);Тип регистрации;Регистрация
+REG_TYPE;NUMBER;Тип регистрации (код);Регистрация
+PAYER_ACC_NUM;VARCHAR2(40);Учетный номер плательщика;Регистрация
+FAM;VARCHAR2(100);Фамилия;Регистрация
+PAYER_REG_NAME;VARCHAR2(303);ФИО плательщика;Регистрация
+PARENT_FIO;VARCHAR2(302);ФИО родителя;Регистрация
+OWNER_JOINT_NAME;VARCHAR2(4000);ФИО участника совместной собственности;Регистрация
+MAINDOC_DIGITAL_CODE;VARCHAR2(10);Цифровой код органа;Регистрация
+SUBJ_IS_PRIV;NUMBER;Является льготником;Регистрация
+IS_MAIN_TENANCY;NUMBER(1);Является нанимателем без оплаты ЖКУ;Регистрация
+SUBJ_IS_MAIN;NUMBER(1);Является плательщиком;Регистрация
+IS_CLOSE_RELATIVE;NUMBER(1);Является членом семьи плательщика;Регистрация
+SUBJ_LEGAL_ENTITY;NUMBER;Является юридическим лицом;Регистрация
