@@ -14,7 +14,6 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from apps.debts.models import Account
-from apps.debts.services.grouping import DebtGroupCalculator
 from apps.users.models import Organization, ServiceOrganization
 
 from .field_maps import ACCOUNT_LOOKUP, ENTITY_MAPS, EntityMap
@@ -272,8 +271,14 @@ class AisImporter:
             accounts = Account.objects.filter(pk__in=pks[start:start + WRITE_BATCH])
             if self.map.entity == "account":
                 self._sync_service_organizations(accounts)
-            if self.map.entity in {"account", "service"}:
-                DebtGroupCalculator().recalculate_many(accounts.prefetch_related("services"))
+            if self.map.entity == "service":
+                from apps.debts.services.portfolio import sync_supplier_organizations
+
+                sync_supplier_organizations(accounts)
+            if self.map.entity in {"account", "service", "registration", "payment"}:
+                from apps.debts.services.portfolio import PortfolioRefresher
+
+                PortfolioRefresher().refresh(list(accounts.values_list("pk", flat=True)))
 
     def _sync_service_organizations(self, accounts) -> None:
         """Справочник обслуживающих организаций пополняется из выгрузки (ТЗ 4.2.8.6)."""

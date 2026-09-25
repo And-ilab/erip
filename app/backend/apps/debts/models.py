@@ -6,7 +6,7 @@
 
 from django.db import models
 
-from apps.core.models import OrganizationScopedModel
+from apps.core.models import OrganizationScopedModel, TimeStampedModel
 
 MONEY = {"max_digits": 20, "decimal_places": 2, "null": True, "blank": True}
 
@@ -78,9 +78,40 @@ class Account(AisRecord):
     calc_result_sum = money("Субсидия")
 
     # Поля ПМ (рассчитываются в модуле, не приходят из АИС)
+    ais_updated_at = models.DateTimeField("Обновлено из АИС", null=True, blank=True)
+    operational_date = models.DateField("Операционная дата схемы", null=True, blank=True)
+    debt_started_on = models.DateField("Дата возникновения задолженности", null=True, blank=True)
+    months_debt = models.PositiveIntegerField("Месяцев долга", null=True, blank=True)
     debt_group = models.PositiveSmallIntegerField("Группа задолженности", null=True, blank=True, db_index=True)
     debt_group_manual = models.PositiveSmallIntegerField("Группа (ручная корректировка)", null=True, blank=True)
     debt_group_manual_reason = models.CharField("Причина корректировки", max_length=500, blank=True)
+    debt_group_basis = models.PositiveSmallIntegerField(
+        "Расчётная группа на момент корректировки", null=True, blank=True,
+    )
+    rating = models.CharField("Рейтинг", max_length=1, blank=True)
+    rating_repeat = models.PositiveSmallIntegerField("Подрейтинг (раз)", null=True, blank=True)
+    funnel_stage = models.CharField("Этап воронки", max_length=20, blank=True, default="new")
+    funnel_locked = models.BooleanField("Этап задан вручную", default=False)
+    scenario_name = models.CharField("Сценарий мероприятий", max_length=250, blank=True)
+    scenario_locked = models.BooleanField("Сценарий задан вручную", default=False)
+    assigned_to = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="assigned_accounts",
+        verbose_name="Закреплённый специалист",
+    )
+    payer_identifier = models.CharField("Идентификационный номер", max_length=100, blank=True)
+    payer_unp = models.CharField("УНП", max_length=20, blank=True)
+    contact_source_mode = models.CharField("Источник контактов для обзвона", max_length=20, blank=True, default="combined")
+    debtor_category = models.ForeignKey(
+        "nsi.DebtorCategory", null=True, blank=True, on_delete=models.SET_NULL, related_name="accounts",
+        verbose_name="Категория должника",
+    )
+    inheritance_case = models.BooleanField("Наследственное дело", default=False)
+    inheritance_until = models.DateField("Приостановка до", null=True, blank=True)
+    inheritance_payer_id = models.BigIntegerField("Плательщик на момент флага", null=True, blank=True)
+    residence_note = models.CharField("Фактическое проживание", max_length=500, blank=True)
+    bankruptcy = models.BooleanField("Банкротство / ликвидация", default=False)
+    warning_due = models.DateField("Истечение срока предупреждения", null=True, blank=True)
+    claim_due = models.DateField("Дедлайн подачи иска", null=True, blank=True)
 
     class Meta:
         ordering = ["client_account"]
@@ -99,7 +130,7 @@ class Account(AisRecord):
 
     @property
     def effective_group(self) -> int | None:
-        return self.debt_group_manual or self.debt_group
+        return self.debt_group_manual if self.debt_group_manual is not None else self.debt_group
 
 
 class AccountService(AisRecord):
@@ -143,6 +174,15 @@ class AccountService(AisRecord):
     subs_pay = money("Субсидия")
 
     debt_group = models.PositiveSmallIntegerField("Группа задолженности", null=True, blank=True)
+    debt_group_manual = models.PositiveSmallIntegerField("Группа (ручная)", null=True, blank=True)
+    debt_group_manual_reason = models.CharField("Причина корректировки", max_length=500, blank=True)
+    debt_group_basis = models.PositiveSmallIntegerField("Расчётная группа на момент корректировки", null=True, blank=True)
+    debt_started_on = models.DateField("Дата возникновения", null=True, blank=True)
+    scenario_name = models.CharField("Сценарий", max_length=250, blank=True)
+    scenario_locked = models.BooleanField("Сценарий задан вручную", default=False)
+    initial_principal = money("Первоначальный долг")
+    initial_penalty = money("Первоначальная пеня")
+    last_payment_date = models.DateField("Дата последней оплаты", null=True, blank=True)
 
     class Meta:
         ordering = ["sort_code", "service_name"]
@@ -154,6 +194,32 @@ class AccountService(AisRecord):
 
     def __str__(self) -> str:
         return self.service_name or str(self.service_id)
+
+    @property
+    def effective_group(self) -> int | None:
+        return self.debt_group_manual if self.debt_group_manual is not None else self.debt_group
+
+
+class ServiceDebtPeriod(AisRecord):
+    """Непогашенный период услуги: остаток и срок оплаты, по которым считается группа."""
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="debt_periods", verbose_name="ЛС")
+    service = models.ForeignKey(
+        AccountService, on_delete=models.CASCADE, related_name="debt_periods", verbose_name="Услуга",
+    )
+    period = models.DateField("Расчётный период")
+    principal = money("Остаток основного долга")
+    penalty = money("Остаток пени")
+    due_on = models.DateField("Срок оплаты")
+    started_on = models.DateField("Дата возникновения")
+
+    class Meta:
+        ordering = ["period"]
+        constraints = [
+            models.UniqueConstraint(fields=["service", "period"], name="uniq_service_debt_period"),
+        ]
+        verbose_name = "Период долга"
+        verbose_name_plural = "Периоды долга"
 
 
 class Payment(AisRecord):
@@ -272,3 +338,275 @@ class Registration(AisRecord):
 
     def __str__(self) -> str:
         return " ".join(p for p in (self.fam, self.im, self.ot) if p)
+
+
+class Contact(AisRecord):
+    """Контакт плательщика. Записи источника ПМ загрузка АИС не перезаписывает."""
+
+    class Kind(models.TextChoices):
+        MOBILE = "mobile", "Мобильный"
+        CITY = "city", "Городской"
+        EMAIL = "email", "E-mail"
+        MESSENGER = "messenger", "Мессенджер"
+
+    class Source(models.TextChoices):
+        AIS = "ais", "АИС «Расчет-ЖКУ»"
+        PM = "pm", "Внесено в ПМ"
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="contacts", verbose_name="ЛС")
+    registration = models.ForeignKey(
+        Registration, null=True, blank=True, on_delete=models.CASCADE, related_name="contacts", verbose_name="Лицо",
+    )
+    kind = models.CharField("Тип", max_length=20, choices=Kind.choices)
+    value = models.CharField("Значение", max_length=250)
+    priority = models.PositiveSmallIntegerField("Приоритет", default=0)
+    source = models.CharField("Источник", max_length=10, choices=Source.choices, default=Source.PM)
+    ais_updated_at = models.DateTimeField("Обновлено из АИС", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-priority", "kind"]
+        verbose_name = "Контакт"
+        verbose_name_plural = "Контакты"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class BalanceHistory(AisRecord):
+    """Срез долга и пени по услуге и периоду."""
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="balance_history", verbose_name="ЛС")
+    service = models.ForeignKey(
+        AccountService, on_delete=models.CASCADE, related_name="balance_history", verbose_name="Услуга",
+    )
+    period = models.DateField("Период")
+    principal = money("Основной долг")
+    penalty = money("Пеня")
+
+    class Meta:
+        ordering = ["-period", "service_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["service", "period"], name="uniq_service_period_balance"),
+        ]
+        verbose_name = "История суммы"
+        verbose_name_plural = "История сумм"
+
+
+class StatusHistory(AisRecord):
+    """История группы, рейтинга, этапа и сценария."""
+
+    class Kind(models.TextChoices):
+        GROUP = "group", "Группа"
+        RATING = "rating", "Рейтинг"
+        FUNNEL = "funnel", "Этап воронки"
+        SCENARIO = "scenario", "Сценарий"
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="status_history", verbose_name="ЛС")
+    service = models.ForeignKey(
+        AccountService, null=True, blank=True, on_delete=models.CASCADE, related_name="status_history",
+        verbose_name="Услуга",
+    )
+    kind = models.CharField("Вид", max_length=20, choices=Kind.choices)
+    old_value = models.CharField("Было", max_length=250, blank=True)
+    new_value = models.CharField("Стало", max_length=250, blank=True)
+    reason = models.CharField("Основание", max_length=500, blank=True)
+    author = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Автор",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "История статуса"
+        verbose_name_plural = "История статусов"
+
+
+class DebtWorkItem(AisRecord):
+    """Документ вкладки «Работа с задолженностью»."""
+
+    class Kind(models.TextChoices):
+        WARNING = "warning", "Предупреждение"
+        DISCONNECT = "disconnect", "Отключение услуг"
+        WRIT = "writ", "Исполнительная надпись"
+        CLAIM = "claim", "Исковое заявление"
+        CLOSURE = "closure", "Закрытие"
+        IMPOSSIBILITY = "impossibility", "Невозможность взыскания"
+        CALCULATION = "calculation", "Расчёт задолженности"
+        ENFORCEMENT_PAYMENT = "enforcement_payment", "Оплата по документу на взыскание"
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="work_items", verbose_name="ЛС")
+    service = models.ForeignKey(
+        AccountService, null=True, blank=True, on_delete=models.SET_NULL, related_name="work_items",
+        verbose_name="Услуга",
+    )
+    kind = models.CharField("Вид", max_length=30, choices=Kind.choices)
+    title = models.CharField("Наименование", max_length=250, blank=True)
+    started_on = models.DateField("Начало", null=True, blank=True)
+    ended_on = models.DateField("Окончание", null=True, blank=True)
+    principal = money("Долг")
+    penalty = money("Пеня")
+    paid_principal = money("Оплата долга")
+    paid_penalty = money("Оплата пени")
+    note = models.CharField("Примечание", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-started_on", "-id"]
+        verbose_name = "Документ по задолженности"
+        verbose_name_plural = "Документы по задолженности"
+
+
+class Attachment(AisRecord):
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="attachments", verbose_name="ЛС")
+    work_item = models.ForeignKey(
+        DebtWorkItem, null=True, blank=True, on_delete=models.CASCADE, related_name="attachments",
+        verbose_name="Документ",
+    )
+    doc_type = models.CharField("Тип документа", max_length=100)
+    file = models.FileField("Файл", upload_to="attachments/%Y/%m/")
+    original_name = models.CharField("Имя файла", max_length=250)
+    uploaded_by = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Кто загрузил",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Вложение"
+        verbose_name_plural = "Вложения"
+
+
+class Measure(AisRecord):
+    """Мероприятие, запущенное из реестра или карточки (учёт до модуля 4.2.3)."""
+
+    class Kind(models.TextChoices):
+        CALL = "call", "Автообзвон"
+        NOTICE = "notice", "Уведомление"
+        WARNING = "warning", "Предупреждение"
+        DISCONNECT = "disconnect", "Отключение"
+        COLLECTION = "collection", "Взыскание"
+        SCENARIO = "scenario", "Смена сценария"
+
+    class Status(models.TextChoices):
+        ASSIGNED = "assigned", "Назначено"
+        RUNNING = "running", "Выполняется"
+        DONE = "done", "Завершено"
+        CANCELLED = "cancelled", "Прервано"
+        FAILED = "failed", "Завершено с ошибкой"
+
+    SERVICE_REQUIRED = {Kind.DISCONNECT, Kind.COLLECTION}
+
+    kind = models.CharField("Вид", max_length=20, choices=Kind.choices)
+    status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.ASSIGNED)
+    channel = models.CharField("Канал", max_length=20, blank=True)
+    template_name = models.CharField("Шаблон", max_length=250, blank=True)
+    scenario_name = models.CharField("Сценарий", max_length=250, blank=True)
+    note = models.CharField("Комментарий", max_length=500, blank=True)
+    assignee = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="assigned_measures",
+        verbose_name="Исполнитель",
+    )
+    artifact = models.FileField("Файл для внешней системы", upload_to="measures/%Y/%m/", blank=True)
+    started_on = models.DateField("Дата начала", null=True, blank=True)
+    due_on = models.DateField("Контрольная дата", null=True, blank=True)
+    days = models.PositiveSmallIntegerField("Дней", null=True, blank=True)
+    time_from = models.TimeField("Время с", null=True, blank=True)
+    time_to = models.TimeField("Время по", null=True, blank=True)
+    created_by = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="measures", verbose_name="Автор",
+    )
+    accounts = models.ManyToManyField(Account, related_name="measures", verbose_name="Лицевые счета")
+    services = models.ManyToManyField(AccountService, blank=True, related_name="measures", verbose_name="Услуги")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Мероприятие"
+        verbose_name_plural = "Мероприятия"
+
+
+class MeasureTask(AisRecord):
+    """Задание исполнителю внутри мероприятия взыскания."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Открыто"
+        DONE = "done", "Выполнено"
+
+    measure = models.ForeignKey(Measure, on_delete=models.CASCADE, related_name="tasks", verbose_name="Мероприятие")
+    assignee = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="measure_tasks",
+        verbose_name="Исполнитель",
+    )
+    title = models.CharField("Задание", max_length=250)
+    due_on = models.DateField("Срок", null=True, blank=True)
+    status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.OPEN)
+
+    class Meta:
+        ordering = ["due_on", "id"]
+        verbose_name = "Задание"
+        verbose_name_plural = "Задания"
+
+
+class WritCheck(AisRecord):
+    """Пункт чек-листа подготовки исполнительной надписи."""
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="writ_checks", verbose_name="ЛС")
+    code = models.CharField("Код", max_length=40)
+    title = models.CharField("Пункт", max_length=250)
+    done = models.BooleanField("Выполнен", default=False)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["account", "code"], name="uniq_writ_check"),
+        ]
+        verbose_name = "Пункт чек-листа"
+        verbose_name_plural = "Чек-лист исполнительной надписи"
+
+
+class RefreshRequest(AisRecord):
+    """Очередь «Обновить сейчас». Файл по ЛС готовит АИС, ПМ фиксирует запрос и закрывает его при загрузке."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Ожидает выгрузку"
+        DONE = "done", "Данные обновлены"
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="refresh_requests", verbose_name="ЛС")
+    requested_by = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Кто запросил",
+    )
+    status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Запрос обновления"
+        verbose_name_plural = "Запросы обновления"
+
+
+class RegistryPreference(TimeStampedModel):
+    """Какие колонки реестра пользователь оставил включёнными."""
+
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="registry_preferences")
+    target = models.CharField("Реестр", max_length=20)
+    columns = models.JSONField("Колонки", default=list)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "target"], name="uniq_registry_preference"),
+        ]
+
+
+class SavedFilter(TimeStampedModel):
+    class Target(models.TextChoices):
+        ACCOUNTS = "accounts", "Реестр ЛС"
+        CONTRACTS = "contracts", "Реестр договоров"
+
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="saved_filters", verbose_name="Пользователь")
+    name = models.CharField("Название", max_length=150)
+    target = models.CharField("Реестр", max_length=20, choices=Target.choices)
+    query = models.JSONField("Фильтр", default=dict)
+    columns = models.JSONField("Колонки", default=list, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "target", "name"], name="uniq_saved_filter"),
+        ]
+        verbose_name = "Сохранённый фильтр"
+        verbose_name_plural = "Сохранённые фильтры"

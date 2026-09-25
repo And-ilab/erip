@@ -50,7 +50,15 @@ class User(AbstractUser):
         SPECIALIST = "specialist", "Специалист"
         OBSERVER = "observer", "Наблюдатель"
 
+    class Contour(models.TextChoices):
+        BILLING = "billing", "Начисляющая организация"
+        SUPPLIER = "supplier", "Поставщик услуг"
+
     role = models.CharField("Роль", max_length=20, choices=Role.choices, default=Role.SPECIALIST)
+    contour = models.CharField(
+        "Контур", max_length=20, choices=Contour.choices, default=Contour.BILLING,
+        help_text="Поставщик видит только услуги, где его организация назначена поставщиком",
+    )
     organization = models.ForeignKey(
         Organization, null=True, blank=True, on_delete=models.PROTECT, related_name="users", verbose_name="Схема"
     )

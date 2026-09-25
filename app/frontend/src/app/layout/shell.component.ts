@@ -34,6 +34,8 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
       <mat-sidenav mode="side" opened class="menu">
         <mat-nav-list>
           <a mat-list-item routerLink="/accounts" routerLinkActive="active">Реестр ЛС</a>
+          <a mat-list-item routerLink="/contracts" routerLinkActive="active">Реестр договоров</a>
+          <a mat-list-item routerLink="/measures" routerLinkActive="active">Мероприятия</a>
           <a mat-list-item routerLink="/password" routerLinkActive="active">Смена пароля</a>
           <a mat-list-item routerLink="/notifications" routerLinkActive="active">Оповещения</a>
           <a mat-list-item routerLink="/templates" routerLinkActive="active">Шаблоны сообщений</a>

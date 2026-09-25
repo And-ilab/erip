@@ -71,7 +71,7 @@ def test_group_calculator_uses_nsi_scale(org_a, account_a):
     call_command("loaddata", "debt_group_scale", verbosity=0)
     assert DebtGroupScale.objects.count() == 6
     calc = DebtGroupCalculator()
-    assert [calc.group_for_months(m) for m in (0, 1, 2, 3, 6, 12, 35, 36, 120)] == [None, 1, 2, 3, 4, 5, 5, 6, 6]
+    assert [calc.group_for_months(m) for m in (0, 1, 2, 3, 6, 12, 35, 36, 120)] == [1, 1, 2, 3, 4, 5, 5, 6, 6]
     assert calc.recalculate(account_a) == 4  # 7 месяцев долга по газу
     AccountService.objects.update(balance_out=0)
     assert calc.recalculate(Account.objects.get(pk=account_a.pk)) is None

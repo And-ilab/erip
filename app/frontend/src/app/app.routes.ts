@@ -20,6 +20,18 @@ export const routes: Routes = [
         loadComponent: () => import('./features/accounts/account-detail.component').then((m) => m.AccountDetailComponent),
       },
       {
+        path: 'measures',
+        loadComponent: () => import('./features/measures/measures-list.component').then((m) => m.MeasuresListComponent),
+      },
+      {
+        path: 'contracts',
+        loadComponent: () => import('./features/contracts/contracts-list.component').then((m) => m.ContractsListComponent),
+      },
+      {
+        path: 'contracts/:id',
+        loadComponent: () => import('./features/contracts/contract-detail.component').then((m) => m.ContractDetailComponent),
+      },
+      {
         path: 'password',
         loadComponent: () => import('./features/password/password.component').then((m) => m.PasswordComponent),
       },

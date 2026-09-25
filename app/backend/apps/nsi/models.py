@@ -25,6 +25,80 @@ class DebtGroupScale(TimeStampedModel, SoftDeleteModel):
             raise ValidationError("Верхняя граница должна быть больше нижней")
 
 
+class DebtorCategory(TimeStampedModel, SoftDeleteModel):
+    """Категория должника (ТЗ 4.2.1.4, 4.2.2.6). Пустая организация — центральная запись НСИ."""
+
+    organization = models.ForeignKey(
+        "users.Organization", null=True, blank=True, on_delete=models.CASCADE, related_name="debtor_categories",
+        verbose_name="Схема",
+    )
+    code = models.CharField("Код", max_length=50)
+    name = models.CharField("Наименование", max_length=250)
+    note = models.CharField("Влияние на сценарии", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["code"], condition=models.Q(organization__isnull=True), name="uniq_central_debtor_category",
+            ),
+            models.UniqueConstraint(fields=["organization", "code"], name="uniq_debtor_category_code"),
+        ]
+        verbose_name = "Категория должника"
+        verbose_name_plural = "Категории должников"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ScenarioRule(TimeStampedModel, SoftDeleteModel):
+    """Сценарий по группе услуги. Категория должника, если задана, перекрывает общее правило группы."""
+
+    group = models.PositiveSmallIntegerField("Группа")
+    name = models.CharField("Сценарий", max_length=250)
+    category = models.ForeignKey(
+        DebtorCategory, null=True, blank=True, on_delete=models.CASCADE, related_name="scenario_rules",
+        verbose_name="Категория должника",
+    )
+
+    class Meta:
+        ordering = ["group", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "category"], name="uniq_scenario_group_category", nulls_distinct=False,
+            ),
+        ]
+        verbose_name = "Сценарий по группе"
+        verbose_name_plural = "Сценарии по группам"
+
+    def __str__(self) -> str:
+        return f"{self.group}: {self.name}"
+
+
+class CalculationSettings(TimeStampedModel):
+    """Параметры расчёта: период рейтинга N, порог закрытия, день срока оплаты."""
+
+    rating_period_months = models.PositiveIntegerField("Период рейтинга, мес.", default=12)
+    close_threshold = models.DecimalField("Порог остатка для закрытия", max_digits=12, decimal_places=2, default=0)
+    payment_due_day = models.PositiveSmallIntegerField("День срока оплаты", default=25)
+    dial_mobile_from_day = models.PositiveSmallIntegerField(
+        "С этого числа месяца для обзвона только мобильный", default=25,
+    )
+
+    class Meta:
+        verbose_name = "Параметры расчёта"
+        verbose_name_plural = "Параметры расчёта"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> "CalculationSettings":
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class BnpDebtType(TimeStampedModel, SoftDeleteModel):
     """Тип задолженности БНП (debtTypeId)."""
 

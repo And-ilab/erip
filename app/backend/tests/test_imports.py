@@ -67,7 +67,8 @@ def test_import_all_entities_and_reimport_is_idempotent(tmp_path, org_a):
     account = Account.objects.get(account_id=100000)
     assert account.client_account == "00000001"  # ведущие нули сохранены
     assert account.raw["ACCOUNT_ID#2"] in {"0", "1"}  # дубль колонки в raw
-    assert ServiceOrganization.objects.filter(organization=org_a).count() == 2
+    assert ServiceOrganization.objects.filter(organization=org_a, is_supplier=False).count() == 2
+    assert ServiceOrganization.objects.filter(organization=org_a, provider_id=900, is_supplier=True).exists()
     payment = Payment.objects.first()
     assert payment.payment_type == Payment.PaymentType.FILE
 

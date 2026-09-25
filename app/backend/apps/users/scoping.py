@@ -16,16 +16,26 @@ class AccessScope:
     def provider_ids(self) -> list[int]:
         return list(self.user.service_organizations.values_list("provider_id", flat=True))
 
-    def apply(self, qs: QuerySet, organization_field: str | None, provider_field: str | None = None) -> QuerySet:
+    def apply(
+        self,
+        qs: QuerySet,
+        organization_field: str | None,
+        provider_field: str | None = None,
+        supplier_field: str | None = None,
+    ) -> QuerySet:
         if self.is_unrestricted:
             return qs
         if organization_field is None or self.user.organization_id is None:
             return qs.none()
         qs = qs.filter(**{organization_field: self.user.organization_id})
-        if provider_field:
+        supplier = getattr(self.user, "contour", "") == "supplier"
+        field = supplier_field if supplier and supplier_field else provider_field
+        if field:
             providers = self.provider_ids()
             if providers:
-                qs = qs.filter(**{f"{provider_field}__in": providers})
+                qs = qs.filter(**{f"{field}__in": providers})
+                if "__" in field:
+                    qs = qs.distinct()
         return qs
 
 
@@ -38,10 +48,13 @@ class ScopedQuerysetMixin:
 
     scope_organization_field: str | None = "organization"
     scope_provider_field: str | None = None
+    scope_supplier_field: str | None = None
 
     def get_queryset(self):
         qs = super().get_queryset()
-        return AccessScope(self.request.user).apply(qs, self.scope_organization_field, self.scope_provider_field)
+        return AccessScope(self.request.user).apply(
+            qs, self.scope_organization_field, self.scope_provider_field, self.scope_supplier_field,
+        )
 
     def get_scope_organization(self):
         """Схема для создаваемых объектов: у пользователя своя, суперадмин передаёт явно."""
