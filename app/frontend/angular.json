@@ -16,7 +16,11 @@
         "build": {
           "builder": "@angular-devkit/build-angular:application",
           "options": {
-            "outputPath": "dist/erip",
+            "outputPath": {
+              "base": "dist/erip",
+              "browser": "browser",
+              "media": "ng-media"
+            },
             "index": "src/index.html",
             "browser": "src/main.ts",
             "polyfills": ["zone.js"],
@@ -31,7 +35,12 @@
                 { "type": "initial", "maximumWarning": "1.5mb", "maximumError": "3mb" },
                 { "type": "anyComponentStyle", "maximumWarning": "8kb", "maximumError": "16kb" }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              "optimization": {
+                "scripts": true,
+                "styles": { "minify": true, "inlineCritical": false },
+                "fonts": true
+              }
             },
             "development": {
               "optimization": false,

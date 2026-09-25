@@ -6,6 +6,10 @@ import {
   AccountDetail,
   AccountRow,
   AccountService,
+  ContractDossier,
+  ContractPerson,
+  ContractSummary,
+  DialSettings,
   ApiError,
   AttachmentRow,
   BalanceRow,
@@ -115,6 +119,50 @@ export class ApiService {
 
   contract(id: number): Observable<AccountService> {
     return this.http.get<AccountService>(`${this.base}/contracts/${id}/`);
+  }
+
+  contractSummary(params: Params): Observable<ContractSummary> {
+    return this.http.get<ContractSummary>(`${this.base}/contracts/summary/`, { params: toParams(params) });
+  }
+
+  contractPersons(params: Params): Observable<Page<ContractPerson>> {
+    return this.http.get<Page<ContractPerson>>(`${this.base}/contracts/persons/`, { params: toParams(params) });
+  }
+
+  contractKanban(params: Params): Observable<{ stage: string; title: string; total: number; cards: ContractPerson[] }[]> {
+    return this.http.get<{ stage: string; title: string; total: number; cards: ContractPerson[] }[]>(
+      `${this.base}/contracts/kanban/`, { params: toParams(params) },
+    );
+  }
+
+  contractCalendar(month: string, params: Params): Observable<CalendarEvent[]> {
+    return this.http.get<CalendarEvent[]>(`${this.base}/contracts/calendar/`, { params: toParams({ ...params, month }) });
+  }
+
+  contractGrouped(params: Params): Observable<{ value: string; accounts: number; debt: string | null; penalty: string | null }[]> {
+    return this.http.get<{ value: string; accounts: number; debt: string | null; penalty: string | null }[]>(
+      `${this.base}/contracts/grouped/`, { params: toParams(params) },
+    );
+  }
+
+  contractDossier(id: number): Observable<ContractDossier> {
+    return this.http.get<ContractDossier>(`${this.base}/contracts/${id}/dossier/`);
+  }
+
+  saveRegistration(id: number, body: Partial<Registration>): Observable<Registration> {
+    return this.http.patch<Registration>(`${this.base}/registrations/${id}/`, body);
+  }
+
+  confirmMeasure(id: number, action: 'suspend' | 'resume', source: 'pm' | 'ais'): Observable<MeasureRow> {
+    return this.http.post<MeasureRow>(`${this.base}/measures/${id}/confirm/`, { action, source });
+  }
+
+  dialSettings(): Observable<DialSettings> {
+    return this.http.get<DialSettings>(`${this.base}/nsi/calculation-settings/`);
+  }
+
+  saveDialSettings(body: Partial<DialSettings>): Observable<DialSettings> {
+    return this.http.patch<DialSettings>(`${this.base}/nsi/calculation-settings/current/`, body);
   }
 
   httpPatchContract(id: number, group: number | null, reason: string): Observable<AccountService> {

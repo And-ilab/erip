@@ -42,7 +42,10 @@ class ScenarioRuleSerializer(serializers.ModelSerializer):
 class CalculationSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalculationSettings
-        fields = ["rating_period_months", "close_threshold", "payment_due_day", "dial_mobile_from_day"]
+        fields = [
+            "rating_period_months", "close_threshold", "payment_due_day", "dial_mobile_from_day",
+            "dial_mobile_from_hour", "dial_mobile_to_hour",
+        ]
 
 
 class BnpDebtTypeSerializer(serializers.ModelSerializer):

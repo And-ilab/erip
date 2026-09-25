@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && python -c "from django.core.management import execute_from_command_line"
 
 COPY . .
-# Windows-сборка иногда приносит CRLF: ядро Linux тогда не запускает shebang (exec format error).
+# Windows-сборка иногда приносит CRLF: ядро Linux тогда не запускает shebang.
 RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh && mkdir -p media
 
 EXPOSE 8000

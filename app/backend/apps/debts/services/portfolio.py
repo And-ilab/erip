@@ -36,6 +36,80 @@ AUTO_MEASURES = {
     Measure.Kind.DISCONNECT,
     Measure.Kind.SCENARIO,
 }
+ACTIVE = [Measure.Status.ASSIGNED, Measure.Status.RUNNING]
+
+
+def debtor_peers(account: Account):
+    """Все лицевые счета того же должника в схеме: по ИН, иначе по УНП, иначе только этот счёт."""
+    qs = Account.objects.filter(organization_id=account.organization_id)
+    if account.payer_identifier:
+        return qs.filter(payer_identifier=account.payer_identifier)
+    if account.payer_unp:
+        return qs.filter(payer_unp=account.payer_unp)
+    return qs.filter(pk=account.pk)
+
+
+def pause_auto_measures(accounts) -> int:
+    ids = list(
+        Measure.objects.filter(
+            accounts__in=accounts, kind__in=AUTO_MEASURES, status__in=ACTIVE,
+        ).values_list("pk", flat=True).distinct()
+    )
+    return Measure.objects.filter(pk__in=ids).update(status=Measure.Status.PAUSED, updated_at=timezone.now())
+
+
+def resume_paused_measures(accounts) -> int:
+    ids = list(
+        Measure.objects.filter(
+            accounts__in=accounts, kind__in=AUTO_MEASURES, status=Measure.Status.PAUSED,
+        ).values_list("pk", flat=True).distinct()
+    )
+    return Measure.objects.filter(pk__in=ids).update(status=Measure.Status.ASSIGNED, updated_at=timezone.now())
+
+
+def _log_flag(account: Account, old: str, new: str) -> None:
+    StatusHistory.objects.create(
+        organization=account.organization, account=account, kind=StatusHistory.Kind.INHERITANCE,
+        old_value=old, new_value=new, reason="Наследственное дело",
+    )
+
+
+def sync_inheritance(account: Account, was_on: bool, peers=None) -> None:
+    """Флаг и срок разносятся на переданные счета должника. Автомеры ставятся на паузу и возвращаются."""
+    peers = debtor_peers(account) if peers is None else peers
+    peer_ids = list(peers.values_list("pk", flat=True))
+    if account.inheritance_case:
+        main = account.registrations.filter(subj_is_main=True).order_by("id").first()
+        payer_id = main.subj_id if main else None
+        account.inheritance_payer_id = payer_id
+        account.save(update_fields=["inheritance_payer_id", "updated_at"])
+        Account.objects.filter(pk__in=peer_ids).exclude(pk=account.pk).update(
+            inheritance_case=True, inheritance_until=account.inheritance_until,
+            inheritance_payer_id=payer_id, updated_at=timezone.now(),
+        )
+        if not was_on:
+            pause_auto_measures(Account.objects.filter(pk__in=peer_ids))
+            _log_flag(account, "нет", "наследственное дело")
+    elif was_on:
+        Account.objects.filter(pk__in=peer_ids).update(
+            inheritance_case=False, inheritance_until=None, inheritance_payer_id=None, updated_at=timezone.now(),
+        )
+        resume_paused_measures(Account.objects.filter(pk__in=peer_ids))
+        _log_flag(account, "наследственное дело", "снято")
+
+
+def release_expired_inheritance(account: Account) -> bool:
+    """Срок ведения дела прошёл — флаг снимается, приостановленные автомеры снова назначены."""
+    today = timezone.localdate()
+    if not (account.inheritance_case and account.inheritance_until and account.inheritance_until < today):
+        return False
+    peer_ids = list(debtor_peers(account).values_list("pk", flat=True))
+    Account.objects.filter(pk__in=peer_ids).update(
+        inheritance_case=False, inheritance_until=None, inheritance_payer_id=None, updated_at=timezone.now(),
+    )
+    resume_paused_measures(Account.objects.filter(pk__in=peer_ids))
+    _log_flag(account, "наследственное дело", "срок истёк")
+    return True
 
 
 def scenario_names() -> dict[int, str]:
@@ -76,6 +150,8 @@ class PortfolioRefresher:
             self.refresh_account(account)
 
     def refresh_account(self, account: Account) -> None:
+        if release_expired_inheritance(account):
+            account.refresh_from_db()
         operational = self._operational_date(account)
         if operational and account.operational_date != operational:
             account.operational_date = operational
@@ -217,6 +293,7 @@ class PortfolioRefresher:
         for service in account.services.all():
             fields = []
             if service.initial_principal is None and service.balance_out is not None:
+                # BALANCE_OUT и BALANCE_MULCT_OUT — разные колонки выгрузки, пеня не входит в сальдо.
                 service.initial_principal = service.balance_out
                 fields.append("initial_principal")
             if service.initial_penalty is None and service.balance_mulct_out is not None:
@@ -233,14 +310,20 @@ class PortfolioRefresher:
                 service.save(update_fields=["last_payment_date", "updated_at"])
 
     def _inheritance(self, account: Account) -> None:
+        if release_expired_inheritance(account):
+            account.refresh_from_db()
         if not account.inheritance_case:
             return
         main = account.registrations.filter(subj_is_main=True).order_by("-id").first()
         if main and account.inheritance_payer_id and main.subj_id != account.inheritance_payer_id:
-            account.inheritance_case = False
-            account.inheritance_until = None
-            account.inheritance_payer_id = None
-            account.save(update_fields=["inheritance_case", "inheritance_until", "inheritance_payer_id", "updated_at"])
+            peer_ids = list(
+                debtor_peers(account).filter(inheritance_payer_id=account.inheritance_payer_id).values_list("pk", flat=True)
+            )
+            Account.objects.filter(pk__in=peer_ids).update(
+                inheritance_case=False, inheritance_until=None, inheritance_payer_id=None, updated_at=timezone.now(),
+            )
+            resume_paused_measures(Account.objects.filter(pk__in=peer_ids))
+            account.refresh_from_db()
 
     def _rating(self, account: Account) -> None:
         peers = self._peer_accounts(account)

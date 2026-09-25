@@ -5,3 +5,6 @@ __pycache__
 media
 staticfiles
 .venv
+tests
+htmlcov
+.coverage

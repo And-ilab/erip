@@ -171,13 +171,16 @@ class DebtGroupCalculator:
                 earliest = min(periods, key=lambda row: row["period"])
                 group = self.group_for_months(len(periods))
                 started = earliest["started_on"]
+                due = earliest["due_on"]
             elif self.has_debt(service):
                 months = service.debt_period if service.debt_period is not None else 0
                 group = self.group_for_months(months)
                 started = self.debt_started_on(op_date, months, due_day)
+                due = None
             else:
                 group = None
                 started = None
+                due = None
             released = self.release_manual(service, group)
             fields = []
             if service.debt_group != group:
@@ -186,6 +189,9 @@ class DebtGroupCalculator:
             if service.debt_started_on != started:
                 service.debt_started_on = started
                 fields.append("debt_started_on")
+            if service.repayment_due_on != due:
+                service.repayment_due_on = due
+                fields.append("repayment_due_on")
             if released:
                 fields.extend(["debt_group_manual", "debt_group_manual_reason", "debt_group_basis"])
             if fields:
