@@ -222,6 +222,7 @@ import {
               </mat-form-field>
               <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
               <mat-checkbox [(ngModel)]="inheritance">Наследственное дело</mat-checkbox>
+              <mat-form-field><mat-label>Приостановка до</mat-label><input matInput type="date" [(ngModel)]="inheritanceUntil" /></mat-form-field>
               <button mat-stroked-button (click)="saveProfile()">Сохранить</button>
               <mat-form-field><mat-label>Новая категория</mat-label><input matInput [(ngModel)]="newCategory" /></mat-form-field>
               <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
@@ -330,6 +331,7 @@ export class AccountDetailComponent implements OnInit {
   protected newCategory = '';
   protected residence = '';
   protected inheritance = false;
+  protected inheritanceUntil = '';
   protected fileType = 'Скан';
   protected manualGroup: number | null = null;
   protected manualReason = '';
@@ -360,6 +362,7 @@ export class AccountDetailComponent implements OnInit {
         this.categoryId = r.account.debtor_category;
         this.residence = r.account.residence_note;
         this.inheritance = r.account.inheritance_case;
+        this.inheritanceUntil = r.account.inheritance_until || '';
         this.services.set(r.services.results);
         this.payments.set(r.payments.results);
         this.registrations.set(r.registrations.results);
@@ -513,6 +516,7 @@ export class AccountDetailComponent implements OnInit {
       debtor_category: this.categoryId,
       residence_note: this.residence,
       inheritance_case: this.inheritance,
+      inheritance_until: this.inheritanceUntil || null,
     }).subscribe({
       next: (updated) => {
         this.account.set(updated);

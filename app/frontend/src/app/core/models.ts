@@ -77,6 +77,7 @@ export interface AccountDetail extends AccountRow {
   inheritance_until: string | null;
   residence_note: string;
   bankruptcy: boolean;
+  legal_status: string;
 }
 
 export interface AccountService {
@@ -93,6 +94,8 @@ export interface AccountService {
   overdue_debt: string | null;
   debt_period: number | null;
   debt_group: number | null;
+  debt_group_manual?: number | null;
+  debt_group_manual_reason?: string;
   effective_group: number | null;
   debt_started_on: string | null;
   scenario_name: string;
@@ -106,6 +109,59 @@ export interface AccountService {
   payer_identifier: string;
   category_name: string;
   rating_label: string;
+  payer_unp: string;
+  repayment_due_on: string | null;
+  bankruptcy: boolean;
+  residence_note: string;
+  inheritance_case: boolean;
+  billing_provider: string;
+  funnel_stage: string;
+}
+
+export interface ContractPerson {
+  payer_identifier: string;
+  payer_unp: string;
+  payer: string;
+  category: string;
+  ls_count: number;
+  principal: string | null;
+  penalty: string | null;
+  earliest: string | null;
+  sample_id: number;
+}
+
+export interface ContractSummary {
+  ls_count: number;
+  principal: string | null;
+  penalty: string | null;
+  measures: { kind: string; total: number }[];
+}
+
+export interface ContractPeriod {
+  service_id: number;
+  service_name: string;
+  period: string;
+  principal: string | null;
+  penalty: string | null;
+  due_on: string | null;
+  started_on: string | null;
+}
+
+export interface ContractDossier {
+  contract: AccountService;
+  services: AccountService[];
+  people: Registration[];
+  contacts: ContactRow[];
+  periods: ContractPeriod[];
+  measures: MeasureRow[];
+  journal: HistoryRow[];
+  account: AccountDetail;
+}
+
+export interface DialSettings {
+  dial_mobile_from_day: number;
+  dial_mobile_from_hour: number | null;
+  dial_mobile_to_hour: number | null;
 }
 
 export interface ContactRow {
@@ -115,6 +171,8 @@ export interface ContactRow {
   priority: number;
   source: string;
   ais_updated_at: string | null;
+  registration?: number | null;
+  person_name?: string;
 }
 
 export interface HistoryRow {
@@ -167,6 +225,10 @@ export interface MeasureRow {
   accounts_count: number;
   artifact?: string;
   skipped_inheritance?: number[];
+  suspension_confirmed_on?: string | null;
+  suspension_source?: string;
+  resumed_on?: string | null;
+  resume_source?: string;
 }
 
 export interface DebtorCategory {
@@ -219,6 +281,18 @@ export interface Registration {
   contact_phone: string;
   email: string;
   subj_death_date: string | null;
+  registration_address: string;
+  work_place_name: string;
+  is_close_relative: boolean;
+  subj_legal_entity: boolean;
+  personal_num: string;
+  idler_val: boolean;
+  social_category: string;
+  unfit_for_work: boolean;
+  heritage_transfer: string;
+  legacy_start_date: string | null;
+  legacy_stop_date: string | null;
+  subj_heritage_date: string | null;
 }
 
 export type Channel = 'inbox' | 'email' | 'sms' | 'voice';

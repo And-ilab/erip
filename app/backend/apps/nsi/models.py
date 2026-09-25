@@ -84,6 +84,12 @@ class CalculationSettings(TimeStampedModel):
     dial_mobile_from_day = models.PositiveSmallIntegerField(
         "С этого числа месяца для обзвона только мобильный", default=25,
     )
+    dial_mobile_from_hour = models.PositiveSmallIntegerField(
+        "С этого часа только мобильный", null=True, blank=True,
+    )
+    dial_mobile_to_hour = models.PositiveSmallIntegerField(
+        "До этого часа только мобильный", null=True, blank=True,
+    )
 
     class Meta:
         verbose_name = "Параметры расчёта"

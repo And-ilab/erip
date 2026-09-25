@@ -98,3 +98,5 @@ GW_PRIS_ACCESS_KEY=...
 | Без `POSTGRES_HOST` Django работает на SQLite, шлюз по умолчанию — на SQLite-файле | `backend/config/settings/dev.py`, `gateway/app/core/config.py` | Только PostgreSQL (в `docker-compose.yml` уже так) |
 | Служебный токен шлюз ↔ backend — общий секрет `INTERNAL_TOKEN` / `GW_INTERNAL_TOKEN` | `.env.example` | Сменить значения; при необходимости — mTLS или отдельный сервисный аккаунт |
 | Роли упрощены до 4 (`superadmin`, `local_admin`, `specialist`, `observer`) | `backend/apps/users/models.py` | Полная матрица ролей Приложения 1 ТЗ |
+| В выгрузке нет признака фактического отключения. `STOP_DATE` — окончание договора и приостановление не подтверждает. Кнопка ПМ пишет источник `pm` или `ais` | `POST /api/v1/measures/{id}/confirm/` | Подставлять дату из колонки отключения, когда она появится в АИС |
+| Остаток периода — равные доли текущего сальдо: в CSV нет остатка по каждому месяцу | `DebtGroupCalculator.build_periods` | Брать остатки периодов из АИС, когда колонка появится |

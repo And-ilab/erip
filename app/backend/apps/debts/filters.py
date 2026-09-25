@@ -2,7 +2,7 @@ import django_filters
 from django.db.models import Q
 from rest_framework.filters import OrderingFilter
 
-from .models import Account
+from .models import Account, AccountService
 
 
 class AccountOrderingFilter(OrderingFilter):
@@ -49,6 +49,32 @@ class AccountFilter(django_filters.FilterSet):
         from .repositories import AccountRepository
 
         return AccountRepository.search(queryset, value)
+
+    @staticmethod
+    def _shown_group(value):
+        return Q(debt_group_manual=value) | Q(debt_group_manual__isnull=True, debt_group=value)
+
+    def filter_effective_group(self, queryset, name, value):
+        return queryset.filter(self._shown_group(value))
+
+    def filter_effective_groups(self, queryset, name, value):
+        condition = Q()
+        for item in value:
+            condition |= self._shown_group(item)
+        return queryset.filter(condition)
+
+
+class ContractFilter(django_filters.FilterSet):
+    debt_group = django_filters.NumberFilter(method="filter_effective_group")
+    debt_group__in = django_filters.BaseInFilter(method="filter_effective_groups")
+    debtor_category = django_filters.NumberFilter(field_name="account__debtor_category")
+    billing_provider = django_filters.NumberFilter(field_name="account__provider_id")
+    funnel_stage = django_filters.CharFilter(field_name="account__funnel_stage")
+    inheritance_case = django_filters.BooleanFilter(field_name="account__inheritance_case")
+
+    class Meta:
+        model = AccountService
+        fields = ["account", "service_id", "provider_id"]
 
     @staticmethod
     def _shown_group(value):

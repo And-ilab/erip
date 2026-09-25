@@ -110,6 +110,10 @@ class Account(AisRecord):
     inheritance_payer_id = models.BigIntegerField("Плательщик на момент флага", null=True, blank=True)
     residence_note = models.CharField("Фактическое проживание", max_length=500, blank=True)
     bankruptcy = models.BooleanField("Банкротство / ликвидация", default=False)
+    legal_status = models.CharField(
+        "Статус юридического лица", max_length=20, blank=True, default="active",
+        choices=[("active", "Действующее"), ("liquidation", "В стадии ликвидации"), ("bankruptcy", "Банкротство")],
+    )
     warning_due = models.DateField("Истечение срока предупреждения", null=True, blank=True)
     claim_due = models.DateField("Дедлайн подачи иска", null=True, blank=True)
 
@@ -156,7 +160,7 @@ class AccountService(AisRecord):
 
     balance_in = money("Входящее сальдо без пени")
     balance_mulct_in = money("Входящее сальдо пени")
-    balance_out = money("Исходящее сальдо с пенями")
+    balance_out = money("Исходящее сальдо")
     balance_mulct_out = money("Исходящее сальдо пени")
     calc_sum = money("Всего начислено")
     calc_result_sum = money("Начислено")
@@ -183,6 +187,7 @@ class AccountService(AisRecord):
     initial_principal = money("Первоначальный долг")
     initial_penalty = money("Первоначальная пеня")
     last_payment_date = models.DateField("Дата последней оплаты", null=True, blank=True)
+    repayment_due_on = models.DateField("Срок погашения", null=True, blank=True)
 
     class Meta:
         ordering = ["sort_code", "service_name"]
@@ -315,6 +320,12 @@ class Registration(AisRecord):
     is_close_relative = models.BooleanField("Член семьи плательщика", default=False)
     subj_is_check_out = models.BooleanField("Снят с регистрационного учёта", default=False)
     idler_val = models.BooleanField("Не занят в экономике", default=False)
+    social_category = models.CharField("Социальная категория", max_length=250, blank=True)
+    unfit_for_work = models.BooleanField("Нетрудоспособен", default=False)
+    heritage_transfer = models.CharField(
+        "Способ перехода прав", max_length=30, blank=True,
+        choices=[("accept", "Принятие наследства"), ("escheat", "Выморочное"), ("other", "Иной")],
+    )
 
     subj_death_date = models.DateField("Дата смерти", null=True, blank=True)
     legacy_start_date = models.DateField("Начало открытия наследства", null=True, blank=True)
@@ -400,6 +411,12 @@ class StatusHistory(AisRecord):
         RATING = "rating", "Рейтинг"
         FUNNEL = "funnel", "Этап воронки"
         SCENARIO = "scenario", "Сценарий"
+        CONTACT = "contact", "Контакт"
+        CATEGORY = "category", "Категория"
+        INHERITANCE = "inheritance", "Наследственное дело"
+        REGISTRATION = "registration", "Регистрация"
+        RESIDENCE = "residence", "Проживание"
+        LEGAL = "legal", "Статус лица"
 
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="status_history", verbose_name="ЛС")
     service = models.ForeignKey(
@@ -488,6 +505,7 @@ class Measure(AisRecord):
         ASSIGNED = "assigned", "Назначено"
         RUNNING = "running", "Выполняется"
         DONE = "done", "Завершено"
+        PAUSED = "paused", "Приостановлено"
         CANCELLED = "cancelled", "Прервано"
         FAILED = "failed", "Завершено с ошибкой"
 
@@ -509,6 +527,10 @@ class Measure(AisRecord):
     days = models.PositiveSmallIntegerField("Дней", null=True, blank=True)
     time_from = models.TimeField("Время с", null=True, blank=True)
     time_to = models.TimeField("Время по", null=True, blank=True)
+    suspension_confirmed_on = models.DateField("Факт приостановления", null=True, blank=True)
+    suspension_source = models.CharField("Источник подтверждения приостановления", max_length=10, blank=True)
+    resumed_on = models.DateField("Факт возобновления", null=True, blank=True)
+    resume_source = models.CharField("Источник подтверждения возобновления", max_length=10, blank=True)
     created_by = models.ForeignKey(
         "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="measures", verbose_name="Автор",
     )

@@ -1,6 +1,8 @@
 import csv
 from datetime import date, timedelta
 
+from django.db.models import Count, Max, Min, Q, Sum
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -16,7 +18,7 @@ from apps.core.permissions import RolePermission
 from apps.users.models import User
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
-from .filters import AccountFilter, AccountOrderingFilter
+from .filters import AccountFilter, AccountOrderingFilter, ContractFilter
 from .models import (
     Account,
     AccountService,
@@ -27,6 +29,8 @@ from .models import (
     Payment,
     RefreshRequest,
     Registration,
+    ServiceDebtPeriod,
+    StatusHistory,
     RegistryPreference,
     SavedFilter,
 )
@@ -65,13 +69,27 @@ ACCOUNT_COLUMNS = [
 ]
 
 
+def _supplier_ids(user):
+    if getattr(user, "contour", "") != "supplier":
+        return None
+    return AccessScope(user).provider_ids()
+
+
 def _services_for(user, account):
     qs = account.services.all()
-    if getattr(user, "contour", "") == "supplier":
-        providers = AccessScope(user).provider_ids()
-        if providers:
-            qs = qs.filter(provider_id__in=providers)
+    providers = _supplier_ids(user)
+    if providers is not None:
+        qs = qs.filter(provider_id__in=providers or [-1])
     return qs
+
+
+def _own_measures(user, account):
+    qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks")
+    providers = _supplier_ids(user)
+    if providers is not None:
+        foreign = account.services.exclude(provider_id__in=providers or [-1])
+        qs = qs.exclude(services__in=foreign)
+    return qs.distinct()
 
 
 class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -94,7 +112,15 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     def get_queryset(self):
         qs = super().get_queryset()
         if self.action in {"list", "export", "kanban", "calendar"}:
-            return AccountRepository(qs).registry()
+            qs = AccountRepository(qs).registry()
+        providers = _supplier_ids(self.request.user)
+        if providers is not None:
+            allowed = providers or [-1]
+            qs = qs.annotate(
+                supplier_principal=Sum("services__balance_out", filter=Q(services__provider_id__in=allowed)),
+                supplier_penalty=Sum("services__balance_mulct_out", filter=Q(services__provider_id__in=allowed)),
+                supplier_services=Count("services", filter=Q(services__provider_id__in=allowed), distinct=True),
+            )
         return qs
 
     def get_serializer_class(self):
@@ -149,12 +175,20 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True, url_path="status-history")
     def status_history(self, request, pk=None):
-        return self._nested("status_history", StatusHistorySerializer)
+        account = self.get_object()
+        qs = account.status_history.select_related("service", "author")
+        providers = _supplier_ids(request.user)
+        if providers is not None:
+            qs = qs.filter(Q(service__isnull=True) | Q(service__provider_id__in=providers or [-1]))
+        return self._nested("", StatusHistorySerializer, qs)
 
     @action(detail=True, url_path="work-items")
     def work_items(self, request, pk=None):
         account = self.get_object()
         qs = account.work_items.all()
+        providers = _supplier_ids(request.user)
+        if providers is not None:
+            qs = qs.filter(Q(service__isnull=True) | Q(service__provider_id__in=providers or [-1]))
         kind = request.query_params.get("kind")
         if kind:
             qs = qs.filter(kind=kind)
@@ -178,7 +212,15 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True)
     def attachments(self, request, pk=None):
-        return self._nested("attachments", AttachmentSerializer)
+        account = self.get_object()
+        qs = account.attachments.all()
+        providers = _supplier_ids(request.user)
+        if providers is not None:
+            qs = qs.filter(
+                Q(work_item__isnull=True) | Q(work_item__service__isnull=True)
+                | Q(work_item__service__provider_id__in=providers or [-1])
+            )
+        return self._nested("", AttachmentSerializer, qs)
 
     @action(detail=True, url_path="dial-number")
     def dial_number(self, request, pk=None):
@@ -202,9 +244,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True)
     def measures(self, request, pk=None):
-        account = self.get_object()
-        qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks")
-        return self._nested("", MeasureSerializer, qs)
+        return self._nested("", MeasureSerializer, _own_measures(request.user, self.get_object()))
 
     @action(detail=True, methods=["get", "post"], url_path="writ-checks")
     def writ_checks(self, request, pk=None):
@@ -364,13 +404,34 @@ class PaymentViewSet(_ChildViewSet):
     ordering_fields = ["pay_date", "pay_service_summ"]
 
 
-class RegistrationViewSet(AuditedViewSetMixin, _ChildViewSet):
+class RegistrationViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+                          mixins.UpdateModelMixin, viewsets.GenericViewSet):
     queryset = Registration.objects.select_related("account")
     serializer_class = RegistrationSerializer
+    permission_classes = [RolePermission]
+    scope_organization_field = "organization"
+    scope_provider_field = "account__provider_id"
+    scope_supplier_field = "account__services__provider_id"
     audit_list = True
     filterset_fields = ["account", "subj_is_main", "subj_legal_entity"]
     search_fields = ["fam", "im", "personal_num"]
-    scope_supplier_field = "account__services__provider_id"
+
+    def perform_update(self, serializer):
+        before = serializer.instance
+        old = " | ".join([
+            before.social_category, "нетрудоспособен" if before.unfit_for_work else "", before.heritage_transfer,
+        ])
+        super().perform_update(serializer)
+        row = serializer.instance
+        new = " | ".join([
+            row.social_category, "нетрудоспособен" if row.unfit_for_work else "", row.heritage_transfer,
+        ])
+        if old != new:
+            StatusHistory.objects.create(
+                organization=row.organization, account=row.account, kind=StatusHistory.Kind.REGISTRATION,
+                old_value=old.strip(" |"), new_value=new.strip(" |"), reason=str(row),
+                author=self.request.user,
+            )
 
 
 class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -383,11 +444,151 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     scope_organization_field = "organization"
     scope_provider_field = "account__provider_id"
     scope_supplier_field = "provider_id"
-    filterset_fields = ["account", "service_id", "provider_id", "debt_group"]
-    search_fields = ["service_name", "shot_name", "account__short_fio", "account__client_account", "account__payer_identifier"]
+    filterset_class = ContractFilter
+    search_fields = [
+        "service_name", "shot_name", "account__short_fio", "account__client_account",
+        "account__payer_identifier", "account__payer_unp",
+    ]
     ordering_fields = ["debt_group", "balance_out", "debt_started_on", "service_name"]
     audit_view = True
     audit_list = True
+
+    def _visible(self):
+        return self.filter_queryset(self.get_queryset())
+
+    @action(detail=False)
+    def summary(self, request):
+        debt = self._visible().filter(
+            Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0)
+        )
+        sums = debt.aggregate(
+            ls_count=Count("account", distinct=True),
+            principal=Sum("balance_out"),
+            penalty=Sum("balance_mulct_out"),
+        )
+        measures = list(
+            Measure.objects.filter(services__in=self._visible())
+            .values("kind").annotate(total=Count("id", distinct=True)).order_by("kind")
+        )
+        return Response({
+            "ls_count": sums["ls_count"] or 0,
+            "principal": sums["principal"] or 0,
+            "penalty": sums["penalty"] or 0,
+            "measures": measures,
+        })
+
+    @action(detail=False)
+    def persons(self, request):
+        from .services.contracts import bounded_int, person_page
+
+        page_size = bounded_int(request.query_params.get("page_size"), 50, maximum=200, field="page_size")
+        page = bounded_int(request.query_params.get("page"), 1, field="page")
+        total, rows = person_page(self._visible(), page, page_size)
+        return Response({"count": total, "results": rows})
+
+    @action(detail=False)
+    def kanban(self, request):
+        from .services.contracts import bounded_int, kanban_columns
+
+        page_size = bounded_int(request.query_params.get("page_size"), 100, maximum=200, field="page_size")
+        page = bounded_int(request.query_params.get("page"), 1, field="page")
+        return Response(kanban_columns(self._visible(), FUNNEL_STAGES, page, page_size))
+
+    @action(detail=False)
+    def calendar(self, request):
+        from .services.contracts import bounded_int
+
+        raw = request.query_params.get("month") or timezone.localdate().strftime("%Y-%m")
+        parts = raw.split("-")
+        year = bounded_int(parts[0] if parts else None, timezone.localdate().year, minimum=2000, maximum=2100, field="month")
+        month = bounded_int(parts[1] if len(parts) > 1 else None, timezone.localdate().month, minimum=1, maximum=12, field="month")
+        start = date(year, month, 1)
+        end = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
+        services = self._visible().select_related("account")
+        events = []
+        for field, kind in (("repayment_due_on", "Срок погашения"), ("debt_started_on", "Возникновение")):
+            for service in services.exclude(**{field: None}).filter(**{f"{field}__gte": start, f"{field}__lt": end}):
+                events.append({
+                    "date": getattr(service, field).isoformat(), "kind": kind,
+                    "title": f"{service.service_name} · ЛС {service.account.client_account}",
+                    "account_id": service.account_id, "contract_id": service.id,
+                })
+        for measure in Measure.objects.filter(services__in=services, due_on__gte=start, due_on__lt=end).distinct():
+            events.append({
+                "date": measure.due_on.isoformat(), "kind": measure.get_kind_display(),
+                "title": measure.get_kind_display(), "account_id": None, "measure_id": measure.id,
+            })
+        return Response(events)
+
+    @action(detail=False)
+    def grouped(self, request):
+        key = request.query_params.get("group_by") or "debt_group"
+        qs = self._visible()
+        if key == "debt_group":
+            qs = qs.annotate(sort_group=Coalesce("debt_group_manual", "debt_group"))
+            field = "sort_group"
+        else:
+            fields = {
+                "provider": "shot_name",
+                "category": "account__debtor_category__name",
+                "billing": "account__provider_short_name",
+                "period": "debt_started_on",
+            }
+            field = fields.get(key)
+            if field is None:
+                raise ValidationError({"group_by": "Неизвестное поле группировки"})
+        rows = qs.values(field).annotate(
+            accounts=Count("account", distinct=True), debt=Sum("balance_out"), penalty=Sum("balance_mulct_out"),
+        ).order_by(field)
+        return Response([
+            {
+                "value": "" if row[field] is None else str(row[field]),
+                "accounts": row["accounts"], "debt": row["debt"], "penalty": row["penalty"],
+            }
+            for row in rows
+        ])
+
+    @action(detail=True)
+    def dossier(self, request, pk=None):
+        from .services.portfolio import debtor_peers
+
+        service = self.get_object()
+        peers = debtor_peers(service.account)
+        services = AccessScope(request.user).apply(
+            AccountService.objects.filter(account__in=peers).select_related("account", "account__debtor_category"),
+            "organization", "account__provider_id", "provider_id",
+        )
+        account_ids = list(services.values_list("account_id", flat=True).distinct())
+        people = Registration.objects.filter(account_id__in=account_ids)
+        contacts = Contact.objects.filter(account_id__in=account_ids).select_related("registration")
+        periods = ServiceDebtPeriod.objects.filter(service__in=services).select_related("service")
+        measures = Measure.objects.filter(services__in=services).distinct()
+        journal = StatusHistory.objects.filter(account_id__in=account_ids).filter(
+            Q(service__isnull=True) | Q(service__in=services)
+        ).select_related("author", "service")
+        account = service.account
+        sums = services.filter(account=account).aggregate(
+            principal=Sum("balance_out"), penalty=Sum("balance_mulct_out"),
+        )
+        account.supplier_principal = sums["principal"] or 0
+        account.supplier_penalty = sums["penalty"] or 0
+        return Response({
+            "contract": AccountServiceSerializer(service).data,
+            "services": AccountServiceSerializer(services, many=True).data,
+            "people": RegistrationSerializer(people, many=True, context=self.get_serializer_context()).data,
+            "contacts": ContactSerializer(contacts, many=True).data,
+            "periods": [
+                {
+                    "service_id": row.service_id, "service_name": row.service.service_name,
+                    "period": row.period, "principal": row.principal, "penalty": row.penalty,
+                    "due_on": row.due_on, "started_on": row.started_on,
+                }
+                for row in periods
+            ],
+            "measures": MeasureSerializer(measures, many=True).data,
+            "journal": StatusHistorySerializer(journal[:100], many=True).data,
+            "account": AccountDetailSerializer(account, context=self.get_serializer_context()).data,
+        })
 
 
 class ContactViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelViewSet):
@@ -399,6 +600,12 @@ class ContactViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelVie
     scope_supplier_field = "account__services__provider_id"
     filterset_fields = ["account", "source", "kind"]
 
+    def _contact_history(self, account, old: str, new: str, reason: str):
+        StatusHistory.objects.create(
+            organization=account.organization, account=account, kind=StatusHistory.Kind.CONTACT,
+            old_value=old, new_value=new, reason=reason, author=self.request.user,
+        )
+
     def perform_create(self, serializer):
         account = _visible_account(self.request.user, serializer.validated_data["account"].pk)
         serializer.save(organization=account.organization, account=account, source=Contact.Source.PM)
@@ -406,10 +613,20 @@ class ContactViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelVie
         from apps.audit.services import record_action
 
         record_action(self.request, AuditLog.Action.CREATE, serializer.instance)
+        row = serializer.instance
+        self._contact_history(account, "", f"{row.kind}: {row.value}", "Контакт внесён в ПМ")
+
+    def perform_update(self, serializer):
+        before = serializer.instance
+        old = f"{before.kind}: {before.value}"
+        super().perform_update(serializer)
+        row = serializer.instance
+        self._contact_history(row.account, old, f"{row.kind}: {row.value}", "Правка контакта ПМ")
 
     def perform_destroy(self, instance):
         if instance.source == Contact.Source.AIS:
             raise ValidationError("Контакт из АИС нельзя удалить")
+        self._contact_history(instance.account, f"{instance.kind}: {instance.value}", "", "Удаление контакта ПМ")
         super().perform_destroy(instance)
 
 
@@ -422,8 +639,20 @@ class DebtWorkItemViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.Mod
     scope_supplier_field = "account__services__provider_id"
     filterset_fields = ["account", "kind"]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        providers = _supplier_ids(self.request.user)
+        if providers is not None:
+            qs = qs.filter(Q(service__isnull=True) | Q(service__provider_id__in=providers or [-1]))
+        return qs
+
     def perform_create(self, serializer):
         account = _visible_account(self.request.user, serializer.validated_data["account"].pk)
+        service = serializer.validated_data.get("service")
+        if service is not None and (
+            service.account_id != account.id or not _services_for(self.request.user, account).filter(pk=service.pk).exists()
+        ):
+            raise ValidationError({"service": "Услуга недоступна в вашем контуре"})
         serializer.save(organization=account.organization, account=account)
         from apps.audit.models import AuditLog
         from apps.audit.services import record_action
@@ -442,6 +671,16 @@ class AttachmentViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListMod
     scope_supplier_field = "account__services__provider_id"
     filterset_fields = ["account", "doc_type"]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        providers = _supplier_ids(self.request.user)
+        if providers is not None:
+            qs = qs.filter(
+                Q(work_item__isnull=True) | Q(work_item__service__isnull=True)
+                | Q(work_item__service__provider_id__in=providers or [-1])
+            )
+        return qs
+
     def perform_create(self, serializer):
         account = _visible_account(self.request.user, self.request.data.get("account"))
         upload = self.request.FILES.get("file")
@@ -450,10 +689,22 @@ class AttachmentViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListMod
         doc_type = self.request.data.get("doc_type") or ""
         if not doc_type:
             raise ValidationError({"doc_type": "Укажите тип документа"})
+        raw_item = self.request.data.get("work_item") or None
+        work_item_id = None
+        if raw_item:
+            try:
+                work_item_id = int(raw_item)
+            except (TypeError, ValueError):
+                raise ValidationError({"work_item": "Некорректный идентификатор"}) from None
+            item = DebtWorkItem.objects.filter(pk=work_item_id, account=account).first()
+            if item is None or (
+                item.service_id and not _services_for(self.request.user, account).filter(pk=item.service_id).exists()
+            ):
+                raise ValidationError({"work_item": "Работа недоступна в вашем контуре"})
         attachment = Attachment.objects.create(
             organization=account.organization, account=account, doc_type=doc_type, file=upload,
             original_name=upload.name, uploaded_by=self.request.user,
-            work_item_id=self.request.data.get("work_item") or None,
+            work_item_id=work_item_id,
         )
         serializer.instance = attachment
 
@@ -478,7 +729,12 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         visible = AccessScope(self.request.user).apply(
             Account.objects.all(), "organization", "provider_id", "services__provider_id",
         )
-        return super().get_queryset().filter(accounts__in=visible).distinct()
+        qs = super().get_queryset().filter(accounts__in=visible)
+        providers = _supplier_ids(self.request.user)
+        if providers is not None:
+            foreign = AccountService.objects.exclude(provider_id__in=providers or [-1])
+            qs = qs.exclude(services__in=foreign)
+        return qs.distinct()
 
     def create(self, request, *args, **kwargs):
         kind = request.data.get("kind")
@@ -487,9 +743,31 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         accounts = self._selected_accounts(request)
         if not accounts:
             raise ValidationError({"accounts": "Не выбраны лицевые счета"})
-        services = list(AccountService.objects.filter(pk__in=request.data.get("service_ids") or [], account__in=accounts))
+        from .services.portfolio import release_expired_inheritance
+
+        for account in accounts:
+            if release_expired_inheritance(account):
+                account.refresh_from_db()
+        from .services.contracts import id_list
+
+        requested = id_list(request.data.get("service_ids"))
+        allowed = AccessScope(request.user).apply(
+            AccountService.objects.filter(account__in=accounts),
+            "organization", "account__provider_id", "provider_id",
+        )
+        if requested:
+            services = list(allowed.filter(pk__in=requested))
+            if len(services) != len(set(requested)):
+                raise ValidationError({"service_ids": "Услуга недоступна в вашем контуре"})
+        else:
+            services = []
         if kind in Measure.SERVICE_REQUIRED and not services:
             raise ValidationError({"service_ids": "Выберите услуги для отключения или взыскания"})
+        if getattr(request.user, "contour", "") == "supplier" and kind in {
+            Measure.Kind.CALL, Measure.Kind.NOTICE, Measure.Kind.WARNING,
+            Measure.Kind.DISCONNECT, Measure.Kind.COLLECTION,
+        } and not services:
+            raise ValidationError({"service_ids": "Выберите услуги своего поставщика"})
         skipped = []
         if kind in AUTO_MEASURES:
             blocked = [account for account in accounts if account.inheritance_case]
@@ -553,6 +831,29 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         data["skipped_inheritance"] = skipped
         data["service_ids"] = [service.id for service in services]
         return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def confirm(self, request, pk=None):
+        measure = self.get_object()
+        if measure.kind != Measure.Kind.DISCONNECT:
+            raise ValidationError({"kind": "Подтверждение относится к приостановлению услуги"})
+        source = request.data.get("source") or "pm"
+        if source not in {"pm", "ais"}:
+            raise ValidationError({"source": "Источник: pm или ais"})
+        step = request.data.get("action")
+        today = timezone.localdate()
+        if step == "suspend":
+            measure.suspension_confirmed_on = today
+            measure.suspension_source = source
+            measure.status = Measure.Status.RUNNING
+        elif step == "resume":
+            measure.resumed_on = today
+            measure.resume_source = source
+            measure.status = Measure.Status.DONE
+        else:
+            raise ValidationError({"action": "suspend или resume"})
+        measure.save()
+        return Response(MeasureSerializer(measure).data)
 
     def _selected_accounts(self, request):
         base = AccessScope(request.user).apply(

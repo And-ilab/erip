@@ -30,12 +30,19 @@ class AccessScope:
         qs = qs.filter(**{organization_field: self.user.organization_id})
         supplier = getattr(self.user, "contour", "") == "supplier"
         field = supplier_field if supplier and supplier_field else provider_field
-        if field:
-            providers = self.provider_ids()
-            if providers:
-                qs = qs.filter(**{f"{field}__in": providers})
-                if "__" in field:
-                    qs = qs.distinct()
+        if not field:
+            return qs
+        providers = self.provider_ids()
+        # Пустой список у начисляющей организации по-прежнему означает всю схему.
+        # У поставщика пустой список значит «услуг нет», а не «видны все».
+        if supplier and supplier_field:
+            if not providers:
+                return qs.none()
+        elif not providers:
+            return qs
+        qs = qs.filter(**{f"{field}__in": providers})
+        if "__" in field:
+            qs = qs.distinct()
         return qs
 
 
