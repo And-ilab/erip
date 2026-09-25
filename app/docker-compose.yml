@@ -25,6 +25,7 @@ services:
         condition: service_healthy
     volumes:
       - "../Примеры данных:/data/ais_spec:ro"
+      - media:/srv/backend/media
     expose:
       - "8000"
 
@@ -47,8 +48,11 @@ services:
     depends_on:
       - backend
       - gateway
+    volumes:
+      - media:/var/media:ro
     ports:
       - "8080:80"
 
 volumes:
   pgdata:
+  media:

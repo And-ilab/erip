@@ -50,6 +50,9 @@ MIDDLEWARE = [
     "apps.core.middleware.ErrorLoggingMiddleware",
 ]
 
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_URL = "/media/"
+
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"

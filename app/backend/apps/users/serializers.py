@@ -33,7 +33,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "id", "username", "password", "first_name", "middle_name", "last_name", "display_name", "email",
-            "phone", "position", "role", "organization", "service_organizations", "is_active", "last_login",
+            "phone", "position", "role", "contour", "organization", "service_organizations", "is_active", "last_login",
         ]
         read_only_fields = ["last_login"]
 
@@ -82,4 +82,4 @@ class MeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "display_name", "email", "role", "organization", "organization_name"]
+        fields = ["id", "username", "display_name", "email", "role", "contour", "organization", "organization_name"]

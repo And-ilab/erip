@@ -1,6 +1,14 @@
 from rest_framework import serializers
 
-from .models import BnpDebtType, BnpDocType, BnpService, DebtGroupScale
+from .models import (
+    BnpDebtType,
+    BnpDocType,
+    BnpService,
+    CalculationSettings,
+    DebtGroupScale,
+    DebtorCategory,
+    ScenarioRule,
+)
 
 
 class DebtGroupScaleSerializer(serializers.ModelSerializer):
@@ -15,6 +23,26 @@ class DebtGroupScaleSerializer(serializers.ModelSerializer):
         if months_to is not None and months_to <= months_from:
             raise serializers.ValidationError({"months_to": "Верхняя граница должна быть больше нижней"})
         return attrs
+
+
+class DebtorCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DebtorCategory
+        fields = ["id", "organization", "code", "name", "note", "is_active"]
+        read_only_fields = ["is_active"]
+
+
+class ScenarioRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScenarioRule
+        fields = ["id", "group", "name", "category", "is_active"]
+        read_only_fields = ["is_active"]
+
+
+class CalculationSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CalculationSettings
+        fields = ["rating_period_months", "close_threshold", "payment_due_day", "dial_mobile_from_day"]
 
 
 class BnpDebtTypeSerializer(serializers.ModelSerializer):
