@@ -22,6 +22,26 @@ PAYLOAD = {
 }
 
 
+def test_second_claim_does_not_take_the_delivery(client):
+    import asyncio
+
+    from app.core.config import get_settings
+    from app.core.singletons import Database, HttpClient
+    from app.schemas import NotificationIn
+    from app.services.notification_service import NotificationService
+
+    service = NotificationService(Database(), build_default_registry(), HttpClient(), get_settings())
+    payload = NotificationIn.model_validate({key: value for key, value in PAYLOAD.items() if key != "callback_url"})
+
+    async def claim_twice():
+        log = await service.accept(payload, "rid-claim")
+        return await service.claim(log.id), await service.claim(log.id)
+
+    first, second = asyncio.run(claim_twice())
+    assert first is True
+    assert second is False
+
+
 def test_accept_and_deliver(client, backend):
     response = client.post("/gw/v1/notifications", json=PAYLOAD, headers={"X-Request-ID": "rid-42"})
     assert response.status_code == 202
@@ -81,6 +101,33 @@ def test_preview_and_recent(client):
 
 def test_health(client):
     assert client.get("/gw/v1/health").json()["data"] == {"status": "ok"}
+
+
+def test_missing_token_is_rejected(client):
+    client.headers.pop("X-Internal-Token", None)
+    response = client.post("/gw/v1/notifications", json=PAYLOAD)
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+def test_client_callback_url_is_ignored(client, backend):
+    response = client.post("/gw/v1/notifications", json={**PAYLOAD, "callback_url": "http://evil.test/steal"})
+    assert response.status_code == 202
+    assert backend.by_path("/delivery-status/")
+    assert all(request.url.host != "evil.test" for request in backend.requests)
+
+
+def test_prod_rejects_example_token():
+    from app.core.config import Settings
+
+    settings = Settings(environment="prod", internal_token="change-me-internal")
+    with pytest.raises(RuntimeError):
+        settings.assert_prod()
+
+
+def test_renderer_ignores_attribute_access():
+    assert MessageRenderer().render_body("{fio.__class__.__mro__}", {"fio": "Иван"}) == "{fio.__class__.__mro__}"
+    assert MessageRenderer().render_body("ЛС {account}", {"account": "0001"}) == "ЛС 0001"
 
 
 async def test_with_greeting_decorator():

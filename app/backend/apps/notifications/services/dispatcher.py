@@ -5,13 +5,11 @@ from __future__ import annotations
 import logging
 
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from django.utils import timezone
 
 from apps.audit.services import record_error
 from apps.core.context import get_request_id
 from apps.core.exceptions import GatewayUnavailable
-
 from apps.nsi.models import DebtGroupScale
 
 from ..models import Channel, MessageTemplate, Notification
@@ -76,9 +74,13 @@ class NotificationDispatcher:
     def build_payload(self, notification: Notification) -> dict:
         name, address = self.resolver.resolve(notification)
         template = notification.template
-        context = {**self.resolver.account_context(notification), **(notification.context or {})}
+        client = dict(notification.context or {})
         # _fail=true в контексте — имитация отказа канала в шлюзе (проверка обработки ошибок)
-        simulate_failure = bool(context.pop("_fail", False))
+        simulate_failure = bool(client.pop("_fail", False))
+        # Сумма, ФИО и адрес берутся только из ЛС: клиент не может подменить их в context.
+        reserved = {"fio", "account", "amount", "address", "debt_group", "group_name"}
+        context = {key: value for key, value in client.items() if key not in reserved}
+        context.update(self.resolver.account_context(notification))
         return {
             "notification_id": notification.pk,
             "channel": notification.channel,
@@ -87,7 +89,6 @@ class NotificationDispatcher:
             "subject": template.subject if template else "",
             "template_body": template.body if template else notification.body,
             "context": context,
-            "callback_url": f"{settings.BACKEND_PUBLIC_URL}/api/v1/notifications/{notification.pk}/delivery-status/",
             "meta": {"fail": simulate_failure},
         }
 

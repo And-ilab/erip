@@ -4,10 +4,11 @@
 (generate_ais_samples + import_ais), есть пользователь с правами на оповещения.
 
   python scripts/smoke_e2e.py --backend http://localhost:8080 --gateway http://localhost:8080 \
-      --user admin --password admin
+      --user admin --password admin --internal-token <GW_INTERNAL_TOKEN>
 """
 
 import argparse
+import os
 import sys
 import time
 import uuid
@@ -50,6 +51,7 @@ def main() -> None:
     parser.add_argument("--gateway", default="http://127.0.0.1:8001")
     parser.add_argument("--user", default="admin")
     parser.add_argument("--password", default="admin")
+    parser.add_argument("--internal-token", default=os.environ.get("GW_INTERNAL_TOKEN") or os.environ.get("INTERNAL_TOKEN", ""))
     args = parser.parse_args()
 
     token = httpx.post(f"{args.backend}/api/v1/auth/token/",
@@ -92,7 +94,7 @@ def main() -> None:
     else:
         print("SKIP 4. Журнал ошибок доступен только суперадминистратору")
 
-    gw = httpx.Client(base_url=args.gateway, timeout=20)
+    gw = httpx.Client(base_url=args.gateway, timeout=20, headers={"X-Internal-Token": args.internal_token})
     good = gw.post("/gw/v1/integrations/bnp/validate", json=MANIFEST)
     check(good.status_code == 200, "5. Корректный манифест БНП принят")
     bad = dict(MANIFEST)

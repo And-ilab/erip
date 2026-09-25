@@ -18,9 +18,9 @@ class StubAdapter(ChannelAdapter):
 
     async def send(self, message: OutgoingMessage) -> DeliveryResult:
         if message.meta.get("fail"):
-            raise AdapterError(f"{self.system}: имитация отказа доставки на {message.recipient or '—'}")
+            raise AdapterError(f"{self.system}: имитация отказа доставки")
         logger.info(
             "Отправка через %s (заглушка)", self.system,
-            extra={"channel": self.channel, "recipient": message.recipient, "chars": len(message.text)},
+            extra={"channel": self.channel, "chars": len(message.text)},
         )
         return DeliveryResult(delivered=True, provider_message_id=f"{self.channel}-{uuid.uuid4().hex[:12]}")

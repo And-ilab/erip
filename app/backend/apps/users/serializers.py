@@ -3,6 +3,13 @@ from rest_framework import serializers
 
 from .models import Organization, ServiceOrganization, User
 
+ROLE_RANK = {
+    User.Role.OBSERVER: 1,
+    User.Role.SPECIALIST: 2,
+    User.Role.LOCAL_ADMIN: 3,
+    User.Role.SUPERADMIN: 4,
+}
+
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -33,12 +40,15 @@ class UserSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context["request"]
         actor = request.user
-        role = attrs.get("role")
         if not actor.is_superadmin:
-            if role == User.Role.SUPERADMIN:
-                raise serializers.ValidationError({"role": "Назначать суперадминистратора может только суперадминистратор"})
-            # Локальный администратор заводит пользователей только своей схемы
             attrs["organization"] = actor.organization
+            target_role = attrs.get("role", getattr(self.instance, "role", User.Role.SPECIALIST))
+            if ROLE_RANK[target_role] >= ROLE_RANK[actor.role]:
+                raise serializers.ValidationError({"role": "Нельзя назначить роль не ниже своей"})
+            if self.instance is not None and self.instance.pk != actor.pk and ROLE_RANK[self.instance.role] >= ROLE_RANK[actor.role]:
+                raise serializers.ValidationError("Нельзя изменять пользователя с такой же или более высокой ролью")
+            if self.instance is not None and self.instance.pk == actor.pk and target_role != self.instance.role:
+                raise serializers.ValidationError({"role": "Нельзя менять собственную роль"})
         organization = attrs.get("organization") or getattr(self.instance, "organization", None)
         for so in attrs.get("service_organizations", []):
             if organization is None or so.organization_id != organization.pk:

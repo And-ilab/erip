@@ -1,7 +1,8 @@
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from apps.audit.mixins import AuditedViewSetMixin
@@ -60,28 +61,73 @@ class NotificationViewSet(ScopedQuerysetMixin, mixins.CreateModelMixin, mixins.L
 
     def get_queryset(self):
         qs = super().get_queryset()
+        user = self.request.user
+        if not user.is_superadmin:
+            provider_ids = list(user.service_organizations.values_list("provider_id", flat=True))
+            if provider_ids:
+                qs = qs.filter(Q(account__provider_id__in=provider_ids) | Q(account__isnull=True, recipient_user=user))
         if self.request.query_params.get("mine") in {"1", "true"}:
-            qs = qs.filter(recipient_user=self.request.user)
+            qs = qs.filter(recipient_user=user)
         return qs
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        existing = self._open_duplicate(serializer.validated_data)
+        if existing is not None:
+            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
+        try:
+            with transaction.atomic():
+                notification = self._persist(serializer)
+        except IntegrityError:
+            existing = self._open_duplicate(serializer.validated_data)
+            if existing is None:
+                raise
+            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
+        NotificationDispatcher().dispatch(notification)
+        headers = self.get_success_headers(serializer.data)
+        return Response(self.get_serializer(notification).data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def _open_duplicate(self, data):
+        """Пока отправка не завершилась, повтор той же пары ЛС/шаблон/канал не создаёт вторую запись."""
+        account = data.get("account")
+        template = data.get("template")
+        if account is None or template is None:
+            return None
+        return (
+            Notification.objects.filter(
+                created_by=self.request.user,
+                account=account,
+                template=template,
+                channel=data["channel"],
+                status__in=(Notification.Status.NEW, Notification.Status.QUEUED),
+            )
+            .order_by("-id")
+            .first()
+        )
+
+    def _persist(self, serializer):
         organization = self.get_scope_organization()
         account = serializer.validated_data.get("account")
         if organization is None and account is not None:
             organization = account.organization
         if organization is None:
             raise ValidationError({"organization": "Не удалось определить схему оповещения"})
-        notification = serializer.save(organization=organization, created_by=self.request.user)
-        NotificationDispatcher().dispatch(notification)
+        return serializer.save(organization=organization, created_by=self.request.user)
 
     @action(detail=True, methods=["post"])
     def resend(self, request, pk=None):
-        notification = NotificationDispatcher().dispatch(self.get_object())
+        notification = self.get_object()
+        if notification.status in {Notification.Status.NEW, Notification.Status.QUEUED}:
+            raise ValidationError("Оповещение уже передаётся")
+        notification = NotificationDispatcher().dispatch(notification)
         return Response(self.get_serializer(notification).data)
 
     @action(detail=True, methods=["post"], url_path="mark-read", write_roles=None)
     def mark_read(self, request, pk=None):
         notification = self.get_object()
+        if notification.recipient_user_id != request.user.id:
+            raise PermissionDenied("Отметить прочитанным можно только своё уведомление")
         notification.is_read = True
         notification.save(update_fields=["is_read", "updated_at"])
         return Response(self.get_serializer(notification).data)

@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "django_filters",
     "apps.core",
     "apps.users",
@@ -104,6 +105,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.StandardPagination",
     "PAGE_SIZE": 50,
+    # NGINX дописывает адрес клиента в конец X-Forwarded-For. Берём его, а не всю строку.
+    "NUM_PROXIES": 1,
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
@@ -114,13 +117,26 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
-    "REFRESH_TOKEN_LIFETIME": timedelta(hours=12),
+    "REFRESH_TOKEN_LIFETIME": timedelta(hours=8),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "USER_AUTHENTICATION_RULE": "apps.users.auth.user_authentication_rule",
 }
+
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"login": "10/minute", "refresh": "30/minute"}
+
+# httpOnly-cookie с refresh. В проде Secure, локально по HTTP — нет.
+AUTH_COOKIE_SECURE = env_bool("AUTH_COOKIE_SECURE", not DEBUG)
+AUTH_COOKIE_NAME = "erip_refresh"
 
 # ---------- Интеграция со шлюзом ----------
 GATEWAY_URL = env("GATEWAY_URL", "http://localhost:8001")
 GATEWAY_TIMEOUT = float(env("GATEWAY_TIMEOUT", "10"))
 INTERNAL_TOKEN = env("INTERNAL_TOKEN", "dev-internal-token")
+# Сроки хранения: raw выгрузок, журнал аудита, журнал ошибок. Чистит manage.py purge_retained.
+RAW_RETENTION_DAYS = int(env("RAW_RETENTION_DAYS", "90"))
+AUDIT_RETENTION_DAYS = int(env("AUDIT_RETENTION_DAYS", "365"))
+ERROR_LOG_RETENTION_DAYS = int(env("ERROR_LOG_RETENTION_DAYS", "90"))
 # Базовый URL, по которому шлюз вызывает backend (callback статуса доставки)
 BACKEND_PUBLIC_URL = env("BACKEND_PUBLIC_URL", "http://backend:8000")
 

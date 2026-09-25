@@ -1,4 +1,6 @@
+from django.db.models import Q
 from rest_framework import generics, viewsets
+from rest_framework.exceptions import PermissionDenied
 
 from apps.audit.mixins import AuditedViewSetMixin
 from apps.core.permissions import RolePermission
@@ -41,8 +43,16 @@ class UserViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelViewSe
     filterset_fields = ["role", "organization", "is_active"]
     search_fields = ["username", "first_name", "last_name", "email"]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_superadmin:
+            return qs
+        return qs.filter(Q(pk=user.pk) | Q(role__in=[User.Role.SPECIALIST, User.Role.OBSERVER]))
+
     def perform_destroy(self, instance):
-        # Деактивация вместо удаления
+        if instance.pk == self.request.user.pk:
+            raise PermissionDenied("Нельзя деактивировать свою учётную запись")
         instance.is_active = False
         instance.save(update_fields=["is_active"])
 

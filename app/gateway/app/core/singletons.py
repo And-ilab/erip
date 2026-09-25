@@ -10,7 +10,7 @@ import threading
 from typing import Any
 
 import httpx
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import get_settings
@@ -52,15 +52,32 @@ class Database(metaclass=SingletonMeta):
         return self._sessionmaker()
 
     async def create_tables(self, metadata: MetaData) -> None:
-        """Создание таблиц шлюза (для MVP вместо миграций Alembic)."""
+        """Создание таблиц шлюза (для MVP вместо миграций Alembic).
+
+        create_all не добавляет колонки в уже существующую таблицу, поэтому claimed_at
+        дописывается отдельно: без него два процесса не могут безопасно делить доставку.
+        """
         async with self.engine.begin() as conn:
             await conn.run_sync(metadata.create_all)
+            await conn.run_sync(_ensure_claimed_at)
 
     async def dispose(self) -> None:
         if self._engine is not None:
             await self._engine.dispose()
             self._engine = None
             self._sessionmaker = None
+
+
+def _ensure_claimed_at(sync_conn) -> None:
+    schema = get_settings().db_schema or None
+    inspector = inspect(sync_conn)
+    if not inspector.has_table("delivery_log", schema=schema):
+        return
+    columns = {column["name"] for column in inspector.get_columns("delivery_log", schema=schema)}
+    if "claimed_at" in columns:
+        return
+    table = "delivery_log" if not schema else f"{schema}.delivery_log"
+    sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN claimed_at TIMESTAMP"))
 
 
 class HttpClient(metaclass=SingletonMeta):

@@ -19,6 +19,12 @@ async def lifespan(app: FastAPI):
     db = Database()
     await db.create_tables(Base.metadata)
     HttpClient().client  # noqa: B018 — открыть общий HTTP-клиент
+    from .adapters.registry import build_default_registry
+    from .services.notification_service import NotificationService
+
+    service = NotificationService(db, build_default_registry(), HttpClient(), get_settings())
+    await service.resume_pending()
+    await service.purge_old(get_settings().log_retention_days)
     yield
     await HttpClient().close()
     await db.dispose()
@@ -26,11 +32,12 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    public_docs = settings.environment != "prod"
     app = FastAPI(
         title="ЕРИП: шлюз оповещений и интеграций",
         version="0.1.0",
-        docs_url="/gw/docs",
-        openapi_url="/gw/openapi.json",
+        docs_url="/gw/docs" if public_docs else None,
+        openapi_url="/gw/openapi.json" if public_docs else None,
         lifespan=lifespan,
     )
     app.add_middleware(RequestIdMiddleware)

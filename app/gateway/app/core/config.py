@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GW_", env_file=".env", extra="ignore")
 
     service_name: str = "gateway"
+    # dev — локальный запуск; prod — отказ стартовать с токеном из примера и без публичной документации
+    environment: str = "dev"
     database_url: str = "sqlite+aiosqlite:///./gateway.db"
     # Схема PostgreSQL для таблиц шлюза; для SQLite — пусто
     db_schema: str | None = None
@@ -17,6 +19,8 @@ class Settings(BaseSettings):
     http_timeout: float = 10.0
     redis_url: str | None = None
     log_level: str = "INFO"
+    # Завершённые записи delivery_log старше этого срока удаляются при старте шлюза.
+    log_retention_days: int = 90
 
     # stub — заглушка (MVP); http — реальные вызовы по регламенту после получения доступа
     pris_mode: str = "stub"
@@ -26,7 +30,15 @@ class Settings(BaseSettings):
     # Время жизни токена ПРИС по регламенту — 30 минут
     pris_token_ttl_seconds: int = 30 * 60
 
+    def assert_prod(self) -> None:
+        if self.environment != "prod":
+            return
+        if self.internal_token in {"", "change-me", "change-me-internal", "dev-internal-token", "dev"}:
+            raise RuntimeError("GW_INTERNAL_TOKEN в prod не может быть заготовкой из примера")
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    settings.assert_prod()
+    return settings

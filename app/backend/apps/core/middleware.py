@@ -1,8 +1,11 @@
 import logging
+import re
 
 from .context import REQUEST_ID_HEADER, new_request_id, path_var, request_id_var, user_id_var
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class RequestIdMiddleware:
@@ -12,7 +15,9 @@ class RequestIdMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        rid = request.headers.get(REQUEST_ID_HEADER) or new_request_id()
+        rid = (request.headers.get(REQUEST_ID_HEADER) or "").strip()
+        if not _REQUEST_ID.fullmatch(rid):
+            rid = new_request_id()
         request.request_id = rid
         tokens = (request_id_var.set(rid), path_var.set(request.path), user_id_var.set(None))
         try:

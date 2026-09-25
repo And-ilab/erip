@@ -45,6 +45,7 @@ def client(backend, tmp_path):
     from app.main import create_app
 
     with TestClient(create_app()) as test_client:
+        test_client.headers.update({"X-Internal-Token": "test-internal"})
         yield test_client
     Database.reset_instance()
     HttpClient.reset_instance()

@@ -25,7 +25,7 @@ class Command(BaseCommand):
             organization = Organization.objects.filter(schema_name=schema).first()
             if organization is None:
                 raise CommandError(f"Схема {schema} не найдена (используйте --create-org)")
-        job = AisImporter(entity, organization).run(file.read_bytes(), file.name)
+        job = AisImporter(entity, organization).run_path(file)
         self.stdout.write(
             f"{job.get_status_display()}: строк {job.total}, создано {job.created}, обновлено {job.updated}, "
             f"без изменений {job.unchanged}, отклонено {job.rejected}"

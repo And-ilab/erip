@@ -10,7 +10,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
 import { MatTabsModule } from '@angular/material/tabs';
 import { RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { finalize, forkJoin } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AccountDetail, AccountService, Channel, MessageTemplate, Payment, Registration } from '../../core/models';
@@ -119,7 +119,7 @@ import { AccountDetail, AccountService, Channel, MessageTemplate, Payment, Regis
                   @for (t of templates(); track t.id) { <mat-option [value]="t.id">{{ t.name }} ({{ t.channel_display }})</mat-option> }
                 </mat-select>
               </mat-form-field>
-              <button mat-flat-button color="primary" [disabled]="!templateId" (click)="notify()">Отправить через шлюз</button>
+              <button mat-flat-button color="primary" [disabled]="!templateId || sending()" (click)="notify()">Отправить через шлюз</button>
             </div>
             @if (filledPreview()) { <pre class="message">{{ filledPreview() }}</pre> }
           </mat-tab>
@@ -146,6 +146,7 @@ export class AccountDetailComponent implements OnInit {
   protected readonly registrations = signal<Registration[]>([]);
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly error = signal('');
+  protected readonly sending = signal(false);
   protected readonly serviceColumns = ['service_name', 'shot_name', 'balance_out', 'balance_mulct_out', 'debt_period', 'debt_group'];
   protected readonly paymentColumns = ['pay_date', 'service_name', 'pay_service_summ', 'pay_mulct_summ', 'bank_name', 'payment_type_display'];
   protected readonly registrationColumns = ['full_name', 'birthday', 'relation_degree_name', 'reg_type_name', 'contacts'];
@@ -209,8 +210,11 @@ export class AccountDetailComponent implements OnInit {
   notify(): void {
     const a = this.account();
     const template = this.templates().find((t) => t.id === this.templateId);
-    if (!a || !template) return;
-    this.api.createNotification({ channel: template.channel, template: template.id, account: a.id }).subscribe({
+    if (!a || !template || this.sending()) return;
+    this.sending.set(true);
+    this.api.createNotification({ channel: template.channel, template: template.id, account: a.id }).pipe(
+      finalize(() => this.sending.set(false)),
+    ).subscribe({
       next: (n) => this.snack.open(`Оповещение: ${n.status_display}`, 'OK', { duration: 4000 }),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });

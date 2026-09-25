@@ -72,7 +72,10 @@ class NotificationSerializer(serializers.ModelSerializer):
         if not user.is_superadmin:
             account = attrs.get("account")
             recipient = attrs.get("recipient_user")
+            providers = list(user.service_organizations.values_list("provider_id", flat=True))
             if account and account.organization_id != user.organization_id:
+                raise serializers.ValidationError({"account": "ЛС вне контура доступа"})
+            if account and providers and account.provider_id not in providers:
                 raise serializers.ValidationError({"account": "ЛС вне контура доступа"})
             if recipient and recipient.organization_id != user.organization_id:
                 raise serializers.ValidationError({"recipient_user": "Пользователь другой схемы"})

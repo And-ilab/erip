@@ -29,7 +29,8 @@ class DeliveryLog(Base):
     user_name: Mapped[str] = mapped_column(String(250), default="")
     subject: Mapped[str] = mapped_column(String(250), default="")
     text: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default="accepted")  # accepted | delivered | failed
+    status: Mapped[str] = mapped_column(String(20), default="accepted")  # accepted | processing | delivered | failed
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
     provider_message_id: Mapped[str] = mapped_column(String(100), default="")
     request_id: Mapped[str] = mapped_column(String(64), default="", index=True)

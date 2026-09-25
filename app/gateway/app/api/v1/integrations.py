@@ -19,8 +19,9 @@ from ...integrations.pris.client import (
     TokenCache,
 )
 from ...integrations.pris.schemas import ByProcNumRequest, SaveDataDebtRequest
+from ..deps import require_internal_token
 
-router = APIRouter(prefix="/integrations", tags=["Интеграции"])
+router = APIRouter(prefix="/integrations", tags=["Интеграции"], dependencies=[Depends(require_internal_token)])
 
 
 @lru_cache

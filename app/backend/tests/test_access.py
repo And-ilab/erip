@@ -4,7 +4,7 @@ import pytest
 
 from apps.users.models import ServiceOrganization
 
-from .conftest import make_account
+from .conftest import make_account, make_user
 
 pytestmark = pytest.mark.django_db
 
@@ -62,6 +62,30 @@ def test_local_admin_cannot_create_superadmin(api, admin_a):
     response = api(admin_a).post("/api/v1/users/", {"username": "evil", "role": "superadmin",
                                                     "password": "Passw0rd!x"}, format="json")
     assert response.status_code == 400
+
+
+def test_local_admin_cannot_edit_peer_or_assign_same_role(api, admin_a, org_a):
+    peer = make_user("peer_admin", "local_admin", org_a)
+    assert api(admin_a).patch(f"/api/v1/users/{peer.id}/", {"first_name": "X"}, format="json").status_code == 404
+    response = api(admin_a).post("/api/v1/users/", {"username": "boss", "role": "local_admin", "password": "Passw0rd!x"},
+                                 format="json")
+    assert response.status_code == 400
+
+
+def test_notification_stays_inside_provider_contour(api, specialist_a, admin_a, org_a, account_a, fake_gateway):
+    other = make_account(org_a, 1002, provider_id=777)
+    specialist_a.service_organizations.set([ServiceOrganization.objects.get(organization=org_a, provider_id=777)])
+    created = api(admin_a).post("/api/v1/notifications/", {"channel": "email", "account": account_a.id, "body": "чужой"},
+                                format="json")
+    assert created.status_code == 201, created.json()
+    visible = {row["id"] for row in api(specialist_a).get("/api/v1/notifications/").json()["results"]}
+    assert created.json()["id"] not in visible
+    denied = api(specialist_a).post("/api/v1/notifications/", {"channel": "email", "account": account_a.id, "body": "x"},
+                                    format="json")
+    assert denied.status_code == 400
+    own = api(specialist_a).post("/api/v1/notifications/", {"channel": "email", "account": other.id, "body": "свой"},
+                                 format="json")
+    assert own.status_code == 201, own.json()
 
 
 def test_local_admin_creates_user_in_own_schema(api, admin_a, org_a, org_b):

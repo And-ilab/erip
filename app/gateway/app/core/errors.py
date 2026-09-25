@@ -31,6 +31,11 @@ class NotFoundError(GatewayError):
     code = "not_found"
 
 
+class UnauthorizedError(GatewayError):
+    status_code = 401
+    code = "unauthorized"
+
+
 class AdapterError(GatewayError):
     """Ошибка канала доставки (email/sms/voice)."""
 

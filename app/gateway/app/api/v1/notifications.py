@@ -5,9 +5,9 @@ from ...decorators import api_response
 from ...schemas import NotificationIn, PreviewIn
 from ...services.notification_service import NotificationService
 from ...services.rendering import MessageRenderer
-from ..deps import get_notification_service
+from ..deps import get_notification_service, require_internal_token
 
-router = APIRouter(prefix="/notifications", tags=["Оповещения"])
+router = APIRouter(prefix="/notifications", tags=["Оповещения"], dependencies=[Depends(require_internal_token)])
 
 
 def serialize(log) -> dict:

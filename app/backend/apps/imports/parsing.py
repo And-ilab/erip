@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import csv
 import io
+import itertools
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from .field_maps import EntityMap, FieldSpec
 
@@ -35,6 +37,37 @@ def detect_delimiter(first_line: str) -> str:
         if delimiter in first_line:
             return delimiter
     return ";"
+
+
+def detect_encoding_path(path: Path) -> str:
+    """Кодировка по началу файла. Обрезанный хвост UTF-8 на границе блока не считается ошибкой."""
+    with path.open("rb") as fh:
+        sample = fh.read(65536)
+    if not sample:
+        raise ConversionError("Файл пуст")
+    for encoding in ENCODINGS:
+        chunk = sample
+        if encoding.startswith("utf-8") and len(sample) > 3:
+            chunk = sample[:-3]
+        try:
+            chunk.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        return encoding
+    raise ConversionError("Не удалось определить кодировку (ожидается UTF-8 или Windows-1251)")
+
+
+def read_header(text_file) -> tuple[list[str], csv.reader]:
+    """Заголовок и читатель строк. Файл не загружается целиком."""
+    first = text_file.readline()
+    if not first or not first.strip():
+        raise ConversionError("Файл пуст")
+    reader = csv.reader(itertools.chain([first], text_file), delimiter=detect_delimiter(first))
+    try:
+        headers = [cell.strip() for cell in next(reader)]
+    except StopIteration as exc:
+        raise ConversionError("Файл пуст") from exc
+    return headers, reader
 
 
 def read_rows(text: str) -> tuple[list[str], list[list[str]]]:

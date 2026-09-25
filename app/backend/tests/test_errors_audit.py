@@ -94,7 +94,86 @@ def test_bnp_fixture_and_nsi_api(api, specialist_a, superadmin):
 
 
 def test_me_and_token(client, specialist_a):
-    token = client.post("/api/v1/auth/token/", {"username": "spec_a", "password": "Passw0rd!x"},
-                        content_type="application/json").json()["access"]
+    login = client.post("/api/v1/auth/token/", {"username": "spec_a", "password": "Passw0rd!x"},
+                        content_type="application/json")
+    assert "refresh" not in login.json()
+    assert "erip_refresh" in login.cookies
+    token = login.json()["access"]
     me = client.get("/api/v1/auth/me/", HTTP_AUTHORIZATION=f"Bearer {token}").json()
     assert me["display_name"] == "Анна Петровна" and me["role"] == "specialist"
+    old_refresh = login.cookies["erip_refresh"].value
+    refreshed = client.post("/api/v1/auth/token/refresh/", {}, content_type="application/json")
+    assert refreshed.status_code == 200 and refreshed.json()["access"]
+    client.cookies["erip_refresh"] = old_refresh
+    reused = client.post("/api/v1/auth/token/refresh/", {}, content_type="application/json")
+    assert reused.status_code == 401, reused.content
+
+
+def test_client_ip_is_the_proxy_appended_address():
+    from django.test import RequestFactory
+
+    from apps.core.request import client_ip
+
+    request = RequestFactory().get("/")
+    request.META["HTTP_X_FORWARDED_FOR"] = "1.2.3.4, 10.0.0.8"
+    request.META["REMOTE_ADDR"] = "172.16.0.2"
+    assert client_ip(request) == "10.0.0.8"
+
+
+def test_account_list_is_audited_once(api, specialist_a, account_a):
+    api(specialist_a).get("/api/v1/accounts/?page=1")
+    logs = AuditLog.objects.filter(action="view", object_type="debts.Account", object_id="")
+    assert logs.count() == 1
+    assert logs.get().after["query"]["page"] == "1"
+
+
+def test_registration_list_masks_personal_num(api, specialist_a, account_a):
+    registration = account_a.registrations.get()
+    registration.personal_num = "3230888A001PB5"
+    registration.save(update_fields=["personal_num"])
+    listed = api(specialist_a).get("/api/v1/registrations/").json()["results"][0]
+    assert listed["personal_num"] != "3230888A001PB5"
+    assert "*" in listed["personal_num"]
+    card = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/registrations/").json()["results"][0]
+    assert card["personal_num"] == "3230888A001PB5"
+
+
+def test_password_change_revokes_refresh(client, specialist_a):
+    login = client.post("/api/v1/auth/token/", {"username": "spec_a", "password": "Passw0rd!x"},
+                        content_type="application/json")
+    token = login.json()["access"]
+    stolen = login.cookies["erip_refresh"].value
+    changed = client.post(
+        "/api/v1/auth/password/",
+        {"old_password": "Passw0rd!x", "new_password": "N3w-password!"},
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {token}",
+    )
+    assert changed.status_code == 204, changed.content
+    client.cookies["erip_refresh"] = stolen
+    assert client.post("/api/v1/auth/token/refresh/", {}, content_type="application/json").status_code == 401
+    again = client.post("/api/v1/auth/token/", {"username": "spec_a", "password": "N3w-password!"},
+                        content_type="application/json")
+    assert again.status_code == 200
+
+
+def test_inactive_organization_cannot_log_in(client, specialist_a, org_a):
+    org_a.is_active = False
+    org_a.save(update_fields=["is_active"])
+    response = client.post("/api/v1/auth/token/", {"username": "spec_a", "password": "Passw0rd!x"},
+                           content_type="application/json")
+    assert response.status_code == 401
+
+
+def test_purge_retained_clears_old_raw_and_audit(account_a):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    Account.objects.filter(pk=account_a.pk).update(raw={"PHONE": "1"}, updated_at=timezone.now() - timedelta(days=120))
+    AuditLog.objects.create(action="view", object_type="debts.Account", object_id="1")
+    AuditLog.objects.filter(object_id="1").update(created_at=timezone.now() - timedelta(days=40))
+    call_command("purge_retained", "--raw-days", "90", "--audit-days", "30", "--error-days", "30")
+    account_a.refresh_from_db()
+    assert account_a.raw == {}
+    assert not AuditLog.objects.filter(object_id="1").exists()

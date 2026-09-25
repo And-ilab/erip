@@ -84,6 +84,10 @@ class Account(AisRecord):
 
     class Meta:
         ordering = ["client_account"]
+        indexes = [
+            models.Index(fields=["organization", "provider_id", "debt_group"], name="account_scope_group"),
+            models.Index(fields=["organization", "balance_out"], name="account_org_balance"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["organization", "provider_id", "account_id"], name="uniq_account_in_scope")
         ]
@@ -257,6 +261,9 @@ class Registration(AisRecord):
 
     class Meta:
         ordering = ["-subj_is_main", "fam", "im"]
+        indexes = [
+            models.Index(fields=["personal_num"], name="registration_personal_num"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["account", "registration_id"], name="uniq_registration")
         ]

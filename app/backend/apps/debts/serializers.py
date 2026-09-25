@@ -63,9 +63,24 @@ class PaymentSerializer(serializers.ModelSerializer):
         exclude = ["raw"]
 
 
+def mask_identifier(value: str) -> str:
+    """В списках идентификационный номер не отдаётся целиком."""
+    if len(value) <= 4:
+        return "****"
+    return f"{value[:2]}{'*' * (len(value) - 4)}{value[-2:]}"
+
+
 class RegistrationSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="__str__", read_only=True)
 
     class Meta:
         model = Registration
         exclude = ["raw"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        view = self.context.get("view")
+        number = data.get("personal_num") or ""
+        if view is not None and getattr(view, "action", None) == "list" and number:
+            data["personal_num"] = mask_identifier(number)
+        return data

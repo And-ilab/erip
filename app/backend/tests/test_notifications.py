@@ -32,7 +32,7 @@ def test_create_notification_sends_payload_to_gateway(api, specialist_a, account
     assert payload["recipient"] == "ivan@example.com"
     assert payload["context"]["account"] == "00001001"
     assert payload["template_body"] == template.body
-    assert payload["callback_url"].endswith(f"/api/v1/notifications/{body['id']}/delivery-status/")
+    assert "callback_url" not in payload
     assert payload["meta"] == {"fail": False}
 
 
@@ -82,6 +82,38 @@ def test_fail_flag_is_passed_as_meta(api, specialist_a, account_a, template, fak
     )
     payload = fake_gateway.sent[0]
     assert payload["meta"] == {"fail": True} and "_fail" not in payload["context"]
+
+
+def test_client_context_cannot_override_account_fields(api, specialist_a, account_a, template, fake_gateway):
+    api(specialist_a).post(
+        "/api/v1/notifications/",
+        {
+            "channel": "email", "template": template.id, "account": account_a.id,
+            "context": {"amount": "1.00", "fio": "Чужой", "note": "допуск"},
+        },
+        format="json",
+    )
+    context = fake_gateway.sent[0]["context"]
+    assert context["amount"] == "150.00"
+    assert context["fio"] == "Иванов И.И."
+    assert context["note"] == "допуск"
+
+
+def test_duplicate_while_queued_is_not_sent_again(api, specialist_a, account_a, template, fake_gateway):
+    first = api(specialist_a).post(
+        "/api/v1/notifications/", {"channel": "email", "template": template.id, "account": account_a.id},
+        format="json",
+    )
+    second = api(specialist_a).post(
+        "/api/v1/notifications/", {"channel": "email", "template": template.id, "account": account_a.id},
+        format="json",
+    )
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
+    assert len(fake_gateway.sent) == 1
+    resend = api(specialist_a).post(f"/api/v1/notifications/{first.json()['id']}/resend/")
+    assert resend.status_code == 400
 
 
 def test_delivery_callback_marks_sent(api, client, specialist_a, account_a, template, fake_gateway, internal_headers):
@@ -140,6 +172,7 @@ def test_inbox_notification_and_unread_counter(api, specialist_a, admin_a, fake_
     client.post(f"/api/v1/notifications/{n_id}/delivery-status/", {"status": "delivered"},
                 content_type="application/json", **internal_headers)
     assert api(specialist_a).get("/api/v1/notifications/unread-count/").json() == {"count": 1}
+    assert api(admin_a).post(f"/api/v1/notifications/{n_id}/mark-read/").status_code == 403
     api(specialist_a).post(f"/api/v1/notifications/{n_id}/mark-read/")
     assert api(specialist_a).get("/api/v1/notifications/unread-count/").json() == {"count": 0}
 
@@ -177,6 +210,7 @@ def test_http_gateway_client_uses_async_httpx(account_a, template):
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
         seen["request_id"] = request.headers.get("X-Request-ID")
+        seen["token"] = request.headers.get("X-Internal-Token")
         return httpx.Response(202, json={"data": {"id": "gw-1", "status": "accepted"}, "meta": {}})
 
     client = HttpGatewayClient("http://gw", transport=httpx.MockTransport(handler))
@@ -186,6 +220,7 @@ def test_http_gateway_client_uses_async_httpx(account_a, template):
     n.refresh_from_db()
     assert n.status == Notification.Status.QUEUED and n.gateway_id == "gw-1"
     assert seen["path"] == "/gw/v1/notifications" and seen["request_id"]
+    assert seen["token"] == "test-internal-token"
 
 
 def test_http_gateway_client_error(account_a, template):

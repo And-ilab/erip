@@ -28,6 +28,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     filterset_class = AccountFilter
     ordering_fields = ["client_account", "balance_out", "debt_group", "short_fio", "updated_at"]
     audit_view = True  # просмотр карточки ЛС фиксируется в журнале аудита (ТЗ 4.4.4)
+    audit_list = True
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -78,8 +79,9 @@ class PaymentViewSet(_ChildViewSet):
     ordering_fields = ["pay_date", "pay_service_summ"]
 
 
-class RegistrationViewSet(_ChildViewSet):
+class RegistrationViewSet(AuditedViewSetMixin, _ChildViewSet):
     queryset = Registration.objects.select_related("account")
     serializer_class = RegistrationSerializer
+    audit_list = True
     filterset_fields = ["account", "subj_is_main", "subj_legal_entity"]
     search_fields = ["fam", "im", "personal_num"]

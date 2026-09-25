@@ -44,7 +44,7 @@ class HttpGatewayClient(GatewayClient):
         # Клиент создаётся на вызов: async_to_sync может выполнять вызовы в разных event loop
         return httpx.AsyncClient(
             base_url=self.base_url, timeout=self.timeout, transport=self.transport,
-            headers={REQUEST_ID_HEADER: get_request_id()},
+            headers={REQUEST_ID_HEADER: get_request_id(), "X-Internal-Token": settings.INTERNAL_TOKEN},
         )
 
     async def _post(self, path: str, payload: dict) -> dict:

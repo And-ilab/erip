@@ -20,6 +20,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/accounts/account-detail.component').then((m) => m.AccountDetailComponent),
       },
       {
+        path: 'password',
+        loadComponent: () => import('./features/password/password.component').then((m) => m.PasswordComponent),
+      },
+      {
         path: 'notifications',
         loadComponent: () =>
           import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),

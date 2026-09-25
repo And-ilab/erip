@@ -11,7 +11,6 @@ class NotificationIn(BaseModel):
     subject: str = Field(default="", max_length=250)
     template_body: str = Field(min_length=1)
     context: dict = Field(default_factory=dict)
-    callback_url: str | None = None
     meta: dict = Field(default_factory=dict, description="Служебные флаги, например fail=true для имитации отказа")
 
 

@@ -90,6 +90,19 @@ class Notification(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["recipient_user", "channel", "is_read", "status"], name="notif_inbox_unread"),
+            models.Index(fields=["organization", "status", "created_at"], name="notif_org_status"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["created_by", "account", "template", "channel"],
+                condition=models.Q(
+                    status__in=["new", "queued"], account__isnull=False, template__isnull=False,
+                ),
+                name="uniq_open_account_notification",
+            ),
+        ]
         verbose_name = "Оповещение"
         verbose_name_plural = "Оповещения"
 

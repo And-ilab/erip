@@ -11,7 +11,7 @@ function newRequestId(): string {
 function withHeaders(req: HttpRequest<unknown>, token: string | null): HttpRequest<unknown> {
   const headers: Record<string, string> = { 'X-Request-ID': req.headers.get('X-Request-ID') ?? newRequestId() };
   if (token && !req.url.includes('/auth/token/')) headers['Authorization'] = `Bearer ${token}`;
-  return req.clone({ setHeaders: headers });
+  return req.clone({ setHeaders: headers, withCredentials: true });
 }
 
 /** JWT + X-Request-ID для каждого запроса; при 401 — одна попытка обновить access-токен. */

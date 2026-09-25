@@ -3,13 +3,14 @@ from rest_framework.response import Response
 from apps.core.serialization import snapshot
 
 from .models import AuditLog
-from .services import record_action
+from .services import record_action, record_query
 
 
 class AuditedViewSetMixin:
     """Фиксирует создание/изменение/удаление (и при audit_view — просмотр) в журнале аудита."""
 
     audit_view = False
+    audit_list = False
 
     def perform_create(self, serializer):
         super().perform_create(serializer)
@@ -30,3 +31,10 @@ class AuditedViewSetMixin:
         if self.audit_view:
             record_action(request, AuditLog.Action.VIEW, instance)
         return Response(self.get_serializer(instance).data)
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        if self.audit_list:
+            count = response.data.get("count") if isinstance(response.data, dict) else None
+            record_query(request, self.get_queryset().model._meta.label, count=count)
+        return response
