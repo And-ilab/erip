@@ -282,6 +282,10 @@ export class ApiService {
     return this.http.delete<void>(`${this.base}/templates/${id}/`);
   }
 
+  restoreTemplate(id: number): Observable<MessageTemplate> {
+    return this.http.post<MessageTemplate>(`${this.base}/templates/${id}/restore/`, {});
+  }
+
   previewTemplate(id: number, userName: string, body?: string, context: Record<string, unknown> = {}): Observable<{ text: string }> {
     return this.http.post<{ text: string }>(`${this.base}/templates/${id}/preview/`, { user_name: userName, body, context });
   }
