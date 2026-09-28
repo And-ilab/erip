@@ -176,7 +176,14 @@ const LABELS: Record<string, string> = {
           @for (name of columns(); track name) {
             <ng-container [matColumnDef]="name">
               <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)">{{ label(name) }}</th>
-              <td mat-cell *matCellDef="let r">{{ cell(r, name) }}</td>
+              <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0">
+                @switch (name) {
+                  @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
+                  @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
+                  @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
+                  @default { {{ cell(r, name) }} }
+                }
+              </td>
             </ng-container>
           }
           <tr mat-header-row *matHeaderRowDef="shown()"></tr>
@@ -201,7 +208,7 @@ const LABELS: Record<string, string> = {
             <section>
               <h3>{{ column.title }} <span class="muted">{{ column.cards.length }} из {{ column.total }}</span></h3>
               @for (card of column.cards; track card.id) {
-                <article class="card" (click)="open(card)">
+                <article class="card g{{ card.effective_group ?? 0 }}" (click)="open(card)">
                   <b>{{ card.client_account }}</b>
                   <div>{{ card.short_fio }}</div>
                   <div class="muted">{{ card.account_address }}</div>
@@ -234,9 +241,16 @@ const LABELS: Record<string, string> = {
   `,
   styles: `
     .board { display: flex; gap: 12px; overflow: auto; align-items: flex-start; }
-    section { min-width: 220px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-    .card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; margin-bottom: 8px; cursor: pointer; }
-    h3 { margin: 0 0 8px; font-size: 14px; }
+    section { min-width: 220px; background: #fff; border: 1px solid var(--erip-border); border-top: 3px solid var(--erip-primary); border-radius: 8px; padding: 8px; }
+    .card {
+      border: 1px solid var(--erip-border); border-left: 4px solid #cbd5e1; border-radius: 6px; padding: 8px; margin-bottom: 8px;
+      cursor: pointer; background: #fff; transition: box-shadow .15s;
+    }
+    .card:hover { box-shadow: 0 2px 6px rgba(16, 42, 67, .12); }
+    .card.g1 { border-left-color: #22c55e; } .card.g2 { border-left-color: #84cc16; } .card.g3 { border-left-color: #eab308; }
+    .card.g4 { border-left-color: #f97316; } .card.g5 { border-left-color: #ef4444; } .card.g6 { border-left-color: #7f1d1d; }
+    h3 { margin: 0 0 8px; font-size: 14px; color: var(--erip-primary-dark); }
+    .account-no { color: var(--erip-link); }
   `,
 })
 export class AccountsListComponent implements OnInit {

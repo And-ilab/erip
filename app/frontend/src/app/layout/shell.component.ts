@@ -20,13 +20,15 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     MatButtonModule, MatBadgeModule, MatTooltipModule, NotificationsPanelComponent,
   ],
   template: `
-    <mat-toolbar color="primary">
+    <mat-toolbar class="topbar">
+      <mat-icon class="brand-icon">apps</mat-icon>
       <span class="brand">ЕРИП · Работа с задолженностью</span>
       <span class="spacer"></span>
-      <span class="user">{{ auth.me()?.display_name }} · {{ auth.me()?.organization_name ?? 'все схемы' }}</span>
       <button mat-icon-button (click)="panel.toggle()" matTooltip="Уведомления">
         <mat-icon [matBadge]="store.unread() || null" matBadgeColor="warn">notifications</mat-icon>
       </button>
+      <span class="org">{{ auth.me()?.organization_name ?? 'все схемы' }}</span>
+      <span class="avatar" [matTooltip]="auth.me()?.display_name ?? ''">{{ initials() }}</span>
       <button mat-icon-button (click)="auth.logout()" matTooltip="Выход"><mat-icon>logout</mat-icon></button>
     </mat-toolbar>
 
@@ -55,15 +57,40 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
   styles: `
     :host { display: flex; flex-direction: column; height: 100vh; }
     .spacer { flex: 1; }
-    .brand { font-weight: 600; }
-    .user { font-size: 14px; margin-right: 8px; opacity: .9; }
+    .topbar { gap: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); z-index: 2; }
+    .topbar .mat-mdc-icon-button { color: #fff; }
+    .brand-icon { opacity: .85; }
+    .brand { font-weight: 600; font-size: 17px; }
+    .org { font-size: 13px; padding: 4px 12px; border-radius: 6px; background: rgba(255, 255, 255, .14); }
+    .avatar {
+      display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%;
+      background: rgba(255, 255, 255, .2); font-size: 13px; font-weight: 600; cursor: default;
+    }
     .container { flex: 1; }
-    .menu { width: 220px; }
+    .menu {
+      width: 220px; border-right: 0; border-radius: 0; background: var(--erip-primary);
+      border-top: 1px solid rgba(255, 255, 255, .12);
+      --mat-sidenav-container-background-color: var(--erip-primary);
+      --mdc-list-list-item-label-text-color: rgba(255, 255, 255, .85);
+      --mdc-list-list-item-hover-label-text-color: #fff;
+      --mdc-list-list-item-focus-label-text-color: #fff;
+      --mdc-list-list-item-hover-state-layer-color: #fff;
+      --mdc-list-list-item-hover-state-layer-opacity: .08;
+    }
+    .menu a { border-left: 3px solid transparent; border-radius: 0; }
+    .menu a.active {
+      background: rgba(255, 255, 255, .14); border-left-color: var(--erip-accent); font-weight: 600;
+      --mdc-list-list-item-label-text-color: #fff;
+    }
     .panel { width: 380px; }
-    .active { background: rgba(0, 90, 200, .08); }
   `,
 })
 export class ShellComponent {
   protected readonly auth = inject(AuthService);
   protected readonly store = inject(NotificationsStore);
+
+  protected initials(): string {
+    const name = this.auth.me()?.display_name ?? '';
+    return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('');
+  }
 }

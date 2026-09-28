@@ -5,6 +5,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -23,19 +24,73 @@ import {
   standalone: true,
   imports: [
     DatePipe, DecimalPipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule,
-    MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule,
+    MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
   ],
   template: `
     <div class="page">
-      <div class="page-header">
-        <a mat-button routerLink="/accounts">← Реестр</a>
-        <h2>Карточка ЛС {{ account()?.client_account }}</h2>
-        @if (account()?.effective_group; as g) { <span class="group-badge g{{ g }}">Группа {{ g }}</span> }
-      </div>
-      @if (error()) { <p class="status-failed">{{ error() }}</p> }
+      @if (error()) { <p class="alert danger"><mat-icon>error_outline</mat-icon>{{ error() }}</p> }
 
       @if (account(); as a) {
-        <mat-tab-group>
+        <div class="crumbs">
+          <a routerLink="/accounts">Реестр ЛС</a>
+          @if (a.effective_group) { <span class="sep">›</span><span>Группа {{ a.effective_group }}</span> }
+          <span class="sep">›</span><b>{{ a.short_fio || a.client_account }}</b>
+          <span class="spacer"></span>
+          <div class="stages">
+            @for (stage of stages; track stage.code; let i = $index) {
+              <span class="stage" [class.done]="i < stageIndex()" [class.current]="i === stageIndex()">{{ stage.title }}</span>
+            }
+          </div>
+        </div>
+
+        <section class="surface head">
+          <div class="title-row">
+            <div>
+              <h2>{{ a.short_fio || 'ЛС ' + a.client_account }}</h2>
+              <div class="muted sub">
+                ЛС {{ a.client_account }}
+                @if (a.account_address || a.house_address) { · {{ a.account_address || a.house_address }} }
+                @if (a.provider_short_name) { · {{ a.provider_short_name }} }
+                @if (a.ownership_type_name) { · {{ a.ownership_type_name }} }
+                @if (a.acc_total_space) { · {{ a.acc_total_space }} м² }
+                @if (a.room_count) { · комнат: {{ a.room_count }} }
+              </div>
+            </div>
+            <div class="badges">
+              @if (a.effective_group) {
+                <span class="group-badge g{{ a.effective_group }}">Группа {{ a.effective_group }}@if (a.group_name) { · {{ a.group_name }} }</span>
+              }
+              @if (a.rating_label) { <span class="rating-badge r{{ a.rating_label[0] }}" title="Рейтинг">{{ a.rating_label }}</span> }
+              <button mat-stroked-button (click)="refreshNow()"><mat-icon>sync</mat-icon> Обновить сейчас</button>
+            </div>
+          </div>
+
+          <div class="facts">
+            <div>
+              <div class="fact"><span>Плательщик</span><b class="link">{{ a.short_fio || '—' }}</b></div>
+              <div class="fact"><span>Проживающих / комнат</span><b>{{ a.subj_count ?? '—' }} / {{ a.room_count ?? '—' }}</b></div>
+              <div class="fact"><span>Дата возникновения долга</span><b>{{ (a.debt_started_on | date: 'dd.MM.yyyy') || '—' }}</b></div>
+              <div class="fact"><span>Закреплённый специалист</span><b>{{ a.assigned_name || '—' }}</b></div>
+            </div>
+            <div>
+              <div class="fact"><span>Долг по услугам (с пенями)</span><b>{{ a.balance_out | number: '1.2-2' }} р.</b></div>
+              <div class="fact"><span>Пеня</span><b class="amount-danger">{{ penaltyTotal() | number: '1.2-2' }} р.</b></div>
+              <div class="fact"><span>Обновлено из АИС</span><b>{{ (a.ais_updated_at | date: 'dd.MM.yyyy HH:mm') || '—' }}</b></div>
+              <div class="fact"><span>Сценарий мероприятий</span><b class="link">{{ a.scenario_name || '—' }}</b></div>
+            </div>
+          </div>
+
+          @if (a.inheritance_case) {
+            <div class="alert warning">
+              <mat-icon>flag</mat-icon>
+              Наследственное дело: автоматические мероприятия остановлены
+              @if (a.inheritance_until) { до {{ a.inheritance_until | date: 'dd.MM.yyyy' }} }
+            </div>
+          }
+          @if (a.bankruptcy) { <div class="alert danger"><mat-icon>gavel</mat-icon>Банкротство должника</div> }
+        </section>
+
+        <mat-tab-group class="surface tabs">
           <mat-tab label="Общие">
             <div class="grid">
               <mat-card><mat-card-content>
@@ -63,7 +118,6 @@ import {
                   <dt>Сценарий</dt><dd>{{ a.scenario_name }}</dd>
                   <dt>ИН/УНП</dt><dd>{{ a.payer_identifier }}</dd>
                 </dl>
-                <button mat-stroked-button (click)="refreshNow()">Обновить сейчас</button>
                 <h4>Ручная корректировка группы</h4>
                 <div class="filters">
                   <mat-form-field>
@@ -86,7 +140,7 @@ import {
               <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик</th>
                 <td mat-cell *matCellDef="let s"><a [routerLink]="['/contracts', s.id]">{{ s.shot_name }}</a></td></ng-container>
               <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг (с пенями)</th><td mat-cell *matCellDef="let s">{{ s.balance_out | number: '1.2-2' }}</td></ng-container>
-              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let s">{{ s.balance_mulct_out | number: '1.2-2' }}</td></ng-container>
+              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0">{{ s.balance_mulct_out | number: '1.2-2' }}</td></ng-container>
               <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Мес. долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period }}</td></ng-container>
               <ng-container matColumnDef="debt_group"><th mat-header-cell *matHeaderCellDef>Группа</th>
                 <td mat-cell *matCellDef="let s">@if (s.debt_group) { <span class="group-badge g{{ s.debt_group }}">{{ s.debt_group }}</span> }</td></ng-container>
@@ -99,7 +153,7 @@ import {
             <table mat-table [dataSource]="payments()">
               <ng-container matColumnDef="pay_date"><th mat-header-cell *matHeaderCellDef>Дата</th><td mat-cell *matCellDef="let p">{{ p.pay_date | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let p">{{ p.service_name }}</td></ng-container>
-              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг</th><td mat-cell *matCellDef="let p">{{ p.pay_service_summ | number: '1.2-2' }}</td></ng-container>
+              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг</th><td mat-cell *matCellDef="let p" class="amount-paid">{{ p.pay_service_summ | number: '1.2-2' }}</td></ng-container>
               <ng-container matColumnDef="pay_mulct_summ"><th mat-header-cell *matHeaderCellDef>Оплата пени</th><td mat-cell *matCellDef="let p">{{ p.pay_mulct_summ | number: '1.2-2' }}</td></ng-container>
               <ng-container matColumnDef="bank_name"><th mat-header-cell *matHeaderCellDef>Банк</th><td mat-cell *matCellDef="let p">{{ p.bank_name }}</td></ng-container>
               <ng-container matColumnDef="payment_type_display"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let p">{{ p.payment_type_display }}</td></ng-container>
@@ -234,7 +288,7 @@ import {
             <p><a routerLink="/measures">Реестр мероприятий</a></p>
             <table mat-table [dataSource]="measures()">
               <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r">{{ r.kind_display }}</td></ng-container>
-              <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус</th><td mat-cell *matCellDef="let r">{{ r.status_display }}</td></ng-container>
+              <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус</th><td mat-cell *matCellDef="let r"><span class="chip">{{ r.status_display }}</span></td></ng-container>
               <ng-container matColumnDef="due_on"><th mat-header-cell *matHeaderCellDef>Срок</th><td mat-cell *matCellDef="let r">{{ r.due_on }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="measureColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: measureColumns"></tr>
@@ -242,12 +296,22 @@ import {
           </mat-tab>
 
           <mat-tab label="Исполнительная надпись">
-            @for (item of checks(); track item.code) {
-              <div>
-                <mat-checkbox [checked]="item.done" (change)="toggleCheck(item.code, $event.checked)">{{ item.title }}</mat-checkbox>
+            <div class="checklist">
+              <div class="progress-label">Готово к формированию пакета: <b>{{ checksDone() }} / {{ checks().length }}</b></div>
+              <div class="progress"><div [style.width.%]="checks().length ? checksDone() * 100 / checks().length : 0"></div></div>
+              @for (item of checks(); track item.code) {
+                <div class="check" [class.done]="item.done">
+                  <mat-checkbox [checked]="item.done" (change)="toggleCheck(item.code, $event.checked)">{{ item.title }}</mat-checkbox>
+                </div>
+              }
+              <div class="alert" [class.warning]="!checksReady()" [class.success]="checksReady()">
+                <mat-icon>{{ checksReady() ? 'check_circle' : 'flag' }}</mat-icon>
+                <span class="spacer">
+                  {{ checksReady() ? 'Все пункты выполнены' : 'Пакет на исполнительную надпись недоступен до выполнения всех пунктов чек-листа' }}
+                </span>
+                <button mat-flat-button [disabled]="!checksReady()" (click)="addWorkPack()">Сформировать пакет документов</button>
               </div>
-            }
-            <button mat-stroked-button [disabled]="!checksReady()" (click)="addWorkPack()">Сформировать пакет документов</button>
+            </div>
           </mat-tab>
 
           <mat-tab label="Вложения">
@@ -281,9 +345,39 @@ import {
     </div>
   `,
   styles: `
+    .crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--erip-muted); margin-bottom: 12px; }
+    .crumbs b { color: #1f2933; }
+    .sep { opacity: .6; }
+    .spacer { flex: 1; }
+    .stages { display: flex; border: 1px solid var(--erip-border); border-radius: 6px; overflow: hidden; background: #fff; }
+    .stage { padding: 6px 12px; font-size: 12px; color: var(--erip-muted); border-left: 1px solid var(--erip-border); white-space: nowrap; }
+    .stage:first-child { border-left: 0; }
+    .stage.done { color: var(--erip-success); background: var(--erip-success-soft); }
+    .stage.current { color: #fff; background: var(--erip-primary); font-weight: 600; }
+    .head { padding: 20px 24px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 16px; }
+    .title-row { display: flex; align-items: flex-start; gap: 16px; }
+    .title-row > div:first-child { flex: 1; }
+    .title-row h2 { margin: 0 0 4px; font-size: 22px; color: var(--erip-primary-dark); }
+    .sub { font-size: 13px; }
+    .badges { display: flex; align-items: center; gap: 8px; }
+    .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 48px; }
+    .fact { display: flex; flex-direction: column; padding: 6px 0; }
+    .fact span { font-size: 12px; color: var(--erip-muted); }
+    .fact b { font-size: 15px; }
+    .fact b.link { color: var(--erip-link); }
+    .tabs { padding: 4px 16px 16px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 0; }
+    .grid mat-card { border: 1px solid var(--erip-border); box-shadow: none; }
     dl { display: grid; grid-template-columns: 220px 1fr; row-gap: 6px; margin: 0; }
-    dt { color: #6b7280; } dd { margin: 0; }
+    dt { color: var(--erip-muted); } dd { margin: 0; }
+    .amount-paid { color: var(--erip-success); font-weight: 600; }
+    .checklist { padding: 16px 0; display: flex; flex-direction: column; gap: 4px; }
+    .progress-label { font-size: 13px; color: var(--erip-muted); }
+    .progress { height: 6px; border-radius: 3px; background: #e5e9ee; margin: 6px 0 10px; overflow: hidden; }
+    .progress > div { height: 100%; background: var(--erip-accent); transition: width .3s; }
+    .check { border-bottom: 1px solid var(--erip-border); padding: 4px 0; }
+    .check.done { color: var(--erip-muted); }
+    .checklist .alert { margin-top: 12px; }
     .reason { min-width: 280px; }
     .notify { display: flex; gap: 12px; align-items: center; padding: 16px 0; }
   `,
@@ -300,6 +394,15 @@ export class AccountDetailComponent implements OnInit {
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly error = signal('');
   protected readonly sending = signal(false);
+  protected readonly stages = [
+    { code: 'new', title: 'Новый' },
+    { code: 'prevention', title: 'Превентивные меры' },
+    { code: 'warning', title: 'Предупреждение' },
+    { code: 'disconnect', title: 'Отключение' },
+    { code: 'enforcement', title: 'Взыскание' },
+    { code: 'court', title: 'Суд / ОПИ' },
+    { code: 'closed', title: 'Не должник' },
+  ];
   protected readonly serviceColumns = ['service_name', 'shot_name', 'balance_out', 'balance_mulct_out', 'debt_period', 'debt_group'];
   protected readonly paymentColumns = ['pay_date', 'service_name', 'pay_service_summ', 'pay_mulct_summ', 'bank_name', 'payment_type_display'];
   protected readonly registrationColumns = ['full_name', 'debtor_role', 'birthday', 'relation_degree_name', 'reg_type_name', 'contacts'];
@@ -485,6 +588,19 @@ export class AccountDetailComponent implements OnInit {
       next: (rows) => this.checks.set(rows),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  protected stageIndex(): number {
+    const code = this.account()?.funnel_stage || 'new';
+    return this.stages.findIndex((stage) => stage.code === code);
+  }
+
+  protected penaltyTotal(): number {
+    return this.services().reduce((sum, row) => sum + Number(row.balance_mulct_out ?? 0), 0);
+  }
+
+  protected checksDone(): number {
+    return this.checks().filter((row) => row.done).length;
   }
 
   checksReady(): boolean {
