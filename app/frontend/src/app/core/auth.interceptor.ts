@@ -5,7 +5,15 @@ import { catchError, switchMap, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
 
 function newRequestId(): string {
-  return crypto.randomUUID().replace(/-/g, '');
+  // randomUUID() есть только в secure context (https или localhost). На http://IP он отсутствует,
+  // и тогда не уходит ни один запрос, включая вход.
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID().replace(/-/g, '');
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return hex;
 }
 
 function withHeaders(req: HttpRequest<unknown>, token: string | null): HttpRequest<unknown> {
