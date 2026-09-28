@@ -5,6 +5,8 @@ $theme: mat.define-theme((
   density: (scale: -1),
 ));
 
+@include mat.core();
+
 html {
   @include mat.all-component-themes($theme);
 }
