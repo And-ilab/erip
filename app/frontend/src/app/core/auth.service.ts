@@ -31,6 +31,18 @@ export class AuthService {
     );
   }
 
+  /** Временный вход без пароля. Список пуст, если заглушка выключена (прод). */
+  stubRoles(): Observable<{ id: string; label: string }[]> {
+    return this.http.get<{ id: string; label: string }[]>('/api/v1/auth/stub-role/');
+  }
+
+  loginAsRole(role: string): Observable<Me> {
+    return this.http.post<{ access: string }>('/api/v1/auth/stub-role/', { role }).pipe(
+      tap((tokens) => this.storeAccess(tokens.access)),
+      switchMap(() => this.loadMe()),
+    );
+  }
+
   refresh(): Observable<string> {
     return this.http.post<{ access: string }>('/api/v1/auth/token/refresh/', {}).pipe(
       map((response) => response.access),

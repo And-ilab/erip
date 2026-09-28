@@ -1,7 +1,7 @@
 """Клиент шлюза оповещений (FastAPI). Вызовы асинхронные (httpx.AsyncClient).
 
 NotificationDispatcher зависит от абстракции GatewayClient: в проде — HttpGatewayClient,
-в тестах — FakeGatewayClient; при выносе шлюза в Go-микросервис меняется только реализация.
+в тестах — FakeGatewayClient; при выносе шлюза в отдельный процесс на Python меняется только реализация.
 """
 
 from __future__ import annotations
