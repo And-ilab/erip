@@ -186,7 +186,9 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     for (const child of placed) {
       const size = Math.min(72, 36 + Math.sqrt(child.accounts) * 6);
       const wrap = document.createElement('div');
-      wrap.style.position = 'relative';
+      wrap.style.position = 'absolute';
+      wrap.style.top = '0';
+      wrap.style.left = '0';
       wrap.style.width = `${size}px`;
       wrap.style.height = `${size}px`;
       const button = document.createElement('button');
