@@ -210,7 +210,8 @@ import {
         <p><a routerLink="/measures">Реестр мероприятий</a></p>
         @for (measure of measures(); track measure.id) {
           <p>
-            {{ measure.kind_display }} · {{ measure.status_display }} · срок {{ measure.due_on || '—' }}
+            <a [routerLink]="['/measures', measure.id]">{{ measure.kind_display }}</a>
+            · {{ measure.status_display }} · срок {{ measure.due_on || '—' }}
             @if (measure.kind === 'disconnect') {
               <button mat-button (click)="confirm(measure, 'suspend', 'pm')">Факт приостановления, ПМ</button>
               <button mat-button (click)="confirm(measure, 'suspend', 'ais')">По данным АИС</button>

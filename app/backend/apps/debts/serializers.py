@@ -2,8 +2,6 @@ from rest_framework import serializers
 
 from apps.nsi.models import DebtGroupScale
 
-from .services.registry import accounts_count, debtor_fields, measure_title, next_action
-
 from .models import (
     Account,
     AccountService,
@@ -12,12 +10,14 @@ from .models import (
     Contact,
     DebtWorkItem,
     Measure,
+    MeasureItem,
     Payment,
     RefreshRequest,
     Registration,
     SavedFilter,
     StatusHistory,
 )
+from .services.registry import accounts_count, debtor_fields, measure_title, next_action
 
 AIS_READ_ONLY = "Данные АИС только для чтения"
 
@@ -362,6 +362,24 @@ class AttachmentSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class MeasureItemSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    call_result_display = serializers.CharField(source="get_call_result_display", read_only=True)
+    delivery_method_display = serializers.CharField(source="get_delivery_method_display", read_only=True)
+    client_account = serializers.CharField(source="account.client_account", read_only=True)
+    debtor_name = serializers.CharField(source="account.short_fio", read_only=True)
+
+    class Meta:
+        model = MeasureItem
+        fields = [
+            "id", "account", "client_account", "debtor_name", "status", "status_display",
+            "phone", "call_result", "call_result_display", "duration_sec", "listen_percent",
+            "recipient", "delivery_error", "delivery_method", "delivery_method_display",
+            "delivered_on", "recipient_name", "refused", "postal_id", "postal_status",
+            "suspended_on", "resumed_on", "note", "warning_item", "acted_at",
+        ]
+
+
 class MeasureSerializer(serializers.ModelSerializer):
     kind_display = serializers.CharField(source="get_kind_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -372,6 +390,8 @@ class MeasureSerializer(serializers.ModelSerializer):
     debtor_id = serializers.SerializerMethodField()
     assignee_name = serializers.SerializerMethodField()
     next_action = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+    account_item_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Measure
@@ -379,7 +399,8 @@ class MeasureSerializer(serializers.ModelSerializer):
             "id", "kind", "kind_display", "status", "status_display", "channel", "template_name",
             "scenario_name", "note", "assignee", "assignee_name", "started_on", "due_on", "days",
             "time_from", "time_to", "created_at", "accounts_count", "artifact", "title",
-            "debtor_name", "debtor_account", "debtor_id", "next_action",
+            "debtor_name", "debtor_account", "debtor_id", "next_action", "progress",
+            "account_item_status", "needs_approval", "approval", "approval_note",
             "suspension_confirmed_on", "suspension_source", "resumed_on", "resume_source",
         ]
 
@@ -411,6 +432,58 @@ class MeasureSerializer(serializers.ModelSerializer):
 
     def get_next_action(self, obj) -> str:
         return next_action(obj)
+
+    def get_progress(self, obj) -> dict:
+        total = obj.__dict__.get("items_total")
+        done = obj.__dict__.get("items_done")
+        if total is None:
+            visible = self.context.get("visible_accounts")
+            qs = obj.items.all()
+            if visible is not None:
+                qs = qs.filter(account__in=visible)
+            total = qs.count()
+            done = qs.filter(status="done").count()
+        return {"total": total or 0, "done": done or 0}
+
+    def get_account_item_status(self, obj) -> str:
+        view = self.context.get("view")
+        if getattr(view, "action", None) != "measures":
+            return ""
+        account_id = getattr(view, "kwargs", {}).get("pk")
+        for item in obj.items.all():
+            if str(item.account_id) == str(account_id):
+                return item.status_display if hasattr(item, "status_display") else item.get_status_display()
+        return ""
+
+
+class MeasureDetailSerializer(MeasureSerializer):
+    items = serializers.SerializerMethodField()
+    events = serializers.SerializerMethodField()
+
+    class Meta(MeasureSerializer.Meta):
+        fields = [*MeasureSerializer.Meta.fields, "items", "events", "call_legal", "group_from", "group_to"]
+
+    def get_items(self, obj):
+        qs = obj.items.select_related("account")
+        visible = self.context.get("visible_accounts")
+        if visible is not None:
+            qs = qs.filter(account__in=visible)
+        return MeasureItemSerializer(qs, many=True).data
+
+    def get_events(self, obj):
+        rows = obj.events.select_related("actor")[:40]
+        return [
+            {
+                "id": row.id,
+                "item": row.item_id,
+                "old_status": row.old_status,
+                "new_status": row.new_status,
+                "reason": row.reason,
+                "actor": row.actor.display_name if row.actor_id else "",
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
 
 
 class RefreshRequestSerializer(serializers.ModelSerializer):

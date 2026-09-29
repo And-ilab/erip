@@ -1,7 +1,7 @@
 import csv
-from datetime import date, timedelta
+from datetime import date
 
-from django.db.models import Count, Max, Min, Q, Sum
+from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -17,7 +17,6 @@ from apps.audit.mixins import AuditedViewSetMixin
 from apps.audit.models import AuditLog
 from apps.audit.services import record_action
 from apps.core.permissions import RolePermission
-from apps.users.models import User
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
 from .filters import AccountFilter, AccountOrderingFilter, ContractFilter, MeasureFilter
@@ -31,10 +30,10 @@ from .models import (
     Payment,
     RefreshRequest,
     Registration,
-    ServiceDebtPeriod,
-    StatusHistory,
     RegistryPreference,
     SavedFilter,
+    ServiceDebtPeriod,
+    StatusHistory,
     Territory,
 )
 from .repositories import AccountRepository
@@ -46,6 +45,7 @@ from .serializers import (
     BalanceHistorySerializer,
     ContactSerializer,
     DebtWorkItemSerializer,
+    MeasureDetailSerializer,
     MeasureSerializer,
     PaymentSerializer,
     RefreshRequestSerializer,
@@ -54,7 +54,6 @@ from .serializers import (
     StatusHistorySerializer,
 )
 from .services.contacts import choose_phone
-from .services.portfolio import AUTO_MEASURES
 from .services.registry import GROUP_LIMIT, REGISTRY_STATUSES, annotate_registry, build_matrix
 from .services.territory import TerritoryIndex, TerritoryMap
 
@@ -103,7 +102,7 @@ def _supplier_measure_filter(user):
 
 
 def _own_measures(user, account):
-    qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks")
+    qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks", "items")
     supplier_filter = _supplier_measure_filter(user)
     if supplier_filter is not None:
         qs = qs.filter(supplier_filter)
@@ -764,6 +763,17 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     filterset_class = MeasureFilter
     audit_list = True
 
+    def get_serializer_class(self):
+        if self.action in {"retrieve", "create", "confirm", "accept", "cancel", "approve", "reject", "deliver", "send", "result"}:
+            return MeasureDetailSerializer
+        return MeasureSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.action not in {"list", "registry", "matrix"}:
+            context["visible_accounts"] = _visible_accounts(self.request.user)
+        return context
+
     def get_queryset(self):
         visible = _visible_accounts(self.request.user)
         base = super().get_queryset()
@@ -825,19 +835,16 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         return Response(payload)
 
     def create(self, request, *args, **kwargs):
-        kind = request.data.get("kind")
-        if kind not in Measure.Kind.values:
-            raise ValidationError({"kind": "Неизвестный вид мероприятия"})
-        accounts = self._selected_accounts(request)
-        if not accounts:
-            raise ValidationError({"accounts": "Не выбраны лицевые счета"})
-        from .services.portfolio import release_expired_inheritance
-
-        for account in accounts:
-            if release_expired_inheritance(account):
-                account.refresh_from_db()
         from .services.contracts import id_list
+        from .services.measures import MeasureLaunchError, launch_measure
 
+        accounts = self._selected_accounts(request)
+        if accounts:
+            accounts = list(
+                Account.objects.filter(pk__in=[account.id for account in accounts]).prefetch_related(
+                    "contacts", "registrations", "services",
+                )
+            )
         requested = id_list(request.data.get("service_ids"))
         allowed = AccessScope(request.user).apply(
             AccountService.objects.filter(account__in=accounts),
@@ -849,99 +856,143 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 raise ValidationError({"service_ids": "Услуга недоступна в вашем контуре"})
         else:
             services = []
-        if kind in Measure.SERVICE_REQUIRED and not services:
-            raise ValidationError({"service_ids": "Выберите услуги для отключения или взыскания"})
-        if getattr(request.user, "contour", "") == "supplier" and kind in {
-            Measure.Kind.CALL, Measure.Kind.NOTICE, Measure.Kind.WARNING,
-            Measure.Kind.DISCONNECT, Measure.Kind.COLLECTION,
-        } and not services:
-            raise ValidationError({"service_ids": "Выберите услуги своего поставщика"})
-        skipped = []
-        if kind in AUTO_MEASURES:
-            blocked = [account for account in accounts if account.inheritance_case]
-            skipped = [account.id for account in blocked]
-            accounts = [account for account in accounts if not account.inheritance_case]
-        if not accounts:
-            raise ValidationError({"accounts": "По всем выбранным ЛС открыто наследственное дело"})
-        started = _parse_date(request.data.get("started_on")) or timezone.localdate()
-        days = request.data.get("days") or None
-        due = _parse_date(request.data.get("due_on"))
-        if due is None:
-            due = started + timedelta(days=int(days)) if days else started
-        template = (request.data.get("template_name") or "").strip()
-        if kind in {Measure.Kind.CALL, Measure.Kind.NOTICE, Measure.Kind.WARNING} and not template:
-            raise ValidationError({"template_name": "Выберите шаблон"})
-        if kind == Measure.Kind.CALL and not (request.data.get("time_from") and request.data.get("time_to")):
-            raise ValidationError({"time_from": "Укажите время с и по"})
-        if kind == Measure.Kind.NOTICE and not request.data.get("channel"):
-            raise ValidationError({"channel": "Выберите канал"})
-        if kind == Measure.Kind.SCENARIO:
-            name = (request.data.get("scenario_name") or "").strip()
-            if not name:
-                raise ValidationError({"scenario_name": "Укажите сценарий"})
-            if not request.data.get("started_on"):
-                raise ValidationError({"started_on": "Укажите дату начала"})
-            Account.objects.filter(pk__in=[account.id for account in accounts]).update(
-                scenario_name=name, scenario_locked=True,
-            )
-        if kind == Measure.Kind.COLLECTION and not request.data.get("assignee"):
-            raise ValidationError({"assignee": "Назначьте исполнителя"})
-        assignee = None
-        if request.data.get("assignee"):
-            assignee = get_object_or_404(User, pk=request.data.get("assignee"))
-        measure = Measure.objects.create(
-            organization=accounts[0].organization, kind=kind, channel=request.data.get("channel") or "",
-            template_name=template, scenario_name=request.data.get("scenario_name") or "",
-            note=request.data.get("note") or "", assignee=assignee,
-            started_on=started, due_on=due, days=int(days) if days else None,
-            time_from=request.data.get("time_from") or None, time_to=request.data.get("time_to") or None,
-            created_by=request.user,
+        try:
+            result = launch_measure(request.user, accounts, services, request.data)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        measure = result["measure"]
+        record_action(
+            request, AuditLog.Action.CREATE, measure,
+            after={"kind": measure.kind, "accounts": measure.accounts.count(), "skipped": result["skipped"]},
         )
-        measure.accounts.set(accounts)
-        if services:
-            measure.services.set(services)
-        if kind == Measure.Kind.CALL:
-            from apps.debts.services.artifacts import attach_call_file
-
-            attach_call_file(measure, accounts)
-        if kind == Measure.Kind.WARNING:
-            from apps.debts.services.artifacts import attach_warning_pdf
-
-            attach_warning_pdf(measure, accounts)
-        if kind == Measure.Kind.COLLECTION:
-            from apps.debts.models import MeasureTask
-
-            MeasureTask.objects.create(
-                organization=measure.organization, measure=measure, assignee=assignee,
-                title=request.data.get("note") or "Подготовить взыскание", due_on=due,
-            )
-        data = MeasureSerializer(measure).data
-        data["skipped_inheritance"] = skipped
-        data["service_ids"] = [service.id for service in services]
+        data = self.get_serializer(measure).data
+        data["skipped"] = result["skipped"]
+        data["skipped_inheritance"] = result["skipped_inheritance"]
+        data["service_ids"] = result["service_ids"]
         return Response(data, status=status.HTTP_201_CREATED)
+
+    def _open_items(self, request, measure):
+        qs = measure.items.filter(account__in=_visible_accounts(request.user))
+        ids = request.data.get("item_ids") or []
+        if ids:
+            qs = qs.filter(pk__in=ids)
+        return list(qs)
+
+    def _act(self, request, measure, runner):
+        from .services.measures import MeasureLaunchError
+
+        try:
+            runner()
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        measure.refresh_from_db()
+        return Response(self.get_serializer(measure).data)
+
+    @action(detail=False, url_path="ready-to-disconnect")
+    def ready_to_disconnect(self, request):
+        from .services.measures import disconnect_candidates
+
+        return Response({"results": disconnect_candidates(_visible_accounts(request.user))})
+
+    @action(detail=True, methods=["post"], url_path="result")
+    def result(self, request, pk=None):
+        measure = self.get_object()
+        item_id = request.data.get("item_id")
+        item = measure.items.filter(pk=item_id, account__in=_visible_accounts(request.user)).first()
+        if item is None:
+            raise ValidationError({"item_id": "Частное мероприятие не найдено"})
+
+        def runner():
+            from .services.measures import record_item
+
+            record_item(measure, item, request.user, request.data)
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"item": item.id, "result": request.data.get("call_result") or request.data.get("status")})
+        return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def deliver(self, request, pk=None):
+        measure = self.get_object()
+
+        def runner():
+            from .services.measures import deliver_warnings
+
+            deliver_warnings(measure, self._open_items(request, measure), request.user, request.data)
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "deliver"})
+        return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def send(self, request, pk=None):
+        measure = self.get_object()
+
+        def runner():
+            from .services.measures import queue_notices
+
+            queue_notices(measure, self._open_items(request, measure), request.user)
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "send"})
+        return self._act(request, measure, runner)
 
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
         measure = self.get_object()
-        if measure.kind != Measure.Kind.DISCONNECT:
-            raise ValidationError({"kind": "Подтверждение относится к приостановлению услуги"})
-        source = request.data.get("source") or "pm"
-        if source not in {"pm", "ais"}:
-            raise ValidationError({"source": "Источник: pm или ais"})
-        step = request.data.get("action")
-        today = timezone.localdate()
-        if step == "suspend":
-            measure.suspension_confirmed_on = today
-            measure.suspension_source = source
-            measure.status = Measure.Status.RUNNING
-        elif step == "resume":
-            measure.resumed_on = today
-            measure.resume_source = source
-            measure.status = Measure.Status.DONE
-        else:
-            raise ValidationError({"action": "suspend или resume"})
-        measure.save()
-        return Response(MeasureSerializer(measure).data)
+
+        def runner():
+            from .services.measures import apply_confirmation
+
+            apply_confirmation(measure, request.data.get("action"), request.data.get("source") or "pm", request.user)
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": request.data.get("action")})
+        return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def accept(self, request, pk=None):
+        measure = self.get_object()
+
+        def runner():
+            from .services.measures import accept_disconnect
+
+            accept_disconnect(measure, request.user)
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "accept"})
+        return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        measure = self.get_object()
+
+        def runner():
+            from .services.measures import decide_approval
+
+            decide_approval(measure, request.user, True, request.data.get("note") or "")
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "approve"})
+        return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        measure = self.get_object()
+
+        def runner():
+            from .services.measures import decide_approval
+
+            decide_approval(measure, request.user, False, request.data.get("note") or "")
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "reject"})
+        return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        measure = self.get_object()
+
+        def runner():
+            from .services.measures import cancel_disconnect
+
+            cancel_disconnect(measure, request.user, request.data.get("reason") or "")
+
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "cancel"})
+        return self._act(request, measure, runner)
 
     def _selected_accounts(self, request):
         base = AccessScope(request.user).apply(
@@ -973,7 +1024,3 @@ def _visible_account(user, account_id) -> Account:
     )
 
 
-def _parse_date(value):
-    if not value:
-        return None
-    return date.fromisoformat(value)

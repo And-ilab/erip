@@ -130,7 +130,10 @@ def test_disconnect_confirmation_and_mobile_hours(api, specialist_a, account_a):
     service = account_a.services.get()
     created = api(specialist_a).post(
         "/api/v1/measures/",
-        {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id]},
+        {
+            "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
+            "override_reason": "Проверка подтверждения приостановления",
+        },
         format="json",
     )
     assert created.status_code == 201
@@ -242,7 +245,10 @@ def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, special
     service = account_a.services.get()
     measure = api(specialist_a).post(
         "/api/v1/measures/",
-        {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id], "started_on": "2026-09-01"},
+        {
+            "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
+            "started_on": "2026-09-01", "override_reason": "Проверка, что дата договора не подтверждает отключение",
+        },
         format="json",
     )
     assert measure.status_code == 201

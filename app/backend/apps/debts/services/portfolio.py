@@ -374,29 +374,27 @@ class PortfolioRefresher:
         return previous + 1
 
     def _close_paid(self, account: Account) -> None:
+        from apps.debts.services.measures import close_paid_measures, note_disconnected_but_paid
+
         threshold = self.settings.close_threshold or Decimal("0")
-        active = [Measure.Status.ASSIGNED, Measure.Status.RUNNING]
         for service in account.services.all():
             balance = service.balance_out if service.balance_out is not None else Decimal("0")
             penalty = service.balance_mulct_out if service.balance_mulct_out is not None else Decimal("0")
             if balance > threshold or penalty > threshold:
                 continue
-            Measure.objects.filter(services=service, status__in=active).update(
-                status=Measure.Status.CANCELLED, updated_at=timezone.now(),
-            )
+            close_paid_measures(account, service)
             if service.scenario_name or service.scenario_locked:
                 service.scenario_name = ""
                 service.scenario_locked = False
                 service.save(update_fields=["scenario_name", "scenario_locked", "updated_at"])
         if account.effective_group is None:
-            Measure.objects.filter(accounts=account, status__in=active).update(
-                status=Measure.Status.CANCELLED, updated_at=timezone.now(),
-            )
+            close_paid_measures(account, None)
             if account.scenario_name or account.scenario_locked:
                 self._log(account, StatusHistory.Kind.SCENARIO, account.scenario_name, "")
                 account.scenario_name = ""
                 account.scenario_locked = False
                 account.save(update_fields=["scenario_name", "scenario_locked", "updated_at"])
+        note_disconnected_but_paid(account)
 
     @staticmethod
     def _log(account, kind, old, new, service=None, reason=""):

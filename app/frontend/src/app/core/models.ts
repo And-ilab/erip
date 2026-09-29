@@ -162,6 +162,8 @@ export interface DialSettings {
   dial_mobile_from_day: number;
   dial_mobile_from_hour: number | null;
   dial_mobile_to_hour: number | null;
+  warning_wait_days?: number;
+  disconnect_requires_approval?: boolean;
 }
 
 export interface ContactRow {
@@ -235,6 +237,86 @@ export interface MeasureRow {
   suspension_source?: string;
   resumed_on?: string | null;
   resume_source?: string;
+  channel?: string;
+  template_name?: string;
+  scenario_name?: string;
+  note?: string;
+  started_on?: string | null;
+  time_from?: string | null;
+  time_to?: string | null;
+  progress?: { total: number; done: number };
+  account_item_status?: string;
+  needs_approval?: boolean;
+  approval?: '' | 'pending' | 'approved' | 'rejected';
+  approval_note?: string;
+  skipped?: MeasureSkip[];
+}
+
+/** ЛС, не прошедший отбор при запуске партии. */
+export interface MeasureSkip {
+  account_id: number;
+  client_account: string;
+  reason: string;
+}
+
+/** Частное мероприятие: один ЛС внутри партии, со своим статусом. */
+export interface MeasureItemRow {
+  id: number;
+  account: number;
+  client_account: string;
+  debtor_name: string;
+  status: string;
+  status_display: string;
+  phone: string;
+  call_result: string;
+  call_result_display: string;
+  duration_sec: number | null;
+  listen_percent: number | null;
+  recipient: string;
+  delivery_error: string;
+  delivery_method: string;
+  delivery_method_display: string;
+  delivered_on: string | null;
+  recipient_name: string;
+  refused: boolean;
+  postal_id: string;
+  postal_status: string;
+  suspended_on: string | null;
+  resumed_on: string | null;
+  note: string;
+  warning_item: number | null;
+  acted_at: string | null;
+}
+
+export interface MeasureEventRow {
+  id: number;
+  item: number | null;
+  old_status: string;
+  new_status: string;
+  reason: string;
+  actor: string;
+  created_at: string;
+}
+
+export interface MeasureDetail extends MeasureRow {
+  items: MeasureItemRow[];
+  events: MeasureEventRow[];
+  call_legal: boolean;
+  group_from: number | null;
+  group_to: number | null;
+}
+
+/** Строка экрана «Готовы к отключению»: срок предупреждения истёк, долг не погашен. */
+export interface DisconnectCandidate {
+  account_id: number;
+  client_account: string;
+  debtor_name: string;
+  warning_item_id: number;
+  delivered_on: string;
+  warning_due: string;
+  refused: boolean;
+  requires_approval: boolean;
+  services: { id: number; name: string }[];
 }
 
 export interface MeasureGroup {

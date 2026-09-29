@@ -2,9 +2,8 @@
 
 from datetime import date, datetime, time
 
-from apps.nsi.models import CalculationSettings
-
 from apps.debts.models import Account, Contact
+from apps.nsi.models import CalculationSettings
 
 
 def _mobile_hours(hour: int, start: int | None, end: int | None) -> bool:

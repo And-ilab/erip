@@ -44,7 +44,7 @@ class CalculationSettingsSerializer(serializers.ModelSerializer):
         model = CalculationSettings
         fields = [
             "rating_period_months", "close_threshold", "payment_due_day", "dial_mobile_from_day",
-            "dial_mobile_from_hour", "dial_mobile_to_hour",
+            "dial_mobile_from_hour", "dial_mobile_to_hour", "warning_wait_days", "disconnect_requires_approval",
         ]
 
 

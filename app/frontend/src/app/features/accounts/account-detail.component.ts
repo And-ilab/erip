@@ -287,8 +287,9 @@ import {
           <mat-tab label="Мероприятия">
             <p><a routerLink="/measures">Реестр мероприятий</a></p>
             <table mat-table [dataSource]="measures()">
-              <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r">{{ r.kind_display }}</td></ng-container>
-              <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус</th><td mat-cell *matCellDef="let r"><span class="chip">{{ r.status_display }}</span></td></ng-container>
+              <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/measures', r.id]">{{ r.kind_display }}</a></td></ng-container>
+              <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус партии</th><td mat-cell *matCellDef="let r"><span class="chip">{{ r.status_display }}</span></td></ng-container>
+              <ng-container matColumnDef="account_item_status"><th mat-header-cell *matHeaderCellDef>По этому ЛС</th><td mat-cell *matCellDef="let r">{{ r.account_item_status || '—' }}</td></ng-container>
               <ng-container matColumnDef="due_on"><th mat-header-cell *matHeaderCellDef>Срок</th><td mat-cell *matCellDef="let r">{{ r.due_on }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="measureColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: measureColumns"></tr>
@@ -411,7 +412,7 @@ export class AccountDetailComponent implements OnInit {
   protected readonly workColumns = ['kind_display', 'title', 'started_on', 'ended_on', 'principal', 'penalty', 'paid_principal'];
   protected readonly contactColumns = ['kind', 'value', 'source', 'priority', 'actions'];
   protected readonly fileColumns = ['doc_type', 'original_name'];
-  protected readonly measureColumns = ['kind_display', 'status_display', 'due_on'];
+  protected readonly measureColumns = ['kind_display', 'status_display', 'account_item_status', 'due_on'];
   protected readonly balances = signal<BalanceRow[]>([]);
   protected readonly history = signal<HistoryRow[]>([]);
   protected readonly work = signal<WorkItem[]>([]);

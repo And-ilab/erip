@@ -1,7 +1,6 @@
 """Представление реестра мероприятий (ТЗ 4.2.3.6).
 
-Мероприятие в модели одно на партию ЛС: отдельной «частной» записи со своим статусом нет.
-Реестр показывает эту партию. Состав ЛС внутри партии режется тем же контуром, что и реестр счетов.
+В списке — партия. Частные мероприятия по ЛС живут отдельно и режутся тем же контуром, что реестр счетов.
 """
 
 import calendar
@@ -77,6 +76,12 @@ def annotate_registry(qs: QuerySet, visible: QuerySet, search: str = "") -> Quer
     preferred = _sample(visible_ids, search)
     return qs.select_related("assignee").annotate(
         accounts_count=Count("accounts", filter=Q(accounts__in=visible_ids), distinct=True),
+        items_total=Count("items", filter=Q(items__account__in=visible_ids), distinct=True),
+        items_done=Count(
+            "items",
+            filter=Q(items__account__in=visible_ids, items__status=Measure.Status.DONE),
+            distinct=True,
+        ),
         debtor_name=Coalesce(
             Subquery(preferred.values("short_fio")[:1]),
             Subquery(any_account.values("short_fio")[:1]),
@@ -137,6 +142,8 @@ def _day(value: date | None) -> str:
 
 
 def next_action(measure: Measure) -> str:
+    if getattr(measure, "approval", "") == "pending":
+        return "Ожидает согласования"
     if measure.status == Measure.Status.FAILED:
         return (measure.note or "").strip() or "Проверьте результат"
     if measure.status == Measure.Status.CANCELLED:

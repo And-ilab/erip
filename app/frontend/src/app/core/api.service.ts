@@ -16,10 +16,12 @@ import {
   CalendarEvent,
   ContactRow,
   DebtorCategory,
+  DisconnectCandidate,
   ErrorLogEntry,
   HistoryRow,
   KanbanColumn,
   MapLevel,
+  MeasureDetail,
   MeasureGroup,
   MeasureMatrix,
   MeasureRow,
@@ -229,6 +231,43 @@ export class ApiService {
 
   createMeasure(body: Record<string, unknown>): Observable<MeasureRow> {
     return this.http.post<MeasureRow>(`${this.base}/measures/`, body);
+  }
+
+  measure(id: number): Observable<MeasureDetail> {
+    return this.http.get<MeasureDetail>(`${this.base}/measures/${id}/`);
+  }
+
+  /** Результат по одному ЛС: обзвон передаёт call_result, остальные виды — status. */
+  recordMeasureItem(id: number, body: Record<string, unknown>): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/result/`, body);
+  }
+
+  deliverWarning(id: number, body: Record<string, unknown>): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/deliver/`, body);
+  }
+
+  sendNotices(id: number, itemIds: number[]): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/send/`, { item_ids: itemIds });
+  }
+
+  acceptMeasure(id: number): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/accept/`, {});
+  }
+
+  approveMeasure(id: number, note: string): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/approve/`, { note });
+  }
+
+  rejectMeasure(id: number, note: string): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/reject/`, { note });
+  }
+
+  cancelMeasure(id: number, reason: string): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/cancel/`, { reason });
+  }
+
+  readyToDisconnect(): Observable<{ results: DisconnectCandidate[] }> {
+    return this.http.get<{ results: DisconnectCandidate[] }>(`${this.base}/measures/ready-to-disconnect/`);
   }
 
   grouped(params: Params): Observable<{ value: string; accounts: number; debt: string | null }[]> {

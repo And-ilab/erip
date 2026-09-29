@@ -1,15 +1,18 @@
+import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { FormControl, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
-import { MeasureGroup, MeasureMatrix } from '../../core/models';
+import { DisconnectCandidate, MeasureGroup, MeasureMatrix } from '../../core/models';
 
 const MONTHS = [
   'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
@@ -20,8 +23,8 @@ const MONTHS = [
   selector: 'app-measures-list',
   standalone: true,
   imports: [
-    ReactiveFormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule, MatIconModule,
-    MatTooltipModule,
+    DatePipe, FormsModule, ReactiveFormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
+    MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
     <div class="page">
@@ -33,21 +36,30 @@ const MONTHS = [
         <button mat-icon-button [class.active]="view() === 'matrix'" matTooltip="Матрица по типам" (click)="show('matrix')">
           <mat-icon>grid_on</mat-icon>
         </button>
+        <button
+          mat-icon-button
+          [class.active]="view() === 'ready'"
+          matTooltip="Готовы к отключению"
+          (click)="show('ready')">
+          <mat-icon>power_off</mat-icon>
+        </button>
       </div>
 
-      <div class="filters">
-        <mat-form-field class="search">
-          <mat-label>Поиск по ЛС, должнику, типу мероприятия</mat-label>
-          <input matInput [formControl]="search" />
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Период</mat-label>
-          <input matInput type="month" [formControl]="period" />
-        </mat-form-field>
-        @if (period.value) {
-          <button type="button" class="chip" (click)="period.setValue('')">Период: {{ periodLabel(period.value) }} ×</button>
-        }
-      </div>
+      @if (view() !== 'ready') {
+        <div class="filters">
+          <mat-form-field class="search">
+            <mat-label>Поиск по ЛС, должнику, типу мероприятия</mat-label>
+            <input matInput [formControl]="search" />
+          </mat-form-field>
+          <mat-form-field>
+            <mat-label>Период</mat-label>
+            <input matInput type="month" [formControl]="period" />
+          </mat-form-field>
+          @if (period.value) {
+            <button type="button" class="chip" (click)="period.setValue('')">Период: {{ periodLabel(period.value) }} ×</button>
+          }
+        </div>
+      }
 
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
 
@@ -77,7 +89,10 @@ const MONTHS = [
                   @for (row of group.results; track row.id) {
                     <tr>
                       <td>
-                        <div class="title">{{ row.title }}</div>
+                        <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
+                        @if (row.progress && row.progress.total) {
+                          <div class="muted">ЛС завершено {{ row.progress.done }} из {{ row.progress.total }}</div>
+                        }
                         @if (row.artifact) { <a [href]="row.artifact">Файл</a> }
                       </td>
                       <td>
@@ -148,7 +163,7 @@ const MONTHS = [
                         @for (kind of grid.kinds; track kind.code) {
                           <td>
                             @if (row.cells[kind.code]; as cell) {
-                              <span class="cell {{ cell.tone }}">{{ cell.label }}</span>
+                              <a class="cell {{ cell.tone }}" [routerLink]="['/measures', cell.measure_id]">{{ cell.label }}</a>
                             } @else {
                               <span class="muted">—</span>
                             }
@@ -162,6 +177,70 @@ const MONTHS = [
             }
           </section>
         }
+      }
+
+      @if (view() === 'ready') {
+        <section class="surface group">
+          <div class="group-head">
+            <span>Срок предупреждения истёк</span>
+            <span class="muted">({{ candidates().length }})</span>
+          </div>
+          <p class="muted pad">
+            Лицевые счета, где предупреждение вручено, срок оплаты прошёл, долг не погашен и услугу можно
+            отключать за неоплату. Отметьте услуги и сформируйте задание поставщику.
+          </p>
+          @if (!candidates().length) {
+            <p class="muted pad">Счетов, готовых к отключению, сейчас нет.</p>
+          } @else {
+            <table>
+              <thead>
+                <tr>
+                  <th class="tick"></th>
+                  <th>Должник</th>
+                  <th>Предупреждение вручено</th>
+                  <th>Срок оплаты истёк</th>
+                  <th>Услуги</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of candidates(); track row.account_id) {
+                  <tr>
+                    <td class="tick">
+                      <mat-checkbox [checked]="picked().has(row.account_id)" (change)="pickAccount(row)" />
+                    </td>
+                    <td>
+                      <a [routerLink]="['/accounts', row.account_id]">{{ row.debtor_name || 'ЛС' }}</a>
+                      <div class="muted">ЛС {{ row.client_account }}</div>
+                      @if (row.refused) { <div class="muted">вручено по акту об отказе</div> }
+                    </td>
+                    <td>{{ row.delivered_on | date: 'dd.MM.yyyy' }}</td>
+                    <td>
+                      {{ row.warning_due | date: 'dd.MM.yyyy' }}
+                      @if (row.requires_approval) { <div class="muted">нужно согласование</div> }
+                    </td>
+                    <td>
+                      @for (service of row.services; track service.id) {
+                        <div>
+                          <mat-checkbox
+                            [checked]="services().has(service.id)"
+                            (change)="pickService(row, service.id)">
+                            {{ service.name }}
+                          </mat-checkbox>
+                        </div>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <div class="more">
+              <span class="muted">Отмечено счетов: {{ picked().size }}</span>
+              <button mat-flat-button color="primary" [disabled]="busy() || !picked().size" (click)="launch()">
+                Сформировать задание на отключение
+              </button>
+            </div>
+          }
+        </section>
       }
     </div>
   `,
@@ -194,6 +273,9 @@ const MONTHS = [
     .pill.paused { background: var(--erip-warning-soft); color: var(--erip-warning); }
     .pill.cancelled { background: #f3f4f6; color: var(--erip-muted); }
     .more { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 12px 12px; }
+    .tick { width: 40px; }
+    .pad { padding: 0 12px 8px; }
+    a.cell { text-decoration: none; }
     h3 { margin: 0; padding: 12px 12px 0; font-size: 15px; color: var(--erip-primary-dark); }
     .matrix-wrap { overflow: auto; }
     .matrix { min-width: 860px; }
@@ -210,15 +292,21 @@ const MONTHS = [
 })
 export class MeasuresListComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
+  private readonly snack = inject(MatSnackBar);
 
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly period = new FormControl('', { nonNullable: true });
-  protected readonly view = signal<'list' | 'matrix'>('list');
+  protected readonly view = signal<'list' | 'matrix' | 'ready'>('list');
   protected readonly groups = signal<MeasureGroup[]>([]);
   protected readonly matrix = signal<MeasureMatrix | null>(null);
+  protected readonly candidates = signal<DisconnectCandidate[]>([]);
+  protected readonly picked = signal<Set<number>>(new Set());
+  protected readonly services = signal<Set<number>>(new Set());
   protected readonly collapsed = signal<Set<string>>(new Set());
   protected readonly error = signal('');
   protected readonly loaded = signal(false);
+  protected readonly busy = signal(false);
   private request = 0;
 
   ngOnInit(): void {
@@ -227,9 +315,59 @@ export class MeasuresListComponent implements OnInit {
     this.load();
   }
 
-  protected show(mode: 'list' | 'matrix'): void {
+  protected show(mode: 'list' | 'matrix' | 'ready'): void {
     this.view.set(mode);
     this.load();
+  }
+
+  /** Отметка счёта тянет за собой его услуги: отключать нечего, если ни одна не выбрана. */
+  protected pickAccount(row: DisconnectCandidate): void {
+    const accounts = new Set(this.picked());
+    const services = new Set(this.services());
+    if (accounts.has(row.account_id)) {
+      accounts.delete(row.account_id);
+      for (const service of row.services) services.delete(service.id);
+    } else {
+      accounts.add(row.account_id);
+      for (const service of row.services) services.add(service.id);
+    }
+    this.picked.set(accounts);
+    this.services.set(services);
+  }
+
+  protected pickService(row: DisconnectCandidate, id: number): void {
+    const services = new Set(this.services());
+    if (services.has(id)) services.delete(id);
+    else services.add(id);
+    this.services.set(services);
+    const accounts = new Set(this.picked());
+    if (row.services.some((service) => services.has(service.id))) accounts.add(row.account_id);
+    else accounts.delete(row.account_id);
+    this.picked.set(accounts);
+  }
+
+  protected launch(): void {
+    const accounts = [...this.picked()];
+    const services = this.candidates()
+      .filter((row) => this.picked().has(row.account_id))
+      .flatMap((row) => row.services.map((service) => service.id))
+      .filter((id) => this.services().has(id));
+    if (!services.length) {
+      this.snack.open('Отметьте хотя бы одну услугу', 'OK');
+      return;
+    }
+    this.busy.set(true);
+    this.api.createMeasure({ kind: 'disconnect', account_ids: accounts, service_ids: services }).subscribe({
+      next: (measure) => {
+        this.busy.set(false);
+        this.snack.open('Задание на отключение создано', 'OK', { duration: 3000 });
+        this.router.navigate(['/measures', measure.id]);
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.snack.open(errorMessage(err), 'OK');
+      },
+    });
   }
 
   protected toggle(status: string): void {
@@ -291,6 +429,20 @@ export class MeasuresListComponent implements OnInit {
     const current = ++this.request;
     const params = this.params();
     this.error.set('');
+    if (this.view() === 'ready') {
+      this.api.readyToDisconnect().subscribe({
+        next: (payload) => {
+          if (current !== this.request) return;
+          this.candidates.set(payload.results);
+          this.picked.set(new Set());
+          this.services.set(new Set());
+        },
+        error: (err) => {
+          if (current === this.request) this.error.set(errorMessage(err));
+        },
+      });
+      return;
+    }
     if (this.view() === 'matrix') {
       this.api.measureMatrix(params).subscribe({
         next: (payload) => {

@@ -90,6 +90,12 @@ class CalculationSettings(TimeStampedModel):
     dial_mobile_to_hour = models.PositiveSmallIntegerField(
         "До этого часа только мобильный", null=True, blank=True,
     )
+    warning_wait_days = models.PositiveSmallIntegerField(
+        "Дней на оплату после вручения предупреждения", default=5,
+    )
+    disconnect_requires_approval = models.BooleanField(
+        "Отключение только после согласования", default=False,
+    )
 
     class Meta:
         verbose_name = "Параметры расчёта"

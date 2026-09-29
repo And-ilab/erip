@@ -2,9 +2,8 @@
 
 import csv
 import io
-from pathlib import Path
-
 from datetime import date
+from pathlib import Path
 
 from django.core.files.base import ContentFile
 

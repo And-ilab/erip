@@ -8,9 +8,8 @@ from django.db.models import Case, CharField, Count, IntegerField, Max, Min, Sum
 from django.db.models.functions import Cast, Coalesce, NullIf
 from rest_framework.exceptions import ValidationError
 
-from apps.users.scoping import AccessScope
-
 from apps.debts.services.portfolio import debtor_peers
+from apps.users.scoping import AccessScope
 
 # Поля лицевого счёта, которые поставщик меняет со своей карточки договора.
 SUPPLIER_ACCOUNT_FIELDS = frozenset({

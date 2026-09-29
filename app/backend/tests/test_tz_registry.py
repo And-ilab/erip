@@ -135,7 +135,10 @@ def test_disconnect_requires_a_service_and_payment_cancels_it(api, specialist_a,
     service = account_a.services.get()
     created = api(specialist_a).post(
         "/api/v1/measures/",
-        {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id], "started_on": "2026-09-01", "days": 10},
+        {
+            "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
+            "started_on": "2026-09-01", "days": 10, "override_reason": "Проверка закрытия при оплате",
+        },
         format="json",
     )
     assert created.status_code == 201

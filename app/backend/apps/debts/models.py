@@ -556,10 +556,7 @@ class Attachment(AisRecord):
 
 
 class Measure(AisRecord):
-    """Списочное мероприятие: одна запись на партию ЛС, статус общий.
-
-    Отдельного «частного» мероприятия со своим статусом в модели нет.
-    """
+    """Списочное мероприятие: партия ЛС. Статус партии считается по частным записям."""
 
     class Kind(models.TextChoices):
         CALL = "call", "Автообзвон"
@@ -602,6 +599,12 @@ class Measure(AisRecord):
     created_by = models.ForeignKey(
         "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="measures", verbose_name="Автор",
     )
+    call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
+    group_from = models.PositiveSmallIntegerField("Группа с", null=True, blank=True)
+    group_to = models.PositiveSmallIntegerField("Группа по", null=True, blank=True)
+    needs_approval = models.BooleanField("Нужно согласование", default=False)
+    approval = models.CharField("Решение по согласованию", max_length=20, blank=True)
+    approval_note = models.CharField("Комментарий согласования", max_length=500, blank=True)
     accounts = models.ManyToManyField(Account, related_name="measures", verbose_name="Лицевые счета")
     services = models.ManyToManyField(AccountService, blank=True, related_name="measures", verbose_name="Услуги")
 
@@ -609,6 +612,88 @@ class Measure(AisRecord):
         ordering = ["-created_at"]
         verbose_name = "Мероприятие"
         verbose_name_plural = "Мероприятия"
+
+
+class MeasureItem(AisRecord):
+    """Частное мероприятие: один ЛС внутри партии, со своим статусом."""
+
+    class Status(models.TextChoices):
+        ASSIGNED = "assigned", "Назначено"
+        RUNNING = "running", "Выполняется"
+        DONE = "done", "Завершено"
+        CANCELLED = "cancelled", "Прервано пользователем"
+        FAILED = "failed", "Завершено с ошибкой"
+
+    class CallResult(models.TextChoices):
+        ANSWERED = "answered", "Дозвон"
+        NO_ANSWER = "no_answer", "Недозвон"
+        BUSY = "busy", "Занято"
+        BAD_NUMBER = "bad_number", "Неверный номер"
+
+    class DeliveryMethod(models.TextChoices):
+        PERSONAL = "personal", "Лично под роспись"
+        REGISTERED = "registered", "Заказное письмо"
+        ADMINISTRATION = "administration", "Через администрацию учреждения"
+
+    measure = models.ForeignKey(Measure, on_delete=models.CASCADE, related_name="items", verbose_name="Партия")
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="measure_items", verbose_name="ЛС")
+    warning_item = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="disconnects",
+        verbose_name="Предупреждение",
+    )
+    status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.ASSIGNED)
+    phone = models.CharField("Телефон", max_length=20, blank=True)
+    call_result = models.CharField("Результат звонка", max_length=20, choices=CallResult.choices, blank=True)
+    duration_sec = models.PositiveIntegerField("Длительность, с", null=True, blank=True)
+    listen_percent = models.PositiveSmallIntegerField("Доля прослушивания, %", null=True, blank=True)
+    recipient = models.CharField("Адресат", max_length=250, blank=True)
+    delivery_error = models.CharField("Ошибка доставки", max_length=500, blank=True)
+    notification_id = models.PositiveIntegerField("Оповещение", null=True, blank=True)
+    delivery_method = models.CharField(
+        "Способ вручения", max_length=20, choices=DeliveryMethod.choices, blank=True,
+    )
+    delivered_on = models.DateField("Дата вручения или акта", null=True, blank=True)
+    recipient_name = models.CharField("ФИО получившего", max_length=250, blank=True)
+    refused = models.BooleanField("Отказ или невручение", default=False)
+    postal_id = models.CharField("Почтовый идентификатор", max_length=50, blank=True)
+    postal_status = models.CharField("Статус отправления", max_length=50, blank=True)
+    suspended_on = models.DateField("Дата приостановления", null=True, blank=True)
+    resumed_on = models.DateField("Дата возобновления", null=True, blank=True)
+    note = models.CharField("Примечание", max_length=500, blank=True)
+    acted_by = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="measure_item_actions",
+        verbose_name="Кто зафиксировал",
+    )
+    acted_at = models.DateTimeField("Когда зафиксировано", null=True, blank=True)
+
+    class Meta:
+        ordering = ["account_id", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["measure", "account"], name="uniq_measure_item"),
+        ]
+        verbose_name = "Частное мероприятие"
+        verbose_name_plural = "Частные мероприятия"
+
+
+class MeasureEvent(TimeStampedModel):
+    """Переход статуса частного или списочного мероприятия."""
+
+    measure = models.ForeignKey(Measure, on_delete=models.CASCADE, related_name="events", verbose_name="Партия")
+    item = models.ForeignKey(
+        MeasureItem, null=True, blank=True, on_delete=models.CASCADE, related_name="events",
+        verbose_name="Частное мероприятие",
+    )
+    actor = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Автор",
+    )
+    old_status = models.CharField("Было", max_length=20, blank=True)
+    new_status = models.CharField("Стало", max_length=20, blank=True)
+    reason = models.CharField("Основание", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "Событие мероприятия"
+        verbose_name_plural = "События мероприятий"
 
 
 class MeasureTask(AisRecord):
