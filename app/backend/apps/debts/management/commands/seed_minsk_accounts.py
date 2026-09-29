@@ -9,6 +9,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.debts.models import Account
+from apps.debts.services.portfolio import rating_letter
 from apps.debts.services.territory import KNOWN_POINTS, TerritoryIndex
 
 # Как у уже загруженных пяти: одна схема, поставщик 501, этап «новый», сальдо порядка десятка.
@@ -62,14 +63,32 @@ class Command(BaseCommand):
                     "subj_count": subj,
                     "funnel_stage": "new",
                     "months_debt": group,
+                    "rating": rating_letter(group, False),
                 },
             )
             created += int(was_created)
+        rated = self._fill_ratings(sample.organization_id, sample.provider_id)
         linked = TerritoryIndex().assign_queryset(
             Account.objects.filter(organization=sample.organization, account_id__gte=6, account_id__lte=25)
         )
-        self.stdout.write(f"Новых лицевых счетов: {created}. Привязок обновлено: {linked}")
+        self.stdout.write(f"Новых лицевых счетов: {created}. Привязок обновлено: {linked}. Рейтингов проставлено: {rated}")
         self._report()
+
+    @staticmethod
+    def _fill_ratings(organization_id, provider_id) -> int:
+        """Буква по группе, если расчёт портфеля её ещё не записал."""
+        updated = 0
+        pending = Account.objects.filter(
+            organization_id=organization_id, provider_id=provider_id, account_id__lte=25, rating="",
+        )
+        for account in pending:
+            letter = rating_letter(account.debt_group, False)
+            if not letter:
+                continue
+            account.rating = letter
+            account.save(update_fields=["rating", "updated_at"])
+            updated += 1
+        return updated
 
     def _report(self):
         for account in Account.objects.filter(account_id__gte=6, account_id__lte=25).select_related("territory"):

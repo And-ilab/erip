@@ -37,6 +37,7 @@ class AccountFilter(django_filters.FilterSet):
     balance_out__gte = django_filters.NumberFilter(field_name="balance_out", lookup_expr="gte")
     balance_out__lte = django_filters.NumberFilter(field_name="balance_out", lookup_expr="lte")
     rating = django_filters.CharFilter(field_name="rating")
+    rating__in = django_filters.BaseInFilter(field_name="rating")
     funnel_stage = django_filters.CharFilter(field_name="funnel_stage")
     assigned_to = django_filters.NumberFilter(field_name="assigned_to")
     debtor_category = django_filters.NumberFilter(field_name="debtor_category")

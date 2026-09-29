@@ -55,8 +55,8 @@ type CustomField = 'group' | 'rating' | 'stage';
             @if (groupsSelected.value.length) {
               <button type="button" class="fchip" (click)="clearGroups($event)">Группа: {{ groupsSelected.value.join(', ') }} ×</button>
             }
-            @if (rating.value) {
-              <button type="button" class="fchip" (click)="clearRating($event)">Рейтинг: {{ rating.value }} ×</button>
+            @if (rating.value.length) {
+              <button type="button" class="fchip" (click)="clearRating($event)">Рейтинг: {{ rating.value.join(', ') }} ×</button>
             }
             @if (stage.value) {
               <button type="button" class="fchip" (click)="clearStage($event)">Этап: {{ stageLabel(stage.value) }} ×</button>
@@ -87,7 +87,7 @@ type CustomField = 'group' | 'rating' | 'stage';
                 <div class="sub">Рейтинг</div>
                 <div class="pills">
                   @for (letter of letters; track letter) {
-                    <button type="button" class="pill" [class.on]="rating.value === letter" (click)="setRating(letter)">{{ letter }}</button>
+                    <button type="button" class="pill" [class.on]="rating.value.includes(letter)" (click)="toggleRating(letter)">{{ letter }}</button>
                   }
                 </div>
                 <div class="sub">Этап</div>
@@ -424,7 +424,7 @@ export class AccountsListComponent implements OnInit {
   protected readonly groupedRows = signal<{ value: string; accounts: number; debt: string | null }[]>([]);
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly groupsSelected = new FormControl<number[]>([], { nonNullable: true });
-  protected readonly rating = new FormControl('', { nonNullable: true });
+  protected readonly rating = new FormControl<string[]>([], { nonNullable: true });
   protected readonly stage = new FormControl('', { nonNullable: true });
   protected readonly groupBy = new FormControl('', { nonNullable: true });
   protected readonly filterName = new FormControl('', { nonNullable: true });
@@ -500,8 +500,12 @@ export class AccountsListComponent implements OnInit {
     this.groupsSelected.setValue(next);
   }
 
-  setRating(letter: string): void {
-    this.rating.setValue(this.rating.value === letter ? '' : letter);
+  toggleRating(letter: string): void {
+    const current = this.rating.value;
+    const next = current.includes(letter)
+      ? current.filter((item) => item !== letter)
+      : [...current, letter].sort();
+    this.rating.setValue(next);
   }
 
   setStage(id: string): void {
@@ -519,7 +523,7 @@ export class AccountsListComponent implements OnInit {
 
   clearRating(event: Event): void {
     event.stopPropagation();
-    this.rating.setValue('');
+    this.rating.setValue([]);
   }
 
   clearStage(event: Event): void {
@@ -544,7 +548,7 @@ export class AccountsListComponent implements OnInit {
       const group = Number(value);
       if (!this.groupsSelected.value.includes(group)) this.toggleGroup(group);
     }
-    if (this.customField.value === 'rating') this.rating.setValue(value);
+    if (this.customField.value === 'rating' && !this.rating.value.includes(value)) this.toggleRating(value);
     if (this.customField.value === 'stage') this.stage.setValue(value);
     this.customOpen.set(false);
   }
@@ -645,7 +649,7 @@ export class AccountsListComponent implements OnInit {
     if (!item) return;
     this.search.setValue(String(item.query['q'] ?? ''), { emitEvent: false });
     this.groupsSelected.setValue(this.parseGroups(item.query['debt_group__in']), { emitEvent: false });
-    this.rating.setValue(String(item.query['rating'] ?? ''), { emitEvent: false });
+    this.rating.setValue(this.parseRatings(item.query['rating__in'] ?? item.query['rating']), { emitEvent: false });
     this.stage.setValue(String(item.query['funnel_stage'] ?? ''), { emitEvent: false });
     this.groupBy.setValue(String(item.query['group_by'] ?? ''), { emitEvent: false });
     this.panelOpen.set(false);
@@ -704,12 +708,16 @@ export class AccountsListComponent implements OnInit {
     return String(value ?? '').split(',').map((item) => Number(item)).filter((item) => item > 0);
   }
 
+  private parseRatings(value: unknown): string[] {
+    return String(value ?? '').split(',').map((item) => item.trim()).filter((item) => this.letters.includes(item));
+  }
+
   private query(): Record<string, string | number | null> {
     const selected = this.groupsSelected.value;
     return {
       q: this.search.value,
       debt_group__in: selected.length ? selected.join(',') : null,
-      rating: this.rating.value,
+      rating__in: this.rating.value.length ? this.rating.value.join(',') : null,
       funnel_stage: this.stage.value,
       group_by: this.groupBy.value,
       territory: this.territoryId(),

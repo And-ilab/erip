@@ -224,3 +224,12 @@ def test_registry_filters_several_groups(api, specialist_a, account_a, ready):
     assert listed["count"] == 1
     grouped = api(specialist_a).get("/api/v1/accounts/grouped/?group_by=debt_group").json()
     assert any(row["value"] == "3" for row in grouped)
+
+
+def test_registry_filters_several_ratings(api, specialist_a, account_a, ready):
+    account_a.rating = "B"
+    account_a.save()
+    listed = api(specialist_a).get("/api/v1/accounts/?rating__in=B,C").json()
+    assert listed["count"] == 1
+    empty = api(specialist_a).get("/api/v1/accounts/?rating__in=D,E").json()
+    assert empty["count"] == 0
