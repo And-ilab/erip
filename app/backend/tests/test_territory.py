@@ -45,6 +45,36 @@ def test_minsk_district_and_microdistrict_sit_under_the_city(org_a):
     ]
 
 
+def test_known_point_replaces_an_earlier_offset(org_a):
+    account = make_account(
+        org_a, 31,
+        house_address="Минская обл., Дзержинский район, г. Фаниполь, ул. Ленина, д. 3",
+    )
+    TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    district = account.territory.parent.parent.parent
+    assert district.name_key == "дзержинский"
+    district.latitude = 1
+    district.longitude = 1
+    district.save(update_fields=["latitude", "longitude"])
+    TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))
+    district.refresh_from_db()
+    assert float(district.latitude) == 53.720
+    assert float(district.longitude) == 27.250
+
+
+def test_known_minsk_street_uses_its_point(org_a):
+    account = make_account(org_a, 30, house_address="г. Минск, Центральный район, ул. Немига, д. 5, кв. 2")
+    TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    street = account.territory.parent
+    assert street.name == "ул. Немига"
+    assert float(street.latitude) == 53.9054
+    assert float(street.longitude) == 27.5512
+    assert abs(float(account.territory.latitude) - 53.9054) < 0.01
+    assert abs(float(account.territory.longitude) - 27.5512) < 0.01
+
+
 def test_blank_address_stays_unplaced(org_a):
     account = make_account(org_a, 4, house_address="")
     TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))

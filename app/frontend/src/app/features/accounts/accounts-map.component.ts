@@ -184,37 +184,45 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     this.clearMarkers();
     const placed = level.children.filter((child) => child.longitude != null && child.latitude != null);
     for (const child of placed) {
-      const size = Math.min(112, 56 + Math.sqrt(child.accounts) * 8);
+      const size = Math.min(72, 36 + Math.sqrt(child.accounts) * 6);
+      const wrap = document.createElement('div');
+      wrap.style.position = 'relative';
+      wrap.style.width = `${size}px`;
+      wrap.style.height = `${size}px`;
       const button = document.createElement('button');
       button.type = 'button';
-      button.style.width = `${size}px`;
-      button.style.height = `${size}px`;
+      button.style.width = '100%';
+      button.style.height = '100%';
+      button.style.margin = '0';
+      button.style.padding = '0';
+      button.style.boxSizing = 'border-box';
       button.style.background = this.color(child.dominant_group);
       button.style.border = '2px solid #fff';
       button.style.borderRadius = '999px';
       button.style.color = '#fff';
-      button.style.display = 'flex';
-      button.style.flexDirection = 'column';
-      button.style.alignItems = 'center';
-      button.style.justifyContent = 'center';
+      button.style.font = '700 15px Roboto, Segoe UI, sans-serif';
       button.style.boxShadow = '0 2px 8px rgba(0,0,0,.25)';
       button.style.cursor = 'pointer';
-      button.style.lineHeight = '1.1';
-      button.style.padding = '4px';
-      const strong = document.createElement('strong');
-      strong.textContent = String(child.accounts);
-      strong.style.fontSize = '16px';
-      const span = document.createElement('span');
-      span.textContent = child.name;
-      span.style.fontSize = '11px';
-      span.style.textAlign = 'center';
-      button.append(strong, span);
-      button.title = this.hint(child);
+      button.textContent = String(child.accounts);
+      const label = document.createElement('span');
+      label.textContent = child.name;
+      label.style.position = 'absolute';
+      label.style.top = '100%';
+      label.style.left = '50%';
+      label.style.transform = 'translateX(-50%)';
+      label.style.marginTop = '2px';
+      label.style.whiteSpace = 'nowrap';
+      label.style.font = '600 11px Roboto, Segoe UI, sans-serif';
+      label.style.color = '#1f2933';
+      label.style.textShadow = '0 0 3px #fff, 0 0 3px #fff';
+      label.style.pointerEvents = 'none';
+      wrap.append(button, label);
+      wrap.title = this.hint(child);
       button.addEventListener('click', (event) => {
         event.stopPropagation();
         this.open(child);
       });
-      const marker = new maplibregl.Marker({ element: button, anchor: 'center' })
+      const marker = new maplibregl.Marker({ element: wrap, anchor: 'center' })
         .setLngLat([child.longitude as number, child.latitude as number])
         .addTo(map);
       this.markers.push(marker);
