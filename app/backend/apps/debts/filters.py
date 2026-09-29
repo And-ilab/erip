@@ -119,7 +119,10 @@ class MeasureFilter(django_filters.FilterSet):
         if not text:
             return queryset
         needle = text.casefold()
-        kinds = [code for code, label in Measure.Kind.choices if needle in label.casefold()]
+        kinds = [
+            code for code, label in Measure.Kind.choices
+            if len(needle) >= 4 and label.casefold().startswith(needle)
+        ]
         condition = (
             Q(accounts__client_account__icontains=text)
             | Q(accounts__short_fio__icontains=text)

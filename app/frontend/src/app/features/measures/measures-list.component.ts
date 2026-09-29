@@ -52,7 +52,7 @@ const MONTHS = [
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
 
       @if (view() === 'list') {
-        @if (!groups().length && !error()) {
+        @if (loaded() && !groups().length && !error()) {
           <p class="muted">За выбранные условия мероприятий нет.</p>
         }
         @for (group of groups(); track group.status) {
@@ -106,8 +106,11 @@ const MONTHS = [
                   }
                 </tbody>
               </table>
-              @if (group.shown < group.total) {
-                <p class="more muted">Показаны первые {{ group.shown }} из {{ group.total }}.</p>
+              @if (group.results.length < group.total) {
+                <div class="more">
+                  <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
+                  <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
+                </div>
               }
             }
           </section>
@@ -118,8 +121,11 @@ const MONTHS = [
         @if (matrix(); as grid) {
           <section class="surface group">
             <h3>Мероприятия по типам</h3>
-            @if (grid.truncated) {
-              <p class="muted">Показаны первые {{ grid.results.length }} лицевых счетов из {{ grid.total }}.</p>
+            @if (grid.results.length < grid.total) {
+              <div class="more">
+                <span class="muted">Показаны {{ grid.results.length }} из {{ grid.total }}</span>
+                <button mat-stroked-button type="button" (click)="moreMatrix()">Показать ещё</button>
+              </div>
             }
             @if (!grid.results.length && !error()) {
               <p class="muted">За выбранные условия мероприятий нет.</p>
@@ -187,7 +193,7 @@ const MONTHS = [
     .pill.failed { background: var(--erip-danger-soft); color: var(--erip-danger); }
     .pill.paused { background: var(--erip-warning-soft); color: var(--erip-warning); }
     .pill.cancelled { background: #f3f4f6; color: var(--erip-muted); }
-    .more { margin: 0; padding: 8px 12px 12px; }
+    .more { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 12px 12px; }
     h3 { margin: 0; padding: 12px 12px 0; font-size: 15px; color: var(--erip-primary-dark); }
     .matrix-wrap { overflow: auto; }
     .matrix { min-width: 860px; }
@@ -212,6 +218,7 @@ export class MeasuresListComponent implements OnInit {
   protected readonly matrix = signal<MeasureMatrix | null>(null);
   protected readonly collapsed = signal<Set<string>>(new Set());
   protected readonly error = signal('');
+  protected readonly loaded = signal(false);
   private request = 0;
 
   ngOnInit(): void {
@@ -242,9 +249,47 @@ export class MeasuresListComponent implements OnInit {
     return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('');
   }
 
+  protected more(group: MeasureGroup): void {
+    const current = this.request;
+    const offset = group.results.length;
+    this.api.measureRegistry(this.params({ status: group.status, offset })).subscribe({
+      next: (payload) => {
+        if (current !== this.request) return;
+        const extra = payload.groups.find((item) => item.status === group.status);
+        if (!extra) return;
+        this.groups.update((groups) => groups.map((item) => item.status === group.status
+          ? { ...item, total: extra.total, results: [...item.results, ...extra.results], shown: item.results.length + extra.results.length }
+          : item));
+      },
+      error: (err) => {
+        if (current === this.request) this.error.set(errorMessage(err));
+      },
+    });
+  }
+
+  protected moreMatrix(): void {
+    const current = this.request;
+    const grid = this.matrix();
+    if (!grid) return;
+    this.api.measureMatrix(this.params({ offset: grid.results.length })).subscribe({
+      next: (payload) => {
+        if (current !== this.request) return;
+        const results = [...grid.results, ...payload.results];
+        this.matrix.set({ ...payload, results, truncated: results.length < payload.total });
+      },
+      error: (err) => {
+        if (current === this.request) this.error.set(errorMessage(err));
+      },
+    });
+  }
+
+  private params(extra: Record<string, string | number> = {}): Record<string, string | number> {
+    return { search: this.search.value.trim(), period: this.period.value, ...extra };
+  }
+
   private load(): void {
     const current = ++this.request;
-    const params = { search: this.search.value.trim(), period: this.period.value };
+    const params = this.params();
     this.error.set('');
     if (this.view() === 'matrix') {
       this.api.measureMatrix(params).subscribe({
@@ -257,12 +302,17 @@ export class MeasuresListComponent implements OnInit {
       });
       return;
     }
+    this.loaded.set(false);
     this.api.measureRegistry(params).subscribe({
       next: (payload) => {
-        if (current === this.request) this.groups.set(payload.groups);
+        if (current !== this.request) return;
+        this.groups.set(payload.groups);
+        this.loaded.set(true);
       },
       error: (err) => {
-        if (current === this.request) this.error.set(errorMessage(err));
+        if (current !== this.request) return;
+        this.loaded.set(true);
+        this.error.set(errorMessage(err));
       },
     });
   }

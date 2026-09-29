@@ -48,8 +48,11 @@ def parse_month(value: str) -> tuple[date, date] | None:
 
 
 def period_overlap(start: date, end: date) -> Q:
-    """Мероприятие попадает в месяц, если его срок пересекает этот месяц."""
-    open_ended = Q(started_on__isnull=False, started_on__lte=end, due_on__isnull=True)
+    """Мероприятие попадает в месяц, если его срок пересекает этот месяц.
+
+    Без даты окончания партия остаётся в месяце начала, а не во всех следующих.
+    """
+    open_ended = Q(started_on__gte=start, started_on__lte=end, due_on__isnull=True)
     closed = Q(started_on__isnull=False, started_on__lte=end, due_on__gte=start)
     undated = Q(started_on__isnull=True, created_at__date__gte=start, created_at__date__lte=end)
     return open_ended | closed | undated
@@ -145,8 +148,9 @@ def next_action(measure: Measure) -> str:
             return f"Возобновлено {_day(measure.resumed_on)}"
         if measure.kind == Measure.Kind.DISCONNECT and measure.suspension_confirmed_on:
             return f"Отключено {_day(measure.suspension_confirmed_on)}"
-        when = measure.due_on or measure.started_on
-        return f"Завершено {_day(when)}" if when else "Завершено"
+        if measure.due_on:
+            return f"Завершено. Срок {_day(measure.due_on)}"
+        return "Завершено"
     if measure.status == Measure.Status.RUNNING:
         if measure.kind == Measure.Kind.CALL:
             return "Дозвон…"
@@ -175,15 +179,14 @@ def _cell(measure: Measure) -> dict:
         label, tone = "идёт", "run"
     else:
         when = measure.due_on or measure.started_on
+        label = when.strftime("%d.%m") if when else "—"
         if measure.status == Measure.Status.ASSIGNED and measure.time_from and when:
-            label = measure.time_from.strftime("%H:%M")
-        else:
-            label = when.strftime("%d.%m") if when else "—"
+            label = f"{label} {measure.time_from.strftime('%H:%M')}"
         tone = "done" if measure.status == Measure.Status.DONE else "pending"
     return {"measure_id": measure.id, "status": measure.status, "label": label, "tone": tone}
 
 
-def build_matrix(measures: QuerySet, visible: QuerySet, search: str = "") -> dict:
+def build_matrix(measures: QuerySet, visible: QuerySet, search: str = "", offset: int = 0) -> dict:
     """Строка матрицы — ЛС, ячейка — последнее мероприятие этого вида в текущей выборке."""
     measure_ids = measures.values("id")
     accounts = visible.filter(measures__in=measure_ids)
@@ -194,7 +197,7 @@ def build_matrix(measures: QuerySet, visible: QuerySet, search: str = "") -> dic
             accounts = narrowed
     accounts = accounts.order_by("short_fio", "client_account").distinct()
     total = accounts.count()
-    page = list(accounts[:MATRIX_LIMIT])
+    page = list(accounts[offset:offset + MATRIX_LIMIT])
     ids = [account.id for account in page]
     latest: dict[int, dict[str, Measure]] = {account_id: {} for account_id in ids}
     kind_codes = [code for code, _label in MATRIX_KINDS]
@@ -225,6 +228,7 @@ def build_matrix(measures: QuerySet, visible: QuerySet, search: str = "") -> dic
     return {
         "kinds": [{"code": code, "label": label} for code, label in MATRIX_KINDS],
         "total": total,
-        "truncated": total > len(rows),
+        "offset": offset,
+        "truncated": offset + len(rows) < total,
         "results": rows,
     }

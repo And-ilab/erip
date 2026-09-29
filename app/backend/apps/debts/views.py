@@ -94,13 +94,32 @@ def _visible_accounts(user):
     )
 
 
+def _supplier_measure_filter(user):
+    """Поставщик видит партию без услуг и партию, где есть хотя бы одна его услуга."""
+    providers = _supplier_ids(user)
+    if providers is None:
+        return None
+    return Q(services__isnull=True) | Q(services__provider_id__in=providers or [-1])
+
+
 def _own_measures(user, account):
     qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks")
-    providers = _supplier_ids(user)
-    if providers is not None:
-        foreign = account.services.exclude(provider_id__in=providers or [-1])
-        qs = qs.exclude(services__in=foreign)
+    supplier_filter = _supplier_measure_filter(user)
+    if supplier_filter is not None:
+        qs = qs.filter(supplier_filter)
     return annotate_registry(qs.distinct(), _visible_accounts(user))
+
+
+def _page_offset(raw) -> int:
+    if raw in (None, ""):
+        return 0
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValidationError({"offset": "Ожидается неотрицательное число"}) from None
+    if value < 0:
+        raise ValidationError({"offset": "Ожидается неотрицательное число"})
+    return value
 
 
 class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -749,10 +768,9 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         visible = _visible_accounts(self.request.user)
         base = super().get_queryset()
         matched = base.filter(accounts__in=visible)
-        providers = _supplier_ids(self.request.user)
-        if providers is not None:
-            foreign = AccountService.objects.exclude(provider_id__in=providers or [-1])
-            matched = matched.exclude(services__in=foreign)
+        supplier_filter = _supplier_measure_filter(self.request.user)
+        if supplier_filter is not None:
+            matched = matched.filter(supplier_filter)
         search = self.request.query_params.get("search") or ""
         return annotate_registry(Measure.objects.filter(pk__in=matched.values("id")), visible, search)
 
@@ -770,20 +788,27 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def registry(self, request):
-        """Группы реестра по статусу. В каждой группе — не больше GROUP_LIMIT строк."""
+        """Группы реестра по статусу. Порция — GROUP_LIMIT, продолжение — status и offset."""
         qs = self.filter_queryset(self.get_queryset())
+        offset = _page_offset(request.query_params.get("offset"))
+        only = (request.query_params.get("status") or "").strip()
+        labels = dict(Measure.Status.choices)
+        if only and only not in labels:
+            raise ValidationError({"status": "Неизвестный статус"})
+        statuses = (only,) if only else REGISTRY_STATUSES
+        start = offset if only else 0
         groups = []
         total = 0
-        labels = dict(Measure.Status.choices)
-        for code in REGISTRY_STATUSES:
+        for code in statuses:
             chunk = qs.filter(status=code)
             count = chunk.count()
             if not count:
                 continue
-            rows = self.get_serializer(chunk[:GROUP_LIMIT], many=True).data
+            rows = self.get_serializer(chunk[start:start + GROUP_LIMIT], many=True).data
             total += count
             groups.append({
-                "status": code, "label": labels[code], "total": count, "shown": len(rows), "results": rows,
+                "status": code, "label": labels[code], "total": count, "shown": len(rows),
+                "offset": start, "results": rows,
             })
         self._record_registry(request, total, "registry")
         return Response({"groups": groups, "total": total})
@@ -793,7 +818,8 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         """ЛС в строках, вид мероприятия в столбцах. Та же выборка, что у реестра."""
         visible = _visible_accounts(request.user)
         payload = build_matrix(
-            self.filter_queryset(self.get_queryset()), visible, request.query_params.get("search") or "",
+            self.filter_queryset(self.get_queryset()), visible,
+            request.query_params.get("search") or "", _page_offset(request.query_params.get("offset")),
         )
         self._record_registry(request, payload["total"], "matrix")
         return Response(payload)
