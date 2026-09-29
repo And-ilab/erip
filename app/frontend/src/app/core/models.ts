@@ -338,3 +338,27 @@ export interface ErrorLogEntry {
   traceback: string;
   created_at: string;
 }
+
+export interface MapCrumb {
+  id: number;
+  name: string;
+  kind: string;
+}
+
+export interface MapBubble {
+  id: number;
+  name: string;
+  kind: string;
+  latitude: number | null;
+  longitude: number | null;
+  accounts: number;
+  groups: Record<string, number>;
+  dominant_group: number | null;
+}
+
+export interface MapLevel {
+  parent: MapCrumb | null;
+  breadcrumb: MapCrumb[];
+  unplaced: number;
+  children: MapBubble[];
+}

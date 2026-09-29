@@ -19,6 +19,7 @@ import {
   ErrorLogEntry,
   HistoryRow,
   KanbanColumn,
+  MapLevel,
   MeasureRow,
   MessageTemplate,
   Notification,
@@ -95,6 +96,10 @@ export class ApiService {
 
   kanban(params: Params): Observable<KanbanColumn[]> {
     return this.http.get<KanbanColumn[]>(`${this.base}/accounts/kanban/`, { params: toParams(params) });
+  }
+
+  accountMap(params: Params): Observable<MapLevel> {
+    return this.http.get<MapLevel>(`${this.base}/accounts/map/`, { params: toParams(params) });
   }
 
   calendar(month: string, params: Params): Observable<CalendarEvent[]> {

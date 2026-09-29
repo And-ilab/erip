@@ -116,6 +116,10 @@ class Account(AisRecord):
     )
     warning_due = models.DateField("Истечение срока предупреждения", null=True, blank=True)
     claim_due = models.DateField("Дедлайн подачи иска", null=True, blank=True)
+    territory = models.ForeignKey(
+        "Territory", null=True, blank=True, on_delete=models.SET_NULL, related_name="accounts",
+        verbose_name="Дом в дереве адресов",
+    )
 
     class Meta:
         ordering = ["client_account"]
@@ -135,6 +139,67 @@ class Account(AisRecord):
     @property
     def effective_group(self) -> int | None:
         return self.debt_group_manual if self.debt_group_manual is not None else self.debt_group
+
+
+class Territory(TimeStampedModel):
+    """Узел адреса: страна, область, район, населённый пункт, улица, дом.
+
+    У лицевого счёта нет полей области и района. Дерево собирается из текста адреса.
+    Город Минск — ребёнок Минской области, чтобы на карте не было двух корней с одним именем.
+    """
+
+    class Kind(models.TextChoices):
+        COUNTRY = "country", "Страна"
+        OBLAST = "oblast", "Область"
+        DISTRICT = "district", "Район"
+        SETTLEMENT = "settlement", "Населённый пункт"
+        MICRODISTRICT = "microdistrict", "Микрорайон"
+        STREET = "street", "Улица"
+        HOUSE = "house", "Дом"
+
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children", verbose_name="Родитель",
+    )
+    kind = models.CharField("Уровень", max_length=20, choices=Kind.choices)
+    name = models.CharField("Название", max_length=250)
+    name_key = models.CharField("Ключ", max_length=250)
+    latitude = models.DecimalField("Широта", max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField("Долгота", max_digits=9, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Территория"
+        verbose_name_plural = "Территории"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["parent", "kind", "name_key"],
+                condition=models.Q(parent__isnull=False),
+                name="uniq_territory_child",
+            ),
+            models.UniqueConstraint(
+                fields=["kind", "name_key"],
+                condition=models.Q(parent__isnull=True),
+                name="uniq_territory_root",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class TerritoryLink(models.Model):
+    """Предок и потомок, включая узел сам с собой (depth=0). Счётчик пузыря — сумма поддерева."""
+
+    ancestor = models.ForeignKey(Territory, on_delete=models.CASCADE, related_name="descendant_links")
+    descendant = models.ForeignKey(Territory, on_delete=models.CASCADE, related_name="ancestor_links")
+    depth = models.PositiveSmallIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["ancestor", "descendant"], name="uniq_territory_link"),
+        ]
+        indexes = [
+            models.Index(fields=["ancestor", "depth"], name="territory_ancestor_depth"),
+        ]
 
 
 class AccountService(AisRecord):

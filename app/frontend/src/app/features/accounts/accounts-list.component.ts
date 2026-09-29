@@ -15,6 +15,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AccountRow, AccountService, CalendarEvent, KanbanColumn, SavedFilter } from '../../core/models';
+import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
   account_id: 'Код ЛС',
@@ -43,7 +44,7 @@ const LABELS: Record<string, string> = {
   standalone: true,
   imports: [
     DecimalPipe, ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule, MatSnackBarModule,
+    MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule, MatSnackBarModule, AccountsMapComponent,
   ],
   template: `
     <div class="page">
@@ -52,6 +53,7 @@ const LABELS: Record<string, string> = {
         <button mat-stroked-button (click)="view.set('list')">Список</button>
         <button mat-stroked-button (click)="showKanban()">Канбан</button>
         <button mat-stroked-button (click)="showCalendar()">Календарь</button>
+        <button mat-stroked-button (click)="showMap()">Карта</button>
         <button mat-stroked-button (click)="exportCsv()">Экспорт CSV</button>
       </div>
       <div class="filters">
@@ -111,6 +113,15 @@ const LABELS: Record<string, string> = {
         <button mat-stroked-button (click)="remember()">Сохранить фильтр</button>
       </div>
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
+      @if (territoryName()) {
+        <p class="crumbs">{{ territoryName() }}
+          <button mat-stroked-button type="button" (click)="clearTerritory()">Все территории</button>
+        </p>
+      }
+
+      @if (view() === 'map') {
+        <app-accounts-map [query]="mapQuery()" (openList)="openTerritory($event)" />
+      }
 
       @if (view() === 'list') {
         <div class="filters">
@@ -251,6 +262,7 @@ const LABELS: Record<string, string> = {
     .card.g4 { border-left-color: #f97316; } .card.g5 { border-left-color: #ef4444; } .card.g6 { border-left-color: #7f1d1d; }
     h3 { margin: 0 0 8px; font-size: 14px; color: var(--erip-primary-dark); }
     .account-no { color: var(--erip-link); }
+    .crumbs { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
   `,
 })
 export class AccountsListComponent implements OnInit {
@@ -271,7 +283,10 @@ export class AccountsListComponent implements OnInit {
   protected readonly rows = signal<AccountRow[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
-  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped'>('list');
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map'>('list');
+  protected readonly mapQuery = signal<Record<string, string | number | null>>({});
+  protected readonly territoryId = signal<number | null>(null);
+  protected readonly territoryName = signal('');
   protected readonly columns = signal<string[]>(['client_account', 'short_fio', 'account_address', 'provider_short_name', 'debt_total', 'effective_group']);
   protected readonly available = signal<string[]>([]);
   protected readonly selected = signal<Set<number>>(new Set());
@@ -304,10 +319,10 @@ export class AccountsListComponent implements OnInit {
   private ordering = '';
 
   ngOnInit(): void {
-    this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.reload(1));
-    this.groupsSelected.valueChanges.subscribe(() => this.reload(1));
-    this.rating.valueChanges.subscribe(() => this.reload(1));
-    this.stage.valueChanges.subscribe(() => this.reload(1));
+    this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.onFilter());
+    this.groupsSelected.valueChanges.subscribe(() => this.onFilter());
+    this.rating.valueChanges.subscribe(() => this.onFilter());
+    this.stage.valueChanges.subscribe(() => this.onFilter());
     this.groupBy.valueChanges.subscribe((value) => {
       if (value) this.showGrouped();
       else this.reload(1);
@@ -377,6 +392,25 @@ export class AccountsListComponent implements OnInit {
   showCalendar(): void {
     this.view.set('calendar');
     this.loadCalendar();
+  }
+
+  showMap(): void {
+    this.territoryId.set(null);
+    this.territoryName.set('');
+    this.view.set('map');
+    this.mapQuery.set(this.query());
+  }
+
+  openTerritory(node: { id: number; name: string }): void {
+    this.territoryId.set(node.id);
+    this.territoryName.set(node.name);
+    this.reload(1);
+  }
+
+  clearTerritory(): void {
+    this.territoryId.set(null);
+    this.territoryName.set('');
+    this.reload(1);
   }
 
   setMonth(value: string): void {
@@ -499,7 +533,16 @@ export class AccountsListComponent implements OnInit {
       rating: this.rating.value,
       funnel_stage: this.stage.value,
       group_by: this.groupBy.value,
+      territory: this.territoryId(),
     };
+  }
+
+  private onFilter(): void {
+    if (this.view() === 'map') {
+      this.mapQuery.set(this.query());
+      return;
+    }
+    this.reload(1);
   }
 
   private reload(page: number): void {

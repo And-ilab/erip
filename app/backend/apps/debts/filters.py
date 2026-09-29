@@ -40,6 +40,7 @@ class AccountFilter(django_filters.FilterSet):
     debtor_category = django_filters.NumberFilter(field_name="debtor_category")
     account_id = django_filters.NumberFilter(field_name="account_id")
     inheritance_case = django_filters.BooleanFilter(field_name="inheritance_case")
+    territory = django_filters.NumberFilter(method="filter_territory")
 
     class Meta:
         model = Account
@@ -62,6 +63,9 @@ class AccountFilter(django_filters.FilterSet):
         for item in value:
             condition |= self._shown_group(item)
         return queryset.filter(condition)
+
+    def filter_territory(self, queryset, name, value):
+        return queryset.filter(territory__ancestor_links__ancestor_id=value).distinct()
 
 
 class ContractFilter(django_filters.FilterSet):

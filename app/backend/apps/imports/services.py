@@ -271,6 +271,9 @@ class AisImporter:
             accounts = Account.objects.filter(pk__in=pks[start:start + WRITE_BATCH])
             if self.map.entity == "account":
                 self._sync_service_organizations(accounts)
+                from apps.debts.services.territory import TerritoryIndex
+
+                TerritoryIndex().assign_queryset(accounts)
             if self.map.entity == "service":
                 from apps.debts.services.portfolio import sync_supplier_organizations
 

@@ -25,9 +25,14 @@
             "browser": "src/main.ts",
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
+            "allowedCommonJsDependencies": ["maplibre-gl"],
             "inlineStyleLanguage": "scss",
             "assets": [],
-            "styles": ["node_modules/material-icons/iconfont/filled.css", "src/styles.scss"]
+            "styles": [
+              "node_modules/material-icons/iconfont/filled.css",
+              "node_modules/maplibre-gl/dist/maplibre-gl.css",
+              "src/styles.scss"
+            ]
           },
           "configurations": {
             "production": {
