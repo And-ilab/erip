@@ -340,6 +340,23 @@ def test_writ_checks_stay_unique_on_repeat_open(api, specialist_a, account_a):
     assert account_a.writ_checks.count() == 4
 
 
+def test_contract_billing_filter_accepts_name_or_code(api, specialist_a, org_a, account_a):
+    account_a.provider_short_name = "Тест ЖЭС"
+    account_a.schema_name = "schema_a"
+    account_a.save(update_fields=["provider_short_name", "schema_name"])
+    client = api(specialist_a)
+    by_name = client.get("/api/v1/contracts/", {"billing_provider": "Тест ЖЭС"})
+    by_code = client.get("/api/v1/contracts/", {"billing_provider": str(account_a.provider_id)})
+    by_schema = client.get("/api/v1/contracts/", {"billing_provider": "schema_a"})
+    missing = client.get("/api/v1/contracts/", {"billing_provider": "Чужая организация"})
+    assert by_name.status_code == 200
+    assert by_name.json()["count"] == account_a.services.count()
+    assert by_code.json()["count"] == by_name.json()["count"]
+    assert by_schema.json()["count"] == by_name.json()["count"]
+    assert missing.status_code == 200
+    assert missing.json()["count"] == 0
+
+
 def test_blank_payer_keys_stay_separate_and_bad_ids_are_400(api, specialist_a, org_a, account_a):
     account_a.payer_identifier = ""
     account_a.payer_unp = ""

@@ -40,10 +40,24 @@ function toParams(params: Params = {}): HttpParams {
   return result;
 }
 
+function fieldErrors(details: unknown): string {
+  if (!details || typeof details !== 'object') return '';
+  return Object.entries(details as Record<string, unknown>)
+    .map(([field, value]) => {
+      const text = Array.isArray(value) ? value.join(', ') : String(value);
+      return `${field}: ${text}`;
+    })
+    .join('; ');
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof HttpErrorResponse) {
     const body = error.error as ApiError | undefined;
-    if (body?.error) return `${body.error.message} (запрос ${body.error.request_id})`;
+    if (body?.error) {
+      const details = fieldErrors(body.error.details);
+      const text = details ? `${body.error.message}: ${details}` : body.error.message;
+      return `${text} (запрос ${body.error.request_id})`;
+    }
     return `Ошибка ${error.status}`;
   }
   return 'Неизвестная ошибка';

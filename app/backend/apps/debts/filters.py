@@ -72,7 +72,7 @@ class ContractFilter(django_filters.FilterSet):
     debt_group = django_filters.NumberFilter(method="filter_effective_group")
     debt_group__in = django_filters.BaseInFilter(method="filter_effective_groups")
     debtor_category = django_filters.NumberFilter(field_name="account__debtor_category")
-    billing_provider = django_filters.NumberFilter(field_name="account__provider_id")
+    billing_provider = django_filters.CharFilter(method="filter_billing")
     funnel_stage = django_filters.CharFilter(field_name="account__funnel_stage")
     inheritance_case = django_filters.BooleanFilter(field_name="account__inheritance_case")
 
@@ -91,4 +91,13 @@ class ContractFilter(django_filters.FilterSet):
         condition = Q()
         for item in value:
             condition |= self._shown_group(item)
+        return queryset.filter(condition)
+
+    def filter_billing(self, queryset, name, value):
+        text = str(value).strip()
+        if not text:
+            return queryset
+        condition = Q(account__provider_short_name__icontains=text) | Q(account__schema_name__icontains=text)
+        if text.isdigit():
+            condition |= Q(account__provider_id=int(text))
         return queryset.filter(condition)

@@ -86,7 +86,7 @@ import {
             <mat-option value="closed">Не должник</mat-option>
           </mat-select>
         </mat-form-field>
-        <mat-form-field><mat-label>Обслуживающая организация, код</mat-label><input matInput [formControl]="billing" /></mat-form-field>
+        <mat-form-field><mat-label>Обслуживающая организация</mat-label><input matInput [formControl]="billing" /></mat-form-field>
         <mat-form-field><mat-label>Имя фильтра</mat-label><input matInput [formControl]="filterName" /></mat-form-field>
         <button mat-stroked-button (click)="remember()">Сохранить фильтр</button>
         @for (item of saved(); track item.id) {
