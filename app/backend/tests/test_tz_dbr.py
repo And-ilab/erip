@@ -325,6 +325,21 @@ def test_foreign_service_work_item_is_rejected(api, org_a, account_a):
     assert allowed.status_code == 201
 
 
+def test_writ_checks_stay_unique_on_repeat_open(api, specialist_a, account_a):
+    url = f"/api/v1/accounts/{account_a.id}/writ-checks/"
+    first = api(specialist_a).get(url)
+    second = api(specialist_a).get(url)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert [row["code"] for row in first.json()] == ["debt", "warning", "ownership", "package"]
+    assert second.json() == first.json()
+    assert account_a.writ_checks.count() == 4
+    saved = api(specialist_a).post(url, {"code": "debt", "done": True}, format="json")
+    assert saved.status_code == 200
+    assert next(row["done"] for row in saved.json() if row["code"] == "debt") is True
+    assert account_a.writ_checks.count() == 4
+
+
 def test_blank_payer_keys_stay_separate_and_bad_ids_are_400(api, specialist_a, org_a, account_a):
     account_a.payer_identifier = ""
     account_a.payer_unp = ""

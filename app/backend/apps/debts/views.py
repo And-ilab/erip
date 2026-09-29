@@ -33,6 +33,7 @@ from .models import (
     StatusHistory,
     RegistryPreference,
     SavedFilter,
+    Territory,
 )
 from .repositories import AccountRepository
 from .serializers import (
@@ -52,6 +53,7 @@ from .serializers import (
 )
 from .services.contacts import choose_phone
 from .services.portfolio import AUTO_MEASURES
+from .services.territory import TerritoryMap
 
 FUNNEL_STAGES = [
     ("new", "Новый"),
@@ -248,18 +250,13 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True, methods=["get", "post"], url_path="writ-checks")
     def writ_checks(self, request, pk=None):
-        from apps.debts.models import WritCheck
-        from apps.debts.services.artifacts import WRIT_CHECKS
+        from apps.debts.services.artifacts import ensure_writ_checks
 
         account = self.get_object()
-        existing = {row.code: row for row in account.writ_checks.all()}
-        for code, title in WRIT_CHECKS:
-            existing.setdefault(code, WritCheck.objects.create(
-                organization=account.organization, account=account, code=code, title=title,
-            ))
+        ensure_writ_checks(account)
         if request.method == "POST":
             code = request.data.get("code")
-            row = existing.get(code)
+            row = account.writ_checks.filter(code=code).first()
             if row is None:
                 raise ValidationError({"code": "Неизвестный пункт"})
             row.done = bool(request.data.get("done"))
@@ -272,6 +269,16 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=False, url_path="group-summary")
     def group_summary(self, request):
         return Response(AccountRepository(self.filter_queryset(super().get_queryset())).group_summary())
+
+    @action(detail=False)
+    def map(self, request):
+        raw = request.query_params.get("parent")
+        parent = None
+        if raw:
+            if not str(raw).isdigit():
+                raise ValidationError({"parent": "Неизвестный узел"})
+            parent = get_object_or_404(Territory, pk=int(raw))
+        return Response(TerritoryMap().level(self.filter_queryset(self.get_queryset()), parent))
 
     @action(detail=False)
     def kanban(self, request):

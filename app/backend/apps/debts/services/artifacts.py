@@ -8,7 +8,7 @@ from datetime import date
 
 from django.core.files.base import ContentFile
 
-from apps.debts.models import Account, Measure
+from apps.debts.models import Account, Measure, WritCheck
 from apps.debts.services.contacts import choose_phone
 
 WRIT_CHECKS = (
@@ -17,6 +17,19 @@ WRIT_CHECKS = (
     ("ownership", "Проверен тип собственности для статей Жилищного кодекса"),
     ("package", "Сформирован пакет документов на исполнительную надпись"),
 )
+
+
+def ensure_writ_checks(account: Account) -> None:
+    """Досоздаёт пункты чек-листа. Уже сохранённый код повторно не вставляется."""
+    present = set(account.writ_checks.values_list("code", flat=True))
+    for code, title in WRIT_CHECKS:
+        if code in present:
+            continue
+        WritCheck.objects.get_or_create(
+            account=account,
+            code=code,
+            defaults={"organization": account.organization, "title": title},
+        )
 
 
 def _text(value) -> str:
