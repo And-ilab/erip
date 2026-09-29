@@ -2,6 +2,8 @@ from rest_framework import serializers
 
 from apps.nsi.models import DebtGroupScale
 
+from .services.registry import accounts_count, debtor_fields, measure_title, next_action
+
 from .models import (
     Account,
     AccountService,
@@ -363,16 +365,52 @@ class AttachmentSerializer(serializers.ModelSerializer):
 class MeasureSerializer(serializers.ModelSerializer):
     kind_display = serializers.CharField(source="get_kind_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
-    accounts_count = serializers.IntegerField(source="accounts.count", read_only=True)
+    accounts_count = serializers.SerializerMethodField()
+    title = serializers.SerializerMethodField()
+    debtor_name = serializers.SerializerMethodField()
+    debtor_account = serializers.SerializerMethodField()
+    debtor_id = serializers.SerializerMethodField()
+    assignee_name = serializers.SerializerMethodField()
+    next_action = serializers.SerializerMethodField()
 
     class Meta:
         model = Measure
         fields = [
             "id", "kind", "kind_display", "status", "status_display", "channel", "template_name",
-            "scenario_name", "note", "assignee", "started_on", "due_on", "days", "time_from", "time_to",
-            "created_at", "accounts_count", "artifact",
+            "scenario_name", "note", "assignee", "assignee_name", "started_on", "due_on", "days",
+            "time_from", "time_to", "created_at", "accounts_count", "artifact", "title",
+            "debtor_name", "debtor_account", "debtor_id", "next_action",
             "suspension_confirmed_on", "suspension_source", "resumed_on", "resume_source",
         ]
+
+    def _debtor(self, obj):
+        cached = obj.__dict__.get("_debtor_cache")
+        if cached is None:
+            cached = debtor_fields(obj)
+            obj.__dict__["_debtor_cache"] = cached
+        return cached
+
+    def get_accounts_count(self, obj) -> int:
+        return accounts_count(obj)
+
+    def get_title(self, obj) -> str:
+        return measure_title(obj)
+
+    def get_debtor_name(self, obj) -> str:
+        return self._debtor(obj)[0]
+
+    def get_debtor_account(self, obj) -> str:
+        return self._debtor(obj)[1]
+
+    def get_debtor_id(self, obj):
+        return self._debtor(obj)[2]
+
+    def get_assignee_name(self, obj) -> str:
+        user = obj.assignee
+        return user.display_name if user is not None else ""
+
+    def get_next_action(self, obj) -> str:
+        return next_action(obj)
 
 
 class RefreshRequestSerializer(serializers.ModelSerializer):

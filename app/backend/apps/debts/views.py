@@ -14,11 +14,13 @@ from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
 from apps.audit.mixins import AuditedViewSetMixin
+from apps.audit.models import AuditLog
+from apps.audit.services import record_action
 from apps.core.permissions import RolePermission
 from apps.users.models import User
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
-from .filters import AccountFilter, AccountOrderingFilter, ContractFilter
+from .filters import AccountFilter, AccountOrderingFilter, ContractFilter, MeasureFilter
 from .models import (
     Account,
     AccountService,
@@ -53,6 +55,7 @@ from .serializers import (
 )
 from .services.contacts import choose_phone
 from .services.portfolio import AUTO_MEASURES
+from .services.registry import GROUP_LIMIT, REGISTRY_STATUSES, annotate_registry, build_matrix
 from .services.territory import TerritoryIndex, TerritoryMap
 
 FUNNEL_STAGES = [
@@ -85,13 +88,19 @@ def _services_for(user, account):
     return qs
 
 
+def _visible_accounts(user):
+    return AccessScope(user).apply(
+        Account.objects.all(), "organization", "provider_id", "services__provider_id",
+    )
+
+
 def _own_measures(user, account):
     qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks")
     providers = _supplier_ids(user)
     if providers is not None:
         foreign = account.services.exclude(provider_id__in=providers or [-1])
         qs = qs.exclude(services__in=foreign)
-    return qs.distinct()
+    return annotate_registry(qs.distinct(), _visible_accounts(user))
 
 
 class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -729,23 +738,65 @@ class AttachmentViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListMod
 
 class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
                      mixins.CreateModelMixin, viewsets.GenericViewSet):
-    queryset = Measure.objects.prefetch_related("accounts", "services")
+    queryset = Measure.objects.all()
     serializer_class = MeasureSerializer
     permission_classes = [RolePermission]
     scope_organization_field = "organization"
-    filterset_fields = ["kind", "status"]
+    filterset_class = MeasureFilter
     audit_list = True
 
     def get_queryset(self):
-        visible = AccessScope(self.request.user).apply(
-            Account.objects.all(), "organization", "provider_id", "services__provider_id",
-        )
-        qs = super().get_queryset().filter(accounts__in=visible)
+        visible = _visible_accounts(self.request.user)
+        base = super().get_queryset()
+        matched = base.filter(accounts__in=visible)
         providers = _supplier_ids(self.request.user)
         if providers is not None:
             foreign = AccountService.objects.exclude(provider_id__in=providers or [-1])
-            qs = qs.exclude(services__in=foreign)
-        return qs.distinct()
+            matched = matched.exclude(services__in=foreign)
+        search = self.request.query_params.get("search") or ""
+        return annotate_registry(Measure.objects.filter(pk__in=matched.values("id")), visible, search)
+
+    def _record_registry(self, request, count: int, view: str) -> None:
+        params = {}
+        for key in ("search", "period", "kind", "status"):
+            value = request.query_params.get(key)
+            if value:
+                params[key] = value[:200]
+        params["view"] = view
+        record_action(
+            request, AuditLog.Action.VIEW, object_type=Measure._meta.label,
+            after={"query": params, "count": count},
+        )
+
+    @action(detail=False)
+    def registry(self, request):
+        """Группы реестра по статусу. В каждой группе — не больше GROUP_LIMIT строк."""
+        qs = self.filter_queryset(self.get_queryset())
+        groups = []
+        total = 0
+        labels = dict(Measure.Status.choices)
+        for code in REGISTRY_STATUSES:
+            chunk = qs.filter(status=code)
+            count = chunk.count()
+            if not count:
+                continue
+            rows = self.get_serializer(chunk[:GROUP_LIMIT], many=True).data
+            total += count
+            groups.append({
+                "status": code, "label": labels[code], "total": count, "shown": len(rows), "results": rows,
+            })
+        self._record_registry(request, total, "registry")
+        return Response({"groups": groups, "total": total})
+
+    @action(detail=False)
+    def matrix(self, request):
+        """ЛС в строках, вид мероприятия в столбцах. Та же выборка, что у реестра."""
+        visible = _visible_accounts(request.user)
+        payload = build_matrix(
+            self.filter_queryset(self.get_queryset()), visible, request.query_params.get("search") or "",
+        )
+        self._record_registry(request, payload["total"], "matrix")
+        return Response(payload)
 
     def create(self, request, *args, **kwargs):
         kind = request.data.get("kind")

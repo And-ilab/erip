@@ -221,14 +221,49 @@ export interface MeasureRow {
   kind_display: string;
   status: string;
   status_display: string;
+  title: string;
   due_on: string | null;
   accounts_count: number;
+  debtor_name: string;
+  debtor_account: string;
+  debtor_id: number | null;
+  assignee_name: string;
+  next_action: string;
   artifact?: string;
   skipped_inheritance?: number[];
   suspension_confirmed_on?: string | null;
   suspension_source?: string;
   resumed_on?: string | null;
   resume_source?: string;
+}
+
+export interface MeasureGroup {
+  status: string;
+  label: string;
+  total: number;
+  shown: number;
+  results: MeasureRow[];
+}
+
+export interface MeasureMatrixCell {
+  measure_id: number;
+  status: string;
+  label: string;
+  tone: string;
+}
+
+export interface MeasureMatrixRow {
+  account_id: number;
+  debtor_name: string;
+  client_account: string;
+  cells: Record<string, MeasureMatrixCell | null>;
+}
+
+export interface MeasureMatrix {
+  kinds: { code: string; label: string }[];
+  total: number;
+  truncated: boolean;
+  results: MeasureMatrixRow[];
 }
 
 export interface DebtorCategory {

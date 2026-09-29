@@ -1,8 +1,10 @@
 import django_filters
 from django.db.models import Q
+from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter
 
-from .models import Account, AccountService
+from .models import Account, AccountService, Measure
+from .services.registry import parse_month, period_overlap
 
 
 class AccountOrderingFilter(OrderingFilter):
@@ -101,3 +103,36 @@ class ContractFilter(django_filters.FilterSet):
         if text.isdigit():
             condition |= Q(account__provider_id=int(text))
         return queryset.filter(condition)
+
+
+class MeasureFilter(django_filters.FilterSet):
+    search = django_filters.CharFilter(method="filter_search")
+    period = django_filters.CharFilter(method="filter_period")
+
+    class Meta:
+        model = Measure
+        fields = ["kind", "status"]
+
+    def filter_search(self, queryset, name, value):
+        text = (value or "").strip()
+        if not text:
+            return queryset
+        needle = text.casefold()
+        kinds = [code for code, label in Measure.Kind.choices if needle in label.casefold()]
+        condition = (
+            Q(accounts__client_account__icontains=text)
+            | Q(accounts__short_fio__icontains=text)
+            | Q(template_name__icontains=text)
+            | Q(scenario_name__icontains=text)
+            | Q(note__icontains=text)
+        )
+        if kinds:
+            condition |= Q(kind__in=kinds)
+        return queryset.filter(condition).distinct()
+
+    def filter_period(self, queryset, name, value):
+        parsed = parse_month(value)
+        if parsed is None:
+            raise ValidationError({"period": "Ожидается месяц в формате ГГГГ-ММ"})
+        start, end = parsed
+        return queryset.filter(period_overlap(start, end))

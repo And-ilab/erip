@@ -20,6 +20,8 @@ import {
   HistoryRow,
   KanbanColumn,
   MapLevel,
+  MeasureGroup,
+  MeasureMatrix,
   MeasureRow,
   MessageTemplate,
   Notification,
@@ -215,6 +217,14 @@ export class ApiService {
 
   measures(): Observable<Page<MeasureRow>> {
     return this.http.get<Page<MeasureRow>>(`${this.base}/measures/`, { params: toParams({ page_size: 200 }) });
+  }
+
+  measureRegistry(params: Params = {}): Observable<{ groups: MeasureGroup[]; total: number }> {
+    return this.http.get<{ groups: MeasureGroup[]; total: number }>(`${this.base}/measures/registry/`, { params: toParams(params) });
+  }
+
+  measureMatrix(params: Params = {}): Observable<MeasureMatrix> {
+    return this.http.get<MeasureMatrix>(`${this.base}/measures/matrix/`, { params: toParams(params) });
   }
 
   createMeasure(body: Record<string, unknown>): Observable<MeasureRow> {
