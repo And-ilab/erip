@@ -39,13 +39,6 @@ const GROUP_COLOR: Record<number, string> = {
     </div>
     <p class="muted">Подложка временная и грузится из публичного сервиса. Боевая карта — файл на нашем сервере. Число в пузыре — лицевые счета, цвет — группа, которой в этом месте больше.</p>
     @if (error()) { <p class="status-failed">{{ error() }}</p> }
-    <div #canvas class="map-canvas"></div>
-    @if (level() && !level()!.children.length && !error()) {
-      <p>На этом уровне по текущему фильтру лицевых счетов нет.</p>
-      @if (level()?.parent) {
-        <button mat-stroked-button type="button" (click)="openList.emit(level()!.parent!)">Открыть список</button>
-      }
-    }
     <ul class="tree">
       @for (child of level()?.children ?? []; track child.id) {
         <li>
@@ -57,6 +50,13 @@ const GROUP_COLOR: Record<number, string> = {
         </li>
       }
     </ul>
+    <div #canvas class="map-canvas"></div>
+    @if (level() && !level()!.children.length && !error()) {
+      <p>На этом уровне по текущему фильтру лицевых счетов нет.</p>
+      @if (level()?.parent) {
+        <button mat-stroked-button type="button" (click)="openList.emit(level()!.parent!)">Открыть список</button>
+      }
+    }
   `,
   styles: [`
     .map-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -114,11 +114,16 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
       map.on('load', () => {
         this.mapLoaded = true;
+        map.resize();
+        if (this.error().startsWith('Подложка') || this.error().startsWith('Карта не открылась')) this.error.set('');
         const level = this.level();
         if (level) this.draw(level);
       });
+      map.on('error', () => {
+        if (!this.mapLoaded) this.error.set('Подложка карты не загрузилась. Пузыри сверху всё равно открывают дерево.');
+      });
     } catch {
-      this.error.set('Карта не открылась. Список территорий ниже остаётся доступен.');
+      this.error.set('Карта не открылась. Пузыри сверху всё равно открывают дерево.');
     }
     this.load();
   }

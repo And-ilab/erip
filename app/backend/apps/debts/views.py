@@ -53,7 +53,7 @@ from .serializers import (
 )
 from .services.contacts import choose_phone
 from .services.portfolio import AUTO_MEASURES
-from .services.territory import TerritoryMap
+from .services.territory import TerritoryIndex, TerritoryMap
 
 FUNNEL_STAGES = [
     ("new", "Новый"),
@@ -278,7 +278,11 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             if not str(raw).isdigit():
                 raise ValidationError({"parent": "Неизвестный узел"})
             parent = get_object_or_404(Territory, pk=int(raw))
-        return Response(TerritoryMap().level(self.filter_queryset(self.get_queryset()), parent))
+        accounts = self.filter_queryset(self.get_queryset())
+        pending = accounts.filter(territory__isnull=True).exclude(house_address="", account_address="")
+        if pending.exists():
+            TerritoryIndex().assign_queryset(pending)
+        return Response(TerritoryMap().level(accounts, parent))
 
     @action(detail=False)
     def kanban(self, request):
