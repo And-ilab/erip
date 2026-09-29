@@ -39,6 +39,7 @@ const GROUP_COLOR: Record<number, string> = {
     </div>
     <p class="muted">Подложка временная и грузится из публичного сервиса. Боевая карта — файл на нашем сервере. Число в пузыре — лицевые счета, цвет — группа, которой в этом месте больше.</p>
     @if (error()) { <p class="status-failed">{{ error() }}</p> }
+    @if (mapFailed()) { <p class="status-failed">{{ mapFailed() }}</p> }
     <ul class="tree">
       @for (child of level()?.children ?? []; track child.id) {
         <li>
@@ -78,6 +79,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
 
   protected readonly level = signal<MapLevel | null>(null);
   protected readonly error = signal('');
+  protected readonly mapFailed = signal('');
   private parentId: number | null = null;
   private map: MlMap | null = null;
   private markers: Marker[] = [];
@@ -102,7 +104,10 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
   async ensure(): Promise<void> {
     if (this.map || !this.canvas) return;
     try {
-      const maplibregl = await import('maplibre-gl');
+      const loaded = await import('maplibre-gl') as typeof import('maplibre-gl') & {
+        default?: typeof import('maplibre-gl');
+      };
+      const maplibregl = loaded.default?.Map ? loaded.default : loaded;
       this.maplibregl = maplibregl;
       const map = new maplibregl.Map({
         container: this.canvas.nativeElement,
@@ -115,15 +120,15 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       map.on('load', () => {
         this.mapLoaded = true;
         map.resize();
-        if (this.error().startsWith('Подложка') || this.error().startsWith('Карта не открылась')) this.error.set('');
+        this.mapFailed.set('');
         const level = this.level();
         if (level) this.draw(level);
       });
       map.on('error', () => {
-        if (!this.mapLoaded) this.error.set('Подложка карты не загрузилась. Пузыри сверху всё равно открывают дерево.');
+        if (!this.mapLoaded) this.mapFailed.set('Подложка карты не загрузилась. Пузыри сверху всё равно открывают дерево.');
       });
     } catch {
-      this.error.set('Карта не открылась. Пузыри сверху всё равно открывают дерево.');
+      this.mapFailed.set('Карта не открылась. Пузыри сверху всё равно открывают дерево.');
     }
     this.load();
   }
