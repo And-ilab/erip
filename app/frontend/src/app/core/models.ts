@@ -85,6 +85,11 @@ export interface AccountDetail extends AccountRow {
   legal_status: string;
 }
 
+export interface ServiceChoice {
+  service_id: number;
+  service_name: string;
+}
+
 export interface AccountService {
   id: number;
   account: number;

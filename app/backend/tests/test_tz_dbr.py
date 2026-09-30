@@ -170,6 +170,37 @@ def test_contract_kanban_and_saved_shape(api, specialist_a, account_a):
     assert isinstance(grouped, list)
 
 
+def test_supplier_picks_service_kind_for_measure(api, org_a, account_a):
+    supplier, water = _supplier(org_a, account_a)
+    client = api(supplier)
+    choices = client.get("/api/v1/services/choices/")
+    assert choices.status_code == 200
+    assert choices.json()["results"] == [{"service_id": water.service_id, "service_name": "Вода"}]
+    created = client.post(
+        "/api/v1/measures/",
+        {
+            "kind": "warning",
+            "account_ids": [account_a.id],
+            "catalog_service_ids": [water.service_id],
+            "template_name": "Предупреждение",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    assert water.id in created.json()["service_ids"]
+    foreign = client.post(
+        "/api/v1/measures/",
+        {
+            "kind": "warning",
+            "account_ids": [account_a.id],
+            "catalog_service_ids": [10],
+            "template_name": "Предупреждение",
+        },
+        format="json",
+    )
+    assert foreign.status_code == 400
+
+
 def test_supplier_warning_needs_own_service(api, org_a, account_a):
     supplier, water = _supplier(org_a, account_a)
     client = api(supplier)

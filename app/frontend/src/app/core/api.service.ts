@@ -27,6 +27,7 @@ import {
   MeasureMatrix,
   MeasureRow,
   MessageTemplate,
+  ServiceChoice,
   Notification,
   Page,
   Payment,
@@ -339,6 +340,10 @@ export class ApiService {
 
   createNotification(body: Partial<Notification> & { account?: number; context?: Record<string, unknown> }): Observable<Notification> {
     return this.http.post<Notification>(`${this.base}/notifications/`, body);
+  }
+
+  serviceChoices(): Observable<{ results: ServiceChoice[] }> {
+    return this.http.get<{ results: ServiceChoice[] }>(`${this.base}/services/choices/`);
   }
 
   templates(params: Params = {}): Observable<Page<MessageTemplate>> {

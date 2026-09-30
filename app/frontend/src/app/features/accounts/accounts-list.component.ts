@@ -13,7 +13,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { AccountRow, CalendarEvent, KanbanColumn, SavedFilter } from '../../core/models';
+import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { AccountsMapComponent } from './accounts-map.component';
 
@@ -133,7 +133,7 @@ type CustomField = 'group' | 'rating' | 'stage';
 
       @if (measureOpen()) {
         <div class="measure">
-          <p class="hint">Мероприятие уйдёт по всем лицевым счетам текущего фильтра. Отключение и взыскание с выбором услуг — в карточке счёта.</p>
+          <p class="hint">Мероприятие уйдёт по всем лицевым счетам текущего фильтра. Шаблон выбирается из списка. Поставщик отмечает свои услуги: в партию попадут только они.</p>
           <div class="filters">
             <mat-form-field>
               <mat-label>Мероприятие</mat-label>
@@ -141,8 +141,25 @@ type CustomField = 'group' | 'rating' | 'stage';
                 @for (item of measures; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
               </mat-select>
             </mat-form-field>
-            @if (measureKind.value === 'call' || measureKind.value === 'notice' || measureKind.value === 'warning') {
-              <mat-form-field><mat-label>Шаблон</mat-label><input matInput [formControl]="templateName" /></mat-form-field>
+            @if (needsTemplate()) {
+              <mat-form-field>
+                <mat-label>Шаблон</mat-label>
+                <mat-select [formControl]="templateId">
+                  @for (item of templateOptions(); track item.id) {
+                    <mat-option [value]="item.id">{{ item.name }} ({{ item.channel_display }})</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
+            @if (needsServices()) {
+              <mat-form-field>
+                <mat-label>Услуги</mat-label>
+                <mat-select [formControl]="catalogServices" multiple>
+                  @for (item of serviceChoices(); track item.service_id) {
+                    <mat-option [value]="item.service_id">{{ item.service_name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
             }
             @if (measureKind.value === 'call') {
               <mat-form-field><mat-label>Время с</mat-label><input matInput type="time" [formControl]="timeFrom" /></mat-form-field>
@@ -154,10 +171,7 @@ type CustomField = 'group' | 'rating' | 'stage';
                 <mat-label>Канал</mat-label>
                 <mat-select [formControl]="channel">
                   <mat-option value="sms">SMS</mat-option>
-                  <mat-option value="messenger">Мессенджер</mat-option>
                   <mat-option value="email">E-mail</mat-option>
-                  <mat-option value="erip">Личный кабинет ЕРИП</mat-option>
-                  <mat-option value="letter">Письмо</mat-option>
                 </mat-select>
               </mat-form-field>
             }
@@ -504,6 +518,8 @@ export class AccountsListComponent implements OnInit {
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly filters = signal<SavedFilter[]>([]);
+  protected readonly templates = signal<MessageTemplate[]>([]);
+  protected readonly serviceChoices = signal<ServiceChoice[]>([]);
   protected readonly groupedRows = signal<{ value: string; accounts: number; debt: string | null }[]>([]);
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly groupsSelected = new FormControl<number[]>([], { nonNullable: true });
@@ -514,11 +530,12 @@ export class AccountsListComponent implements OnInit {
   protected readonly customField = new FormControl<CustomField>('group', { nonNullable: true });
   protected readonly customValue = new FormControl('', { nonNullable: true });
   protected readonly measureKind = new FormControl('call', { nonNullable: true });
-  protected readonly templateName = new FormControl('', { nonNullable: true });
+  protected readonly templateId = new FormControl<number | null>(null);
+  protected readonly catalogServices = new FormControl<number[]>([], { nonNullable: true });
   protected readonly timeFrom = new FormControl('09:00', { nonNullable: true });
   protected readonly timeTo = new FormControl('18:00', { nonNullable: true });
   protected readonly days = new FormControl('3', { nonNullable: true });
-  protected readonly channel = new FormControl('sms', { nonNullable: true });
+  protected readonly channel = new FormControl('email', { nonNullable: true });
   protected readonly scenarioName = new FormControl('', { nonNullable: true });
   protected readonly startedOn = new FormControl('', { nonNullable: true });
   protected readonly assignee = new FormControl('', { nonNullable: true });
@@ -548,6 +565,15 @@ export class AccountsListComponent implements OnInit {
       if (prefs.columns.length) this.columns.set(prefs.columns);
     });
     this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results));
+    this.api.templates({ is_active: true, page_size: 200 }).subscribe({
+      next: (page) => this.templates.set(page.results),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+    this.api.serviceChoices().subscribe({
+      next: (page) => this.serviceChoices.set(page.results),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+    this.channel.valueChanges.subscribe(() => this.keepTemplateInList());
     this.reload(1);
   }
 
@@ -828,10 +854,44 @@ export class AccountsListComponent implements OnInit {
     else this.reload(1);
   }
 
+  needsTemplate(): boolean {
+    const kind = this.measureKind.value;
+    return kind === 'call' || kind === 'notice' || kind === 'warning';
+  }
+
+  needsServices(): boolean {
+    const kind = this.measureKind.value;
+    if (kind === 'scenario') return false;
+    if (this.auth.me()?.contour === 'supplier') return true;
+    return kind === 'disconnect' || kind === 'collection';
+  }
+
+  templateOptions(): MessageTemplate[] {
+    const all = this.templates();
+    if (this.measureKind.value !== 'notice') return all;
+    const channel = this.channel.value;
+    if (channel !== 'email' && channel !== 'sms') return all;
+    const matched = all.filter((item) => item.channel === channel);
+    return matched.length ? matched : all;
+  }
+
   launch(): void {
     const kind = this.measureKind.value;
+    const template = this.templates().find((item) => item.id === this.templateId.value);
+    if (this.needsTemplate() && !template) {
+      this.snack.open('Выберите шаблон', 'OK');
+      return;
+    }
+    if (this.needsServices() && !this.catalogServices.value.length) {
+      const text = this.auth.me()?.contour === 'supplier'
+        ? 'Выберите услуги своего поставщика'
+        : 'Выберите услуги';
+      this.snack.open(text, 'OK');
+      return;
+    }
     const body: Record<string, unknown> = { kind, filters: this.query(), all_matching: true };
-    if (kind === 'call' || kind === 'notice' || kind === 'warning') body['template_name'] = this.templateName.value;
+    if (template) body['template_name'] = template.name;
+    if (this.needsServices()) body['catalog_service_ids'] = this.catalogServices.value;
     if (kind === 'call') {
       body['time_from'] = this.timeFrom.value;
       body['time_to'] = this.timeTo.value;
@@ -854,6 +914,13 @@ export class AccountsListComponent implements OnInit {
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  private keepTemplateInList(): void {
+    const selected = this.templateId.value;
+    if (selected != null && !this.templateOptions().some((item) => item.id === selected)) {
+      this.templateId.setValue(null);
+    }
   }
 
   private dropGrouping(): void {

@@ -445,6 +445,23 @@ class AccountServiceViewSet(_ChildViewSet):
     serializer_class = AccountServiceSerializer
     filterset_fields = ["account", "service_id", "provider_id", "debt_group"]
 
+    @action(detail=False)
+    def choices(self, request):
+        """Виды услуг контура: один пункт на код услуги АИС, без строки на каждый лицевой счёт."""
+        rows = (
+            self.get_queryset()
+            .order_by()
+            .values("service_id", "service_name")
+            .distinct()
+            .order_by("service_name", "service_id")
+        )
+        return Response({
+            "results": [
+                {"service_id": row["service_id"], "service_name": row["service_name"] or str(row["service_id"])}
+                for row in rows
+            ],
+        })
+
 
 class PaymentViewSet(_ChildViewSet):
     queryset = Payment.objects.select_related("account")
@@ -850,7 +867,6 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         return Response(payload)
 
     def create(self, request, *args, **kwargs):
-        from .services.contracts import id_list
         from .services.measures import MeasureLaunchError, launch_measure
 
         accounts = self._selected_accounts(request)
@@ -860,17 +876,7 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                     "contacts", "registrations", "services",
                 )
             )
-        requested = id_list(request.data.get("service_ids"))
-        allowed = AccessScope(request.user).apply(
-            AccountService.objects.filter(account__in=accounts),
-            "organization", "account__provider_id", "provider_id",
-        )
-        if requested:
-            services = list(allowed.filter(pk__in=requested))
-            if len(services) != len(set(requested)):
-                raise ValidationError({"service_ids": "Услуга недоступна в вашем контуре"})
-        else:
-            services = []
+        services = self._launch_services(request, accounts)
         try:
             result = launch_measure(request.user, accounts, services, request.data)
         except MeasureLaunchError as exc:
@@ -1008,6 +1014,31 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
         record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "cancel"})
         return self._act(request, measure, runner)
+
+    def _launch_services(self, request, accounts):
+        from .services.contracts import id_list
+
+        requested = id_list(request.data.get("service_ids"))
+        catalog = id_list(request.data.get("catalog_service_ids"), field="catalog_service_ids")
+        if requested and catalog:
+            raise ValidationError({"service_ids": "Укажите услуги счетов или виды услуг, не оба списка"})
+        allowed = AccessScope(request.user).apply(
+            AccountService.objects.filter(account__in=accounts),
+            "organization", "account__provider_id", "provider_id",
+        )
+        if requested:
+            services = list(allowed.filter(pk__in=requested))
+            if len(services) != len(set(requested)):
+                raise ValidationError({"service_ids": "Услуга недоступна в вашем контуре"})
+            return services
+        if catalog:
+            wanted = set(catalog)
+            services = list(allowed.filter(service_id__in=wanted))
+            missing = wanted - {service.service_id for service in services}
+            if missing:
+                raise ValidationError({"catalog_service_ids": "Услуга недоступна в текущей выборке"})
+            return services
+        return []
 
     def _selected_accounts(self, request):
         base = AccessScope(request.user).apply(
