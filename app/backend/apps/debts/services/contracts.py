@@ -84,6 +84,7 @@ def _person_groups(qs):
             NullIf("account__payer_unp", Value("")),
             Cast("account_id", CharField()),
         ),
+        shown_group=Coalesce("account__debt_group_manual", "account__debt_group"),
         stage_rank=Case(
             When(account__funnel_stage="court", then=Value(6)),
             When(account__funnel_stage="enforcement", then=Value(5)),
@@ -97,6 +98,7 @@ def _person_groups(qs):
     )
     return ranked.values("person_key").annotate(
         rank=Max("stage_rank"),
+        debt_group=Max("shown_group"),
         principal=Sum("balance_out"),
         penalty=Sum("balance_mulct_out"),
         ls_count=Count("account", distinct=True),
@@ -149,6 +151,7 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int)
                     "payer_identifier": row["payer_identifier"] or "",
                     "ls_count": row["ls_count"],
                     "principal": row["principal"],
+                    "debt_group": row["debt_group"],
                 }
                 for row in column[start:start + page_size]
             ],

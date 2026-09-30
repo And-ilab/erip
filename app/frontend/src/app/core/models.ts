@@ -128,6 +128,7 @@ export interface ContractPerson {
   penalty: string | null;
   earliest: string | null;
   sample_id: number;
+  debt_group?: number | null;
 }
 
 export interface ContractSummary {

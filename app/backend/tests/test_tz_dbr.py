@@ -218,7 +218,10 @@ def test_category_recalculates_scenario_immediately(api, specialist_a, org_a, ac
 def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
     account_a.payer_identifier = "IN-DBR"
     account_a.funnel_stage = "warning"
-    account_a.save(update_fields=["payer_identifier", "funnel_stage"])
+    account_a.debt_group = 2
+    account_a.debt_group_manual = 5
+    account_a.debt_group_manual_reason = "Комиссия"
+    account_a.save(update_fields=["payer_identifier", "funnel_stage", "debt_group", "debt_group_manual", "debt_group_manual_reason"])
     AccountService.objects.create(
         organization=org_a, account=account_a, service_list_id=8, service_id=18,
         service_name="Свет", balance_out=Decimal("20"),
@@ -228,6 +231,7 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
     assert warning["total"] == 1
     assert warning["cards"][0]["ls_count"] == 1
     assert warning["cards"][0]["payer_identifier"] == "IN-DBR"
+    assert warning["cards"][0]["debt_group"] == 5
 
 
 def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, specialist_a, org_a, account_a):

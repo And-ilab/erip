@@ -178,7 +178,12 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
               <section>
                 <h3>{{ column.title }} ({{ column.total }})</h3>
                 @for (card of column.cards; track card.sample_id) {
-                  <p class="clickable-row" (click)="open(card.sample_id)">{{ card.payer }} · {{ card.ls_count }} ЛС · {{ card.principal }}</p>
+                  <article class="card g{{ card.debt_group ?? 0 }}" (click)="open(card.sample_id)">
+                    <b>{{ card.payer }}</b>
+                    <div class="muted">{{ card.ls_count }} ЛС</div>
+                    <div>{{ card.principal | number: '1.2-2' }}</div>
+                    @if (card.debt_group) { <span class="group-badge g{{ card.debt_group }}">{{ card.debt_group }}</span> }
+                  </article>
                 }
               </section>
             }
@@ -317,6 +322,14 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
     .body { padding: 16px 24px; }
     .board { display: flex; gap: 12px; overflow: auto; align-items: flex-start; }
     section { min-width: 220px; background: #fff; border: 1px solid var(--erip-border); border-top: 3px solid var(--erip-primary); border-radius: 8px; padding: 8px; }
+    .card {
+      border: 1px solid var(--erip-border); border-left: 4px solid #cbd5e1; border-radius: 6px; padding: 8px; margin-bottom: 8px;
+      cursor: pointer; background: #fff; transition: box-shadow .15s;
+    }
+    .card:hover { box-shadow: 0 2px 6px rgba(16, 42, 67, .12); }
+    .card.g1 { border-left-color: #22c55e; } .card.g2 { border-left-color: #84cc16; } .card.g3 { border-left-color: #eab308; }
+    .card.g4 { border-left-color: #f97316; } .card.g5 { border-left-color: #ef4444; } .card.g6 { border-left-color: #7f1d1d; }
+    .muted { color: var(--erip-muted); font-size: 12px; }
     h3 { margin: 0 0 8px; font-size: 14px; color: var(--erip-primary-dark); }
     .backdrop {
       position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
