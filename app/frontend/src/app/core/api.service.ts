@@ -46,13 +46,38 @@ function toParams(params: Params = {}): HttpParams {
   return result;
 }
 
+function detailText(value: unknown): string {
+  if (value == null) return '';
+  if (Array.isArray(value)) return summarize(value);
+  if (typeof value === 'object') return objectText(value as Record<string, unknown>);
+  return String(value);
+}
+
+function objectText(row: Record<string, unknown>): string {
+  if (typeof row['reason'] === 'string') {
+    return row['client_account'] ? `ЛС ${row['client_account']}: ${row['reason']}` : row['reason'];
+  }
+  return Object.entries(row).map(([key, item]) => `${key}: ${detailText(item)}`).join(', ');
+}
+
+/** Одинаковые причины пропуска сворачиваются: «Нет номера +375 (27)». */
+function summarize(values: unknown[]): string {
+  const reasons = new Map<string, number>();
+  for (const item of values) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return values.map(detailText).join(', ');
+    const reason = (item as Record<string, unknown>)['reason'];
+    if (typeof reason !== 'string') return values.map(detailText).join(', ');
+    reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+  }
+  return [...reasons.entries()]
+    .map(([reason, count]) => (count > 1 ? `${reason} (${count})` : reason))
+    .join('; ');
+}
+
 function fieldErrors(details: unknown): string {
-  if (!details || typeof details !== 'object') return '';
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return '';
   return Object.entries(details as Record<string, unknown>)
-    .map(([field, value]) => {
-      const text = Array.isArray(value) ? value.join(', ') : String(value);
-      return `${field}: ${text}`;
-    })
+    .map(([field, value]) => `${field}: ${detailText(value)}`)
     .join('; ');
 }
 
