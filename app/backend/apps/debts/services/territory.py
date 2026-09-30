@@ -329,6 +329,7 @@ class TerritoryMap:
     def level(self, accounts: QuerySet, parent: Territory | None) -> dict:
         if parent is None:
             parent = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
+        accounts = accounts.order_by()
         unplaced = accounts.filter(territory__isnull=True).count()
         if parent is None:
             return {"parent": None, "breadcrumb": [], "unplaced": unplaced, "children": []}

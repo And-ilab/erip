@@ -144,7 +144,10 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         if self.action in {"list", "export", "kanban", "calendar"}:
             qs = AccountRepository(qs).registry()
         providers = _supplier_ids(self.request.user)
-        if providers is not None:
+        # Суммы по услугам нужны строке списка. На карте и в группировке они
+        # добавляют GROUP BY по лицевому счёту, и один населённый пункт
+        # распадается на пузырь «1» для каждого счёта.
+        if providers is not None and self.action in {"list", "export", "kanban", "retrieve"}:
             allowed = providers or [-1]
             qs = qs.annotate(
                 supplier_principal=Sum("services__balance_out", filter=Q(services__provider_id__in=allowed)),

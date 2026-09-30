@@ -1,7 +1,8 @@
-from apps.debts.models import Account, Territory
+from apps.debts.models import Account, AccountService, Territory
 from apps.debts.services.territory import AddressPath, TerritoryIndex
+from apps.users.models import ServiceOrganization, User
 
-from .conftest import make_account
+from .conftest import make_account, make_user
 
 
 def _chain(account):
@@ -110,6 +111,24 @@ def test_map_counts_subtree_inside_the_contour(api, specialist_a, org_a, org_b):
     house = Account.objects.get(account_id=11).territory
     listed = api(specialist_a).get(f"/api/v1/accounts/?territory={house.id}").json()
     assert listed["count"] == 2
+
+
+def test_supplier_map_keeps_one_bubble_per_place(api, org_a):
+    for offset, group in ((31, 1), (32, 4)):
+        account = make_account(org_a, offset, house_address=f"г. Минск, ул. Тестовая, д. {offset}", debt_group=group)
+        AccountService.objects.create(
+            organization=org_a, account=account, service_list_id=offset, service_id=offset,
+            service_name="Вода", provider_id=501, balance_out=10,
+        )
+    supplier = make_user("map_sup", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    house = ServiceOrganization.objects.get(organization=org_a, provider_id=501)
+    house.is_supplier = True
+    house.save(update_fields=["is_supplier", "updated_at"])
+    supplier.service_organizations.add(house)
+    TerritoryIndex().assign_queryset(Account.objects.filter(organization=org_a))
+    body = api(supplier).get("/api/v1/accounts/map/").json()
+    assert [child["name"] for child in body["children"]] == ["Минская область"]
+    assert body["children"][0]["accounts"] == 2
 
 
 def test_manual_group_is_the_bubble_group(api, specialist_a, org_a):
