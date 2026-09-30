@@ -153,6 +153,7 @@ class DebtCharts:
             )
             .order_by("bucket")
         )
+        rows = [row for row in rows if row["bucket"] is not None]
         if rows:
             return [
                 {

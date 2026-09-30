@@ -5,6 +5,7 @@ import { Observable } from 'rxjs';
 import {
   AccountDetail,
   AccountRow,
+  DebtCharts,
   AccountService,
   ContractDossier,
   ContractPerson,
@@ -74,6 +75,10 @@ export class ApiService {
 
   accounts(params: Params): Observable<Page<AccountRow>> {
     return this.http.get<Page<AccountRow>>(`${this.base}/accounts/`, { params: toParams(params) });
+  }
+
+  charts(): Observable<DebtCharts> {
+    return this.http.get<DebtCharts>(`${this.base}/accounts/charts/`);
   }
 
   account(id: number): Observable<AccountDetail> {
@@ -428,6 +433,11 @@ export interface ClaimCase {
   account: number;
   client_account: string;
   short_fio: string;
+  account_address: string;
+  debt_group: number | null;
+  rating: string;
+  penalty: string | null;
+  specialist: string;
   balance_out: string | null;
   stage: string;
   stage_label: string;

@@ -479,3 +479,34 @@ export interface MapLevel {
   unplaced: number;
   children: MapBubble[];
 }
+
+export interface ChartBucket {
+  cases: number;
+  principal: string;
+  penalty: string;
+}
+
+export interface ChartStage extends ChartBucket {
+  code: string;
+  title: string;
+}
+
+export interface ChartGroup extends ChartBucket {
+  group: number | null;
+  title: string;
+}
+
+export interface ChartMonth extends ChartBucket {
+  period: string;
+}
+
+export interface DebtCharts {
+  as_of: string;
+  cases: number;
+  principal: string;
+  penalty: string;
+  stages: ChartStage[];
+  groups: ChartGroup[];
+  months: ChartMonth[];
+  months_source: 'history' | 'current';
+}
