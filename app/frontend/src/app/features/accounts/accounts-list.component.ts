@@ -13,6 +13,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AccountRow, CalendarEvent, KanbanColumn, SavedFilter } from '../../core/models';
+import { AnalyticsComponent } from '../analytics/analytics.component';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -44,7 +45,7 @@ type CustomField = 'group' | 'rating' | 'stage';
   standalone: true,
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent,
+    MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
   ],
   template: `
     <div class="registry">
@@ -126,6 +127,7 @@ type CustomField = 'group' | 'rating' | 'stage';
           <button type="button" class="view-btn" [class.on]="view() === 'calendar'" title="Календарь" (click)="showCalendar()">▤</button>
           <button type="button" class="view-btn" [class.on]="view() === 'map'" title="Карта" (click)="showMap()">⌖</button>
         </div>
+        <button type="button" class="tool charts-box" [class.on]="view() === 'charts'" (click)="showCharts()">Граф. аналитика</button>
       </div>
 
       @if (measureOpen()) {
@@ -176,6 +178,10 @@ type CustomField = 'group' | 'rating' | 'stage';
 
         @if (view() === 'map') {
           <app-accounts-map [query]="mapQuery()" (openList)="openTerritory($event)" />
+        }
+
+        @if (view() === 'charts') {
+          <app-analytics />
         }
 
         @if (view() === 'list') {
@@ -348,7 +354,8 @@ type CustomField = 'group' | 'rating' | 'stage';
     .tool { padding: 0 10px; font-size: 13px; white-space: nowrap; }
     .views { display: flex; gap: 4px; }
     .view-btn { width: 32px; font-size: 14px; }
-    .view-btn.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
+    .view-btn.on, .charts-box.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
+    .charts-box { margin-left: 10px; }
     .measure { padding: 10px 16px 0; background: #fff; border-bottom: 1px solid var(--erip-border); }
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .body { padding: 16px 24px; }
@@ -407,7 +414,7 @@ export class AccountsListComponent implements OnInit {
   protected readonly rows = signal<AccountRow[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
-  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map'>('list');
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map' | 'charts'>('list');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
   protected readonly measureOpen = signal(false);
@@ -597,6 +604,11 @@ export class AccountsListComponent implements OnInit {
     this.mapQuery.set(this.query());
   }
 
+  showCharts(): void {
+    this.dropGrouping();
+    this.view.set('charts');
+  }
+
   openTerritory(node: { id: number; name: string }): void {
     this.territoryId.set(node.id);
     this.territoryName.set(node.name);
@@ -742,6 +754,7 @@ export class AccountsListComponent implements OnInit {
       this.loadCalendar();
       return;
     }
+    if (current === 'charts') return;
     this.reload(1);
   }
 

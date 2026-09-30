@@ -65,9 +65,8 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
   selector: 'app-analytics',
   standalone: true,
   template: `
-    <div class="page">
+    <div class="charts">
       <div class="toolbar">
-        <h2>Граф. аналитика</h2>
         <div class="modes" role="group" aria-label="Вид диаграммы">
           <button type="button" [class.on]="mode() === 'bar'" (click)="mode.set('bar')">Столбчатая</button>
           <button type="button" [class.on]="mode() === 'line'" (click)="mode.set('line')">Линейная</button>
@@ -179,7 +178,6 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
     </div>
   `,
   styles: `
-    h2 { margin: 0; color: var(--erip-primary-dark); font-size: 20px; }
     h3 { margin: 0 0 4px; font-size: 16px; color: #1f2933; }
     .toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
     .modes { display: flex; background: #fff; border: 1px solid var(--erip-border); border-radius: 8px; overflow: hidden; }
