@@ -9,7 +9,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 
 from apps.debts.models import Account, ClaimAct, ClaimCase
-from apps.nsi.models import PrintForm
+from apps.nsi.models import PrintForm, PrintFormRevision
 from apps.nsi.services.scenarios import STANDARD_STEPS, ensure_standard_scenario
 
 MARK = "выборка для показа"
@@ -61,13 +61,12 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Готово дел: {len(accounts)}. Сценарий: Стандартное взыскание, шагов {len(STANDARD_STEPS)}."))
 
     def _print_form(self):
-        if PrintForm.objects.filter(organization=None, code="warning-demo").exists():
-            return
-        PrintForm.objects.create(
-            organization=None,
-            code="warning-demo",
-            name="Предупреждение для показа",
-            doc_kind="warning",
-            body="Уважаемый {fio}, по счёту {account} долг {amount}, пеня учтена в АИС. Адрес: {address}. Услуги: {services}. Срок {due_days} дн. {organization}.",
-            version=1,
-        )
+        body = "Уважаемый {fio}, по счёту {account} долг {amount}, пеня учтена в АИС. Адрес: {address}. Услуги: {services}. Срок {due_days} дн. {organization}."
+        form = PrintForm.objects.filter(organization=None, code="warning-demo").first()
+        if form is None:
+            form = PrintForm.objects.create(
+                organization=None, code="warning-demo", name="Предупреждение для показа",
+                doc_kind="warning", body=body, version=1,
+            )
+        if not form.revisions.filter(version=form.version).exists():
+            PrintFormRevision.objects.create(form=form, version=form.version, body=form.body)

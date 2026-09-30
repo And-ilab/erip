@@ -1,8 +1,9 @@
 """Показательный контур ТЗ 4.2.4 и 4.2.5: дело взыскания и конструктор сценария."""
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
-from apps.debts.models import AccountScenarioRun, DebtWorkItem
+from apps.debts.models import AccountScenarioRun, Attachment, DebtWorkItem
 
 from .conftest import make_account
 
@@ -188,3 +189,72 @@ def test_recovered_waits_for_ais_flag(api, specialist_a, account_a):
     assert opened.json()["stage"] == "recovered"
     account_a.refresh_from_db()
     assert account_a.balance_out is not None
+
+
+@pytest.mark.django_db
+def test_notary_refusal_needs_a_note_or_a_file(api, specialist_a, account_a):
+    case_id = _ready(api, specialist_a, account_a)
+    api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
+    empty = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/notary-result/", {"result": "refused", "note": ""}, format="json",
+    )
+    assert empty.status_code == 400
+
+    Attachment.objects.create(
+        organization=account_a.organization, account=account_a, doc_type="постановление об отказе",
+        original_name="otkaz.pdf", file=SimpleUploadedFile("otkaz.pdf", b"%PDF"),
+    )
+    refused = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/notary-result/", {"result": "refused", "note": ""}, format="json",
+    )
+    assert refused.status_code == 200, refused.content
+    assert refused.json()["stage"] == "lawsuit"
+    assert any(item["role"] == "scan" for item in refused.json()["files"])
+
+
+@pytest.mark.django_db
+def test_publish_can_move_running_accounts_and_restore_does_not(api, admin_a, account_a):
+    listing = api(admin_a).get("/api/v1/nsi/scenarios/")
+    standard = next(row for row in listing.json()["results"] if row["name"] == "Стандартное взыскание")
+    copied = api(admin_a).post(f"/api/v1/nsi/scenarios/{standard['id']}/copy/", {}, format="json")
+    scenario_id = copied.json()["id"]
+    api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {}, format="json")
+    api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/assign/", {"account": account_a.id}, format="json")
+    steps = copied.json()["steps"]
+    steps[-1]["terminal"] = False
+    steps.append({"order": 6, "action": "manual_call", "wait_days": 0, "terminal": True})
+    api(admin_a).patch(f"/api/v1/nsi/scenarios/{scenario_id}/", {"steps": steps}, format="json")
+    moved = api(admin_a).post(
+        f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {"apply_to_running": True}, format="json",
+    )
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["version"] == 2
+    assert moved.json()["moved"] == 1
+    assert AccountScenarioRun.objects.get(account=account_a).version == 2
+
+    restored = api(admin_a).post(
+        f"/api/v1/nsi/scenarios/{scenario_id}/restore/", {"version": 1}, format="json",
+    )
+    assert restored.status_code == 200, restored.content
+    assert restored.json()["version"] == 3
+    assert AccountScenarioRun.objects.get(account=account_a).version == 2
+    assert restored.json()["steps"][-1]["action"] != "manual_call"
+
+
+@pytest.mark.django_db
+def test_print_form_restore_keeps_printed_documents(api, admin_a, specialist_a, account_a):
+    created = api(admin_a).post(
+        "/api/v1/nsi/print-forms/",
+        {"code": "writ-restore", "name": "Надпись 2", "doc_kind": "writ", "body": "Первая {amount}"},
+        format="json",
+    )
+    form_id = created.json()["id"]
+    api(specialist_a).post(f"/api/v1/nsi/print-forms/{form_id}/render/", {"account": account_a.id}, format="json")
+    api(admin_a).patch(f"/api/v1/nsi/print-forms/{form_id}/", {"body": "Вторая {fio}"}, format="json")
+    restored = api(admin_a).post(f"/api/v1/nsi/print-forms/{form_id}/restore/", {"version": 1}, format="json")
+    assert restored.status_code == 200, restored.content
+    assert restored.json()["version"] == 3
+    assert restored.json()["body"] == "Первая {amount}"
+    notes = list(DebtWorkItem.objects.filter(account=account_a).values_list("note", flat=True))
+    assert any("версии 1" in note for note in notes)
+    assert not any("версии 3" in note for note in notes)

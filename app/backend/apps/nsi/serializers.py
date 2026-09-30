@@ -35,17 +35,37 @@ class DebtorCategorySerializer(serializers.ModelSerializer):
 
 
 class ScenarioDefinitionSerializer(serializers.ModelSerializer):
+    revisions = serializers.SerializerMethodField()
+
     class Meta:
         model = ScenarioDefinition
-        fields = ["id", "organization", "name", "status", "version", "steps", "based_on", "is_active"]
-        read_only_fields = ["is_active", "status", "version", "organization"]
+        fields = ["id", "organization", "name", "status", "version", "steps", "based_on", "is_active", "revisions"]
+        read_only_fields = ["is_active", "status", "version", "organization", "revisions"]
+
+    def get_revisions(self, obj) -> list[dict]:
+        return [
+            {
+                "version": revision.version,
+                "at": revision.created_at.isoformat(),
+                "author": revision.author.display_name if revision.author_id else "",
+            }
+            for revision in obj.revisions.all()
+        ]
 
 
 class PrintFormSerializer(serializers.ModelSerializer):
+    revisions = serializers.SerializerMethodField()
+
     class Meta:
         model = PrintForm
-        fields = ["id", "organization", "code", "name", "doc_kind", "body", "version", "is_active"]
-        read_only_fields = ["is_active", "version", "organization"]
+        fields = ["id", "organization", "code", "name", "doc_kind", "body", "version", "is_active", "revisions"]
+        read_only_fields = ["is_active", "version", "organization", "revisions"]
+
+    def get_revisions(self, obj) -> list[dict]:
+        return [
+            {"version": revision.version, "at": revision.created_at.isoformat()}
+            for revision in obj.revisions.all()
+        ]
 
 
 class ScenarioRuleSerializer(serializers.ModelSerializer):

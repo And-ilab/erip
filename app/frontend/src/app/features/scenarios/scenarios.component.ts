@@ -45,6 +45,7 @@ const ACTIONS = [
             <button mat-stroked-button (click)="create()">+ Черновик</button>
           }
           <button mat-flat-button color="primary" (click)="save()">Сохранить</button>
+          <mat-checkbox [(ngModel)]="applyRunning">Перевести уже запущенные счета</mat-checkbox>
           <button mat-stroked-button (click)="publish()">Опубликовать</button>
           <button mat-stroked-button (click)="copy()">Копировать в схему</button>
         </div>
@@ -113,6 +114,18 @@ const ACTIONS = [
           <button mat-stroked-button (click)="assign(true)">Поставить на паузу</button>
         </div>
         @if (runNote()) { <p>{{ runNote() }}</p> }
+        @if (current()?.revisions?.length) {
+          <section class="history">
+            <h3>Версии сценария</h3>
+            <p class="muted">Откат публикует выбранные шаги новым номером. Запущенные счета остаются на своей версии, пока не отмечен перевод.</p>
+            @for (rev of current()?.revisions; track rev.version) {
+              <div class="rev">
+                <span>v{{ rev.version }} {{ rev.author }}</span>
+                <button mat-stroked-button (click)="restore(rev.version)" [disabled]="rev.version === current()?.version">Откатить как новую версию</button>
+              </div>
+            }
+          </section>
+        }
       }
 
       <section class="forms">
@@ -144,6 +157,16 @@ const ACTIONS = [
           <button mat-stroked-button (click)="render()">Собрать документ</button>
         </div>
         @if (rendered()) { <pre>{{ rendered() }}</pre> }
+        @if (print()?.revisions?.length) {
+          <h4>Версии макета</h4>
+          <p class="muted">Уже собранный документ остаётся на версии, которой его печатали.</p>
+          @for (rev of print()?.revisions; track rev.version) {
+            <div class="rev">
+              <span>v{{ rev.version }}</span>
+              <button mat-stroked-button (click)="restoreForm(rev.version)" [disabled]="rev.version === print()?.version">Вернуть текст новой версией</button>
+            </div>
+          }
+        }
       </section>
     </div>
   `,
@@ -169,7 +192,9 @@ const ACTIONS = [
     .mode.hand { background: var(--erip-warn-kind-soft); color: var(--erip-warn-kind); }
     .pane { display: flex; flex-direction: column; gap: 8px; }
     .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; }
-    .assign, .forms { margin-top: 16px; }
+    .assign, .forms, .history { margin-top: 16px; }
+    .history, .rev { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .history { flex-direction: column; align-items: stretch; }
     .forms { display: flex; flex-direction: column; gap: 8px; }
     .wide, .grow { width: 100%; flex: 1; }
     pre { white-space: pre-wrap; background: var(--erip-bg); padding: 12px; border-radius: 8px; }
@@ -200,6 +225,7 @@ export class ScenariosComponent implements OnInit {
   protected formKind = 'warning';
   protected formBody = 'Уважаемый {fio}, по счёту {account} долг {amount}. Услуги: {services}. Оплатите за {due_days} дн. {organization}.';
   protected renderAccount: number | null = null;
+  protected applyRunning = false;
 
   ngOnInit(): void {
     this.reload();
@@ -270,14 +296,39 @@ export class ScenariosComponent implements OnInit {
     const row = this.current();
     if (!row) return;
     this.api.saveScenario({ id: row.id, name: this.name, steps: this.clean() }).subscribe({
-      next: (saved) => this.api.publishScenario(saved.id).subscribe({
+      next: (saved) => this.api.publishScenario(saved.id, this.applyRunning).subscribe({
         next: (result) => {
           this.warnings.set(result.warnings);
-          this.snack.open(`Опубликована версия ${result.version}`, 'OK', { duration: 2000 });
+          const moved = this.applyRunning ? ` Переведено счетов: ${result.moved}.` : ' Запущенные счета оставлены на своей версии.';
+          this.snack.open(`Опубликована версия ${result.version}.${moved}`, 'OK', { duration: 3000 });
           this.reload(saved.id);
         },
         error: (err) => this.snack.open(errorMessage(err), 'OK'),
       }),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected restore(version: number): void {
+    const row = this.current();
+    if (!row) return;
+    this.api.restoreScenario(row.id, version, this.applyRunning).subscribe({
+      next: (saved) => {
+        this.warnings.set(saved.warnings || []);
+        this.reload(saved.id);
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected restoreForm(version: number): void {
+    const form = this.print();
+    if (!form) return;
+    this.api.restorePrintForm(form.id, version).subscribe({
+      next: (saved) => {
+        this.selectForm(saved);
+        this.api.printForms().subscribe((page) => this.forms.set(page.results));
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }

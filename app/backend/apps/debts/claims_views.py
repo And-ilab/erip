@@ -42,7 +42,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         rows = [
             case_payload(case)
             for case in self.get_queryset().select_related("account__assigned_to").prefetch_related(
-                "acts", "approvals__approver", "events__actor", "account__services",
+                "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
             )
         ]
         return Response({"results": rows, "stages": [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices]})
@@ -80,7 +80,8 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="notary-result")
     def result(self, request, pk=None):
         case = notary_result(
-            self._case(pk), str(request.data.get("result") or ""), request.user, str(request.data.get("note") or ""),
+            self._case(pk), str(request.data.get("result") or ""), request.user,
+            str(request.data.get("note") or ""), request.data.get("attachment_id") or None,
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"stage": case.stage})
         return Response(case_payload(case, with_choices=True))
@@ -124,7 +125,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     def _case(self, pk) -> ClaimCase:
         return get_object_or_404(
             self.get_queryset().select_related("account__assigned_to").prefetch_related(
-                "acts", "approvals__approver", "events__actor", "account__services",
+                "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
             ),
             pk=pk,
         )

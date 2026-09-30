@@ -397,8 +397,16 @@ export class ApiService {
       : this.http.post<ScenarioRow>(`${this.base}/nsi/scenarios/`, row);
   }
 
-  publishScenario(id: number): Observable<{ version: number; warnings: string[] }> {
-    return this.http.post<{ version: number; warnings: string[] }>(`${this.base}/nsi/scenarios/${id}/publish/`, {});
+  publishScenario(id: number, applyToRunning = false): Observable<{ version: number; warnings: string[]; moved: number }> {
+    return this.http.post<{ version: number; warnings: string[]; moved: number }>(
+      `${this.base}/nsi/scenarios/${id}/publish/`, { apply_to_running: applyToRunning },
+    );
+  }
+
+  restoreScenario(id: number, version: number, applyToRunning = false): Observable<ScenarioRow & { warnings: string[]; moved: number }> {
+    return this.http.post<ScenarioRow & { warnings: string[]; moved: number }>(
+      `${this.base}/nsi/scenarios/${id}/restore/`, { version, apply_to_running: applyToRunning },
+    );
   }
 
   copyScenario(id: number): Observable<ScenarioRow> {
@@ -419,6 +427,10 @@ export class ApiService {
     return row.id
       ? this.http.patch<PrintFormRow>(`${this.base}/nsi/print-forms/${row.id}/`, row)
       : this.http.post<PrintFormRow>(`${this.base}/nsi/print-forms/`, row);
+  }
+
+  restorePrintForm(id: number, version: number): Observable<PrintFormRow> {
+    return this.http.post<PrintFormRow>(`${this.base}/nsi/print-forms/${id}/restore/`, { version });
   }
 
   renderPrintForm(id: number, account: number, tariff = ''): Observable<{ text: string; version: number }> {
@@ -464,6 +476,7 @@ export interface ClaimCase {
   skip_reason: string;
   writeoff_status: string;
   writeoff_note: string;
+  files: { id: number; doc_type: string; name: string; role: string }[];
   acts: { id: number; title: string }[];
   acts_count: number;
   approvals: { id: number; approver_id: number; approver_name: string; decision: string; reason: string }[];
@@ -486,6 +499,12 @@ export interface ScenarioStep {
   terminal?: boolean;
 }
 
+export interface VersionRow {
+  version: number;
+  at: string;
+  author?: string;
+}
+
 export interface ScenarioRow {
   id: number;
   name: string;
@@ -494,6 +513,7 @@ export interface ScenarioRow {
   steps: ScenarioStep[];
   organization: number | null;
   is_active: boolean;
+  revisions?: VersionRow[];
 }
 
 export interface PrintFormRow {
@@ -504,4 +524,5 @@ export interface PrintFormRow {
   body: string;
   version: number;
   organization: number | null;
+  revisions?: VersionRow[];
 }

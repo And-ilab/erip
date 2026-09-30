@@ -6,7 +6,7 @@ from decimal import Decimal
 from django.utils import timezone
 
 from apps.core.exceptions import ServiceError
-from apps.debts.models import ClaimAct, ClaimApproval, ClaimCase, ClaimEvent, DebtWorkItem
+from apps.debts.models import Attachment, ClaimAct, ClaimApproval, ClaimCase, ClaimEvent, DebtWorkItem
 from apps.notifications.models import Channel, Notification
 from apps.users.models import User
 
@@ -88,17 +88,32 @@ def send_to_notary(case: ClaimCase, user) -> ClaimCase:
     return move_case(case, ClaimCase.Stage.NOTARY, user, f"Заглушка БНП, номер {case.submission_id}")
 
 
-def notary_result(case: ClaimCase, result: str, user, note: str = "") -> ClaimCase:
+def notary_result(case: ClaimCase, result: str, user, note: str = "", attachment_id=None) -> ClaimCase:
     if case.stage != ClaimCase.Stage.NOTARY:
         raise ClaimBlocked("Результат нотариуса фиксируется со статуса «Направлено нотариусу»")
+    file_name = _refusal_file(case, attachment_id) if result == "refused" else ""
+    if result == "refused" and not note.strip() and not file_name and not case.account.attachments.exists():
+        raise ClaimBlocked("Отказ нотариуса записывается с комментарием или файлом с карточки счёта")
     case.notary_note = note
     case.save(update_fields=["notary_note", "updated_at"])
     if result == "done":
         return move_case(case, ClaimCase.Stage.WRIT_DONE, user, note or "Надпись совершена")
     if result == "refused":
-        moved = move_case(case, ClaimCase.Stage.REFUSED, user, note or "Отказ нотариуса")
+        reason = note.strip() or "Отказ нотариуса"
+        if file_name:
+            reason = f"{reason}. Файл: {file_name}"
+        moved = move_case(case, ClaimCase.Stage.REFUSED, user, reason)
         return move_case(moved, ClaimCase.Stage.LAWSUIT, user, "Отказ открывает подготовку иска")
     raise ClaimBlocked("Результат: done или refused")
+
+
+def _refusal_file(case: ClaimCase, attachment_id) -> str:
+    if not attachment_id:
+        return ""
+    found = Attachment.objects.filter(pk=attachment_id, account_id=case.account_id).first()
+    if found is None:
+        raise ClaimBlocked("Файл не с этого лицевого счёта")
+    return found.original_name
 
 
 def add_act(case: ClaimCase, title: str, user) -> ClaimAct:
@@ -229,6 +244,15 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         "skip_reason": case.skip_reason,
         "writeoff_status": case.writeoff_status,
         "writeoff_note": case.writeoff_note,
+        "files": [
+            {
+                "id": item.pk,
+                "doc_type": item.doc_type,
+                "name": item.original_name,
+                "role": _file_role(item.doc_type, item.original_name),
+            }
+            for item in account.attachments.all()[:30]
+        ],
         "acts": acts,
         "acts_count": len(acts),
         "approvals": approvals,
@@ -254,6 +278,17 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         data["lawsuit_kinds"] = [{"id": code, "label": label} for code, label in ClaimCase.LawsuitKind.choices]
         data["stages"] = [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices]
     return data
+
+
+def _file_role(doc_type: str, name: str) -> str:
+    text = f"{doc_type} {name}".lower()
+    if "расч" in text or "calc" in text:
+        return "calculation"
+    if "довер" in text:
+        return "warrant"
+    if "скан" in text or "постанов" in text or "отказ" in text:
+        return "scan"
+    return ""
 
 
 def blockers(case: ClaimCase) -> list[str]:

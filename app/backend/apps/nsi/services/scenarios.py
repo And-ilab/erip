@@ -46,7 +46,7 @@ def check_steps(steps: list[dict]) -> list[str]:
     return warnings
 
 
-def publish(scenario: ScenarioDefinition, user) -> list[str]:
+def publish(scenario: ScenarioDefinition, user, *, apply_to_running: bool = False) -> tuple[list[str], int]:
     warnings = check_steps(scenario.steps)
     last = scenario.revisions.order_by("-version").values_list("version", flat=True).first()
     scenario.version = (last or 0) + 1
@@ -55,7 +55,20 @@ def publish(scenario: ScenarioDefinition, user) -> list[str]:
     ScenarioRevision.objects.create(
         scenario=scenario, version=scenario.version, steps=scenario.steps, author=user,
     )
-    return warnings
+    moved = 0
+    if apply_to_running:
+        moved = AccountScenarioRun.objects.filter(scenario=scenario).update(version=scenario.version)
+    return warnings, moved
+
+
+def restore_scenario(scenario: ScenarioDefinition, version: int, user, *, apply_to_running: bool = False) -> tuple[list[str], int]:
+    """Откат публикует старые шаги новым номером. Уже запущенные счета не двигаются, пока это не выбрано."""
+    revision = scenario.revisions.filter(version=version).first()
+    if revision is None:
+        raise ScenarioInvalid("Такой версии сценария нет")
+    scenario.steps = revision.steps
+    scenario.save(update_fields=["steps", "updated_at"])
+    return publish(scenario, user, apply_to_running=apply_to_running)
 
 
 def copy_scenario(scenario: ScenarioDefinition, user) -> ScenarioDefinition:
@@ -116,6 +129,18 @@ def render_print(form: PrintForm, account, tariff: str = "") -> str:
     return text
 
 
+def restore_print(form: PrintForm, version: int) -> PrintForm:
+    """Старый текст становится новой версией. Уже собранные документы остаются на номере, которым их печатали."""
+    revision = form.revisions.filter(version=version).first()
+    if revision is None:
+        raise ScenarioInvalid("Такой версии печатной формы нет")
+    previous = form.body
+    form.body = revision.body
+    form.save(update_fields=["body", "updated_at"])
+    remember_print_version(form, previous)
+    return form
+
+
 def remember_print_version(form: PrintForm, previous_body: str | None) -> None:
     if previous_body is None:
         PrintFormRevision.objects.get_or_create(form=form, version=form.version, defaults={"body": form.body})
@@ -145,9 +170,11 @@ STANDARD_STEPS = [
 
 
 def ensure_standard_scenario() -> None:
-    if ScenarioDefinition.objects.filter(organization=None, name="Стандартное взыскание").exists():
-        return
-    ScenarioDefinition.objects.create(
-        organization=None, name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE,
-        version=1, steps=STANDARD_STEPS,
-    )
+    scenario = ScenarioDefinition.objects.filter(organization=None, name="Стандартное взыскание").first()
+    if scenario is None:
+        scenario = ScenarioDefinition.objects.create(
+            organization=None, name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE,
+            version=1, steps=STANDARD_STEPS,
+        )
+    if not scenario.revisions.filter(version=scenario.version).exists():
+        ScenarioRevision.objects.create(scenario=scenario, version=scenario.version, steps=scenario.steps)

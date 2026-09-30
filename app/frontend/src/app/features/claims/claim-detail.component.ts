@@ -65,8 +65,30 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
                 <li class="ready">Расчёт задолженности из АИС</li>
                 <li [class.ready]="Number(tariff) > 0">Нотариальный тариф</li>
                 <li [class.ready]="!!row.submission_id">Заявление на исполнительную надпись</li>
+                <li [class.ready]="hasFile(row, 'calculation')">Файл расчёта с карточки</li>
+                <li [class.ready]="hasFile(row, 'warrant')">Доверенность</li>
+                <li [class.ready]="hasFile(row, 'scan')">Скан постановления или отказа</li>
               </ul>
+              @if (row.files.length) {
+                <ul class="files">
+                  @for (file of row.files; track file.id) {
+                    <li><b>{{ fileRole(file.role) }}</b> {{ file.name }} <span>{{ file.doc_type }}</span></li>
+                  }
+                </ul>
+              } @else {
+                <p class="hint">Файлов на карточке счёта нет. Расчёт, доверенность и скан загружаются во вкладке «Вложения».</p>
+              }
               <mat-form-field class="wide"><mat-label>Комментарий к ответу нотариуса</mat-label><input matInput [(ngModel)]="note" /></mat-form-field>
+              @if (row.files.length) {
+                <mat-form-field class="wide"><mat-label>Файл карточки для отказа</mat-label>
+                  <mat-select [(ngModel)]="refusalFile">
+                    <mat-option [value]="0">Не выбран</mat-option>
+                    @for (file of row.files; track file.id) {
+                      <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
               <div class="actions">
                 <button mat-flat-button color="primary" (click)="saveThenSend()">Сформировать пакет и направить</button>
                 <button mat-stroked-button (click)="save()">Сохранить черновик</button>
@@ -74,7 +96,7 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
               </div>
               <div class="actions">
                 <button mat-stroked-button (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
-                <button mat-stroked-button (click)="act('notary-result', { result: 'refused', note: note || 'Спор о праве' })">Отказ нотариуса</button>
+                <button mat-stroked-button (click)="refuse()">Отказ нотариуса</button>
               </div>
             </div>
             <aside>
@@ -109,7 +131,18 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
               <mat-form-field><mat-label>Ответчик</mat-label><input matInput [(ngModel)]="defendant" /></mat-form-field>
               <mat-form-field><mat-label>Дата подачи</mat-label><input matInput type="date" [(ngModel)]="lawsuitDate" /></mat-form-field>
               <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /></mat-form-field>
-              <mat-form-field><mat-label>Дата пакета на выселение</mat-label><input matInput type="date" [(ngModel)]="packageDate" /></mat-form-field>
+              @if (housingKind()) {
+                <mat-form-field><mat-label>Дата пакета на выселение</mat-label><input matInput type="date" [(ngModel)]="packageDate" /></mat-form-field>
+                <mat-form-field><mat-label>Ветвь выселения</mat-label>
+                  <mat-select [(ngModel)]="eviction">
+                    <mat-option value="">Нет</mat-option>
+                    <mat-option value="notice">Уведомление</mat-option>
+                    <mat-option value="lawsuit">Иск</mat-option>
+                    <mat-option value="court">Решение</mat-option>
+                    <mat-option value="enforced">Выселение / продажа</mat-option>
+                  </mat-select>
+                </mat-form-field>
+              }
               <mat-form-field><mat-label>Статус суда</mat-label>
                 <mat-select [(ngModel)]="court">
                   <mat-option value="">Не подано</mat-option>
@@ -158,15 +191,6 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
                 <button mat-stroked-button (click)="act('decide', { decision: 'yes', reason: decisionReason })">Согласовать</button>
                 <button mat-stroked-button (click)="act('decide', { decision: 'no', reason: decisionReason })">Отказать</button>
               </div>
-              <mat-form-field><mat-label>Ветвь выселения</mat-label>
-                <mat-select [(ngModel)]="eviction">
-                  <mat-option value="">Нет</mat-option>
-                  <mat-option value="notice">Уведомление</mat-option>
-                  <mat-option value="lawsuit">Иск</mat-option>
-                  <mat-option value="court">Решение</mat-option>
-                  <mat-option value="enforced">Выселение / продажа</mat-option>
-                </mat-select>
-              </mat-form-field>
             </div>
           </div>
         </section>
@@ -201,6 +225,9 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
     .pack li.ready { color: inherit; }
     .pack li.ready::before { content: '●'; position: absolute; left: 0; color: var(--erip-success); }
     .pack li:not(.ready)::before { content: '○'; position: absolute; left: 0; }
+    .files { list-style: none; padding: 0; margin: 0; }
+    .files li { padding: 4px 0; font-size: 13px; }
+    .files span { color: var(--erip-muted); margin-left: 6px; }
     aside { background: #f7f8fa; border-radius: 10px; padding: 12px; }
     aside ol { margin: 8px 0 0; padding-left: 18px; }
     aside li.now { font-weight: 700; color: var(--erip-primary); }
@@ -236,6 +263,7 @@ export class ClaimDetailComponent implements OnInit {
   protected approvers: number[] = [];
   protected decisionReason = '';
   protected eviction = '';
+  protected refusalFile = 0;
 
   ngOnInit(): void {
     this.load(Number(this.route.snapshot.paramMap.get('id')));
@@ -253,6 +281,31 @@ export class ClaimDetailComponent implements OnInit {
     const penalty = Number(row.penalty || 0);
     const tariff = Number(this.tariff || 0);
     return this.money(String(debt + penalty + tariff));
+  }
+
+  protected housingKind(): boolean {
+    return ['eviction_80', 'eviction_86', 'eviction_87', 'alienation_137'].includes(this.lawsuitKind);
+  }
+
+  protected hasFile(row: ClaimCase, role: string): boolean {
+    return (row.files || []).some((file) => file.role === role);
+  }
+
+  protected fileRole(role: string): string {
+    if (role === 'calculation') return 'Расчёт';
+    if (role === 'warrant') return 'Доверенность';
+    if (role === 'scan') return 'Скан';
+    return 'Файл';
+  }
+
+  protected refuse(): void {
+    if (!this.note.trim() && !this.refusalFile) {
+      this.snack.open('Нужен комментарий или файл с карточки счёта', 'OK');
+      return;
+    }
+    this.act('notary-result', {
+      result: 'refused', note: this.note, attachment_id: this.refusalFile || null,
+    });
   }
 
   protected saveThenSend(): void {

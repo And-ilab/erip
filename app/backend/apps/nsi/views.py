@@ -122,7 +122,7 @@ class ScenarioDefinitionViewSet(NsiViewSet):
 
         ensure_standard_scenario()
         user = self.request.user
-        qs = self.queryset
+        qs = self.queryset.prefetch_related("revisions__author")
         if user.is_superadmin:
             return qs
         return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
@@ -153,9 +153,30 @@ class ScenarioDefinitionViewSet(NsiViewSet):
         self._admin_only()
         scenario = self.get_object()
         self._deny_central(scenario)
-        warnings = publish(scenario, request.user)
-        record_action(request, AuditLog.Action.UPDATE, scenario)
-        return Response({"id": scenario.pk, "version": scenario.version, "warnings": warnings})
+        warnings, moved = publish(
+            scenario, request.user, apply_to_running=bool(request.data.get("apply_to_running")),
+        )
+        record_action(request, AuditLog.Action.UPDATE, scenario, after={"moved": moved})
+        return Response({
+            "id": scenario.pk, "version": scenario.version, "warnings": warnings, "moved": moved,
+        })
+
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        from .services.scenarios import restore_scenario
+
+        self._admin_only()
+        scenario = self.get_object()
+        self._deny_central(scenario)
+        warnings, moved = restore_scenario(
+            scenario, int(request.data.get("version") or 0), request.user,
+            apply_to_running=bool(request.data.get("apply_to_running")),
+        )
+        record_action(request, AuditLog.Action.UPDATE, scenario, after={"restored": request.data.get("version"), "moved": moved})
+        scenario = self.get_queryset().get(pk=scenario.pk)
+        return Response(self.get_serializer(scenario).data | {
+            "warnings": warnings, "moved": moved,
+        })
 
     @action(detail=True, methods=["post"])
     def copy(self, request, pk=None):
@@ -217,7 +238,7 @@ class PrintFormViewSet(NsiViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = self.queryset
+        qs = self.queryset.prefetch_related("revisions")
         if user.is_superadmin:
             return qs
         return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
@@ -259,6 +280,20 @@ class PrintFormViewSet(NsiViewSet):
         text = render_print(form, account, tariff=str(request.data.get("tariff") or ""))
         record_action(request, AuditLog.Action.CREATE, form, after={"account": account.pk, "version": form.version})
         return Response({"text": text, "version": form.version})
+
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        from .services.scenarios import restore_print
+
+        if request.user.role == "specialist":
+            raise PermissionDenied("Макет настраивает администратор организации")
+        form = self.get_object()
+        if form.organization_id is None and not request.user.is_superadmin:
+            raise PermissionDenied("Центральный макет меняет суперадминистратор")
+        restore_print(form, int(request.data.get("version") or 0))
+        record_action(request, AuditLog.Action.UPDATE, form, after={"restored": request.data.get("version")})
+        form = self.get_queryset().get(pk=form.pk)
+        return Response(self.get_serializer(form).data)
 
 
 NSI_REGISTRY = {
