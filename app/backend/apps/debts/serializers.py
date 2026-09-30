@@ -28,6 +28,13 @@ def _iso_date(value):
     return value.isoformat() if hasattr(value, "isoformat") else str(value)[:10]
 
 
+def schema_label(account) -> str:
+    organization = account.organization
+    if organization is None:
+        return account.schema_name
+    return organization.name or organization.schema_name
+
+
 def _rating_label(rating: str, repeat: int | None) -> str:
     if not rating:
         return ""
@@ -43,6 +50,7 @@ class AccountListSerializer(serializers.ModelSerializer):
     effective_group = serializers.IntegerField(read_only=True)
     assigned_name = serializers.CharField(source="assigned_to.display_name", default="", read_only=True)
     rating_label = serializers.SerializerMethodField()
+    schema_label = serializers.SerializerMethodField()
     warning_handed_on = serializers.SerializerMethodField()
     order_on = serializers.SerializerMethodField()
     filed_on = serializers.SerializerMethodField()
@@ -54,7 +62,7 @@ class AccountListSerializer(serializers.ModelSerializer):
             "id", "organization", "account_id", "client_account", "unified_account", "provider_id",
             "provider_short_name", "account_address", "short_fio", "payer_identifier", "payer_unp", "balance_out",
             "debt_group", "effective_group", "rating", "rating_label", "debt_started_on", "scenario_name",
-            "assigned_name", "ownership_type_name", "months_debt", "subj_count", "funnel_stage",
+            "assigned_name", "ownership_type_name", "months_debt", "subj_count", "funnel_stage", "schema_label",
             "services_count", "debt_total", "mulct_total", "warning_due", "claim_due", "updated_at",
             "ais_updated_at", "operational_date", "inheritance_case", "debtor_category",
             "warning_handed_on", "order_on", "filed_on", "package_on",
@@ -62,6 +70,9 @@ class AccountListSerializer(serializers.ModelSerializer):
 
     def get_rating_label(self, obj) -> str:
         return _rating_label(obj.rating, obj.rating_repeat)
+
+    def get_schema_label(self, obj) -> str:
+        return schema_label(obj)
 
     def get_warning_handed_on(self, obj):
         return _iso_date(getattr(obj, "warning_handed_on", None))
@@ -107,6 +118,7 @@ class AccountDetailSerializer(serializers.ModelSerializer):
     group_name = serializers.SerializerMethodField()
     rating_label = serializers.SerializerMethodField()
     assigned_name = serializers.CharField(source="assigned_to.display_name", default="", read_only=True)
+    schema_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
@@ -119,6 +131,9 @@ class AccountDetailSerializer(serializers.ModelSerializer):
             return ""
         scale = DebtGroupScale.objects.filter(group=group, is_active=True).first()
         return scale.name if scale else ""
+
+    def get_schema_label(self, obj) -> str:
+        return schema_label(obj)
 
     def get_rating_label(self, obj) -> str:
         return _rating_label(obj.rating, obj.rating_repeat)
@@ -256,10 +271,7 @@ class AccountServiceSerializer(serializers.ModelSerializer):
         ]
 
     def get_schema_label(self, obj) -> str:
-        organization = obj.account.organization
-        if organization is None:
-            return obj.account.schema_name
-        return organization.name or organization.schema_name
+        return schema_label(obj.account)
 
     def get_rating_label(self, obj) -> str:
         account = obj.account

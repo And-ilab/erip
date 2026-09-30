@@ -41,7 +41,9 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
           <a mat-list-item routerLink="/measures" routerLinkActive="active" [class.active]="measuresOn()">Мероприятия</a>
           <a mat-list-item routerLink="/password" routerLinkActive="active">Смена пароля</a>
           <a mat-list-item routerLink="/notifications" routerLinkActive="active">Оповещения</a>
-          <a mat-list-item routerLink="/templates" routerLinkActive="active">Шаблоны сообщений</a>
+          @if (auth.canManageTemplates() || (auth.canWrite() && auth.me()?.contour !== 'supplier')) {
+            <a mat-list-item routerLink="/templates" routerLinkActive="active">Шаблоны сообщений</a>
+          }
           @if (auth.isSuperadmin()) {
             <a mat-list-item routerLink="/errors" routerLinkActive="active">Журнал ошибок</a>
           }

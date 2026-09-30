@@ -1,6 +1,7 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from .identity import identity_columns
 from .models import Organization, ServiceOrganization, User
 
 ROLE_RANK = {
@@ -80,13 +81,31 @@ class MeSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(read_only=True)
     organization_name = serializers.CharField(source="organization.name", default=None, read_only=True)
     supplier_name = serializers.SerializerMethodField()
+    show_schema = serializers.SerializerMethodField()
+    show_supplier = serializers.SerializerMethodField()
+    show_service_org = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             "id", "username", "display_name", "email", "role", "contour", "organization",
-            "organization_name", "supplier_name",
+            "organization_name", "supplier_name", "show_schema", "show_supplier", "show_service_org",
         ]
+
+    def _columns(self, obj) -> dict[str, bool]:
+        cached = getattr(self, "_identity_columns", None)
+        if cached is None or cached[0] != obj.pk:
+            self._identity_columns = (obj.pk, identity_columns(obj))
+        return self._identity_columns[1]
+
+    def get_show_schema(self, obj) -> bool:
+        return self._columns(obj)["show_schema"]
+
+    def get_show_supplier(self, obj) -> bool:
+        return self._columns(obj)["show_supplier"]
+
+    def get_show_service_org(self, obj) -> bool:
+        return self._columns(obj)["show_service_org"]
 
     def get_supplier_name(self, obj) -> str:
         if getattr(obj, "contour", "") != User.Contour.SUPPLIER:

@@ -12,6 +12,7 @@ import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { DisconnectCandidate, MeasureGroup, MeasureMatrix } from '../../core/models';
 
 const MONTHS = [
@@ -36,13 +37,15 @@ const MONTHS = [
         <button mat-icon-button [class.active]="view() === 'matrix'" matTooltip="Матрица по типам" (click)="show('matrix')">
           <mat-icon>grid_on</mat-icon>
         </button>
-        <button
-          mat-icon-button
-          [class.active]="view() === 'ready'"
-          matTooltip="Готовы к отключению"
-          (click)="show('ready')">
-          <mat-icon>power_off</mat-icon>
-        </button>
+        @if (canOrderDisconnect()) {
+          <button
+            mat-icon-button
+            [class.active]="view() === 'ready'"
+            matTooltip="Готовы к отключению"
+            (click)="show('ready')">
+            <mat-icon>power_off</mat-icon>
+          </button>
+        }
         <a mat-stroked-button routerLink="/claims">Дела взыскания</a>
         <a mat-stroked-button routerLink="/scenarios">Сценарии</a>
       </div>
@@ -314,6 +317,7 @@ const MONTHS = [
 })
 export class MeasuresListComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
@@ -330,6 +334,10 @@ export class MeasuresListComponent implements OnInit {
   protected readonly loaded = signal(false);
   protected readonly busy = signal(false);
   private request = 0;
+
+  protected canOrderDisconnect(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+  }
 
   ngOnInit(): void {
     this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.load());

@@ -22,6 +22,7 @@ const LABELS: Record<string, string> = {
   client_account: 'Номер ЛС',
   unified_account: 'УЕН',
   provider_short_name: 'Обслуживающая организация',
+  schema_label: 'Схема',
   account_address: 'Адрес',
   short_fio: 'Должник',
   payer_identifier: 'ИН',
@@ -100,7 +101,7 @@ type CustomField = 'group' | 'rating' | 'stage';
               </div>
               <div class="col">
                 <div class="col-title">Группировать по</div>
-                @for (item of groupOptions; track item.id) {
+                @for (item of groupChoices(); track item.id) {
                   <button type="button" class="menu-item" [class.on]="groupBy.value === item.id" (click)="setGroupBy(item.id)">{{ item.label }}</button>
                 }
               </div>
@@ -120,7 +121,9 @@ type CustomField = 'group' | 'rating' | 'stage';
             </div>
           }
         </div>
-        <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
+        @if (canLaunch()) {
+          <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
+        }
         <button type="button" class="tool" (click)="exportCsv()">CSV</button>
         <div class="views">
           <button type="button" class="view-btn" [class.on]="view() === 'list' || view() === 'grouped'" title="Список" (click)="showList()">≡</button>
@@ -562,7 +565,10 @@ export class AccountsListComponent implements OnInit {
     });
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
     this.api.columns().subscribe((prefs) => {
-      if (prefs.columns.length) this.columns.set(prefs.columns);
+      const saved = prefs.columns.length ? prefs.columns : [];
+      const names = saved.filter((name) => name !== 'provider_short_name' || this.auth.showServiceOrg());
+      if (this.auth.showSchema() && !names.includes('schema_label')) names.unshift('schema_label');
+      if (names.length) this.columns.set(names);
     });
     this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results));
     this.api.templates({ is_active: true, page_size: 200 }).subscribe({
@@ -586,7 +592,17 @@ export class AccountsListComponent implements OnInit {
   }
 
   groupByLabel(id: string): string {
-    return this.groupOptions.find((item) => item.id === id)?.label ?? id;
+    return this.groupChoices().find((item) => item.id === id)?.label ?? this.groupOptions.find((item) => item.id === id)?.label ?? id;
+  }
+
+  protected groupChoices(): { id: string; label: string }[] {
+    const items = this.groupOptions.filter((item) => item.id !== 'provider' || this.auth.showServiceOrg());
+    if (!this.auth.showSchema()) return items;
+    return [{ id: 'schema', label: 'Схема' }, ...items];
+  }
+
+  protected canLaunch(): boolean {
+    return this.auth.canWrite();
   }
 
   sortable(name: string): boolean {

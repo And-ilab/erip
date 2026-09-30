@@ -140,7 +140,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     audit_list = True
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related("organization")
         if self.action in {"list", "export", "kanban", "calendar"}:
             qs = AccountRepository(qs).registry()
         providers = _supplier_ids(self.request.user)
@@ -358,6 +358,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             "debt_group": "sort_group",
             "rating": "rating",
             "provider": "provider_short_name",
+            "schema": "organization__name",
             "category": "debtor_category__name",
             "specialist": "assigned_to_id",
         }

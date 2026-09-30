@@ -16,6 +16,10 @@ export class AuthService {
   readonly me = signal<Me | null>(null);
   readonly isSuperadmin = computed(() => this.me()?.role === 'superadmin');
   readonly canManageTemplates = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
+  readonly canWrite = computed(() => ['superadmin', 'local_admin', 'specialist'].includes(this.me()?.role ?? ''));
+  readonly showSchema = computed(() => this.me()?.show_schema === true);
+  readonly showSupplier = computed(() => this.me()?.show_supplier === true);
+  readonly showServiceOrg = computed(() => this.me()?.show_service_org === true);
 
   /** Access живёт только в памяти процесса. После перезагрузки страницы его восстанавливает refresh-cookie. */
   private access: string | null = null;

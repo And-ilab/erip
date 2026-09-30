@@ -51,7 +51,7 @@ import {
               <div class="muted sub">
                 ЛС {{ a.client_account }}
                 @if (a.account_address || a.house_address) { · {{ a.account_address || a.house_address }} }
-                @if (a.provider_short_name) { · {{ a.provider_short_name }} }
+                @if (auth.showServiceOrg() && a.provider_short_name) { · {{ a.provider_short_name }} }
                 @if (a.ownership_type_name) { · {{ a.ownership_type_name }} }
                 @if (a.acc_total_space) { · {{ a.acc_total_space }} м² }
                 @if (a.room_count) { · комнат: {{ a.room_count }} }
@@ -62,7 +62,9 @@ import {
                 <span class="group-badge g{{ a.effective_group }}">Группа {{ a.effective_group }}@if (a.group_name) { · {{ a.group_name }} }</span>
               }
               @if (a.rating_label) { <span class="rating-badge r{{ a.rating_label[0] }}" title="Рейтинг">{{ a.rating_label }}</span> }
-              <button mat-stroked-button (click)="refreshNow()"><mat-icon>sync</mat-icon> Обновить сейчас</button>
+              @if (auth.canWrite()) {
+                <button mat-stroked-button (click)="refreshNow()"><mat-icon>sync</mat-icon> Обновить сейчас</button>
+              }
             </div>
           </div>
 
@@ -98,7 +100,8 @@ import {
                 <dl>
                   <dt>Плательщик</dt><dd>{{ a.short_fio }}</dd>
                   <dt>Адрес</dt><dd>{{ a.account_address || a.house_address }}</dd>
-                  <dt>Обслуживающая организация</dt><dd>{{ a.provider_short_name }}</dd>
+                  @if (auth.showSchema()) { <dt>Схема</dt><dd>{{ a.schema_label }}</dd> }
+                  @if (auth.showServiceOrg()) { <dt>Обслуживающая организация</dt><dd>{{ a.provider_short_name }}</dd> }
                   <dt>УЕН ЛС</dt><dd>{{ a.unified_account }}</dd>
                   <dt>Тип собственности</dt><dd>{{ a.ownership_type_name }}</dd>
                   <dt>Площадь / комнат / проживающих</dt><dd>{{ a.acc_total_space }} / {{ a.room_count }} / {{ a.subj_count }}</dd>
@@ -119,6 +122,7 @@ import {
                   <dt>Сценарий</dt><dd>{{ a.scenario_name }}</dd>
                   <dt>ИН/УНП</dt><dd>{{ a.payer_identifier }}</dd>
                 </dl>
+                @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
                 <h4>Ручная корректировка группы</h4>
                 <div class="filters">
                   <mat-form-field>
@@ -131,6 +135,7 @@ import {
                   <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="manualReason" /></mat-form-field>
                   <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
                 </div>
+                }
               </mat-card-content></mat-card>
             </div>
           </mat-tab>
@@ -139,7 +144,7 @@ import {
             <table mat-table [dataSource]="services()">
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th>
                 <td mat-cell *matCellDef="let s">
-                  @if (auth.me()?.contour === 'supplier') {
+                  @if (!auth.showSupplier()) {
                     <a [routerLink]="['/contracts', s.id]">{{ s.service_name }}</a>
                   } @else {
                     {{ s.service_name }}
@@ -220,7 +225,9 @@ import {
               <mat-form-field><mat-label>Оплата от</mat-label><input matInput [(ngModel)]="workPaid" (change)="loadWork()" /></mat-form-field>
               <mat-form-field><mat-label>Начало с</mat-label><input matInput type="date" [(ngModel)]="workFrom" (change)="loadWork()" /></mat-form-field>
               <mat-form-field><mat-label>Начало по</mat-label><input matInput type="date" [(ngModel)]="workTo" (change)="loadWork()" /></mat-form-field>
-              <button mat-stroked-button (click)="addWork()">Добавить документ</button>
+              @if (auth.canWrite()) {
+                <button mat-stroked-button (click)="addWork()">Добавить документ</button>
+              }
             </div>
             <table mat-table [dataSource]="work()">
               <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r">{{ r.kind_display }}</td></ng-container>
@@ -236,6 +243,7 @@ import {
           </mat-tab>
 
           <mat-tab label="Контакты">
+            @if (auth.canWrite()) {
             <div class="filters">
               <mat-form-field>
                 <mat-label>Источник обзвона</mat-label>
@@ -258,13 +266,14 @@ import {
               </mat-form-field>
               <button mat-stroked-button (click)="addContact()">Добавить</button>
             </div>
+            }
             <table mat-table [dataSource]="contacts()">
               <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let r">{{ r.kind }}</td></ng-container>
               <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
               <ng-container matColumnDef="source"><th mat-header-cell *matHeaderCellDef>Источник</th><td mat-cell *matCellDef="let r">{{ r.source }} {{ r.ais_updated_at | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="priority"><th mat-header-cell *matHeaderCellDef>Приоритет</th><td mat-cell *matCellDef="let r">{{ r.priority }}</td></ng-container>
               <ng-container matColumnDef="actions"><th mat-header-cell *matHeaderCellDef></th><td mat-cell *matCellDef="let r">
-                @if (r.source === 'pm') {
+                @if (auth.canWrite() && r.source === 'pm') {
                   <button mat-button (click)="editContact(r)">Изменить</button>
                   <button mat-button (click)="removeContact(r)">Удалить</button>
                 }
@@ -275,6 +284,7 @@ import {
           </mat-tab>
 
           <mat-tab label="Категория и наследство">
+            @if (auth.canWrite()) {
             <div class="filters">
               <mat-form-field>
                 <mat-label>Категория</mat-label>
@@ -291,6 +301,9 @@ import {
               <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
               <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
             </div>
+            } @else if (account(); as current) {
+              <p class="muted">{{ current.residence_note || 'Фактическое проживание не указано' }}@if (current.inheritance_case) { · наследственное дело }</p>
+            }
           </mat-tab>
 
           <mat-tab label="Мероприятия">
@@ -311,7 +324,7 @@ import {
               <div class="progress"><div [style.width.%]="checks().length ? checksDone() * 100 / checks().length : 0"></div></div>
               @for (item of checks(); track item.code) {
                 <div class="check" [class.done]="item.done">
-                  <mat-checkbox [checked]="item.done" (change)="toggleCheck(item.code, $event.checked)">{{ item.title }}</mat-checkbox>
+                  <mat-checkbox [checked]="item.done" [disabled]="!auth.canWrite()" (change)="toggleCheck(item.code, $event.checked)">{{ item.title }}</mat-checkbox>
                 </div>
               }
               <div class="alert" [class.warning]="!checksReady()" [class.success]="checksReady()">
@@ -319,7 +332,9 @@ import {
                 <span class="spacer">
                   {{ checksReady() ? 'Все пункты выполнены' : 'Пакет на исполнительную надпись недоступен до выполнения всех пунктов чек-листа' }}
                 </span>
-                <button mat-flat-button [disabled]="!checksReady()" (click)="addWorkPack()">Сформировать пакет документов</button>
+                @if (auth.canWrite()) {
+                  <button mat-flat-button [disabled]="!checksReady()" (click)="addWorkPack()">Сформировать пакет документов</button>
+                }
                 <a mat-stroked-button [routerLink]="['/claims']" [queryParams]="{ account: account()?.id }">Дело взыскания</a>
               </div>
             </div>
@@ -328,7 +343,9 @@ import {
           <mat-tab label="Вложения">
             <div class="filters">
               <mat-form-field><mat-label>Тип документа</mat-label><input matInput [(ngModel)]="fileType" /></mat-form-field>
-              <input type="file" (change)="onFile($event)" />
+              @if (auth.canWrite()) {
+                <input type="file" (change)="onFile($event)" />
+              }
             </div>
             <table mat-table [dataSource]="files()">
               <ng-container matColumnDef="doc_type"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let r">{{ r.doc_type }}</td></ng-container>
@@ -338,6 +355,7 @@ import {
             </table>
           </mat-tab>
 
+          @if (auth.canWrite()) {
           <mat-tab label="Оповестить">
             <div class="notify">
               <p class="muted">Группа задолженности: {{ account()?.effective_group ?? 'не рассчитана' }}. Каркас подбирается по ней и заполняется данными ЛС.</p>
@@ -347,10 +365,13 @@ import {
                   @for (t of templates(); track t.id) { <mat-option [value]="t.id">{{ t.name }} ({{ t.channel_display }})</mat-option> }
                 </mat-select>
               </mat-form-field>
+              @if (auth.canWrite()) {
               <button mat-flat-button color="primary" [disabled]="!templateId || sending()" (click)="notify()">Отправить через шлюз</button>
+              }
             </div>
             @if (filledPreview()) { <pre class="message">{{ filledPreview() }}</pre> }
           </mat-tab>
+          }
         </mat-tab-group>
       }
     </div>
@@ -454,7 +475,7 @@ export class AccountDetailComponent implements OnInit {
 
   private accountServiceColumns(): string[] {
     const columns = ['service_name', 'balance_out', 'balance_mulct_out', 'debt_period', 'debt_group'];
-    if (this.auth.me()?.contour !== 'supplier') {
+    if (this.auth.showSupplier()) {
       columns.splice(1, 0, 'shot_name');
     }
     return columns;

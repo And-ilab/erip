@@ -76,10 +76,12 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                 @for (item of stages; track item.id) {
                   <button type="button" class="menu-item" [class.on]="stage.value === item.id" (click)="setStage(item.id)">{{ item.label }}</button>
                 }
-                <div class="sub">Обслуживающая организация</div>
-                <div class="save-row">
-                  <input [formControl]="billing" placeholder="Название или код" (click)="$event.stopPropagation()" />
-                </div>
+                @if (auth.showServiceOrg()) {
+                  <div class="sub">Обслуживающая организация</div>
+                  <div class="save-row">
+                    <input [formControl]="billing" placeholder="Название или код" (click)="$event.stopPropagation()" />
+                  </div>
+                }
                 <button type="button" class="menu-add" (click)="customOpen.set(true)">+ Добавить пользовательский фильтр</button>
               </div>
               <div class="col">
@@ -224,7 +226,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         <div class="backdrop" (click)="customOpen.set(false)">
           <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Пользовательский фильтр">
             <h3>Добавить пользовательский фильтр</h3>
-            <p class="hint">Одно условие: группа, категория, этап или обслуживающая организация.</p>
+            <p class="hint">Одно условие: группа, категория, этап{{ auth.showServiceOrg() ? ' или обслуживающая организация' : '' }}.</p>
             <div class="filters">
               <mat-form-field>
                 <mat-label>Поле</mat-label>
@@ -232,7 +234,9 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                   <mat-option value="group">Группа задолженности</mat-option>
                   <mat-option value="category">Категория</mat-option>
                   <mat-option value="stage">Этап воронки</mat-option>
-                  <mat-option value="billing">Обслуживающая организация</mat-option>
+                  @if (auth.showServiceOrg()) {
+                    <mat-option value="billing">Обслуживающая организация</mat-option>
+                  }
                 </mat-select>
               </mat-form-field>
               @if (customField.value === 'billing') {
@@ -401,9 +405,7 @@ export class ContractsListComponent implements OnInit {
     'payer', 'payer_identifier', 'payer_unp', 'ls_count', 'principal', 'penalty', 'earliest', 'category',
   ];
   protected readonly columns = this.serviceColumns();
-  protected readonly groupChoices = this.auth.me()?.contour === 'supplier'
-    ? this.groupOptions.filter((item) => item.id !== 'provider')
-    : this.groupOptions;
+  protected readonly groupChoices = this.contractGroupChoices();
   protected readonly groupColumns = ['value', 'accounts', 'debt', 'penalty'];
   protected readonly view = signal<'persons' | 'services' | 'kanban' | 'calendar' | 'grouped'>('persons');
   protected readonly panelOpen = signal(false);
@@ -462,16 +464,20 @@ export class ContractsListComponent implements OnInit {
   }
 
   private serviceColumns(): string[] {
-    const me = this.auth.me();
     const columns = ['payer', 'payer_identifier', 'payer_unp', 'account_number', 'service_name'];
-    if (me?.contour !== 'supplier') {
-      columns.push('shot_name', 'billing_provider');
-    }
-    if (me?.role === 'superadmin') {
-      columns.push('schema_label');
-    }
+    if (this.auth.showSupplier()) columns.push('shot_name');
+    if (this.auth.showServiceOrg()) columns.push('billing_provider');
+    if (this.auth.showSchema()) columns.push('schema_label');
     columns.push('balance_out', 'balance_mulct_out', 'debt_started_on', 'effective_group', 'category_name');
     return columns;
+  }
+
+  private contractGroupChoices(): { id: string; label: string }[] {
+    return this.groupOptions.filter((item) => {
+      if (item.id === 'provider') return this.auth.showSupplier();
+      if (item.id === 'billing') return this.auth.showServiceOrg();
+      return true;
+    });
   }
 
   stageLabel(id: string): string {

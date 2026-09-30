@@ -61,7 +61,7 @@ import {
             <dl>
               <dt>Договор</dt><dd>{{ c.service_list_id }} с {{ c.start_date | date: 'dd.MM.yyyy' }}</dd>
               <dt>Услуга</dt><dd>{{ c.service_name }}</dd>
-              @if (auth.me()?.contour !== 'supplier') {
+              @if (auth.showSupplier()) {
                 <dt>Поставщик</dt><dd>{{ c.full_name || c.shot_name }}</dd>
               }
               <dt>Первоначальный долг</dt><dd>{{ c.initial_principal | number: '1.2-2' }}</dd>
@@ -77,7 +77,7 @@ import {
           </mat-card-content></mat-card>
         </div>
 
-        <h3>{{ auth.me()?.contour === 'supplier' ? 'Услуги должника' : 'Услуги этого поставщика' }}</h3>
+        <h3>{{ auth.showSupplier() ? 'Услуги этого поставщика' : 'Услуги должника' }}</h3>
         @for (service of services(); track service.id) {
           <p>
             <a [routerLink]="['/contracts', service.id]">{{ service.service_name }}</a>
@@ -98,6 +98,7 @@ import {
           </p>
         }
 
+        @if (canEditGroup()) {
         <h3>Ручная группа этого договора</h3>
         <div class="filters">
           <mat-form-field>
@@ -110,6 +111,7 @@ import {
           <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="reason" /></mat-form-field>
           <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
         </div>
+        }
 
         <h3>Зарегистрированные лица</h3>
         @for (person of people(); track person.id) {
@@ -125,6 +127,7 @@ import {
             · {{ person.idler_val ? 'не занят в экономике' : '' }}
             · наследство {{ person.legacy_start_date || '—' }} / принятие {{ person.subj_heritage_date || '—' }}
           </p>
+          @if (auth.canWrite()) {
           <div class="filters">
             <mat-form-field><mat-label>Социальная категория</mat-label><input matInput [(ngModel)]="person.social_category" /></mat-form-field>
             <mat-checkbox [(ngModel)]="person.unfit_for_work">Нетрудоспособен</mat-checkbox>
@@ -139,9 +142,11 @@ import {
             </mat-form-field>
             <button mat-stroked-button (click)="savePerson(person)">Сохранить лицо</button>
           </div>
+          }
         }
 
         <h3>Контакты</h3>
+        @if (auth.canWrite()) {
         <div class="filters">
           <mat-form-field>
             <mat-label>Источник обзвона</mat-label>
@@ -171,12 +176,13 @@ import {
           </mat-form-field>
           <button mat-stroked-button (click)="addContact()">Добавить</button>
         </div>
+        }
         @for (contact of contacts(); track contact.id) {
           <p>
             {{ contact.person_name || 'счёт' }} · {{ contact.kind }} · {{ contact.value }} · приоритет {{ contact.priority }}
             · {{ contact.source === 'ais' ? 'АИС «Расчет-ЖКУ»' : 'внесено в ПМ' }}
             {{ contact.ais_updated_at | date: 'dd.MM.yyyy' }}
-            @if (contact.source === 'pm') {
+            @if (auth.canWrite() && contact.source === 'pm') {
               <button mat-button (click)="editContact(contact)">Изменить</button>
               <button mat-button (click)="removeContact(contact)">Удалить</button>
             }
@@ -184,6 +190,7 @@ import {
         }
 
         <h3>Категория, проживание, наследство</h3>
+        @if (auth.canWrite()) {
         <div class="filters">
           <mat-form-field>
             <mat-label>Категория</mat-label>
@@ -208,6 +215,9 @@ import {
           <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
           <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
         </div>
+        } @else if (contract(); as current) {
+          <p>{{ current.category_name || 'Категория не задана' }}@if (current.inheritance_case) { · наследственное дело }</p>
+        }
 
         <h3>Мероприятия по услугам поставщика</h3>
         <p><a routerLink="/measures">Реестр мероприятий</a></p>
@@ -215,7 +225,7 @@ import {
           <p>
             <a [routerLink]="['/measures', measure.id]">{{ measure.kind_display }}</a>
             · {{ measure.status_display }} · срок {{ measure.due_on || '—' }}
-            @if (measure.kind === 'disconnect') {
+            @if (measure.kind === 'disconnect' && canConfirmSuspension()) {
               <button mat-button (click)="confirm(measure, 'suspend', 'pm')">Факт приостановления, ПМ</button>
               <button mat-button (click)="confirm(measure, 'suspend', 'ais')">По данным АИС</button>
               <button mat-button (click)="confirm(measure, 'resume', 'pm')">Возобновление, ПМ</button>
@@ -272,6 +282,14 @@ export class ContractDetailComponent implements OnInit {
   ngOnInit(): void {
     this.load();
     this.api.categories().subscribe((page) => this.categories.set(page.results));
+  }
+
+  protected canEditGroup(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected canConfirmSuspension(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour === 'supplier';
   }
 
   personTitle(): string {

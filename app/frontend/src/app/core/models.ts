@@ -21,6 +21,9 @@ export interface Me {
   organization: number | null;
   organization_name: string | null;
   supplier_name: string;
+  show_schema: boolean;
+  show_supplier: boolean;
+  show_service_org: boolean;
 }
 
 export interface AccountRow {
@@ -29,6 +32,7 @@ export interface AccountRow {
   client_account: string;
   unified_account: number | null;
   provider_short_name: string;
+  schema_label?: string;
   account_address: string;
   short_fio: string;
   payer_identifier: string;
