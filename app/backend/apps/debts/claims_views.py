@@ -41,7 +41,9 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     def list(self, request):
         rows = [
             case_payload(case)
-            for case in self.get_queryset().prefetch_related("acts", "approvals__approver", "events__actor")
+            for case in self.get_queryset().select_related("account__assigned_to").prefetch_related(
+                "acts", "approvals__approver", "events__actor", "account__services",
+            )
         ]
         return Response({"results": rows, "stages": [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices]})
 
@@ -120,7 +122,12 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         return Response(case_payload(case, with_choices=True))
 
     def _case(self, pk) -> ClaimCase:
-        return get_object_or_404(self.get_queryset().prefetch_related("acts", "approvals__approver", "events__actor"), pk=pk)
+        return get_object_or_404(
+            self.get_queryset().select_related("account__assigned_to").prefetch_related(
+                "acts", "approvals__approver", "events__actor", "account__services",
+            ),
+            pk=pk,
+        )
 
     def _account(self, account_id) -> Account:
         from apps.users.scoping import AccessScope

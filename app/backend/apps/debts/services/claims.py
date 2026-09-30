@@ -186,12 +186,24 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         }
         for item in case.approvals.select_related("approver")
     ]
+    account = case.account
+    penalty = sum(
+        (service.balance_mulct_out or Decimal("0")) for service in account.services.all()
+    )
+    specialist = ""
+    if account.assigned_to_id:
+        specialist = account.assigned_to.display_name
     data = {
         "id": case.pk,
         "account": case.account_id,
-        "client_account": case.account.client_account,
-        "short_fio": case.account.short_fio,
-        "balance_out": _money(case.account.balance_out),
+        "client_account": account.client_account,
+        "short_fio": account.short_fio,
+        "account_address": account.account_address,
+        "debt_group": account.effective_group,
+        "rating": account.rating,
+        "penalty": _money(penalty),
+        "specialist": specialist,
+        "balance_out": _money(account.balance_out),
         "stage": case.stage,
         "stage_label": case.get_stage_display(),
         "warning_delivered_on": _date(case.warning_delivered_on),

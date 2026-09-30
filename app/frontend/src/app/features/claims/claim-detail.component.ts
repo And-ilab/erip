@@ -1,7 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -15,49 +14,90 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
   selector: 'app-claim-detail',
   standalone: true,
   imports: [
-    FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
     <div class="page">
-      <p><a routerLink="/claims">Все дела</a></p>
+      <p class="back"><a routerLink="/claims">Все дела</a></p>
       @if (claim(); as row) {
-        <h2>ЛС {{ row.client_account }} · {{ row.short_fio }}</h2>
-        <p>Этап: <b>{{ row.stage_label }}</b>. Сальдо АИС: {{ row.balance_out || '—' }} (поле не редактируется).</p>
-        @if (row.submission_mode === 'stub') {
-          <p class="banner">Пакет в личный кабинет БНП не уходил. Номер заглушки: {{ row.submission_id }}.</p>
-        }
-        @if (row.opi_mode === 'manual') {
-          <p class="banner">Статус ОПИ внесён вручную. Сервисы 3.11.01–3.11.05 не вызывались.</p>
-        }
-        @if (row.blockers.length) {
-          <ul class="blockers">
-            @for (item of row.blockers; track item) { <li>{{ item }}</li> }
-          </ul>
-        }
-
-        <div class="grid">
-          <mat-card>
-            <mat-card-title>Надпись</mat-card-title>
-            <mat-card-content class="fields">
-              <mat-form-field><mat-label>Дата вручения предупреждения</mat-label>
-                <input matInput type="date" [(ngModel)]="warningDate" />
+        <section class="sheet">
+          <header>
+            <div>
+              <h2>Исполнительная надпись</h2>
+              <p>{{ row.short_fio || 'Должник не указан' }} · ЛС {{ row.client_account }}</p>
+              <p class="muted">{{ row.account_address || 'Адрес не указан' }} · группа {{ row.debt_group || '—' }} · рейтинг {{ row.rating || '—' }}</p>
+            </div>
+            <span class="stage">{{ row.stage_label }}</span>
+          </header>
+          <div class="split">
+            <div class="form">
+              @if (row.blockers.length) {
+                <ul class="blockers">
+                  @for (item of row.blockers; track item) { <li>{{ item }}</li> }
+                </ul>
+              }
+              <div class="sums">
+                <div><span>Основной долг</span><b>{{ money(row.balance_out) }}</b></div>
+                <div><span>Пеня</span><b>{{ money(row.penalty) }}</b></div>
+                <div><span>Нотариальный тариф</span><b>{{ money(tariff || null) }}</b></div>
+                <div class="total"><span>Итого</span><b>{{ grand(row) }}</b></div>
+              </div>
+              <p class="hint">Долг и пеня приходят из АИС и в этой форме не меняются. Тариф вносит специалист, пока его не считает АИС.</p>
+              <div class="line">
+                <mat-form-field><mat-label>Дата вручения предупреждения</mat-label>
+                  <input matInput type="date" [(ngModel)]="warningDate" />
+                </mat-form-field>
+                <span class="ok" [class.miss]="!warningDate">{{ warningDate ? 'вручено' : 'нет даты' }}</span>
+              </div>
+              <div class="line">
+                <mat-form-field><mat-label>Нотариальный тариф</mat-label>
+                  <input matInput [(ngModel)]="tariff" />
+                </mat-form-field>
+                <mat-checkbox [(ngModel)]="withdrawn">Заявление отозвано</mat-checkbox>
+              </div>
+              <mat-form-field class="wide"><mat-label>Нотариальная контора</mat-label>
+                <input matInput value="Справочник контор ещё не подключён" disabled />
               </mat-form-field>
-              <mat-form-field><mat-label>Нотариальный тариф</mat-label>
-                <input matInput [(ngModel)]="tariff" />
-              </mat-form-field>
-              <mat-checkbox [(ngModel)]="withdrawn">Заявление отозвано</mat-checkbox>
-              <button mat-stroked-button (click)="save()">Сохранить поля</button>
-              <button mat-flat-button color="primary" (click)="act('send-notary')">Направить нотариусу</button>
-              <button mat-stroked-button (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
-              <button mat-stroked-button (click)="act('notary-result', { result: 'refused', note: note || 'Спор о праве' })">Отказ нотариуса</button>
-              <mat-form-field class="wide"><mat-label>Комментарий к ответу</mat-label><input matInput [(ngModel)]="note" /></mat-form-field>
-            </mat-card-content>
-          </mat-card>
+              <h3>Комплект документов</h3>
+              <ul class="pack">
+                <li [class.ready]="!!warningDate">Предупреждение о задолженности</li>
+                <li class="ready">Расчёт задолженности из АИС</li>
+                <li [class.ready]="Number(tariff) > 0">Нотариальный тариф</li>
+                <li [class.ready]="!!row.submission_id">Заявление на исполнительную надпись</li>
+              </ul>
+              <mat-form-field class="wide"><mat-label>Комментарий к ответу нотариуса</mat-label><input matInput [(ngModel)]="note" /></mat-form-field>
+              <div class="actions">
+                <button mat-flat-button color="primary" (click)="saveThenSend()">Сформировать пакет и направить</button>
+                <button mat-stroked-button (click)="save()">Сохранить черновик</button>
+                <a mat-button routerLink="/claims">Отмена</a>
+              </div>
+              <div class="actions">
+                <button mat-stroked-button (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
+                <button mat-stroked-button (click)="act('notary-result', { result: 'refused', note: note || 'Спор о праве' })">Отказ нотариуса</button>
+              </div>
+            </div>
+            <aside>
+              @if (row.submission_mode === 'stub') {
+                <p class="banner">Пакет в личный кабинет БНП не уходил. Номер заглушки: {{ row.submission_id }}.</p>
+              }
+              @if (row.opi_mode === 'manual') {
+                <p class="banner">Статус ОПИ внесён вручную. Сервисы 3.11.01–3.11.05 не вызывались.</p>
+              }
+              <h3>Статус дела</h3>
+              <ol>
+                @for (item of row.stages || []; track item.id) {
+                  <li [class.now]="item.id === row.stage">{{ item.label }}</li>
+                }
+              </ol>
+            </aside>
+          </div>
+        </section>
 
-          <mat-card>
-            <mat-card-title>Иск и суд</mat-card-title>
-            <mat-card-content class="fields">
+        <section class="more">
+          <h3>Иск, суд, ОПИ и списание</h3>
+          <div class="grid">
+            <div class="fields">
               <mat-form-field><mat-label>Номер иска</mat-label><input matInput [(ngModel)]="lawsuitNumber" /></mat-form-field>
               <mat-form-field><mat-label>Вид</mat-label>
                 <mat-select [(ngModel)]="lawsuitKind">
@@ -79,26 +119,28 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
                 </mat-select>
               </mat-form-field>
               <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
-              <button mat-stroked-button (click)="save()">Сохранить иск</button>
-              <button mat-stroked-button (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
-              <button mat-stroked-button (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
-            </mat-card-content>
-          </mat-card>
-
-          <mat-card>
-            <mat-card-title>ОПИ и списание</mat-card-title>
-            <mat-card-content class="fields">
+              <div class="actions">
+                <button mat-stroked-button (click)="save()">Сохранить иск</button>
+                <button mat-stroked-button (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
+                <button mat-stroked-button (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
+              </div>
+            </div>
+            <div class="fields">
               <mat-form-field><mat-label>Номер производства</mat-label><input matInput [(ngModel)]="opiNumber" /></mat-form-field>
               <mat-form-field><mat-label>Статус вручную</mat-label><input matInput [(ngModel)]="opiStatus" /></mat-form-field>
-              <button mat-stroked-button (click)="act('opi', { number: opiNumber, status: opiStatus })">Записать статус ОПИ</button>
-              <button mat-stroked-button (click)="act('move', { stage: 'opi', reason: skipReason })">Направлено в ОПИ</button>
-              <button mat-stroked-button (click)="act('move', { stage: 'opi_measures', reason: skipReason })">Меры приняты</button>
+              <div class="actions">
+                <button mat-stroked-button (click)="act('opi', { number: opiNumber, status: opiStatus })">Записать статус ОПИ</button>
+                <button mat-stroked-button (click)="act('move', { stage: 'opi', reason: skipReason })">Направлено в ОПИ</button>
+                <button mat-stroked-button (click)="act('move', { stage: 'opi_measures', reason: skipReason })">Меры приняты</button>
+              </div>
               <mat-form-field class="wide"><mat-label>Новый акт ОПИ</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
               <button mat-stroked-button (click)="act('acts', { title: actTitle })">Приложить акт</button>
               <p>Актов: {{ row.acts_count }}. @for (item of row.acts; track item.id) { {{ item.title }}; }</p>
-              <button mat-stroked-button (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
-              <button mat-stroked-button (click)="act('ais-receipt')">Имитация выгрузки АИС: долг и тариф закрыты</button>
-              <button mat-stroked-button (click)="act('move', { stage: 'recovered' })">Взыскано</button>
+              <div class="actions">
+                <button mat-stroked-button (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
+                <button mat-stroked-button (click)="act('ais-receipt')">Имитация выгрузки АИС</button>
+                <button mat-stroked-button (click)="act('move', { stage: 'recovered' })">Взыскано</button>
+              </div>
               <mat-form-field class="wide"><mat-label>Согласующие</mat-label>
                 <mat-select [(ngModel)]="approvers" multiple>
                   @for (person of row.approver_choices || []; track person.id) {
@@ -112,8 +154,10 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
                 <p>{{ vote.approver_name }}: {{ vote.decision }} {{ vote.reason }}</p>
               }
               <mat-form-field class="wide"><mat-label>Ваше решение, если вы согласующий</mat-label><input matInput [(ngModel)]="decisionReason" /></mat-form-field>
-              <button mat-stroked-button (click)="act('decide', { decision: 'yes', reason: decisionReason })">Согласовать</button>
-              <button mat-stroked-button (click)="act('decide', { decision: 'no', reason: decisionReason })">Отказать</button>
+              <div class="actions">
+                <button mat-stroked-button (click)="act('decide', { decision: 'yes', reason: decisionReason })">Согласовать</button>
+                <button mat-stroked-button (click)="act('decide', { decision: 'no', reason: decisionReason })">Отказать</button>
+              </div>
               <mat-form-field><mat-label>Ветвь выселения</mat-label>
                 <mat-select [(ngModel)]="eviction">
                   <mat-option value="">Нет</mat-option>
@@ -123,9 +167,9 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
                   <mat-option value="enforced">Выселение / продажа</mat-option>
                 </mat-select>
               </mat-form-field>
-            </mat-card-content>
-          </mat-card>
-        </div>
+            </div>
+          </div>
+        </section>
 
         <h3>История</h3>
         <ul>
@@ -137,13 +181,34 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
     </div>
   `,
   styles: `
-    h2 { margin: 0 0 8px; color: var(--erip-primary-dark); }
-    .banner { background: #fff8e1; border-radius: 8px; padding: 8px 12px; }
-    .blockers { color: #8a5a00; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-    .fields { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; }
+    .back a { color: var(--erip-link); }
+    .sheet, .more { background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
+    header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    h2, h3 { margin: 0 0 4px; color: var(--erip-primary-dark); }
+    .muted, .hint { color: var(--erip-muted); }
+    .stage { background: var(--erip-claim-soft); color: var(--erip-claim); border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+    .split { display: grid; grid-template-columns: 1fr 260px; gap: 20px; margin-top: 12px; }
+    .form, .fields { display: flex; flex-direction: column; gap: 8px; }
+    .sums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .sums div { background: var(--erip-bg); border-radius: 8px; padding: 8px 10px; }
+    .sums span { display: block; color: var(--erip-muted); font-size: 12px; }
+    .sums .total { background: var(--erip-primary-soft); }
+    .line, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .ok { color: var(--erip-success); font-size: 13px; }
+    .ok.miss { color: var(--erip-danger); }
+    .pack { list-style: none; padding: 0; margin: 0; }
+    .pack li { padding: 6px 0 6px 22px; position: relative; color: var(--erip-muted); }
+    .pack li.ready { color: inherit; }
+    .pack li.ready::before { content: '●'; position: absolute; left: 0; color: var(--erip-success); }
+    .pack li:not(.ready)::before { content: '○'; position: absolute; left: 0; }
+    aside { background: #f7f8fa; border-radius: 10px; padding: 12px; }
+    aside ol { margin: 8px 0 0; padding-left: 18px; }
+    aside li.now { font-weight: 700; color: var(--erip-primary); }
+    .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; }
+    .blockers { color: var(--erip-warning); margin: 0; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .wide { width: 100%; }
-    mat-card-title { padding: 16px 16px 0; }
+    @media (max-width: 900px) { .split, .grid, .sums { grid-template-columns: 1fr; } }
   `,
 })
 export class ClaimDetailComponent implements OnInit {
@@ -151,6 +216,7 @@ export class ClaimDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly snack = inject(MatSnackBar);
 
+  protected readonly Number = Number;
   protected readonly claim = signal<ClaimCase | null>(null);
   protected warningDate = '';
   protected tariff = '';
@@ -175,24 +241,33 @@ export class ClaimDetailComponent implements OnInit {
     this.load(Number(this.route.snapshot.paramMap.get('id')));
   }
 
+  protected money(value: string | null): string {
+    if (!value) return '—';
+    const number = Number(value);
+    if (Number.isNaN(number)) return value;
+    return number.toLocaleString('ru-BY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  protected grand(row: ClaimCase): string {
+    const debt = Number(row.balance_out || 0);
+    const penalty = Number(row.penalty || 0);
+    const tariff = Number(this.tariff || 0);
+    return this.money(String(debt + penalty + tariff));
+  }
+
+  protected saveThenSend(): void {
+    const row = this.claim();
+    if (!row) return;
+    this.api.patchClaim(row.id, this.draft()).subscribe({
+      next: () => this.act('send-notary'),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
   protected save(): void {
     const row = this.claim();
     if (!row) return;
-    this.api.patchClaim(row.id, {
-      warning_delivered_on: this.warningDate || null,
-      notary_tariff: this.tariff || null,
-      application_withdrawn: this.withdrawn,
-      lawsuit_number: this.lawsuitNumber,
-      lawsuit_kind: this.lawsuitKind,
-      defendant_name: this.defendant,
-      lawsuit_filed_on: this.lawsuitDate || null,
-      state_duty: this.duty || null,
-      package_filed_on: this.packageDate || null,
-      court_status: this.court,
-      skip_reason: this.skipReason,
-      eviction_stage: this.eviction,
-      lawsuit_note: this.note,
-    }).subscribe({
+    this.api.patchClaim(row.id, this.draft()).subscribe({
       next: (next) => this.apply(next),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -208,6 +283,24 @@ export class ClaimDetailComponent implements OnInit {
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
+  }
+
+  private draft(): object {
+    return {
+      warning_delivered_on: this.warningDate || null,
+      notary_tariff: this.tariff || null,
+      application_withdrawn: this.withdrawn,
+      lawsuit_number: this.lawsuitNumber,
+      lawsuit_kind: this.lawsuitKind,
+      defendant_name: this.defendant,
+      lawsuit_filed_on: this.lawsuitDate || null,
+      state_duty: this.duty || null,
+      package_filed_on: this.packageDate || null,
+      court_status: this.court,
+      skip_reason: this.skipReason,
+      eviction_stage: this.eviction,
+      lawsuit_note: this.note,
+    };
   }
 
   private load(id: number): void {

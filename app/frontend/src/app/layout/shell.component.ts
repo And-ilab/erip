@@ -39,7 +39,6 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
           <a mat-list-item routerLink="/contracts" routerLinkActive="active">Реестр договоров</a>
           <a mat-list-item routerLink="/measures" routerLinkActive="active">Мероприятия</a>
           <a mat-list-item routerLink="/claims" routerLinkActive="active">Взыскание</a>
-          <a mat-list-item routerLink="/analytics" routerLinkActive="active">Граф. аналитика</a>
           <a mat-list-item routerLink="/scenarios" routerLinkActive="active">Сценарии</a>
           <a mat-list-item routerLink="/password" routerLinkActive="active">Смена пароля</a>
           <a mat-list-item routerLink="/notifications" routerLinkActive="active">Оповещения</a>

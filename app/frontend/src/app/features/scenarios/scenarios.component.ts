@@ -1,7 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -27,112 +26,152 @@ const ACTIONS = [
   selector: 'app-scenarios',
   standalone: true,
   imports: [
-    FormsModule, MatCardModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
-    <div class="page layout">
-      <mat-card>
-        <mat-card-title>Сценарии</mat-card-title>
-        <mat-card-content>
-          <p class="muted">Центральный сценарий копируется в схему. Уже запущенные лицевые счета остаются на прежней версии.</p>
-          @if (auth.me()?.role !== 'specialist' && auth.me()?.role !== 'observer') {
+    <div class="page">
+      <header class="head">
+        <div>
+          <h2>Конструктор сценариев</h2>
+          <p>Слева меры и срок, справа условия, действие и переход. Уже запущенный счёт остаётся на своей версии.</p>
+          @if (current()) {
+            <mat-form-field class="name"><mat-label>Название сценария</mat-label><input matInput [(ngModel)]="name" /></mat-form-field>
+          }
+        </div>
+        <div class="actions">
+          @if (canEdit()) {
             <button mat-stroked-button (click)="create()">+ Черновик</button>
           }
-          @for (row of scenarios(); track row.id) {
-            <button type="button" class="item" [class.on]="current()?.id === row.id" (click)="select(row)">
-              {{ row.name }}
-              <small>{{ row.organization ? 'схема' : 'центр' }} · v{{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</small>
-            </button>
-          }
-        </mat-card-content>
-      </mat-card>
-
-      <div class="stack">
-        @if (current(); as row) {
-          <mat-card>
-            <mat-card-content class="fields">
-              <mat-form-field class="wide"><mat-label>Название</mat-label><input matInput [(ngModel)]="name" /></mat-form-field>
-              @for (step of steps; track $index) {
-                <div class="step">
-                  <mat-form-field><mat-label>№</mat-label><input matInput type="number" [(ngModel)]="step.order" /></mat-form-field>
-                  <mat-form-field><mat-label>Действие</mat-label>
-                    <mat-select [(ngModel)]="step.action">
-                      @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
-                    </mat-select>
-                  </mat-form-field>
-                  <mat-form-field><mat-label>Ждать дней</mat-label><input matInput type="number" [(ngModel)]="step.wait_days" /></mat-form-field>
-                  <mat-form-field><mat-label>Шаблон</mat-label><input matInput [(ngModel)]="step.template" /></mat-form-field>
-                  <mat-form-field><mat-label>Группа от</mat-label><input matInput type="number" [(ngModel)]="step.branch_group" /></mat-form-field>
-                  <mat-checkbox [(ngModel)]="step.terminal">Конец</mat-checkbox>
-                  <mat-checkbox [(ngModel)]="step.approval">Согласование</mat-checkbox>
-                  <button mat-button (click)="removeStep($index)">Убрать</button>
-                </div>
-              }
-              <button mat-stroked-button (click)="addStep()">+ Шаг</button>
-              <div class="actions">
-                <button mat-flat-button color="primary" (click)="save()">Сохранить</button>
-                <button mat-stroked-button (click)="publish()">Опубликовать</button>
-                <button mat-stroked-button (click)="copy()">Копировать в схему</button>
-              </div>
-              @if (warnings().length) {
-                @for (text of warnings(); track text) { <p class="banner">{{ text }}</p> }
-              }
-              <div class="step">
-                <mat-form-field><mat-label>ID лицевого счёта</mat-label><input matInput type="number" [(ngModel)]="accountId" /></mat-form-field>
-                <mat-form-field class="wide"><mat-label>Причина паузы</mat-label><input matInput [(ngModel)]="pauseReason" /></mat-form-field>
-                <button mat-stroked-button (click)="assign(false)">Назначить текущую версию</button>
-                <button mat-stroked-button (click)="assign(true)">Поставить на паузу</button>
-              </div>
-              @if (runNote()) { <p>{{ runNote() }}</p> }
-            </mat-card-content>
-          </mat-card>
+          <button mat-flat-button color="primary" (click)="save()">Сохранить</button>
+          <button mat-stroked-button (click)="publish()">Опубликовать</button>
+          <button mat-stroked-button (click)="copy()">Копировать в схему</button>
+        </div>
+      </header>
+      <div class="picker">
+        @for (row of scenarios(); track row.id) {
+          <button type="button" [class.on]="current()?.id === row.id" (click)="select(row)">
+            {{ row.name }}
+            <small>{{ row.organization ? 'схема' : 'центр' }} · v{{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</small>
+          </button>
         }
-
-        <mat-card>
-          <mat-card-title>Печатные формы</mat-card-title>
-          <mat-card-content class="fields">
-            <p class="muted">Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{services}' }}, {{ '{last_payment}' }}, {{ '{organization}' }}, {{ '{due_days}' }}, {{ '{tariff}' }}. Документ запоминает версию шаблона.</p>
-            @for (form of forms(); track form.id) {
-              <button type="button" class="item" [class.on]="print()?.id === form.id" (click)="selectForm(form)">
-                {{ form.name }} <small>v{{ form.version }}</small>
-              </button>
-            }
-            <button mat-stroked-button (click)="newForm()">+ Макет</button>
-            <mat-form-field><mat-label>Код</mat-label><input matInput [(ngModel)]="formCode" /></mat-form-field>
-            <mat-form-field><mat-label>Название</mat-label><input matInput [(ngModel)]="formName" /></mat-form-field>
-            <mat-form-field><mat-label>Вид</mat-label>
-              <mat-select [(ngModel)]="formKind">
-                <mat-option value="warning">Предупреждение</mat-option>
-                <mat-option value="writ">Исполнительная надпись</mat-option>
-                <mat-option value="claim">Иск</mat-option>
-                <mat-option value="writeoff">Акт списания</mat-option>
-                <mat-option value="disconnect">Заказ-наряд на отключение</mat-option>
-              </mat-select>
-            </mat-form-field>
-            <mat-form-field class="wide"><mat-label>Текст</mat-label><textarea matInput rows="5" [(ngModel)]="formBody"></textarea></mat-form-field>
-            <button mat-flat-button color="primary" (click)="saveForm()">Сохранить макет</button>
-            <mat-form-field><mat-label>ID счёта для сборки</mat-label><input matInput type="number" [(ngModel)]="renderAccount" /></mat-form-field>
-            <button mat-stroked-button (click)="render()">Собрать документ</button>
-            @if (rendered()) { <pre>{{ rendered() }}</pre> }
-          </mat-card-content>
-        </mat-card>
       </div>
+      @if (current(); as row) {
+        <div class="layout">
+          <section class="table-wrap">
+            <table>
+              <thead><tr><th>№</th><th>Мера</th><th>Дней</th><th>Режим</th></tr></thead>
+              <tbody>
+                @for (step of steps; track $index) {
+                  <tr [class.on]="picked() === $index" (click)="picked.set($index)">
+                    <td>{{ step.order }}</td>
+                    <td>{{ actionLabel(step.action) }}</td>
+                    <td>{{ step.wait_days || 0 }}</td>
+                    <td><span class="mode" [class.hand]="!isAuto(step.action)">{{ isAuto(step.action) ? 'Авто' : 'Вручную' }}</span></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <button mat-stroked-button (click)="addStep()">+ Шаг</button>
+          </section>
+          @if (steps[picked()]; as step) {
+            <section class="pane">
+              <h3>Шаг {{ step.order }}. {{ actionLabel(step.action) }}</h3>
+              <h4>Условия запуска</h4>
+              <div class="line">
+                <mat-form-field><mat-label>Ждать дней</mat-label><input matInput type="number" [(ngModel)]="step.wait_days" /></mat-form-field>
+                <mat-form-field><mat-label>Группа от</mat-label><input matInput type="number" [(ngModel)]="step.branch_group" /></mat-form-field>
+              </div>
+              <h4>Действие</h4>
+              <div class="line">
+                <mat-form-field><mat-label>Мера</mat-label>
+                  <mat-select [(ngModel)]="step.action">
+                    @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field><mat-label>Шаблон</mat-label><input matInput [(ngModel)]="step.template" /></mat-form-field>
+              </div>
+              <mat-checkbox [(ngModel)]="step.approval">Нужно согласование</mat-checkbox>
+              @if (step.action === 'messenger') {
+                <p class="banner">Мессенджер в сценарии есть, сообщение не отправляется.</p>
+              }
+              <h4>Переход</h4>
+              <mat-checkbox [(ngModel)]="step.terminal">Конечный шаг</mat-checkbox>
+              <p class="muted">Следующий шаг — строка ниже в таблице. Два шага с одним номером и тупик без конца сценарий не сохранит.</p>
+              <button mat-button (click)="removeStep(picked())">Убрать шаг</button>
+            </section>
+          }
+        </div>
+        @if (warnings().length) {
+          @for (text of warnings(); track text) { <p class="banner">{{ text }}</p> }
+        }
+        <div class="assign">
+          <mat-form-field><mat-label>ID лицевого счёта</mat-label><input matInput type="number" [(ngModel)]="accountId" /></mat-form-field>
+          <mat-form-field class="grow"><mat-label>Причина паузы</mat-label><input matInput [(ngModel)]="pauseReason" /></mat-form-field>
+          <button mat-stroked-button (click)="assign(false)">Назначить текущую версию</button>
+          <button mat-stroked-button (click)="assign(true)">Поставить на паузу</button>
+        </div>
+        @if (runNote()) { <p>{{ runNote() }}</p> }
+      }
+
+      <section class="forms">
+        <h3>Печатные формы</h3>
+        <p class="muted">Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{services}' }}, {{ '{last_payment}' }}, {{ '{organization}' }}, {{ '{due_days}' }}, {{ '{tariff}' }}. Документ запоминает версию шаблона.</p>
+        <div class="picker">
+          @for (form of forms(); track form.id) {
+            <button type="button" [class.on]="print()?.id === form.id" (click)="selectForm(form)">{{ form.name }} <small>v{{ form.version }}</small></button>
+          }
+          <button mat-stroked-button (click)="newForm()">+ Макет</button>
+        </div>
+        <div class="line">
+          <mat-form-field><mat-label>Код</mat-label><input matInput [(ngModel)]="formCode" /></mat-form-field>
+          <mat-form-field><mat-label>Название</mat-label><input matInput [(ngModel)]="formName" /></mat-form-field>
+          <mat-form-field><mat-label>Вид</mat-label>
+            <mat-select [(ngModel)]="formKind">
+              <mat-option value="warning">Предупреждение</mat-option>
+              <mat-option value="writ">Исполнительная надпись</mat-option>
+              <mat-option value="claim">Иск</mat-option>
+              <mat-option value="writeoff">Акт списания</mat-option>
+              <mat-option value="disconnect">Заказ-наряд на отключение</mat-option>
+            </mat-select>
+          </mat-form-field>
+        </div>
+        <mat-form-field class="wide"><mat-label>Текст</mat-label><textarea matInput rows="4" [(ngModel)]="formBody"></textarea></mat-form-field>
+        <div class="actions">
+          <button mat-flat-button color="primary" (click)="saveForm()">Сохранить макет</button>
+          <mat-form-field><mat-label>ID счёта для сборки</mat-label><input matInput type="number" [(ngModel)]="renderAccount" /></mat-form-field>
+          <button mat-stroked-button (click)="render()">Собрать документ</button>
+        </div>
+        @if (rendered()) { <pre>{{ rendered() }}</pre> }
+      </section>
     </div>
   `,
   styles: `
-    .layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
-    .stack { display: flex; flex-direction: column; gap: 16px; }
-    .item, .item small { display: block; width: 100%; text-align: left; }
-    .item { border: 0; background: transparent; padding: 8px; border-radius: 8px; cursor: pointer; }
-    .item.on { background: rgba(0, 90, 120, .08); }
-    .fields { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; }
-    .step { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .wide { width: 100%; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    .banner { background: #fff8e1; border-radius: 8px; padding: 8px 12px; }
-    mat-card-title { padding: 16px 16px 0; }
-    pre { white-space: pre-wrap; background: #f4f7f8; padding: 12px; border-radius: 8px; }
+    .head, .actions, .line, .assign { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .head { justify-content: space-between; }
+    h2, h3, h4 { margin: 0; color: var(--erip-primary-dark); }
+    h4 { margin-top: 8px; font-size: 13px; color: var(--erip-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .head p, .muted { color: var(--erip-muted); margin: 4px 0 0; }
+    .picker { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+    .picker button { border: 1px solid var(--erip-border); background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; }
+    .picker button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .picker small { display: block; color: var(--erip-muted); }
+    .layout { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; }
+    .table-wrap, .pane, .forms { background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--erip-border); font-size: 13px; }
+    th { color: var(--erip-muted); }
+    tr { cursor: pointer; }
+    tr.on { background: var(--erip-primary-soft); }
+    .mode { background: var(--erip-success-soft); color: var(--erip-success); border-radius: 999px; padding: 2px 8px; }
+    .mode.hand { background: var(--erip-warn-kind-soft); color: var(--erip-warn-kind); }
+    .pane { display: flex; flex-direction: column; gap: 8px; }
+    .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; }
+    .assign, .forms { margin-top: 16px; }
+    .forms { display: flex; flex-direction: column; gap: 8px; }
+    .wide, .grow { width: 100%; flex: 1; }
+    pre { white-space: pre-wrap; background: var(--erip-bg); padding: 12px; border-radius: 8px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
   `,
 })
 export class ScenariosComponent implements OnInit {
@@ -144,6 +183,7 @@ export class ScenariosComponent implements OnInit {
   protected readonly scenarios = signal<ScenarioRow[]>([]);
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly current = signal<ScenarioRow | null>(null);
+  protected readonly picked = signal(0);
   protected readonly print = signal<PrintFormRow | null>(null);
   protected readonly warnings = signal<string[]>([]);
   protected readonly runNote = signal('');
@@ -167,10 +207,24 @@ export class ScenariosComponent implements OnInit {
     });
   }
 
+  protected canEdit(): boolean {
+    const role = this.auth.me()?.role;
+    return role !== 'specialist' && role !== 'observer';
+  }
+
+  protected actionLabel(id: string): string {
+    return this.actions.find((action) => action.id === id)?.label || id;
+  }
+
+  protected isAuto(id: string): boolean {
+    return id === 'call' || id === 'sms' || id === 'email' || id === 'messenger';
+  }
+
   protected select(row: ScenarioRow): void {
     this.current.set(row);
     this.name = row.name;
     this.steps = row.steps.map((step) => ({ ...step }));
+    this.picked.set(0);
     this.warnings.set([]);
     this.runNote.set('');
   }
@@ -190,10 +244,12 @@ export class ScenariosComponent implements OnInit {
   protected addStep(): void {
     const order = this.steps.reduce((max, step) => Math.max(max, step.order), 0) + 1;
     this.steps = [...this.steps.map((step) => ({ ...step, terminal: false })), { order, action: 'writ', wait_days: 0, terminal: true }];
+    this.picked.set(this.steps.length - 1);
   }
 
   protected removeStep(index: number): void {
     this.steps = this.steps.filter((_, item) => item !== index);
+    this.picked.set(Math.max(0, Math.min(index, this.steps.length - 1)));
   }
 
   protected save(): void {
@@ -302,7 +358,8 @@ export class ScenariosComponent implements OnInit {
     this.api.scenarios().subscribe({
       next: (page) => {
         this.scenarios.set(page.results);
-        const picked = page.results.find((row) => row.id === (selectId ?? this.current()?.id));
+        const wanted = selectId ?? this.current()?.id ?? page.results[0]?.id;
+        const picked = page.results.find((row) => row.id === wanted);
         if (picked) this.select(picked);
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),

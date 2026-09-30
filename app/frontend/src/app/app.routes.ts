@@ -53,10 +53,6 @@ export const routes: Routes = [
         loadComponent: () => import('./features/claims/claims-board.component').then((m) => m.ClaimsBoardComponent),
       },
       {
-        path: 'analytics',
-        loadComponent: () => import('./features/analytics/analytics.component').then((m) => m.AnalyticsComponent),
-      },
-      {
         path: 'claims/:id',
         loadComponent: () => import('./features/claims/claim-detail.component').then((m) => m.ClaimDetailComponent),
       },
