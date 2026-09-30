@@ -361,4 +361,137 @@ export class ApiService {
   errors(params: Params): Observable<Page<ErrorLogEntry>> {
     return this.http.get<Page<ErrorLogEntry>>(`${this.base}/audit/errors/`, { params: toParams(params) });
   }
+
+  claims(): Observable<{ results: ClaimCase[]; stages: Named[] }> {
+    return this.http.get<{ results: ClaimCase[]; stages: Named[] }>(`${this.base}/claims/`);
+  }
+
+  claim(id: number): Observable<ClaimCase> {
+    return this.http.get<ClaimCase>(`${this.base}/claims/${id}/`);
+  }
+
+  openClaim(account: number): Observable<ClaimCase> {
+    return this.http.post<ClaimCase>(`${this.base}/claims/`, { account });
+  }
+
+  patchClaim(id: number, body: Partial<ClaimCase>): Observable<ClaimCase> {
+    return this.http.patch<ClaimCase>(`${this.base}/claims/${id}/`, body);
+  }
+
+  claimAction(id: number, action: string, body: object = {}): Observable<ClaimCase> {
+    return this.http.post<ClaimCase>(`${this.base}/claims/${id}/${action}/`, body);
+  }
+
+  scenarios(): Observable<Page<ScenarioRow>> {
+    return this.http.get<Page<ScenarioRow>>(`${this.base}/nsi/scenarios/`);
+  }
+
+  saveScenario(row: Partial<ScenarioRow>): Observable<ScenarioRow> {
+    return row.id
+      ? this.http.patch<ScenarioRow>(`${this.base}/nsi/scenarios/${row.id}/`, row)
+      : this.http.post<ScenarioRow>(`${this.base}/nsi/scenarios/`, row);
+  }
+
+  publishScenario(id: number): Observable<{ version: number; warnings: string[] }> {
+    return this.http.post<{ version: number; warnings: string[] }>(`${this.base}/nsi/scenarios/${id}/publish/`, {});
+  }
+
+  copyScenario(id: number): Observable<ScenarioRow> {
+    return this.http.post<ScenarioRow>(`${this.base}/nsi/scenarios/${id}/copy/`, {});
+  }
+
+  assignScenario(id: number, body: object): Observable<{ version: number; current_version: number; paused: boolean }> {
+    return this.http.post<{ version: number; current_version: number; paused: boolean }>(
+      `${this.base}/nsi/scenarios/${id}/assign/`, body,
+    );
+  }
+
+  printForms(): Observable<Page<PrintFormRow>> {
+    return this.http.get<Page<PrintFormRow>>(`${this.base}/nsi/print-forms/`);
+  }
+
+  savePrintForm(row: Partial<PrintFormRow>): Observable<PrintFormRow> {
+    return row.id
+      ? this.http.patch<PrintFormRow>(`${this.base}/nsi/print-forms/${row.id}/`, row)
+      : this.http.post<PrintFormRow>(`${this.base}/nsi/print-forms/`, row);
+  }
+
+  renderPrintForm(id: number, account: number, tariff = ''): Observable<{ text: string; version: number }> {
+    return this.http.post<{ text: string; version: number }>(`${this.base}/nsi/print-forms/${id}/render/`, { account, tariff });
+  }
+}
+
+export interface Named { id: string; label: string }
+
+export interface ClaimCase {
+  id: number;
+  account: number;
+  client_account: string;
+  short_fio: string;
+  balance_out: string | null;
+  stage: string;
+  stage_label: string;
+  warning_delivered_on: string | null;
+  notary_tariff: string | null;
+  application_withdrawn: boolean;
+  submission_id: string;
+  submission_mode: string;
+  notary_note: string;
+  lawsuit_number: string;
+  lawsuit_kind: string;
+  lawsuit_filed_on: string | null;
+  state_duty: string | null;
+  defendant_name: string;
+  package_filed_on: string | null;
+  lawsuit_note: string;
+  court_status: string;
+  opi_number: string;
+  opi_status: string;
+  opi_mode: string;
+  tariff_received: boolean;
+  ais_debt_cleared: boolean;
+  eviction_stage: string;
+  skip_reason: string;
+  writeoff_status: string;
+  writeoff_note: string;
+  acts: { id: number; title: string }[];
+  acts_count: number;
+  approvals: { id: number; approver_id: number; approver_name: string; decision: string; reason: string }[];
+  blockers: string[];
+  events: { old_stage: string; new_stage: string; reason: string; actor: string; at: string }[];
+  approver_choices?: { id: number; name: string; role: string }[];
+  lawsuit_kinds?: Named[];
+  stages?: Named[];
+}
+
+export interface ScenarioStep {
+  order: number;
+  action: string;
+  wait_days?: number;
+  template?: string;
+  approval?: boolean;
+  branch_group?: number | null;
+  person?: string;
+  has_phone?: boolean | null;
+  terminal?: boolean;
+}
+
+export interface ScenarioRow {
+  id: number;
+  name: string;
+  status: string;
+  version: number;
+  steps: ScenarioStep[];
+  organization: number | null;
+  is_active: boolean;
+}
+
+export interface PrintFormRow {
+  id: number;
+  code: string;
+  name: string;
+  doc_kind: string;
+  body: string;
+  version: number;
+  organization: number | null;
 }

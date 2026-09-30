@@ -90,7 +90,7 @@ export class TemplateDeleteDialog {
             <mat-form-field class="full-width">
               <mat-label>Текст</mat-label>
               <textarea matInput rows="6" formControlName="body"></textarea>
-              <mat-hint>Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{debt_group}' }}, {{ '{group_name}' }}. Приветствие и подпись добавит шлюз.</mat-hint>
+              <mat-hint>Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{services}' }}, {{ '{last_payment}' }}, {{ '{organization}' }}, {{ '{due_days}' }}, {{ '{debt_group}' }}, {{ '{group_name}' }}. Приветствие и подпись добавит шлюз. Канал мессенджера в сценарии сообщение не отправляет.</mat-hint>
             </mat-form-field>
           </form>
           <div class="filters actions">

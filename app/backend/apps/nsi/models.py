@@ -75,6 +75,95 @@ class ScenarioRule(TimeStampedModel, SoftDeleteModel):
         return f"{self.group}: {self.name}"
 
 
+class ScenarioDefinition(TimeStampedModel, SoftDeleteModel):
+    """Конструктор сценария. Пустая организация — центральный шаблон Заказчика."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Черновик"
+        ACTIVE = "active", "Активный"
+
+    organization = models.ForeignKey(
+        "users.Organization", null=True, blank=True, on_delete=models.CASCADE, related_name="scenarios",
+        verbose_name="Схема",
+    )
+    name = models.CharField("Название", max_length=250)
+    status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.DRAFT)
+    version = models.PositiveIntegerField("Версия", default=1)
+    steps = models.JSONField("Шаги", default=list, blank=True)
+    based_on = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copies", verbose_name="Источник",
+    )
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Сценарий мероприятий"
+        verbose_name_plural = "Сценарии мероприятий"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ScenarioRevision(TimeStampedModel):
+    """Снимок шагов на момент публикации. Уже запущенные дела ссылаются на номер версии."""
+
+    scenario = models.ForeignKey(ScenarioDefinition, on_delete=models.CASCADE, related_name="revisions")
+    version = models.PositiveIntegerField("Версия")
+    steps = models.JSONField("Шаги", default=list)
+    author = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Автор",
+    )
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["scenario", "version"], name="uniq_scenario_revision"),
+        ]
+        verbose_name = "Версия сценария"
+        verbose_name_plural = "Версии сценария"
+
+
+class PrintForm(TimeStampedModel, SoftDeleteModel):
+    """Макет печатной формы. Сформированный документ хранит номер версии."""
+
+    organization = models.ForeignKey(
+        "users.Organization", null=True, blank=True, on_delete=models.CASCADE, related_name="print_forms",
+        verbose_name="Схема",
+    )
+    code = models.SlugField("Код", max_length=100)
+    name = models.CharField("Название", max_length=250)
+    doc_kind = models.CharField("Вид документа", max_length=30)
+    body = models.TextField("Текст")
+    version = models.PositiveIntegerField("Версия", default=1)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "code"], name="uniq_print_form_code"),
+            models.UniqueConstraint(
+                fields=["code"], condition=models.Q(organization__isnull=True), name="uniq_central_print_form",
+            ),
+        ]
+        verbose_name = "Печатная форма"
+        verbose_name_plural = "Печатные формы"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class PrintFormRevision(TimeStampedModel):
+    form = models.ForeignKey(PrintForm, on_delete=models.CASCADE, related_name="revisions")
+    version = models.PositiveIntegerField("Версия")
+    body = models.TextField("Текст")
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["form", "version"], name="uniq_print_form_revision"),
+        ]
+        verbose_name = "Версия печатной формы"
+        verbose_name_plural = "Версии печатных форм"
+
+
 class CalculationSettings(TimeStampedModel):
     """Параметры расчёта: период рейтинга N, порог закрытия, день срока оплаты."""
 

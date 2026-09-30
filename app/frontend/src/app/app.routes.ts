@@ -49,6 +49,18 @@ export const routes: Routes = [
         loadComponent: () => import('./features/templates/templates.component').then((m) => m.TemplatesComponent),
       },
       {
+        path: 'claims',
+        loadComponent: () => import('./features/claims/claims-board.component').then((m) => m.ClaimsBoardComponent),
+      },
+      {
+        path: 'claims/:id',
+        loadComponent: () => import('./features/claims/claim-detail.component').then((m) => m.ClaimDetailComponent),
+      },
+      {
+        path: 'scenarios',
+        loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
+      },
+      {
         path: 'errors',
         canActivate: [superadminGuard],
         loadComponent: () => import('./features/errors/errors.component').then((m) => m.ErrorsComponent),

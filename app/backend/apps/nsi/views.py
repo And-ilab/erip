@@ -2,6 +2,7 @@
 
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from apps.audit.mixins import AuditedViewSetMixin
@@ -16,6 +17,8 @@ from .models import (
     CalculationSettings,
     DebtGroupScale,
     DebtorCategory,
+    PrintForm,
+    ScenarioDefinition,
     ScenarioRule,
 )
 from .serializers import (
@@ -25,6 +28,8 @@ from .serializers import (
     CalculationSettingsSerializer,
     DebtGroupScaleSerializer,
     DebtorCategorySerializer,
+    PrintFormSerializer,
+    ScenarioDefinitionSerializer,
     ScenarioRuleSerializer,
 )
 
@@ -103,10 +108,165 @@ class CalculationSettingsViewSet(NsiViewSet):
         return Response(serializer.data)
 
 
+class ScenarioDefinitionViewSet(NsiViewSet):
+    """Черновик правит администратор схемы. Центральный сценарий — только суперадминистратор."""
+
+    queryset = ScenarioDefinition.objects.all()
+    serializer_class = ScenarioDefinitionSerializer
+    search_fields = ["name"]
+    filterset_fields = ["is_active", "status"]
+    write_roles = ("superadmin", "local_admin", "specialist")
+
+    def get_queryset(self):
+        from .services.scenarios import ensure_standard_scenario
+
+        ensure_standard_scenario()
+        user = self.request.user
+        qs = self.queryset
+        if user.is_superadmin:
+            return qs
+        return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
+
+    def perform_create(self, serializer):
+        self._admin_only()
+        self._check_steps(serializer.validated_data.get("steps") or [])
+        organization = None if self.request.user.is_superadmin else self.request.user.organization
+        serializer.save(organization=organization, status=ScenarioDefinition.Status.DRAFT, version=1)
+        record_action(self.request, AuditLog.Action.CREATE, serializer.instance)
+
+    def perform_update(self, serializer):
+        self._admin_only()
+        self._deny_central(serializer.instance)
+        if "steps" in serializer.validated_data:
+            self._check_steps(serializer.validated_data["steps"])
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        self._admin_only()
+        self._deny_central(instance)
+        super().perform_destroy(instance)
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        from .services.scenarios import publish
+
+        self._admin_only()
+        scenario = self.get_object()
+        self._deny_central(scenario)
+        warnings = publish(scenario, request.user)
+        record_action(request, AuditLog.Action.UPDATE, scenario)
+        return Response({"id": scenario.pk, "version": scenario.version, "warnings": warnings})
+
+    @action(detail=True, methods=["post"])
+    def copy(self, request, pk=None):
+        from .services.scenarios import copy_scenario
+
+        self._admin_only()
+        source = self.get_object()
+        created = copy_scenario(source, request.user)
+        record_action(request, AuditLog.Action.CREATE, created)
+        return Response(self.get_serializer(created).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def assign(self, request, pk=None):
+        from apps.debts.models import Account
+        from apps.users.scoping import AccessScope
+
+        from .services.scenarios import assign_run
+
+        scenario = self.get_object()
+        account = AccessScope(request.user).apply(
+            Account.objects.all(), "organization", "provider_id",
+        ).filter(pk=request.data.get("account")).first()
+        if account is None:
+            raise ValidationError({"account": "Лицевой счёт не найден"})
+        run = assign_run(
+            account, scenario, request.user,
+            upgrade=bool(request.data.get("upgrade")),
+            paused=bool(request.data.get("paused")),
+            reason=str(request.data.get("pause_reason") or ""),
+        )
+        record_action(request, AuditLog.Action.UPDATE, run)
+        return Response({
+            "account": account.pk, "scenario": scenario.pk, "version": run.version,
+            "paused": run.paused, "pause_reason": run.pause_reason,
+            "current_version": scenario.version,
+        })
+
+    def _admin_only(self) -> None:
+        if self.request.user.role == "specialist":
+            raise PermissionDenied("Сценарий настраивает администратор организации")
+
+    def _deny_central(self, scenario: ScenarioDefinition) -> None:
+        if scenario.organization_id is None and not self.request.user.is_superadmin:
+            raise PermissionDenied("Центральный сценарий меняет суперадминистратор. Скопируйте его в схему.")
+
+    def _check_steps(self, steps) -> None:
+        from .services.scenarios import check_steps
+
+        if steps:
+            check_steps(steps)
+
+
+class PrintFormViewSet(NsiViewSet):
+    queryset = PrintForm.objects.all()
+    serializer_class = PrintFormSerializer
+    search_fields = ["name", "code"]
+    filterset_fields = ["is_active", "doc_kind"]
+    write_roles = ("superadmin", "local_admin", "specialist")
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = self.queryset
+        if user.is_superadmin:
+            return qs
+        return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
+
+    def perform_create(self, serializer):
+        if self.request.user.role == "specialist":
+            raise PermissionDenied("Макет настраивает администратор организации")
+        from .services.scenarios import remember_print_version
+
+        organization = None if self.request.user.is_superadmin else self.request.user.organization
+        serializer.save(organization=organization)
+        remember_print_version(serializer.instance, None)
+        record_action(self.request, AuditLog.Action.CREATE, serializer.instance)
+
+    def perform_update(self, serializer):
+        from .services.scenarios import remember_print_version
+
+        if self.request.user.role == "specialist":
+            raise PermissionDenied("Макет настраивает администратор организации")
+        if serializer.instance.organization_id is None and not self.request.user.is_superadmin:
+            raise PermissionDenied("Центральный макет меняет суперадминистратор")
+        previous = serializer.instance.body
+        super().perform_update(serializer)
+        remember_print_version(serializer.instance, previous)
+
+    @action(detail=True, methods=["post"])
+    def render(self, request, pk=None):
+        from apps.debts.models import Account
+        from apps.users.scoping import AccessScope
+
+        from .services.scenarios import render_print
+
+        form = self.get_object()
+        account = AccessScope(request.user).apply(
+            Account.objects.select_related("organization"), "organization", "provider_id",
+        ).filter(pk=request.data.get("account")).first()
+        if account is None:
+            raise ValidationError({"account": "Лицевой счёт не найден"})
+        text = render_print(form, account, tariff=str(request.data.get("tariff") or ""))
+        record_action(request, AuditLog.Action.CREATE, form, after={"account": account.pk, "version": form.version})
+        return Response({"text": text, "version": form.version})
+
+
 NSI_REGISTRY = {
     "debt-groups": nsi_viewset(DebtGroupScale, DebtGroupScaleSerializer, ["name"]),
     "debtor-categories": DebtorCategoryViewSet,
     "scenario-rules": nsi_viewset(ScenarioRule, ScenarioRuleSerializer, ["name"]),
+    "scenarios": ScenarioDefinitionViewSet,
+    "print-forms": PrintFormViewSet,
     "calculation-settings": CalculationSettingsViewSet,
     "bnp-services": nsi_viewset(BnpService, BnpServiceSerializer, ["name"], ["type_id", "is_active"]),
     "bnp-debt-types": nsi_viewset(BnpDebtType, BnpDebtTypeSerializer, ["code", "name"]),

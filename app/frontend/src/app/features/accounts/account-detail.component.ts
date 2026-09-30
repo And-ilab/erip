@@ -311,6 +311,7 @@ import {
                   {{ checksReady() ? 'Все пункты выполнены' : 'Пакет на исполнительную надпись недоступен до выполнения всех пунктов чек-листа' }}
                 </span>
                 <button mat-flat-button [disabled]="!checksReady()" (click)="addWorkPack()">Сформировать пакет документов</button>
+                <a mat-stroked-button [routerLink]="['/claims']" [queryParams]="{ account: account()?.id }">Дело взыскания</a>
               </div>
             </div>
           </mat-tab>

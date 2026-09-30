@@ -7,6 +7,8 @@ from .models import (
     CalculationSettings,
     DebtGroupScale,
     DebtorCategory,
+    PrintForm,
+    ScenarioDefinition,
     ScenarioRule,
 )
 
@@ -30,6 +32,20 @@ class DebtorCategorySerializer(serializers.ModelSerializer):
         model = DebtorCategory
         fields = ["id", "organization", "code", "name", "note", "is_active"]
         read_only_fields = ["is_active"]
+
+
+class ScenarioDefinitionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScenarioDefinition
+        fields = ["id", "organization", "name", "status", "version", "steps", "based_on", "is_active"]
+        read_only_fields = ["is_active", "status", "version", "organization"]
+
+
+class PrintFormSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrintForm
+        fields = ["id", "organization", "code", "name", "doc_kind", "body", "version", "is_active"]
+        read_only_fields = ["is_active", "version", "organization"]
 
 
 class ScenarioRuleSerializer(serializers.ModelSerializer):

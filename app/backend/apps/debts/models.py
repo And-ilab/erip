@@ -735,6 +735,147 @@ class WritCheck(AisRecord):
         verbose_name_plural = "Чек-лист исполнительной надписи"
 
 
+class ClaimCase(AisRecord):
+    """Дело претензионно-исковой работы по одному лицевому счёту (ТЗ 4.2.4)."""
+
+    class Stage(models.TextChoices):
+        PREP = "prep", "Подготовка пакета"
+        NOTARY = "notary", "Направлено нотариусу"
+        WRIT_DONE = "writ_done", "Надпись совершена"
+        REFUSED = "refused", "Отказ нотариуса"
+        LAWSUIT = "lawsuit", "Исковое заявление"
+        COURT = "court", "Судебное решение"
+        OPI = "opi", "Направлено в ОПИ"
+        OPI_MEASURES = "opi_measures", "Меры ОПИ"
+        RECOVERED = "recovered", "Взыскано"
+        IMPOSSIBLE = "impossible", "Невозможность взыскания"
+        WRITEOFF = "writeoff", "Списание"
+
+    class LawsuitKind(models.TextChoices):
+        COLLECTION = "collection", "Взыскание задолженности"
+        EVICTION_80 = "eviction_80", "Выселение, ст. 80 ЖК"
+        EVICTION_86 = "eviction_86", "Выселение, ст. 86 ЖК"
+        EVICTION_87 = "eviction_87", "Выселение, ст. 87 ЖК"
+        ALIENATION_137 = "alienation_137", "Отчуждение, ст. 137 ЖК"
+
+    class CourtStatus(models.TextChoices):
+        NONE = "", "Не подано"
+        PENDING = "pending", "На рассмотрении"
+        GRANTED = "granted", "Удовлетворено"
+        DENIED = "denied", "Отказано в иске"
+
+    class WriteoffStatus(models.TextChoices):
+        NONE = "", "Не запускалось"
+        PENDING = "pending", "На согласовании"
+        APPROVED = "approved", "Согласовано"
+        REJECTED = "rejected", "Отказ согласующего"
+
+    account = models.OneToOneField(Account, on_delete=models.CASCADE, related_name="claim_case", verbose_name="ЛС")
+    stage = models.CharField("Этап", max_length=20, choices=Stage.choices, default=Stage.PREP, db_index=True)
+    warning_delivered_on = models.DateField("Дата вручения предупреждения", null=True, blank=True)
+    notary_tariff = models.DecimalField("Нотариальный тариф", max_digits=12, decimal_places=2, null=True, blank=True)
+    application_withdrawn = models.BooleanField("Заявление отозвано", default=False)
+    submission_id = models.CharField("Номер обращения", max_length=64, blank=True)
+    submission_mode = models.CharField("Канал отправки", max_length=20, blank=True)
+    notary_note = models.CharField("Ответ нотариуса", max_length=500, blank=True)
+    lawsuit_number = models.CharField("Номер иска", max_length=50, blank=True)
+    lawsuit_kind = models.CharField("Вид иска", max_length=20, choices=LawsuitKind.choices, blank=True)
+    lawsuit_filed_on = models.DateField("Дата подачи иска", null=True, blank=True)
+    state_duty = models.DecimalField("Госпошлина", max_digits=12, decimal_places=2, null=True, blank=True)
+    defendant_name = models.CharField("Ответчик", max_length=250, blank=True)
+    package_filed_on = models.DateField("Дата подачи пакета документов", null=True, blank=True)
+    lawsuit_note = models.CharField("Примечание к иску", max_length=500, blank=True)
+    court_status = models.CharField("Статус суда", max_length=20, choices=CourtStatus.choices, blank=True)
+    opi_number = models.CharField("Номер производства ОПИ", max_length=50, blank=True)
+    opi_status = models.CharField("Статус ОПИ", max_length=40, blank=True)
+    opi_mode = models.CharField("Канал ОПИ", max_length=20, blank=True)
+    tariff_received = models.BooleanField("Тариф поступил по выгрузке", default=False)
+    ais_debt_cleared = models.BooleanField("Выгрузка показала погашение долга и пени", default=False)
+    eviction_stage = models.CharField("Параллельная ветвь выселения", max_length=20, blank=True)
+    skip_reason = models.CharField("Причина пропуска этапа", max_length=500, blank=True)
+    writeoff_status = models.CharField(
+        "Согласование списания", max_length=20, choices=WriteoffStatus.choices, blank=True,
+    )
+    writeoff_note = models.CharField("Итог списания", max_length=500, blank=True)
+
+    class Meta:
+        verbose_name = "Дело взыскания"
+        verbose_name_plural = "Дела взыскания"
+
+    def __str__(self) -> str:
+        return f"{self.account_id}:{self.stage}"
+
+
+class ClaimAct(AisRecord):
+    """Акт ОПИ о невозможности взыскания, приложенный к делу."""
+
+    case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="acts", verbose_name="Дело")
+    title = models.CharField("Наименование", max_length=250)
+
+    class Meta:
+        ordering = ["id"]
+        verbose_name = "Акт ОПИ"
+        verbose_name_plural = "Акты ОПИ"
+
+
+class ClaimApproval(AisRecord):
+    """Голос согласующего по акту списания."""
+
+    class Decision(models.TextChoices):
+        PENDING = "pending", "Ожидает"
+        YES = "yes", "Согласовано"
+        NO = "no", "Отказ"
+
+    case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="approvals", verbose_name="Дело")
+    approver = models.ForeignKey(
+        "users.User", on_delete=models.PROTECT, related_name="claim_approvals", verbose_name="Согласующий",
+    )
+    decision = models.CharField("Решение", max_length=20, choices=Decision.choices, default=Decision.PENDING)
+    reason = models.CharField("Причина", max_length=500, blank=True)
+    decided_at = models.DateTimeField("Когда решил", null=True, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["case", "approver"], name="uniq_claim_approver"),
+        ]
+        verbose_name = "Согласование списания"
+        verbose_name_plural = "Согласования списания"
+
+
+class ClaimEvent(TimeStampedModel):
+    """Переход дела: кто, когда, откуда, куда, почему."""
+
+    case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="events", verbose_name="Дело")
+    actor = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Кто",
+    )
+    old_stage = models.CharField("Было", max_length=20, blank=True)
+    new_stage = models.CharField("Стало", max_length=20, blank=True)
+    reason = models.CharField("Основание", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "Событие дела"
+        verbose_name_plural = "События дела"
+
+
+class AccountScenarioRun(AisRecord):
+    """Запущенный по лицевому счёту сценарий остаётся на версии, с которой стартовал."""
+
+    account = models.OneToOneField(Account, on_delete=models.CASCADE, related_name="scenario_run", verbose_name="ЛС")
+    scenario = models.ForeignKey(
+        "nsi.ScenarioDefinition", on_delete=models.PROTECT, related_name="runs", verbose_name="Сценарий",
+    )
+    version = models.PositiveIntegerField("Версия")
+    paused = models.BooleanField("Приостановлен", default=False)
+    pause_reason = models.CharField("Причина приостановки", max_length=500, blank=True)
+
+    class Meta:
+        verbose_name = "Запуск сценария"
+        verbose_name_plural = "Запуски сценариев"
+
+
 class RefreshRequest(AisRecord):
     """Очередь «Обновить сейчас». Файл по ЛС готовит АИС, ПМ фиксирует запрос и закрывает его при загрузке."""
 

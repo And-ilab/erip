@@ -15,7 +15,7 @@ from rest_framework.response import Response
 
 from apps.audit.mixins import AuditedViewSetMixin
 from apps.audit.models import AuditLog
-from apps.audit.services import record_action
+from apps.audit.services import record_action, record_query
 from apps.core.permissions import RolePermission
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
@@ -37,6 +37,7 @@ from .models import (
     Territory,
 )
 from .repositories import AccountRepository
+from .services.charts import DebtCharts
 from .serializers import (
     AccountDetailSerializer,
     AccountListSerializer,
@@ -296,6 +297,13 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=False, url_path="group-summary")
     def group_summary(self, request):
         return Response(AccountRepository(self.filter_queryset(super().get_queryset())).group_summary())
+
+    @action(detail=False)
+    def charts(self, request):
+        accounts = self.filter_queryset(self.get_queryset())
+        payload = DebtCharts(accounts, _supplier_ids(request.user)).build()
+        record_query(request, "debts.Account", count=payload["cases"])
+        return Response(payload)
 
     @action(detail=False)
     def map(self, request):
