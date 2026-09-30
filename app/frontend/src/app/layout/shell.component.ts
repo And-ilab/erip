@@ -6,7 +6,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AuthService } from '../core/auth.service';
 import { NotificationsPanelComponent } from '../features/notifications/notifications-panel.component';
@@ -37,9 +37,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
         <mat-nav-list>
           <a mat-list-item routerLink="/accounts" routerLinkActive="active">Реестр ЛС</a>
           <a mat-list-item routerLink="/contracts" routerLinkActive="active">Реестр договоров</a>
-          <a mat-list-item routerLink="/measures" routerLinkActive="active">Мероприятия</a>
-          <a mat-list-item routerLink="/claims" routerLinkActive="active">Взыскание</a>
-          <a mat-list-item routerLink="/scenarios" routerLinkActive="active">Сценарии</a>
+          <a mat-list-item routerLink="/measures" routerLinkActive="active" [class.active]="measuresOn()">Мероприятия</a>
           <a mat-list-item routerLink="/password" routerLinkActive="active">Смена пароля</a>
           <a mat-list-item routerLink="/notifications" routerLinkActive="active">Оповещения</a>
           <a mat-list-item routerLink="/templates" routerLinkActive="active">Шаблоны сообщений</a>
@@ -88,8 +86,14 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
   `,
 })
 export class ShellComponent {
+  private readonly router = inject(Router);
   protected readonly auth = inject(AuthService);
   protected readonly store = inject(NotificationsStore);
+
+  protected measuresOn(): boolean {
+    const path = this.router.url.split('?')[0];
+    return path.startsWith('/measures') || path.startsWith('/claims') || path.startsWith('/scenarios');
+  }
 
   protected initials(): string {
     const name = this.auth.me()?.display_name ?? '';

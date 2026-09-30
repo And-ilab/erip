@@ -43,6 +43,8 @@ const MONTHS = [
           (click)="show('ready')">
           <mat-icon>power_off</mat-icon>
         </button>
+        <a mat-stroked-button routerLink="/claims">Дела взыскания</a>
+        <a mat-stroked-button routerLink="/scenarios">Сценарии</a>
       </div>
 
       @if (view() !== 'ready') {

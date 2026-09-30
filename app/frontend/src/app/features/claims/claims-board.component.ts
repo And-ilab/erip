@@ -11,6 +11,7 @@ import { ApiService, ClaimCase, Named, errorMessage } from '../../core/api.servi
   imports: [RouterLink, MatButtonModule, MatSnackBarModule],
   template: `
     <div class="page">
+      <p class="back"><a routerLink="/measures">Мероприятия</a></p>
       <header class="head">
         <div>
           <h2>Взыскание</h2>
@@ -85,6 +86,7 @@ import { ApiService, ClaimCase, Named, errorMessage } from '../../core/api.servi
     </div>
   `,
   styles: `
+    .back a { color: var(--erip-link); }
     .head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
     h2 { margin: 0; color: var(--erip-primary-dark); }
     .head p, .empty { color: var(--erip-muted); margin: 4px 0 0; }

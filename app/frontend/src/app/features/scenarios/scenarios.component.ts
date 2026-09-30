@@ -31,6 +31,7 @@ const ACTIONS = [
   ],
   template: `
     <div class="page">
+      <p class="back"><a routerLink="/measures">Мероприятия</a></p>
       <header class="head">
         <div>
           <h2>Конструктор сценариев</h2>
@@ -147,6 +148,7 @@ const ACTIONS = [
     </div>
   `,
   styles: `
+    .back a { color: var(--erip-link); }
     .head, .actions, .line, .assign { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .head { justify-content: space-between; }
     h2, h3, h4 { margin: 0; color: var(--erip-primary-dark); }
