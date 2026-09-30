@@ -23,6 +23,16 @@ $theme: mat.define-theme((
   --erip-border: #e3e8ee;
   --erip-muted: #6b7280;
   --erip-bg: #f2f5f8;
+  --erip-call: #0f766e;
+  --erip-call-soft: #d1faf4;
+  --erip-notice: #1d4ed8;
+  --erip-notice-soft: #dbeafe;
+  --erip-warn-kind: #b45309;
+  --erip-warn-kind-soft: #ffedd5;
+  --erip-cut: #c2410c;
+  --erip-cut-soft: #ffedd5;
+  --erip-claim: #6d28d9;
+  --erip-claim-soft: #ede9fe;
 }
 
 html {
@@ -98,5 +108,42 @@ table.mat-mdc-table {
 
 .amount-danger { color: var(--erip-danger); font-weight: 600; }
 .status-failed { color: #b91c1c; } .status-sent { color: #15803d; } .status-queued { color: #1d4ed8; }
+
+.kind-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase;
+  &.call { background: var(--erip-call-soft); color: var(--erip-call); }
+  &.notice { background: var(--erip-notice-soft); color: var(--erip-notice); }
+  &.warning { background: var(--erip-warn-kind-soft); color: var(--erip-warn-kind); }
+  &.disconnect { background: var(--erip-cut-soft); color: var(--erip-cut); }
+  &.collection { background: var(--erip-claim-soft); color: var(--erip-claim); }
+  &.scenario { background: var(--erip-primary-soft); color: var(--erip-primary); }
+}
+.status-pill {
+  display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700;
+  background: var(--erip-primary-soft); color: var(--erip-primary);
+  &.assigned { background: #dbeafe; color: #1d4ed8; }
+  &.running { background: #fef3c7; color: #b45309; }
+  &.done { background: #dcfce7; color: #15803d; }
+  &.failed { background: #fee2e2; color: #b91c1c; }
+  &.paused { background: #fde68a; color: #92400e; }
+  &.cancelled { background: #f3f4f6; color: #6b7280; }
+}
+.action-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle;
+  background: #94a3b8;
+  &.assigned { background: #2563eb; }
+  &.running { background: #d97706; }
+  &.done { background: #16a34a; }
+  &.failed { background: #dc2626; }
+  &.paused { background: #ca8a04; }
+  &.cancelled { background: #9ca3af; }
+}
+.face {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
+  &.t0 { background: #0f766e; } &.t1 { background: #c8962e; } &.t2 { background: #1d4ed8; }
+  &.t3 { background: #c2410c; } &.t4 { background: #6d28d9; }
+}
 pre.message { white-space: pre-wrap; background: #fff; border: 1px solid var(--erip-border); padding: 12px; border-radius: 6px; }
 table { width: 100%; }

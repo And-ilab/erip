@@ -287,8 +287,8 @@ import {
           <mat-tab label="Мероприятия">
             <p><a routerLink="/measures">Реестр мероприятий</a></p>
             <table mat-table [dataSource]="measures()">
-              <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/measures', r.id]">{{ r.kind_display }}</a></td></ng-container>
-              <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус партии</th><td mat-cell *matCellDef="let r"><span class="chip">{{ r.status_display }}</span></td></ng-container>
+              <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/measures', r.id]"><span class="kind-chip {{ r.kind }}">{{ r.kind_display }}</span></a></td></ng-container>
+              <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус партии</th><td mat-cell *matCellDef="let r"><span class="status-pill {{ r.status }}">{{ r.status_display }}</span></td></ng-container>
               <ng-container matColumnDef="account_item_status"><th mat-header-cell *matHeaderCellDef>По этому ЛС</th><td mat-cell *matCellDef="let r">{{ r.account_item_status || '—' }}</td></ng-container>
               <ng-container matColumnDef="due_on"><th mat-header-cell *matHeaderCellDef>Срок</th><td mat-cell *matCellDef="let r">{{ r.due_on }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="measureColumns"></tr>

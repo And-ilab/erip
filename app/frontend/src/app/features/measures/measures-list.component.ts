@@ -68,11 +68,11 @@ const MONTHS = [
           <p class="muted">За выбранные условия мероприятий нет.</p>
         }
         @for (group of groups(); track group.status) {
-          <section class="surface group">
+          <section class="surface group st-{{ group.status }}">
             <button type="button" class="group-head" (click)="toggle(group.status)">
               <mat-icon>{{ collapsed().has(group.status) ? 'chevron_right' : 'expand_more' }}</mat-icon>
               <span>{{ group.label }}</span>
-              <span class="muted">({{ group.total }})</span>
+              <span class="count">{{ group.total }}</span>
             </button>
             @if (!collapsed().has(group.status)) {
               <table>
@@ -87,11 +87,17 @@ const MONTHS = [
                 </thead>
                 <tbody>
                   @for (row of group.results; track row.id) {
-                    <tr>
+                    <tr class="row-{{ row.kind }}">
                       <td>
-                        <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
+                        <div class="title-line">
+                          <span class="kind-chip {{ row.kind }}">{{ row.kind_display }}</span>
+                          <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
+                        </div>
                         @if (row.progress && row.progress.total) {
-                          <div class="muted">ЛС завершено {{ row.progress.done }} из {{ row.progress.total }}</div>
+                          <div class="mini">
+                            <span class="track"><span [style.width.%]="share(row)"></span></span>
+                            <span class="muted">{{ row.progress.done }} / {{ row.progress.total }} ЛС</span>
+                          </div>
                         }
                         @if (row.artifact) { <a [href]="row.artifact">Файл</a> }
                       </td>
@@ -109,14 +115,16 @@ const MONTHS = [
                       <td>
                         @if (row.assignee_name) {
                           <span class="person" [matTooltip]="row.assignee_name">
-                            <span class="avatar">{{ initials(row.assignee_name) }}</span>
+                            <span class="face t{{ tone(row.assignee_name) }}">{{ initials(row.assignee_name) }}</span>
                           </span>
                         } @else {
                           <span class="muted">—</span>
                         }
                       </td>
-                      <td>{{ row.next_action }}</td>
-                      <td><span class="pill {{ row.status }}">{{ row.status_display }}</span></td>
+                      <td>
+                        <span class="action-dot {{ row.status }}"></span>{{ row.next_action }}
+                      </td>
+                      <td><span class="status-pill {{ row.status }}">{{ row.status_display }}</span></td>
                     </tr>
                   }
                 </tbody>
@@ -132,7 +140,7 @@ const MONTHS = [
         }
       }
 
-      @if (view() === 'matrix') {
+      @if (view() !== 'ready') {
         @if (matrix(); as grid) {
           <section class="surface group">
             <h3>Мероприятия по типам</h3>
@@ -163,7 +171,9 @@ const MONTHS = [
                         @for (kind of grid.kinds; track kind.code) {
                           <td>
                             @if (row.cells[kind.code]; as cell) {
-                              <a class="cell {{ cell.tone }}" [routerLink]="['/measures', cell.measure_id]">{{ cell.label }}</a>
+                              <a class="cell {{ cell.tone }}" [routerLink]="['/measures', cell.measure_id]">
+                                <span class="action-dot {{ cell.status }}"></span>{{ cell.label }}
+                              </a>
                             } @else {
                               <span class="muted">—</span>
                             }
@@ -180,10 +190,10 @@ const MONTHS = [
       }
 
       @if (view() === 'ready') {
-        <section class="surface group">
+        <section class="surface group st-failed">
           <div class="group-head">
             <span>Срок предупреждения истёк</span>
-            <span class="muted">({{ candidates().length }})</span>
+            <span class="count">{{ candidates().length }}</span>
           </div>
           <p class="muted pad">
             Лицевые счета, где предупреждение вручено, срок оплаты прошёл, долг не погашен и услугу можно
@@ -211,12 +221,12 @@ const MONTHS = [
                     <td>
                       <a [routerLink]="['/accounts', row.account_id]">{{ row.debtor_name || 'ЛС' }}</a>
                       <div class="muted">ЛС {{ row.client_account }}</div>
-                      @if (row.refused) { <div class="muted">вручено по акту об отказе</div> }
+                      @if (row.refused) { <div class="kind-chip disconnect">акт об отказе</div> }
                     </td>
                     <td>{{ row.delivered_on | date: 'dd.MM.yyyy' }}</td>
                     <td>
                       {{ row.warning_due | date: 'dd.MM.yyyy' }}
-                      @if (row.requires_approval) { <div class="muted">нужно согласование</div> }
+                      @if (row.requires_approval) { <div class="kind-chip warning">нужно согласование</div> }
                     </td>
                     <td>
                       @for (service of row.services; track service.id) {
@@ -247,31 +257,40 @@ const MONTHS = [
   styles: `
     .search { min-width: 360px; }
     .page-header button.active { background: var(--erip-primary-soft); color: var(--erip-primary); }
-    .group { margin-top: 12px; overflow: hidden; }
+    .group { margin-top: 12px; overflow: hidden; border-left: 4px solid #cbd5e1; }
+    .st-assigned { border-left-color: #2563eb; }
+    .st-running { border-left-color: #d97706; }
+    .st-done { border-left-color: #16a34a; }
+    .st-failed { border-left-color: #dc2626; }
+    .st-paused { border-left-color: #ca8a04; }
+    .st-cancelled { border-left-color: #9ca3af; }
     .group-head {
-      display: flex; align-items: center; gap: 4px; width: 100%; padding: 10px 12px; border: 0;
-      background: #f7f9fb; font: inherit; font-weight: 600; color: var(--erip-primary-dark); cursor: pointer;
+      display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0;
+      background: #f7f9fb; font: inherit; font-weight: 700; color: var(--erip-primary-dark); cursor: pointer;
     }
-    .group-head .muted { font-weight: 500; }
+    .st-assigned .group-head { background: #eff6ff; color: #1d4ed8; }
+    .st-running .group-head { background: #fffbeb; color: #b45309; }
+    .st-done .group-head { background: #f0fdf4; color: #15803d; }
+    .st-failed .group-head { background: #fef2f2; color: #b91c1c; }
+    .st-paused .group-head { background: #fefce8; color: #854d0e; }
+    .st-cancelled .group-head { background: #f9fafb; color: #6b7280; }
+    .count {
+      min-width: 22px; padding: 1px 8px; border-radius: 10px; background: #fff; font-size: 12px; font-weight: 700;
+    }
     table { border: 0; border-radius: 0; }
     th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; color: var(--erip-muted); padding: 8px 12px; }
     td { padding: 10px 12px; border-top: 1px solid var(--erip-border); vertical-align: top; }
+    tr.row-call { border-left: 3px solid var(--erip-call); }
+    tr.row-notice { border-left: 3px solid var(--erip-notice); }
+    tr.row-warning { border-left: 3px solid var(--erip-warn-kind); }
+    tr.row-disconnect { border-left: 3px solid var(--erip-cut); }
+    tr.row-collection { border-left: 3px solid var(--erip-claim); }
+    .title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .title { font-weight: 600; }
+    .mini { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .track { display: block; width: 72px; height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; }
+    .track span { display: block; height: 100%; background: #16a34a; }
     .person { display: inline-flex; }
-    .avatar {
-      display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
-      border-radius: 50%; background: var(--erip-primary); color: #fff; font-size: 11px; font-weight: 700;
-    }
-    .pill {
-      display: inline-flex; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
-      background: var(--erip-primary-soft); color: var(--erip-primary);
-    }
-    .pill.assigned { background: var(--erip-primary-soft); color: var(--erip-link); }
-    .pill.running { background: var(--erip-accent-soft); color: var(--erip-warning); }
-    .pill.done { background: var(--erip-success-soft); color: var(--erip-success); }
-    .pill.failed { background: var(--erip-danger-soft); color: var(--erip-danger); }
-    .pill.paused { background: var(--erip-warning-soft); color: var(--erip-warning); }
-    .pill.cancelled { background: #f3f4f6; color: var(--erip-muted); }
     .more { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 12px 12px; }
     .tick { width: 40px; }
     .pad { padding: 0 12px 8px; }
@@ -280,14 +299,15 @@ const MONTHS = [
     .matrix-wrap { overflow: auto; }
     .matrix { min-width: 860px; }
     .cell {
-      display: inline-flex; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600;
+      display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 10px; font-size: 12px; font-weight: 700;
       background: #f3f4f6; color: var(--erip-muted);
     }
-    .cell.pending { background: var(--erip-primary-soft); color: var(--erip-link); }
-    .cell.run { background: var(--erip-accent-soft); color: var(--erip-warning); }
-    .cell.done { background: var(--erip-success-soft); color: var(--erip-success); }
-    .cell.error { background: var(--erip-danger-soft); color: var(--erip-danger); }
-    .cell.wait { background: var(--erip-warning-soft); color: var(--erip-warning); }
+    .cell.pending { background: #dbeafe; color: #1d4ed8; }
+    .cell.run { background: #fef3c7; color: #b45309; }
+    .cell.done { background: #dcfce7; color: #15803d; }
+    .cell.error { background: #fee2e2; color: #b91c1c; }
+    .cell.wait { background: #fde68a; color: #92400e; }
+    .cell.muted { background: #f3f4f6; color: #6b7280; }
   `,
 })
 export class MeasuresListComponent implements OnInit {
@@ -387,6 +407,17 @@ export class MeasuresListComponent implements OnInit {
     return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('');
   }
 
+  protected tone(name: string): number {
+    let sum = 0;
+    for (const ch of name) sum += ch.charCodeAt(0);
+    return sum % 5;
+  }
+
+  protected share(row: { progress?: { total: number; done: number } }): number {
+    const total = row.progress?.total ?? 0;
+    return total ? Math.round(((row.progress?.done ?? 0) / total) * 100) : 0;
+  }
+
   protected more(group: MeasureGroup): void {
     const current = this.request;
     const offset = group.results.length;
@@ -465,6 +496,14 @@ export class MeasuresListComponent implements OnInit {
         if (current !== this.request) return;
         this.loaded.set(true);
         this.error.set(errorMessage(err));
+      },
+    });
+    this.api.measureMatrix(params).subscribe({
+      next: (payload) => {
+        if (current === this.request) this.matrix.set(payload);
+      },
+      error: (err) => {
+        if (current === this.request) this.error.set(errorMessage(err));
       },
     });
   }

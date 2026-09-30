@@ -38,12 +38,13 @@ const DELIVERY_METHODS = [
     MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatIconModule, MatTooltipModule,
   ],
   template: `
-    <div class="page">
+    <div class="page" [class]="'page kind-' + (measure()?.kind || '')">
       <div class="page-header">
         <a mat-button routerLink="/measures">← Реестр мероприятий</a>
         @if (measure(); as m) {
+          <span class="kind-chip {{ m.kind }}">{{ m.kind_display }}</span>
           <h2>{{ m.title }}</h2>
-          <span class="pill {{ m.status }}">{{ m.status_display }}</span>
+          <span class="status-pill {{ m.status }}">{{ m.status_display }}</span>
         }
       </div>
 
@@ -51,9 +52,9 @@ const DELIVERY_METHODS = [
 
       @if (measure(); as m) {
         <div class="grid">
-          <mat-card><mat-card-content>
+          <mat-card class="fact"><mat-card-content>
             <dl>
-              <dt>Вид</dt><dd>{{ m.kind_display }}</dd>
+              <dt>Вид</dt><dd><span class="kind-chip {{ m.kind }}">{{ m.kind_display }}</span></dd>
               @if (m.template_name) { <dt>Шаблон</dt><dd>{{ m.template_name }}</dd> }
               @if (m.channel) { <dt>Канал</dt><dd>{{ channelLabel(m.channel) }}</dd> }
               @if (m.scenario_name) { <dt>Сценарий</dt><dd>{{ m.scenario_name }}</dd> }
@@ -61,17 +62,22 @@ const DELIVERY_METHODS = [
               <dt>Срок</dt><dd>{{ (m.due_on | date: 'dd.MM.yyyy') || '—' }}</dd>
               @if (m.time_from) { <dt>Окно обзвона</dt><dd>{{ hhmm(m.time_from) }} – {{ hhmm(m.time_to) }}</dd> }
               <dt>Исполнитель</dt><dd>{{ m.assignee_name || '—' }}</dd>
-              <dt>Следующее действие</dt><dd>{{ m.next_action }}</dd>
+              <dt>Следующее действие</dt><dd><span class="action-dot {{ m.status }}"></span>{{ m.next_action }}</dd>
               @if (m.artifact) { <dt>Файл</dt><dd><a [href]="m.artifact">Скачать</a></dd> }
             </dl>
           </mat-card-content></mat-card>
 
-          <mat-card><mat-card-content>
+          <mat-card class="fact progress-card"><mat-card-content>
             <dl>
               <dt>Лицевых счетов</dt><dd>{{ m.items.length }}</dd>
               <dt>Завершено</dt><dd>{{ done() }} из {{ m.items.length }}</dd>
               @if (m.needs_approval) {
-                <dt>Согласование</dt><dd>{{ approvalLabel(m.approval) }}</dd>
+                <dt>Согласование</dt>
+                <dd>
+                  <span class="status-pill" [class.running]="m.approval === 'pending'" [class.done]="m.approval === 'approved'" [class.failed]="m.approval === 'rejected'">
+                    {{ approvalLabel(m.approval) }}
+                  </span>
+                </dd>
                 @if (m.approval_note) { <dt>Решение</dt><dd>{{ m.approval_note }}</dd> }
               }
               @if (m.suspension_confirmed_on) {
@@ -91,7 +97,7 @@ const DELIVERY_METHODS = [
         </div>
 
         @if (canApprove()) {
-          <mat-card class="action"><mat-card-content>
+          <mat-card class="action tone-run"><mat-card-content>
             <h3>Согласование отключения</h3>
             <p class="muted">Без согласования задание не уйдёт поставщику.</p>
             <div class="filters">
@@ -106,7 +112,7 @@ const DELIVERY_METHODS = [
         }
 
         @if (canAccept()) {
-          <mat-card class="action"><mat-card-content>
+          <mat-card class="action tone-cut"><mat-card-content>
             <h3>Задание поставщику</h3>
             <p class="muted">Принятие переводит лицевые счета на этап «Отключение услуги».</p>
             <button mat-flat-button color="primary" [disabled]="busy()" (click)="accept()">Принять задание</button>
@@ -114,7 +120,7 @@ const DELIVERY_METHODS = [
         }
 
         @if (canConfirm()) {
-          <mat-card class="action"><mat-card-content>
+          <mat-card class="action tone-done"><mat-card-content>
             <h3>Факт приостановления</h3>
             <p class="muted">
               В выгрузке АИС признака отключения пока нет, поэтому источник отметки фиксируется явно.
@@ -141,7 +147,7 @@ const DELIVERY_METHODS = [
         }
 
         @if (canCancel()) {
-          <mat-card class="action"><mat-card-content>
+          <mat-card class="action tone-fail"><mat-card-content>
             <h3>Отмена задания</h3>
             <p class="muted">Пока поставщик не приостановил услугу, задание можно отозвать с указанием причины.</p>
             <div class="filters">
@@ -155,7 +161,7 @@ const DELIVERY_METHODS = [
         }
 
         @if (m.kind === 'notice' && openItems().length) {
-          <mat-card class="action"><mat-card-content>
+          <mat-card class="action tone-notice"><mat-card-content>
             <h3>Отправка уведомлений</h3>
             <p class="muted">
               Каналы на заглушках: ошибка доставки вернётся в строку лицевого счёта, прочтение не подтверждается.
@@ -167,7 +173,7 @@ const DELIVERY_METHODS = [
         }
 
         @if (m.kind === 'warning' && openItems().length) {
-          <mat-card class="action"><mat-card-content>
+          <mat-card class="action tone-warn"><mat-card-content>
             <h3>Вручение предупреждения</h3>
             <p class="muted">Дата вручения запускает срок оплаты, после которого можно отключать услугу.</p>
             <div class="filters">
@@ -203,7 +209,7 @@ const DELIVERY_METHODS = [
           </mat-card-content></mat-card>
         }
 
-        <section class="surface group">
+        <section class="surface group items">
           <div class="group-head">
             <span>Лицевые счета партии</span>
             <span class="muted">({{ m.items.length }})</span>
@@ -247,7 +253,7 @@ const DELIVERY_METHODS = [
                       <div class="muted">ЛС {{ item.client_account }}</div>
                     </td>
                     <td>
-                      <span class="pill {{ item.status }}">{{ item.status_display }}</span>
+                      <span class="status-pill {{ item.status }}">{{ item.status_display }}</span>
                       @if (item.delivery_error) { <div class="status-failed">{{ item.delivery_error }}</div> }
                     </td>
                     @switch (m.kind) {
@@ -372,21 +378,42 @@ const DELIVERY_METHODS = [
     </div>
   `,
   styles: `
+    .kind-call .page-header { border-bottom: 3px solid var(--erip-call); }
+    .kind-notice .page-header { border-bottom: 3px solid var(--erip-notice); }
+    .kind-warning .page-header { border-bottom: 3px solid var(--erip-warn-kind); }
+    .kind-disconnect .page-header { border-bottom: 3px solid var(--erip-cut); }
+    .kind-collection .page-header { border-bottom: 3px solid var(--erip-claim); }
+    .fact { border-top: 3px solid var(--erip-primary); }
+    .kind-call .fact { border-top-color: var(--erip-call); }
+    .kind-notice .fact { border-top-color: var(--erip-notice); }
+    .kind-warning .fact { border-top-color: var(--erip-warn-kind); }
+    .kind-disconnect .fact { border-top-color: var(--erip-cut); }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
     dt { color: var(--erip-muted); font-size: 13px; }
     dd { margin: 0; }
-    .action { margin-top: 12px; }
+    .action { margin-top: 12px; border-left: 4px solid #cbd5e1; }
+    .action.tone-run { border-left-color: #d97706; }
+    .action.tone-cut { border-left-color: var(--erip-cut); }
+    .action.tone-done { border-left-color: #16a34a; }
+    .action.tone-fail { border-left-color: #dc2626; }
+    .action.tone-notice { border-left-color: var(--erip-notice); }
+    .action.tone-warn { border-left-color: var(--erip-warn-kind); }
     .action h3 { margin: 0 0 4px; font-size: 15px; color: var(--erip-primary-dark); }
     .action p { margin: 0 0 8px; }
-    .bar { margin-top: 12px; height: 6px; border-radius: 3px; background: #eef1f4; overflow: hidden; }
-    .bar span { display: block; height: 100%; background: var(--erip-success); }
+    .bar { margin-top: 12px; height: 8px; border-radius: 4px; background: #eef1f4; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: #16a34a; }
     .wide { min-width: 320px; }
     .narrow { max-width: 150px; }
     .group { margin-top: 12px; overflow: hidden; }
+    .items { border-left: 4px solid var(--erip-primary); }
+    .kind-call .items { border-left-color: var(--erip-call); }
+    .kind-notice .items { border-left-color: var(--erip-notice); }
+    .kind-warning .items { border-left-color: var(--erip-warn-kind); }
+    .kind-disconnect .items { border-left-color: var(--erip-cut); }
     .group-head {
       display: flex; align-items: center; gap: 4px; padding: 10px 12px;
-      background: #f7f9fb; font-weight: 600; color: var(--erip-primary-dark);
+      background: #f7f9fb; font-weight: 700; color: var(--erip-primary-dark);
     }
     .group-head .muted { font-weight: 500; }
     .pad { padding: 12px; }
@@ -396,16 +423,6 @@ const DELIVERY_METHODS = [
     .tick { width: 40px; }
     .row-actions { width: 56px; text-align: right; }
     .row-form td { background: #f7f9fb; }
-    .pill {
-      display: inline-flex; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
-      background: var(--erip-primary-soft); color: var(--erip-primary);
-    }
-    .pill.assigned { background: var(--erip-primary-soft); color: var(--erip-link); }
-    .pill.running { background: var(--erip-accent-soft); color: var(--erip-warning); }
-    .pill.done { background: var(--erip-success-soft); color: var(--erip-success); }
-    .pill.failed { background: var(--erip-danger-soft); color: var(--erip-danger); }
-    .pill.paused { background: var(--erip-warning-soft); color: var(--erip-warning); }
-    .pill.cancelled { background: #f3f4f6; color: var(--erip-muted); }
   `,
 })
 export class MeasureDetailComponent {
