@@ -120,6 +120,7 @@ export interface AccountService {
   residence_note: string;
   inheritance_case: boolean;
   billing_provider: string;
+  schema_label: string;
   funnel_stage: string;
 }
 

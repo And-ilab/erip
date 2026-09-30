@@ -15,6 +15,7 @@ import { RouterLink } from '@angular/router';
 import { finalize, forkJoin } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail, AccountService, AttachmentRow, BalanceRow, Channel, ContactRow,   DebtorCategory, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, WorkItem,
 } from '../../core/models';
@@ -136,7 +137,15 @@ import {
 
           <mat-tab label="Услуги ({{ services().length }})">
             <table mat-table [dataSource]="services()">
-              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let s">{{ s.service_name }}</td></ng-container>
+              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th>
+                <td mat-cell *matCellDef="let s">
+                  @if (auth.me()?.contour === 'supplier') {
+                    <a [routerLink]="['/contracts', s.id]">{{ s.service_name }}</a>
+                  } @else {
+                    {{ s.service_name }}
+                  }
+                </td>
+              </ng-container>
               <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик</th>
                 <td mat-cell *matCellDef="let s"><a [routerLink]="['/contracts', s.id]">{{ s.shot_name }}</a></td></ng-container>
               <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг (с пенями)</th><td mat-cell *matCellDef="let s">{{ s.balance_out | number: '1.2-2' }}</td></ng-container>
@@ -386,6 +395,7 @@ import {
 })
 export class AccountDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
+  protected readonly auth = inject(AuthService);
   private readonly snack = inject(MatSnackBar);
   readonly id = input.required<string>();
 
@@ -405,7 +415,7 @@ export class AccountDetailComponent implements OnInit {
     { code: 'court', title: 'ОПИ' },
     { code: 'closed', title: 'Не должник' },
   ];
-  protected readonly serviceColumns = ['service_name', 'shot_name', 'balance_out', 'balance_mulct_out', 'debt_period', 'debt_group'];
+  protected readonly serviceColumns = this.accountServiceColumns();
   protected readonly paymentColumns = ['pay_date', 'service_name', 'pay_service_summ', 'pay_mulct_summ', 'bank_name', 'payment_type_display'];
   protected readonly registrationColumns = ['full_name', 'debtor_role', 'birthday', 'relation_degree_name', 'reg_type_name', 'contacts'];
   protected readonly balanceColumns = ['period', 'service_name', 'principal', 'penalty'];
@@ -441,6 +451,14 @@ export class AccountDetailComponent implements OnInit {
   protected manualGroup: number | null = null;
   protected manualReason = '';
   protected templateId: number | null = null;
+
+  private accountServiceColumns(): string[] {
+    const columns = ['service_name', 'balance_out', 'balance_mulct_out', 'debt_period', 'debt_group'];
+    if (this.auth.me()?.contour !== 'supplier') {
+      columns.splice(1, 0, 'shot_name');
+    }
+    return columns;
+  }
 
   ngOnInit(): void {
     const id = Number(this.id());

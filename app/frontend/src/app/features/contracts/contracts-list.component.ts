@@ -84,7 +84,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
               </div>
               <div class="col">
                 <div class="col-title">Группировать по</div>
-                @for (item of groupOptions; track item.id) {
+                @for (item of groupChoices; track item.id) {
                   <button type="button" class="menu-item" [class.on]="groupBy.value === item.id" (click)="setGroupBy(item.id)">{{ item.label }}</button>
                 }
               </div>
@@ -161,7 +161,8 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             <ng-container matColumnDef="account_number"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.account_number }}</td></ng-container>
             <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
             <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
-            <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Схема</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
+            <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
+            <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Схема</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
             <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r">{{ r.balance_out | number: '1.2-2' }}</td></ng-container>
             <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r">{{ r.balance_mulct_out | number: '1.2-2' }}</td></ng-container>
             <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Возникновение</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
@@ -399,10 +400,10 @@ export class ContractsListComponent implements OnInit {
   protected readonly personColumns = [
     'payer', 'payer_identifier', 'payer_unp', 'ls_count', 'principal', 'penalty', 'earliest', 'category',
   ];
-  protected readonly columns = [
-    'payer', 'payer_identifier', 'payer_unp', 'account_number', 'service_name', 'shot_name', 'billing_provider',
-    'balance_out', 'balance_mulct_out', 'debt_started_on', 'effective_group', 'category_name',
-  ];
+  protected readonly columns = this.serviceColumns();
+  protected readonly groupChoices = this.auth.me()?.contour === 'supplier'
+    ? this.groupOptions.filter((item) => item.id !== 'provider')
+    : this.groupOptions;
   protected readonly groupColumns = ['value', 'accounts', 'debt', 'penalty'];
   protected readonly view = signal<'persons' | 'services' | 'kanban' | 'calendar' | 'grouped'>('persons');
   protected readonly panelOpen = signal(false);
@@ -458,6 +459,19 @@ export class ContractsListComponent implements OnInit {
       this.dialTo.setValue(rule.dial_mobile_to_hour);
     });
     this.reload();
+  }
+
+  private serviceColumns(): string[] {
+    const me = this.auth.me();
+    const columns = ['payer', 'payer_identifier', 'payer_unp', 'account_number', 'service_name'];
+    if (me?.contour !== 'supplier') {
+      columns.push('shot_name', 'billing_provider');
+    }
+    if (me?.role === 'superadmin') {
+      columns.push('schema_label');
+    }
+    columns.push('balance_out', 'balance_mulct_out', 'debt_started_on', 'effective_group', 'category_name');
+    return columns;
   }
 
   stageLabel(id: string): string {

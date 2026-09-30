@@ -11,6 +11,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail,
   AccountService,
@@ -60,7 +61,9 @@ import {
             <dl>
               <dt>Договор</dt><dd>{{ c.service_list_id }} с {{ c.start_date | date: 'dd.MM.yyyy' }}</dd>
               <dt>Услуга</dt><dd>{{ c.service_name }}</dd>
-              <dt>Поставщик</dt><dd>{{ c.full_name || c.shot_name }}</dd>
+              @if (auth.me()?.contour !== 'supplier') {
+                <dt>Поставщик</dt><dd>{{ c.full_name || c.shot_name }}</dd>
+              }
               <dt>Первоначальный долг</dt><dd>{{ c.initial_principal | number: '1.2-2' }}</dd>
               <dt>Первоначальная пеня</dt><dd>{{ c.initial_penalty | number: '1.2-2' }}</dd>
               <dt>Остаток долга</dt><dd><b>{{ c.balance_out | number: '1.2-2' }}</b></dd>
@@ -74,7 +77,7 @@ import {
           </mat-card-content></mat-card>
         </div>
 
-        <h3>Услуги этого поставщика</h3>
+        <h3>{{ auth.me()?.contour === 'supplier' ? 'Услуги должника' : 'Услуги этого поставщика' }}</h3>
         @for (service of services(); track service.id) {
           <p>
             <a [routerLink]="['/contracts', service.id]">{{ service.service_name }}</a>
@@ -239,6 +242,7 @@ import {
 })
 export class ContractDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
+  protected readonly auth = inject(AuthService);
   private readonly snack = inject(MatSnackBar);
   readonly id = input.required<string>();
   protected readonly contract = signal<AccountService | null>(null);

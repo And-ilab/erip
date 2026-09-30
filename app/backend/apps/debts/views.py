@@ -487,7 +487,9 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
                       mixins.UpdateModelMixin, viewsets.GenericViewSet):
     """Реестр и карточка задолженности по договору поставщика."""
 
-    queryset = AccountService.objects.select_related("account", "account__debtor_category")
+    queryset = AccountService.objects.select_related(
+        "account", "account__debtor_category", "account__organization",
+    )
     serializer_class = AccountServiceSerializer
     permission_classes = [RolePermission]
     scope_organization_field = "organization"
@@ -604,7 +606,9 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
         service = self.get_object()
         peers = debtor_peers(service.account)
         services = AccessScope(request.user).apply(
-            AccountService.objects.filter(account__in=peers).select_related("account", "account__debtor_category"),
+            AccountService.objects.filter(account__in=peers).select_related(
+                "account", "account__debtor_category", "account__organization",
+            ),
             "organization", "account__provider_id", "provider_id",
         )
         account_ids = list(services.values_list("account_id", flat=True).distinct())

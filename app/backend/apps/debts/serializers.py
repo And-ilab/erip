@@ -244,6 +244,7 @@ class AccountServiceSerializer(serializers.ModelSerializer):
     residence_note = serializers.CharField(source="account.residence_note", read_only=True)
     inheritance_case = serializers.BooleanField(source="account.inheritance_case", read_only=True)
     billing_provider = serializers.CharField(source="account.provider_short_name", read_only=True)
+    schema_label = serializers.SerializerMethodField()
     rating_label = serializers.SerializerMethodField()
 
     class Meta:
@@ -253,6 +254,12 @@ class AccountServiceSerializer(serializers.ModelSerializer):
             f.name for f in AccountService._meta.fields
             if f.name not in {"debt_group_manual", "debt_group_manual_reason", "scenario_name"}
         ]
+
+    def get_schema_label(self, obj) -> str:
+        organization = obj.account.organization
+        if organization is None:
+            return obj.account.schema_name
+        return organization.name or organization.schema_name
 
     def get_rating_label(self, obj) -> str:
         account = obj.account

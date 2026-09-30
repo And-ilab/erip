@@ -382,6 +382,12 @@ def test_writ_checks_stay_unique_on_repeat_open(api, specialist_a, account_a):
     assert account_a.writ_checks.count() == 4
 
 
+def test_contract_schema_label_is_billing_organization(api, specialist_a, org_a, account_a):
+    row = api(specialist_a).get("/api/v1/contracts/").json()["results"][0]
+    assert row["schema_label"] == "Организация A"
+    assert row["billing_provider"] == account_a.provider_short_name
+
+
 def test_contract_billing_filter_accepts_name_or_code(api, specialist_a, org_a, account_a):
     account_a.provider_short_name = "Тест ЖЭС"
     account_a.schema_name = "schema_a"
