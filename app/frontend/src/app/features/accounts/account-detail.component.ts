@@ -301,8 +301,9 @@ import {
               <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
               <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
             </div>
-            } @else if (account(); as current) {
-              <p class="muted">{{ current.residence_note || 'Фактическое проживание не указано' }}@if (current.inheritance_case) { · наследственное дело }</p>
+            }
+            @if (!auth.canWrite()) {
+              <p class="muted">{{ a.residence_note || 'Фактическое проживание не указано' }}@if (a.inheritance_case) { · наследственное дело }</p>
             }
           </mat-tab>
 

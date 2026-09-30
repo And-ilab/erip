@@ -215,8 +215,9 @@ import {
           <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
           <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
         </div>
-        } @else if (contract(); as current) {
-          <p>{{ current.category_name || 'Категория не задана' }}@if (current.inheritance_case) { · наследственное дело }</p>
+        }
+        @if (!auth.canWrite()) {
+          <p>{{ c.category_name || 'Категория не задана' }}@if (c.inheritance_case) { · наследственное дело }</p>
         }
 
         <h3>Мероприятия по услугам поставщика</h3>
