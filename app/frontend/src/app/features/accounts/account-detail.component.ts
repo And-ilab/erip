@@ -397,12 +397,12 @@ export class AccountDetailComponent implements OnInit {
   protected readonly error = signal('');
   protected readonly sending = signal(false);
   protected readonly stages = [
-    { code: 'new', title: 'Новый' },
-    { code: 'prevention', title: 'Превентивные меры' },
-    { code: 'warning', title: 'Предупреждение' },
-    { code: 'disconnect', title: 'Отключение' },
-    { code: 'enforcement', title: 'Взыскание' },
-    { code: 'court', title: 'Суд / ОПИ' },
+    { code: 'new', title: 'Новый должник' },
+    { code: 'prevention', title: 'Автообзвон/уведомления' },
+    { code: 'warning', title: 'Предупреждение вручено' },
+    { code: 'disconnect', title: 'Отключение услуг' },
+    { code: 'enforcement', title: 'Испол. надпись / иск' },
+    { code: 'court', title: 'ОПИ' },
     { code: 'closed', title: 'Не должник' },
   ];
   protected readonly serviceColumns = ['service_name', 'shot_name', 'balance_out', 'balance_mulct_out', 'debt_period', 'debt_group'];

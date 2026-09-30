@@ -10,6 +10,7 @@ STUB_ROLES = (
     ("specialist", "Специалист", User.Role.SPECIALIST, User.Contour.BILLING),
     ("observer", "Наблюдатель", User.Role.OBSERVER, User.Contour.BILLING),
     ("supplier", "Поставщик услуг", User.Role.SPECIALIST, User.Contour.SUPPLIER),
+    ("test_zhes", "Тест ЖЭС", User.Role.SPECIALIST, User.Contour.SUPPLIER),
 )
 
 
@@ -42,14 +43,37 @@ def issue_stub_user(code: str) -> User:
     user.organization = organization
     user.save()
     if contour == User.Contour.SUPPLIER:
-        suppliers = ServiceOrganization.objects.filter(organization=organization, is_active=True, is_supplier=True)
-        bound = suppliers if suppliers.exists() else ServiceOrganization.objects.filter(
-            organization=organization, is_active=True,
-        )
-        user.service_organizations.set(bound)
+        if code == "test_zhes":
+            chosen = _busiest_supplier(organization)
+            user.service_organizations.set([chosen] if chosen is not None else [])
+        else:
+            suppliers = ServiceOrganization.objects.filter(organization=organization, is_active=True, is_supplier=True)
+            bound = suppliers if suppliers.exists() else ServiceOrganization.objects.filter(
+                organization=organization, is_active=True,
+            )
+            user.service_organizations.set(bound)
     else:
         user.service_organizations.clear()
     return user
+
+
+def _busiest_supplier(organization) -> ServiceOrganization | None:
+    """Один поставщик схемы: тот, у кого больше строк услуг."""
+    from apps.debts.models import AccountService
+
+    suppliers = ServiceOrganization.objects.filter(organization=organization, is_active=True, is_supplier=True)
+    if not suppliers.exists():
+        suppliers = ServiceOrganization.objects.filter(organization=organization, is_active=True)
+    ranked = (
+        AccountService.objects.filter(organization=organization, provider_id__in=suppliers.values("provider_id"))
+        .values("provider_id")
+        .annotate(n=Count("id"))
+        .order_by("-n", "provider_id")
+        .first()
+    )
+    if ranked:
+        return suppliers.filter(provider_id=ranked["provider_id"]).first()
+    return suppliers.order_by("id").first()
 
 
 def _schema_with_data() -> Organization:

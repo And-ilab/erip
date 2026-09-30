@@ -17,7 +17,7 @@ from apps.nsi.models import DebtGroupScale
 MONEY = Decimal("0.01")
 STAGES = [
     ("new", "Новый должник"),
-    ("prevention", "Автообзвон / уведомления"),
+    ("prevention", "Автообзвон/уведомления"),
     ("warning", "Предупреждение вручено"),
     ("disconnect", "Отключение услуг"),
     ("enforcement", "Испол. надпись / иск"),

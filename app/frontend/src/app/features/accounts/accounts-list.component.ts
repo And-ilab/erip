@@ -12,6 +12,7 @@ import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { AccountRow, CalendarEvent, KanbanColumn, SavedFilter } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { AccountsMapComponent } from './accounts-map.component';
@@ -217,22 +218,44 @@ type CustomField = 'group' | 'rating' | 'stage';
         }
 
         @if (view() === 'kanban') {
-          <div class="board">
+          <div class="k-board">
             @for (column of board(); track column.stage) {
-              <section>
-                <h3>{{ column.title }} <span class="muted">{{ column.cards.length }} из {{ column.total }}</span></h3>
+              <section class="k-col" [attr.data-stage]="column.stage">
+                <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
                 @for (card of column.cards; track card.id) {
-                  <article class="card g{{ card.effective_group ?? 0 }}" (click)="open(card)">
-                    <b>{{ card.client_account }}</b>
-                    <div>{{ card.short_fio }}</div>
-                    <div class="muted">{{ card.account_address }}</div>
-                    @if (card.effective_group) { <span class="group-badge g{{ card.effective_group }}">{{ card.effective_group }}</span> }
-                    <mat-form-field (click)="$event.stopPropagation()">
-                      <mat-label>Этап</mat-label>
-                      <mat-select [value]="card.funnel_stage" (selectionChange)="move(card, $event.value)">
-                        @for (column of board(); track column.stage) { <mat-option [value]="column.stage">{{ column.title }}</mat-option> }
-                      </mat-select>
-                    </mat-form-field>
+                  <article class="k-card g{{ card.effective_group ?? 0 }}" (click)="open(card)">
+                    <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
+                    @if (canMove()) {
+                      <button type="button" class="more" aria-label="Сменить этап" (click)="toggleStage($event, card.id)">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.2 2.8 7.2 8.8M7 3.5H3.5v9h9V9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+                      </button>
+                    }
+                    @if (stageMenu() === card.id) {
+                      <div class="stage-menu" (click)="$event.stopPropagation()">
+                        @for (item of stages; track item.id) {
+                          <button type="button" [class.on]="(card.funnel_stage || 'new') === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
+                        }
+                      </div>
+                    }
+                    <div class="line">ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address) }} }</div>
+                    @if (card.effective_group) {
+                      <div class="group-line">
+                        <span class="letter">{{ letter(card.rating_label) }}</span>
+                        <span>Группа {{ card.effective_group }}</span>
+                      </div>
+                    }
+                    <div class="money">{{ money(card.debt_total) }} р. <small>+ пени {{ money(card.mulct_total) }} р.</small></div>
+                    <div class="foot">
+                      @if (mark(card); as note) {
+                        <span class="when">
+                          <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+                          {{ note }}
+                        </span>
+                      } @else { <span></span> }
+                      @if (initials(card.assigned_name); as who) {
+                        <span class="who" [style.background]="avatarColor(card.assigned_name)">{{ who }}</span>
+                      }
+                    </div>
                   </article>
                 }
               </section>
@@ -359,16 +382,67 @@ type CustomField = 'group' | 'rating' | 'stage';
     .measure { padding: 10px 16px 0; background: #fff; border-bottom: 1px solid var(--erip-border); }
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .body { padding: 16px 24px; }
-    .board { display: flex; gap: 12px; overflow: auto; align-items: flex-start; }
-    section { min-width: 220px; background: #fff; border: 1px solid var(--erip-border); border-top: 3px solid var(--erip-primary); border-radius: 8px; padding: 8px; }
-    .card {
-      border: 1px solid var(--erip-border); border-left: 4px solid #cbd5e1; border-radius: 6px; padding: 8px; margin-bottom: 8px;
-      cursor: pointer; background: #fff; transition: box-shadow .15s;
+    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
+      font-size: 13px; font-weight: 600; color: #243140;
     }
-    .card:hover { box-shadow: 0 2px 6px rgba(16, 42, 67, .12); }
-    .card.g1 { border-left-color: #22c55e; } .card.g2 { border-left-color: #84cc16; } .card.g3 { border-left-color: #eab308; }
-    .card.g4 { border-left-color: #f97316; } .card.g5 { border-left-color: #ef4444; } .card.g6 { border-left-color: #7f1d1d; }
-    h3 { margin: 0 0 8px; font-size: 14px; color: var(--erip-primary-dark); }
+    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
+    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
+    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-card {
+      position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
+      border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
+      box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
+    }
+    .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
+    .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
+    .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; padding-right: 18px; color: #1f2933; }
+    .k-card .more {
+      position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; border: 0;
+      background: transparent; color: #9aa3ad; cursor: pointer;
+    }
+    .k-card .more svg { width: 14px; height: 14px; display: block; }
+    .stage-menu {
+      position: absolute; z-index: 5; top: 28px; right: 8px; min-width: 180px; padding: 4px;
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 20px rgba(16, 42, 67, .16);
+    }
+    .stage-menu button {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 6px 8px; font: inherit; font-size: 12px; border-radius: 4px; cursor: pointer;
+    }
+    .stage-menu button.on, .stage-menu button:hover { background: #f3f6f8; }
+    .k-card .line { margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; }
+    .k-card .group-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; }
+    .k-card .letter {
+      width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
+      display: grid; place-items: center; background: #9ca3af;
+    }
+    .k-card.g1 .letter, .k-card.g1 .group-line { color: #1f9d55; } .k-card.g1 .letter { background: #1f9d55; color: #fff; }
+    .k-card.g2 .letter, .k-card.g2 .group-line { color: #a16207; } .k-card.g2 .letter { background: #c8962e; color: #fff; }
+    .k-card.g3 .letter, .k-card.g3 .group-line { color: #ef6c00; } .k-card.g3 .letter { background: #ef6c00; color: #fff; }
+    .k-card.g4 .letter, .k-card.g4 .group-line { color: #e53935; } .k-card.g4 .letter { background: #e53935; color: #fff; }
+    .k-card.g5 .letter, .k-card.g5 .group-line { color: #c62828; } .k-card.g5 .letter { background: #c62828; color: #fff; }
+    .k-card.g6 .letter, .k-card.g6 .group-line { color: #7f1d1d; } .k-card.g6 .letter { background: #7f1d1d; color: #fff; }
+    .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; color: #1f2933; }
+    .k-card .money small { font-weight: 400; color: #6b7280; }
+    .k-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 26px; }
+    .k-card .when { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; }
+    .k-card .cal { width: 14px; height: 14px; flex: 0 0 14px; }
+    .k-card .who {
+      width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700;
+      display: grid; place-items: center; flex: 0 0 26px;
+    }
     .account-no { color: var(--erip-link); }
     .backdrop {
       position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
@@ -383,16 +457,17 @@ export class AccountsListComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
+  private readonly auth = inject(AuthService);
 
   protected readonly groups = [1, 2, 3, 4, 5, 6];
   protected readonly letters = ['A', 'B', 'C', 'D', 'E'];
   protected readonly stages = [
-    { id: 'new', label: 'Новый' },
-    { id: 'prevention', label: 'Превентивные меры' },
-    { id: 'warning', label: 'Предупреждение' },
-    { id: 'disconnect', label: 'Отключение' },
-    { id: 'enforcement', label: 'Взыскание' },
-    { id: 'court', label: 'Суд / ОПИ' },
+    { id: 'new', label: 'Новый должник' },
+    { id: 'prevention', label: 'Автообзвон/уведомления' },
+    { id: 'warning', label: 'Предупреждение вручено' },
+    { id: 'disconnect', label: 'Отключение услуг' },
+    { id: 'enforcement', label: 'Испол. надпись / иск' },
+    { id: 'court', label: 'ОПИ' },
     { id: 'closed', label: 'Не должник' },
   ];
   protected readonly groupOptions = [
@@ -426,6 +501,7 @@ export class AccountsListComponent implements OnInit {
     'debt_total', 'mulct_total', 'effective_group', 'assigned_name',
   ]);
   protected readonly board = signal<KanbanColumn[]>([]);
+  protected readonly stageMenu = signal<number | null>(null);
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly filters = signal<SavedFilter[]>([]);
   protected readonly groupedRows = signal<{ value: string; accounts: number; debt: string | null }[]>([]);
@@ -455,6 +531,7 @@ export class AccountsListComponent implements OnInit {
   @HostListener('document:click')
   protected closeSearch(): void {
     this.panelOpen.set(false);
+    this.stageMenu.set(null);
   }
 
   ngOnInit(): void {
@@ -627,11 +704,93 @@ export class AccountsListComponent implements OnInit {
     this.loadCalendar();
   }
 
+  protected canMove(): boolean {
+    const me = this.auth.me();
+    return !!me && me.role !== 'observer' && me.contour !== 'supplier';
+  }
+
+  protected toggleStage(event: Event, id: number): void {
+    event.stopPropagation();
+    this.stageMenu.update((open) => open === id ? null : id);
+  }
+
+  protected letter(label: string): string {
+    return (label || '—').slice(0, 1);
+  }
+
+  protected street(address: string): string {
+    const lower = address.toLowerCase();
+    const marks = ['ул.', 'ул ', 'пр-т', 'пр.', 'просп', 'пер.', 'б-р', 'тракт', 'пл.', 'ш.'];
+    let cut = -1;
+    for (const mark of marks) {
+      const index = lower.indexOf(mark);
+      if (index >= 0 && (cut < 0 || index < cut)) cut = index;
+    }
+    return (cut >= 0 ? address.slice(cut) : address).replace(/\s+/g, ' ').trim();
+  }
+
+  protected money(value: string | null): string {
+    const number = Number(value ?? 0);
+    if (Number.isNaN(number)) return '0,00';
+    return number.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  protected mark(card: AccountRow): string {
+    const stage = card.funnel_stage || 'new';
+    if (stage === 'warning' && card.warning_handed_on) return `Вручено ${this.dayMonth(card.warning_handed_on)}`;
+    if (stage === 'disconnect' && card.order_on) return `Наряд от ${this.dayMonth(card.order_on)}`;
+    const filed = card.filed_on || card.package_on;
+    if (stage === 'enforcement' && filed) return `Подано ${this.dayMonth(filed)}`;
+    if (stage === 'court' && filed) return `Передано ${this.dayMonth(filed)}`;
+    const due = stage === 'enforcement' || stage === 'court' ? (card.claim_due || card.warning_due) : (card.warning_due || card.claim_due);
+    return due ? this.relative(due) : '';
+  }
+
+  protected initials(name: string): string {
+    const parts = (name || '').split(/\s+/).filter(Boolean);
+    return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
+  }
+
+  protected avatarColor(name: string): string {
+    const palette = ['#2e7d32', '#7c3aed', '#ea580c', '#c62828', '#1d4ed8', '#0f766e'];
+    let hash = 0;
+    for (const char of name) hash = (hash + char.charCodeAt(0)) % palette.length;
+    return palette[hash];
+  }
+
   move(card: AccountRow, stage: string): void {
+    this.stageMenu.set(null);
     this.api.updateAccount(card.id, { funnel_stage: stage }).subscribe({
       next: () => this.showKanban(),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  private dayMonth(iso: string): string {
+    const parts = iso.slice(0, 10).split('-');
+    return parts.length === 3 ? `${parts[2]}.${parts[1]}` : iso;
+  }
+
+  private relative(iso: string): string {
+    const due = new Date(`${iso.slice(0, 10)}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
+    if (Number.isNaN(diff)) return '';
+    if (diff === 0) return 'Сегодня';
+    if (diff === 1) return 'Завтра';
+    if (diff === -1) return 'Вчера';
+    if (diff > 1) return `Через ${diff} ${this.dayWord(diff)}`;
+    const past = Math.abs(diff);
+    return `${past} ${this.dayWord(past)} назад`;
+  }
+
+  private dayWord(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'день';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дня';
+    return 'дней';
   }
 
   exportCsv(): void {

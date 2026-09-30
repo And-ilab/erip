@@ -20,6 +20,7 @@ export interface Me {
   contour: 'billing' | 'supplier';
   organization: number | null;
   organization_name: string | null;
+  supplier_name: string;
 }
 
 export interface AccountRow {
@@ -48,6 +49,10 @@ export interface AccountRow {
   mulct_total: string | null;
   warning_due: string | null;
   claim_due: string | null;
+  warning_handed_on: string | null;
+  order_on: string | null;
+  filed_on: string | null;
+  package_on: string | null;
   updated_at: string;
   ais_updated_at: string | null;
   operational_date: string | null;

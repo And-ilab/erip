@@ -173,16 +173,24 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
           <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
         }
         @if (view() === 'kanban') {
-          <div class="board">
+          <div class="k-board">
             @for (column of kanban(); track column.stage) {
-              <section>
-                <h3>{{ column.title }} ({{ column.total }})</h3>
+              <section class="k-col" [attr.data-stage]="column.stage">
+                <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
                 @for (card of column.cards; track card.sample_id) {
-                  <article class="card g{{ card.debt_group ?? 0 }}" (click)="open(card.sample_id)">
-                    <b>{{ card.payer }}</b>
-                    <div class="muted">{{ card.ls_count }} ЛС</div>
-                    <div>{{ card.principal | number: '1.2-2' }}</div>
-                    @if (card.debt_group) { <span class="group-badge g{{ card.debt_group }}">{{ card.debt_group }}</span> }
+                  <article class="k-card g{{ card.debt_group ?? 0 }}" (click)="open(card.sample_id)">
+                    <div class="name">{{ card.payer || 'Без наименования' }}</div>
+                    <div class="line">{{ card.ls_count }} ЛС</div>
+                    @if (card.debt_group) {
+                      <div class="group-line">
+                        <span class="letter">{{ card.debt_group }}</span>
+                        <span>Группа {{ card.debt_group }}</span>
+                      </div>
+                    }
+                    <div class="money">{{ money(card.principal) }} р. <small>+ пени {{ money(card.penalty) }} р.</small></div>
+                    @if (card.earliest) {
+                      <div class="foot"><span class="when">{{ card.earliest }}</span></div>
+                    }
                   </article>
                 }
               </section>
@@ -320,17 +328,45 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
     .views { display: flex; gap: 4px; }
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .body { padding: 16px 24px; }
-    .board { display: flex; gap: 12px; overflow: auto; align-items: flex-start; }
-    section { min-width: 220px; background: #fff; border: 1px solid var(--erip-border); border-top: 3px solid var(--erip-primary); border-radius: 8px; padding: 8px; }
-    .card {
-      border: 1px solid var(--erip-border); border-left: 4px solid #cbd5e1; border-radius: 6px; padding: 8px; margin-bottom: 8px;
-      cursor: pointer; background: #fff; transition: box-shadow .15s;
+    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
+      font-size: 13px; font-weight: 600; color: #243140;
     }
-    .card:hover { box-shadow: 0 2px 6px rgba(16, 42, 67, .12); }
-    .card.g1 { border-left-color: #22c55e; } .card.g2 { border-left-color: #84cc16; } .card.g3 { border-left-color: #eab308; }
-    .card.g4 { border-left-color: #f97316; } .card.g5 { border-left-color: #ef4444; } .card.g6 { border-left-color: #7f1d1d; }
+    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
+    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
+    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-card {
+      background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1; border-radius: 8px;
+      padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
+    }
+    .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
+    .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
+    .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; color: #1f2933; }
+    .k-card .line, .k-card .when { margin-top: 3px; font-size: 12px; color: #6b7280; }
+    .k-card .group-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; }
+    .k-card .letter {
+      width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
+      display: grid; place-items: center; background: #9ca3af;
+    }
+    .k-card.g1 .group-line { color: #1f9d55; } .k-card.g1 .letter { background: #1f9d55; }
+    .k-card.g2 .group-line { color: #a16207; } .k-card.g2 .letter { background: #c8962e; }
+    .k-card.g3 .group-line { color: #ef6c00; } .k-card.g3 .letter { background: #ef6c00; }
+    .k-card.g4 .group-line { color: #e53935; } .k-card.g4 .letter { background: #e53935; }
+    .k-card.g5 .group-line { color: #c62828; } .k-card.g5 .letter { background: #c62828; }
+    .k-card.g6 .group-line { color: #7f1d1d; } .k-card.g6 .letter { background: #7f1d1d; }
+    .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; }
+    .k-card .money small { font-weight: 400; color: #6b7280; }
     .muted { color: var(--erip-muted); font-size: 12px; }
-    h3 { margin: 0 0 8px; font-size: 14px; color: var(--erip-primary-dark); }
     .backdrop {
       position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
       background: rgba(20, 40, 55, .35);
@@ -346,12 +382,12 @@ export class ContractsListComponent implements OnInit {
   protected readonly auth = inject(AuthService);
   protected readonly groupNumbers = [1, 2, 3, 4, 5, 6];
   protected readonly stages = [
-    { id: 'new', label: 'Новый' },
-    { id: 'prevention', label: 'Профилактика' },
-    { id: 'warning', label: 'Предупреждение' },
-    { id: 'disconnect', label: 'Отключение' },
-    { id: 'enforcement', label: 'Взыскание' },
-    { id: 'court', label: 'Суд' },
+    { id: 'new', label: 'Новый должник' },
+    { id: 'prevention', label: 'Автообзвон/уведомления' },
+    { id: 'warning', label: 'Предупреждение вручено' },
+    { id: 'disconnect', label: 'Отключение услуг' },
+    { id: 'enforcement', label: 'Испол. надпись / иск' },
+    { id: 'court', label: 'ОПИ' },
     { id: 'closed', label: 'Не должник' },
   ];
   protected readonly groupOptions = [
@@ -501,6 +537,12 @@ export class ContractsListComponent implements OnInit {
   pageChanged(event: PageEvent): void {
     this.page = event.pageIndex + 1;
     this.reload();
+  }
+
+  protected money(value: string | null): string {
+    const number = Number(value ?? 0);
+    if (Number.isNaN(number)) return '0,00';
+    return number.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   open(id: number): void {

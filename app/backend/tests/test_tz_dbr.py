@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from django.core.management import call_command
 
-from apps.debts.models import AccountService, Contact, DebtWorkItem, Measure, StatusHistory
+from apps.debts.models import AccountService, Contact, DebtWorkItem, Measure, MeasureItem, StatusHistory
 from apps.debts.services.contacts import choose_phone
 from apps.debts.services.grouping import DebtGroupCalculator
 from apps.debts.services.portfolio import PortfolioRefresher
@@ -232,6 +232,38 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
     assert warning["cards"][0]["ls_count"] == 1
     assert warning["cards"][0]["payer_identifier"] == "IN-DBR"
     assert warning["cards"][0]["debt_group"] == 5
+
+
+def test_account_kanban_exposes_card_marks(api, specialist_a, account_a):
+    account_a.funnel_stage = "warning"
+    account_a.short_fio = "Соловьёва Марина Дмитриевна"
+    account_a.account_address = "г. Минск, ул. Октябрьская, д.3, кв.15"
+    account_a.rating = "A"
+    account_a.debt_group = 1
+    account_a.assigned_to = specialist_a
+    account_a.warning_due = date(2026, 7, 10)
+    account_a.save()
+    measure = Measure.objects.create(
+        organization=account_a.organization, kind=Measure.Kind.WARNING, started_on=date(2026, 7, 5),
+    )
+    measure.accounts.add(account_a)
+    MeasureItem.objects.create(
+        organization=account_a.organization, measure=measure, account=account_a, delivered_on=date(2026, 7, 5),
+    )
+    columns = api(specialist_a).get("/api/v1/accounts/kanban/").json()
+    titles = [column["title"] for column in columns]
+    assert titles[:6] == [
+        "Новый должник", "Автообзвон/уведомления", "Предупреждение вручено",
+        "Отключение услуг", "Испол. надпись / иск", "ОПИ",
+    ]
+    warning = next(column for column in columns if column["stage"] == "warning")
+    card = warning["cards"][0]
+    assert card["short_fio"] == "Соловьёва Марина Дмитриевна"
+    assert card["warning_handed_on"] == "2026-07-05"
+    assert card["rating_label"] == "A"
+    assert card["effective_group"] == 1
+    assert card["assigned_name"] == "Анна Петровна"
+    assert card["mulct_total"] is not None or card["debt_total"] is not None
 
 
 def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, specialist_a, org_a, account_a):

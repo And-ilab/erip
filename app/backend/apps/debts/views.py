@@ -59,12 +59,12 @@ from .services.registry import GROUP_LIMIT, REGISTRY_STATUSES, annotate_registry
 from .services.territory import TerritoryIndex, TerritoryMap
 
 FUNNEL_STAGES = [
-    ("new", "Новый"),
-    ("prevention", "Превентивные меры"),
-    ("warning", "Предупреждение"),
-    ("disconnect", "Отключение"),
-    ("enforcement", "Взыскание"),
-    ("court", "Суд / ОПИ"),
+    ("new", "Новый должник"),
+    ("prevention", "Автообзвон/уведомления"),
+    ("warning", "Предупреждение вручено"),
+    ("disconnect", "Отключение услуг"),
+    ("enforcement", "Испол. надпись / иск"),
+    ("court", "ОПИ"),
     ("closed", "Не должник"),
 ]
 ACCOUNT_COLUMNS = [
@@ -323,7 +323,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     def kanban(self, request):
         page_size = min(int(request.query_params.get("page_size") or 100), 200)
         page = max(int(request.query_params.get("page") or 1), 1)
-        base = self.filter_queryset(self.get_queryset())
+        base = AccountRepository.with_board_marks(self.filter_queryset(self.get_queryset()))
         start = (page - 1) * page_size
         columns = []
         for code, title in FUNNEL_STAGES:

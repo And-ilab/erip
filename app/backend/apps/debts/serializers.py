@@ -22,6 +22,12 @@ from .services.registry import accounts_count, debtor_fields, measure_title, nex
 AIS_READ_ONLY = "Данные АИС только для чтения"
 
 
+def _iso_date(value):
+    if not value:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)[:10]
+
+
 def _rating_label(rating: str, repeat: int | None) -> str:
     if not rating:
         return ""
@@ -37,6 +43,10 @@ class AccountListSerializer(serializers.ModelSerializer):
     effective_group = serializers.IntegerField(read_only=True)
     assigned_name = serializers.CharField(source="assigned_to.display_name", default="", read_only=True)
     rating_label = serializers.SerializerMethodField()
+    warning_handed_on = serializers.SerializerMethodField()
+    order_on = serializers.SerializerMethodField()
+    filed_on = serializers.SerializerMethodField()
+    package_on = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
@@ -47,10 +57,23 @@ class AccountListSerializer(serializers.ModelSerializer):
             "assigned_name", "ownership_type_name", "months_debt", "subj_count", "funnel_stage",
             "services_count", "debt_total", "mulct_total", "warning_due", "claim_due", "updated_at",
             "ais_updated_at", "operational_date", "inheritance_case", "debtor_category",
+            "warning_handed_on", "order_on", "filed_on", "package_on",
         ]
 
     def get_rating_label(self, obj) -> str:
         return _rating_label(obj.rating, obj.rating_repeat)
+
+    def get_warning_handed_on(self, obj):
+        return _iso_date(getattr(obj, "warning_handed_on", None))
+
+    def get_order_on(self, obj):
+        return _iso_date(getattr(obj, "order_on", None))
+
+    def get_filed_on(self, obj):
+        return _iso_date(getattr(obj, "filed_on", None))
+
+    def get_package_on(self, obj):
+        return _iso_date(getattr(obj, "package_on", None))
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

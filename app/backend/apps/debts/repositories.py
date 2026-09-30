@@ -1,9 +1,9 @@
 """Запросы к данным реестра ЛС (сложные выборки вынесены из вьюх)."""
 
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import Coalesce
 
-from .models import Account
+from .models import Account, ClaimCase, Measure, MeasureItem
 
 
 class AccountRepository:
@@ -44,3 +44,27 @@ class AccountRepository:
             .order_by("shown")
         )
         return [{"debt_group": row["shown"], "accounts": row["accounts"], "debt": row["debt"]} for row in rows]
+
+    @staticmethod
+    def with_board_marks(qs: QuerySet) -> QuerySet:
+        """Даты для подписи карточки канбана: вручение, наряд, подача."""
+        handed = (
+            MeasureItem.objects.filter(
+                account_id=OuterRef("pk"), measure__kind=Measure.Kind.WARNING, delivered_on__isnull=False,
+            )
+            .order_by("-delivered_on")
+            .values("delivered_on")[:1]
+        )
+        order = (
+            Measure.objects.filter(accounts=OuterRef("pk"), kind=Measure.Kind.DISCONNECT)
+            .order_by("-started_on", "-id")
+            .values("started_on")[:1]
+        )
+        filed = ClaimCase.objects.filter(account_id=OuterRef("pk")).values("lawsuit_filed_on")[:1]
+        package = ClaimCase.objects.filter(account_id=OuterRef("pk")).values("package_filed_on")[:1]
+        return qs.annotate(
+            warning_handed_on=Subquery(handed),
+            order_on=Subquery(order),
+            filed_on=Subquery(filed),
+            package_on=Subquery(package),
+        )

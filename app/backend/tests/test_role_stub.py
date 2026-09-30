@@ -27,7 +27,7 @@ def test_stub_role_issues_session_for_schema_with_data(org_a, account_a):
     listed = client.get("/api/v1/auth/stub-role/")
     assert listed.status_code == 200
     assert {row["id"] for row in listed.json()} == {
-        "superadmin", "local_admin", "specialist", "observer", "supplier",
+        "superadmin", "local_admin", "specialist", "observer", "supplier", "test_zhes",
     }
 
     entered = client.post("/api/v1/auth/stub-role/", {"role": "specialist"}, format="json")
@@ -47,6 +47,17 @@ def test_stub_role_issues_session_for_schema_with_data(org_a, account_a):
     assert list(user.service_organizations.values_list("provider_id", flat=True)) == [account_a.provider_id]
     supplier_token = supplier.json()["access"]
     assert client.get("/api/v1/accounts/", HTTP_AUTHORIZATION=f"Bearer {supplier_token}").json()["count"] == 1
+
+    zhes = client.post("/api/v1/auth/stub-role/", {"role": "test_zhes"}, format="json")
+    assert zhes.status_code == 200
+    zhes_user = User.objects.get(username="stub-test-zhes")
+    assert zhes_user.display_name == "Тест ЖЭС"
+    assert zhes_user.contour == User.Contour.SUPPLIER
+    assert zhes_user.organization_id == org_a.id
+    assert list(zhes_user.service_organizations.values_list("short_name", flat=True)) == ["Поставщик"]
+    zhes_me = client.get("/api/v1/auth/me/", HTTP_AUTHORIZATION=f"Bearer {zhes.json()['access']}")
+    assert zhes_me.json()["supplier_name"] == "Поставщик"
+    assert client.get("/api/v1/accounts/", HTTP_AUTHORIZATION=f"Bearer {zhes.json()['access']}").json()["count"] == 1
 
     unknown = client.post("/api/v1/auth/stub-role/", {"role": "auditor"}, format="json")
     assert unknown.status_code == 400

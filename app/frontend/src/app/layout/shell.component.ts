@@ -27,7 +27,8 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
       <button mat-icon-button (click)="panel.toggle()" matTooltip="Уведомления">
         <mat-icon [matBadge]="store.unread() || null" matBadgeColor="warn">notifications</mat-icon>
       </button>
-      <span class="org">{{ auth.me()?.organization_name ?? 'все схемы' }}</span>
+      <span class="org">{{ orgLabel() }}</span>
+      <span class="user">{{ auth.me()?.display_name }}</span>
       <span class="avatar" [matTooltip]="auth.me()?.display_name ?? ''">{{ initials() }}</span>
       <button mat-icon-button (click)="auth.logout()" matTooltip="Выход"><mat-icon>logout</mat-icon></button>
     </mat-toolbar>
@@ -61,7 +62,9 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     .topbar .mat-mdc-icon-button { color: #fff; }
     .brand-icon { opacity: .85; }
     .brand { font-weight: 600; font-size: 17px; }
-    .org { font-size: 13px; padding: 4px 12px; border-radius: 6px; background: rgba(255, 255, 255, .14); }
+    .org, .user { font-size: 13px; }
+    .org { padding: 4px 12px; border-radius: 6px; background: rgba(255, 255, 255, .14); }
+    .user { opacity: .92; }
     .avatar {
       display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%;
       background: rgba(255, 255, 255, .2); font-size: 13px; font-weight: 600; cursor: default;
@@ -93,6 +96,15 @@ export class ShellComponent {
   protected measuresOn(): boolean {
     const path = this.router.url.split('?')[0];
     return path.startsWith('/measures') || path.startsWith('/claims') || path.startsWith('/scenarios');
+  }
+
+  protected orgLabel(): string {
+    const me = this.auth.me();
+    if (!me) return '';
+    if (me.contour === 'supplier') {
+      return me.supplier_name || `${me.organization_name ?? 'поставщик'} · поставщик`;
+    }
+    return me.organization_name ?? 'все схемы';
   }
 
   protected initials(): string {

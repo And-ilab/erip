@@ -79,7 +79,19 @@ class UserSerializer(serializers.ModelSerializer):
 class MeSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(read_only=True)
     organization_name = serializers.CharField(source="organization.name", default=None, read_only=True)
+    supplier_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "display_name", "email", "role", "contour", "organization", "organization_name"]
+        fields = [
+            "id", "username", "display_name", "email", "role", "contour", "organization",
+            "organization_name", "supplier_name",
+        ]
+
+    def get_supplier_name(self, obj) -> str:
+        if getattr(obj, "contour", "") != User.Contour.SUPPLIER:
+            return ""
+        names = list(obj.service_organizations.order_by("short_name").values_list("short_name", flat=True))
+        if len(names) == 1:
+            return names[0]
+        return ""
