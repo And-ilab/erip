@@ -307,7 +307,7 @@ type CustomField = 'group' | 'rating' | 'stage';
 
         @if (view() === 'calendar') {
           <app-calendar-board
-            [events]="events()" [from]="spanFrom" [mode]="calendarMode" [canCreate]="canLaunch()"
+            [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="canLaunch()"
             [supplier]="supplierContour()" [templates]="templates()" [serviceChoices]="serviceChoices()"
             (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
             (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)" />

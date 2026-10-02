@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnChanges, Output } from '@angular/core';
+import { Component, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
 import { CalendarEvent, MessageTemplate, ServiceChoice } from '../../core/models';
@@ -48,15 +48,11 @@ interface DayCell {
   imports: [ReactiveFormsModule],
   template: `
     <div class="bar">
-      <div class="modes">
-        @for (item of modes; track item.id) {
-          <button type="button" [class.on]="mode === item.id" (click)="switchMode(item.id)">{{ item.label }}</button>
-        }
-      </div>
       <button type="button" (click)="shift(-1)" aria-label="Назад">‹</button>
       <strong>{{ caption() }}</strong>
       <button type="button" (click)="shift(1)" aria-label="Вперёд">›</button>
       <button type="button" (click)="goToday()">Сегодня</button>
+      <button type="button" [class.on]="drawer" [attr.aria-expanded]="drawer" (click)="drawer = true">Период</button>
       <button type="button" (click)="filters.emit()">Фильтры</button>
       @if (canCreate) {
         <button type="button" class="add" (click)="begin(createAnchor())">Событие</button>
@@ -116,120 +112,219 @@ interface DayCell {
 
     @switch (mode) {
       @case ('day') {
-        <section class="day">
-          <h3>{{ long(anchor()) }}</h3>
-          @for (event of on(anchor()); track track(event)) {
-            <button type="button" class="ev" (click)="openEvent.emit(event)">
-              <b>{{ event.kind }}</b> {{ event.title }}
-            </button>
-          } @empty {
-            <p class="muted">В этот день событий нет.</p>
-          }
-        </section>
+        @if (hiddenDays()) {
+          <p class="muted">В диапазоне {{ caption() }} показаны дни, где есть события.</p>
+        }
+        @for (day of coveredDays(); track day) {
+          <section class="day">
+            <h3>{{ long(day) }}</h3>
+            @for (event of on(day); track track(event)) {
+              <button type="button" class="ev" (click)="openEvent.emit(event)">
+                <b>{{ event.kind }}</b> {{ event.title }}
+              </button>
+            } @empty {
+              <p class="muted">В этот день событий нет.</p>
+            }
+          </section>
+        }
       }
       @case ('week') {
-        <div class="week">
-          @for (day of weekDays(); track day) {
-            <section>
-              <button type="button" class="num" (click)="begin(day)">{{ long(day) }}</button>
-              @for (event of on(day); track track(event)) {
-                <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }} · {{ event.title }}</button>
-              }
-            </section>
-          }
-        </div>
+        @for (week of coveredWeeks(); track week[0]) {
+          <div class="week">
+            @for (day of week; track day) {
+              <section [class.dim]="!inSpan(day)">
+                <button type="button" class="num" (click)="begin(day)">{{ long(day) }}</button>
+                @for (event of on(day); track track(event)) {
+                  <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }} · {{ event.title }}</button>
+                }
+              </section>
+            }
+          </div>
+        }
       }
       @case ('month') {
-        <table class="month">
-          <thead>
-            <tr>
-              @for (name of weekdays; track name) { <th>{{ name }}</th> }
-            </tr>
-          </thead>
-          <tbody>
-            @for (week of monthWeeks(); track $index) {
-              <tr>
-                @for (day of week; track day.iso) {
-                  <td [class.out]="!day.inMonth" [class.today]="day.iso === today">
-                    <button type="button" class="num" (click)="begin(day.iso)">{{ day.day }}</button>
-                    @for (event of on(day.iso).slice(0, 3); track track(event)) {
-                      <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }}</button>
-                    }
-                    @if (on(day.iso).length > 3) {
-                      <button type="button" class="more" (click)="focusDay(day.iso)">ещё {{ on(day.iso).length - 3 }}</button>
-                    }
-                  </td>
-                }
-              </tr>
-            }
-          </tbody>
-        </table>
-      }
-      @case ('year') {
-        <div class="year">
-          @for (month of yearMonths(); track month.index) {
-            <section>
-              <h3>{{ month.name }}</h3>
-              <table>
+        @for (month of coveredMonths(); track month.key) {
+          <section class="month-block">
+            @if (coveredMonths().length > 1) { <h3>{{ month.name }}</h3> }
+            <table class="month">
+              <thead>
                 <tr>
-                  @for (name of weekdays; track name) { <th>{{ name[0] }}</th> }
+                  @for (name of weekdays; track name) { <th>{{ name }}</th> }
                 </tr>
+              </thead>
+              <tbody>
                 @for (week of month.weeks; track $index) {
                   <tr>
                     @for (day of week; track day.iso) {
-                      <td>
-                        <button type="button" class="dot" [class.out]="!day.inMonth" [class.busy]="on(day.iso).length" (click)="focusDay(day.iso)">{{ day.day }}</button>
+                      <td [class.out]="!day.inMonth" [class.dim]="day.inMonth && !inSpan(day.iso)" [class.mark]="marked(day.iso)" [class.today]="day.iso === today">
+                        <button type="button" class="num" (click)="begin(day.iso)">{{ day.day }}</button>
+                        @for (event of on(day.iso).slice(0, 3); track track(event)) {
+                          <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }}</button>
+                        }
+                        @if (on(day.iso).length > 3) {
+                          <button type="button" class="more" (click)="focusDay(day.iso)">ещё {{ on(day.iso).length - 3 }}</button>
+                        }
                       </td>
                     }
                   </tr>
                 }
-              </table>
-            </section>
-          }
-        </div>
+              </tbody>
+            </table>
+          </section>
+        }
       }
+      @case ('year') {
+        @for (year of coveredYears(); track year) {
+          <div class="year">
+            @for (month of yearMonths(year); track month.index) {
+              <section>
+                <h3>{{ month.name }}</h3>
+                <table>
+                  <tr>
+                    @for (name of weekdays; track name) { <th>{{ name[0] }}</th> }
+                  </tr>
+                  @for (week of month.weeks; track $index) {
+                    <tr>
+                      @for (day of week; track day.iso) {
+                        <td>
+                          <button type="button" class="dot" [class.out]="!day.inMonth || !inSpan(day.iso)" [class.busy]="inSpan(day.iso) && on(day.iso).length" (click)="focusDay(day.iso)">{{ day.day }}</button>
+                        </td>
+                      }
+                    </tr>
+                  }
+                </table>
+              </section>
+            }
+          </div>
+        }
+      }
+    }
+
+    @if (drawer) {
+      <div class="scrim" (click)="drawer = false"></div>
+      <aside class="drawer" role="dialog" aria-label="Период календаря" (click)="$event.stopPropagation()">
+        <header>
+          <strong>Период</strong>
+          <button type="button" (click)="drawer = false" aria-label="Закрыть">×</button>
+        </header>
+        <section>
+          <h3>Представление</h3>
+          <div class="modes">
+            @for (item of modes; track item.id) {
+              <button type="button" [class.on]="mode === item.id" (click)="switchMode(item.id)">{{ item.label }}</button>
+            }
+          </div>
+        </section>
+        <section>
+          <h3>День или диапазон</h3>
+          <div class="pick-nav">
+            <button type="button" (click)="pickShift(-1)" aria-label="Предыдущий месяц">‹</button>
+            <select (change)="onPickMonth($event)">
+              @for (name of months; track name; let index = $index) {
+                <option [value]="index + 1" [selected]="pickMonth === index + 1">{{ name }}</option>
+              }
+            </select>
+            <select (change)="onPickYear($event)">
+              @for (year of years(); track year) {
+                <option [value]="year" [selected]="pickYear === year">{{ year }}</option>
+              }
+            </select>
+            <button type="button" (click)="pickShift(1)" aria-label="Следующий месяц">›</button>
+          </div>
+          <table class="matrix">
+            <thead>
+              <tr>
+                @for (name of weekdays; track name) { <th>{{ name }}</th> }
+              </tr>
+            </thead>
+            <tbody>
+              @for (week of pickWeeks(); track $index) {
+                <tr>
+                  @for (day of week; track day.iso) {
+                    <td>
+                      <button
+                        type="button"
+                        class="cell"
+                        [class.out]="!day.inMonth"
+                        [class.in]="inPick(day.iso)"
+                        [class.start]="day.iso === pickStart"
+                        [class.end]="rangeDone && day.iso === pickEnd && pickEnd !== pickStart"
+                        [class.today]="day.iso === today"
+                        (click)="pick(day.iso)">{{ day.day }}</button>
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+          <p class="hint">{{ pickHint() }}</p>
+        </section>
+      </aside>
     }
   `,
   styles: [`
     .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-    .bar button, .draft button, .draft select, .draft input {
+    .bar button, .draft button, .draft select, .draft input, .drawer button, .drawer select {
       height: 32px; border: 1px solid #d5dde5; border-radius: 6px; background: #fff; font: inherit; cursor: pointer;
     }
-    .bar button, .draft button { padding: 0 10px; }
-    .modes { display: flex; }
-    .modes button { border-radius: 0; }
-    .modes button:first-child { border-radius: 6px 0 0 6px; }
-    .modes button:last-child { border-radius: 0 6px 6px 0; }
-    .modes button.on, .bar .add { background: #0f6e78; color: #fff; border-color: #0f6e78; }
+    .bar button, .draft button, .drawer header button { padding: 0 10px; }
+    .bar button.on, .bar .add, .modes button.on { background: #0f6e78; color: #fff; border-color: #0f6e78; }
     .draft { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 12px; padding: 10px; background: #fff; border: 1px solid #d5dde5; border-radius: 8px; }
     .draft p { flex: 1 1 100%; margin: 0; font-size: 13px; }
     .draft label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #52606d; }
     .draft select, .draft input { min-width: 140px; padding: 0 8px; }
     .fail { color: #c62828; }
     .day, .week section { background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; padding: 10px; }
+    .day + .day, .week + .week, .month-block + .month-block { margin-top: 12px; }
     .week { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; }
-    .month, .year table { width: 100%; border-collapse: collapse; background: #fff; }
+    .week section.dim { background: #f8fafb; }
+    .month, .year table, .matrix { width: 100%; border-collapse: collapse; background: #fff; }
     .month td { vertical-align: top; height: 92px; border: 1px solid #e6ebf0; padding: 4px; }
-    .month td.out { background: #f8fafb; }
+    .month td.out, .month td.dim { background: #f8fafb; }
+    .month td.mark { background: #e7f2f4; }
     .month td.today { box-shadow: inset 0 0 0 1px #0f6e78; }
+    .month-block h3, .day h3 { margin: 0 0 8px; font-size: 15px; }
     .num, .ev, .more, .dot { display: block; width: 100%; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
     .num { font-weight: 700; color: #1f2933; }
     .ev { margin-top: 2px; padding: 2px 4px; border-radius: 4px; background: #e7f2f4; color: #0f4c54; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .more { font-size: 11px; color: #6b7280; }
     .year { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .year + .year { margin-top: 12px; }
     .year section { background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; padding: 8px; }
     .year h3 { margin: 0 0 6px; font-size: 13px; }
-    .year th, .year td { text-align: center; font-size: 11px; }
+    .year th, .year td, .matrix th, .matrix td { text-align: center; font-size: 11px; }
     .dot { width: 22px; height: 22px; margin: 0 auto; border-radius: 11px; text-align: center; }
     .dot.out { color: #c5ced6; }
     .dot.busy { background: #0f6e78; color: #fff; }
-    .muted { color: #6b7280; }
+    .muted, .hint { color: #6b7280; font-size: 13px; }
+    .scrim { position: fixed; top: 64px; right: 0; bottom: 0; left: 0; z-index: 50; background: rgba(15, 23, 42, 0.28); }
+    .drawer {
+      position: fixed; top: 64px; right: 0; z-index: 51; width: 360px; max-width: 100%; height: calc(100vh - 64px);
+      overflow: auto; background: #fff; box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12); padding: 16px 18px 28px;
+    }
+    .drawer header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .drawer header button { width: 32px; padding: 0; font-size: 18px; line-height: 1; }
+    .drawer section + section { margin-top: 18px; padding-top: 16px; border-top: 1px solid #e6ebf0; }
+    .drawer h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #52606d; }
+    .modes { display: flex; }
+    .modes button { flex: 1; border-radius: 0; }
+    .modes button:first-child { border-radius: 6px 0 0 6px; }
+    .modes button:last-child { border-radius: 0 6px 6px 0; }
+    .pick-nav { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .pick-nav select { flex: 1; padding: 0 6px; }
+    .pick-nav button { width: 32px; padding: 0; }
+    .cell { width: 36px; height: 32px; margin: 1px auto; border: 0; border-radius: 6px; background: transparent; font: inherit; cursor: pointer; }
+    .cell.out { color: #b0b8c0; }
+    .cell.in { background: #e7f2f4; }
+    .cell.start, .cell.end { background: #0f6e78; color: #fff; }
+    .cell.today { box-shadow: inset 0 0 0 1px #0f6e78; }
     @media (max-width: 1100px) { .year { grid-template-columns: repeat(2, 1fr); } .week { grid-template-columns: repeat(2, 1fr); } }
   `],
 })
 export class CalendarBoardComponent implements OnChanges {
   @Input() events: CalendarEvent[] = [];
   @Input() from = '';
+  @Input() to = '';
   @Input() mode: CalendarMode = 'month';
   @Input() canCreate = false;
   @Input() supplier = false;
@@ -248,10 +343,17 @@ export class CalendarBoardComponent implements OnChanges {
     { id: 'year' as const, label: 'Год' },
   ];
   protected readonly weekdays = WEEKDAYS;
+  protected readonly months = MONTHS;
   protected readonly kinds = KINDS;
   protected readonly today = iso(new Date());
+  protected drawer = false;
   protected draft = '';
   protected draftError = '';
+  protected pickYear = new Date().getFullYear();
+  protected pickMonth = new Date().getMonth() + 1;
+  protected pickStart = '';
+  protected pickEnd = '';
+  protected rangeDone = true;
   protected readonly kind = new FormControl('warning', { nonNullable: true });
   protected readonly templateId = new FormControl('', { nonNullable: true });
   protected readonly channel = new FormControl('sms', { nonNullable: true });
@@ -261,8 +363,14 @@ export class CalendarBoardComponent implements OnChanges {
   protected readonly assignee = new FormControl('', { nonNullable: true });
   protected readonly services = new FormControl<string[]>([], { nonNullable: true });
   private index = new Map<string, CalendarEvent[]>();
+  private pickerBrowsing = false;
 
-  ngOnChanges(): void {
+  @HostListener('document:keydown.escape')
+  closeOnEscape(): void {
+    this.drawer = false;
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
     const next = new Map<string, CalendarEvent[]>();
     for (const event of this.events) {
       const rows = next.get(event.date) ?? [];
@@ -270,22 +378,42 @@ export class CalendarBoardComponent implements OnChanges {
       next.set(event.date, rows);
     }
     this.index = next;
+    if (!changes['from'] && !changes['to']) return;
+    if (this.pickStart && !this.rangeDone) return;
+    this.pickStart = this.anchor();
+    this.pickEnd = this.spanEnd();
+    this.rangeDone = true;
+    if (!this.pickerBrowsing) {
+      const [year, month] = this.pickStart.split('-').map(Number);
+      this.pickYear = year;
+      this.pickMonth = month;
+    }
   }
 
   protected anchor(): string {
     return this.from || this.today;
   }
 
+  protected spanEnd(): string {
+    return this.to || this.anchor();
+  }
+
   protected caption(): string {
     const start = this.anchor();
-    if (this.mode === 'day') return longDate(start);
-    if (this.mode === 'year') return start.slice(0, 4);
-    if (this.mode === 'month') {
-      const [year, month] = start.split('-').map(Number);
-      return `${MONTHS[month - 1]} ${year}`;
+    const end = this.spanEnd();
+    const natural = windowFor(this.mode, start);
+    if (natural.from === start && natural.to === end) {
+      if (this.mode === 'day') return longDate(start);
+      if (this.mode === 'year') return start.slice(0, 4);
+      if (this.mode === 'month') {
+        const [year, month] = start.split('-').map(Number);
+        return `${MONTHS[month - 1]} ${year}`;
+      }
+      return `${short(start)} — ${short(end)}`;
     }
-    const days = this.weekDays();
-    return `${short(days[0])} — ${short(days[6])}`;
+    if (start === end) return longDate(start);
+    const left = start.slice(0, 4) === end.slice(0, 4) ? short(start) : `${short(start)}.${start.slice(0, 4)}`;
+    return `${left} — ${short(end)}.${end.slice(0, 4)}`;
   }
 
   protected on(date: string): CalendarEvent[] {
@@ -300,34 +428,54 @@ export class CalendarBoardComponent implements OnChanges {
     return longDate(value);
   }
 
+  protected inSpan(date: string): boolean {
+    return date >= this.anchor() && date <= this.spanEnd();
+  }
+
+  protected marked(date: string): boolean {
+    if (!this.inSpan(date)) return false;
+    const natural = windowFor(this.mode, this.anchor());
+    return natural.from !== this.anchor() || natural.to !== this.spanEnd();
+  }
+
   protected switchMode(mode: CalendarMode): void {
+    const start = this.anchor();
+    const end = this.spanEnd();
+    const previous = windowFor(this.mode, start);
+    const custom = previous.from !== start || previous.to !== end;
     this.modeChange.emit(mode);
-    this.spanChange.emit(windowFor(mode, this.anchor()));
+    if (custom) return;
+    this.followWindow();
+    this.spanChange.emit(windowFor(mode, start));
   }
 
   protected shift(step: number): void {
-    const [year, month, day] = this.anchor().split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    if (this.mode === 'day') date.setDate(date.getDate() + step);
-    else if (this.mode === 'week') date.setDate(date.getDate() + step * 7);
-    else if (this.mode === 'month') date.setMonth(date.getMonth() + step);
-    else date.setFullYear(date.getFullYear() + step);
-    this.spanChange.emit(windowFor(this.mode, iso(date)));
+    this.followWindow();
+    const start = this.anchor();
+    const end = this.spanEnd();
+    const natural = windowFor(this.mode, start);
+    if (natural.from === start && natural.to === end) {
+      this.spanChange.emit(windowFor(this.mode, shiftIso(start, this.mode, step)));
+      return;
+    }
+    this.spanChange.emit({ from: shiftIso(start, this.mode, step), to: shiftIso(end, this.mode, step) });
   }
 
   protected goToday(): void {
+    this.followWindow();
     this.spanChange.emit(windowFor(this.mode, this.today));
   }
 
   protected focusDay(date: string): void {
+    this.followWindow();
     this.modeChange.emit('day');
     this.spanChange.emit({ from: date, to: date });
   }
 
   protected createAnchor(): string {
     const start = this.anchor();
-    if (this.mode === 'year' && this.today.startsWith(start.slice(0, 4))) return this.today;
-    if (this.mode === 'month' && this.today.slice(0, 7) === start.slice(0, 7)) return this.today;
+    const end = this.spanEnd();
+    if (this.today >= start && this.today <= end) return this.today;
     return start;
   }
 
@@ -340,25 +488,125 @@ export class CalendarBoardComponent implements OnChanges {
     this.draftError = '';
   }
 
-  protected weekDays(): string[] {
-    const [year, month, day] = this.anchor().split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    const start = new Date(year, month - 1, day - ((date.getDay() + 6) % 7));
-    return Array.from({ length: 7 }, (_, index) => {
-      const cursor = new Date(start);
-      cursor.setDate(start.getDate() + index);
-      return iso(cursor);
-    });
+  protected coveredDays(): string[] {
+    const days = eachDay(this.anchor(), this.spanEnd());
+    if (days.length <= 45) return days;
+    const busy = days.filter((day) => this.on(day).length);
+    return busy.length ? busy : [days[0]];
   }
 
-  protected monthWeeks(): DayCell[][] {
-    const [year, month] = this.anchor().split('-').map(Number);
-    return weeksOf(year, month);
+  protected hiddenDays(): number {
+    const days = eachDay(this.anchor(), this.spanEnd());
+    return Math.max(0, days.length - this.coveredDays().length);
   }
 
-  protected yearMonths(): { index: number; name: string; weeks: DayCell[][] }[] {
-    const year = Number(this.anchor().slice(0, 4));
+  protected coveredWeeks(): string[][] {
+    const end = this.spanEnd();
+    const weeks: string[][] = [];
+    let cursor = monday(this.anchor());
+    while (cursor <= end && weeks.length < 60) {
+      weeks.push(Array.from({ length: 7 }, (_, index) => addDays(cursor, index)));
+      cursor = addDays(cursor, 7);
+    }
+    return weeks.length ? weeks : [this.weekOf(this.anchor())];
+  }
+
+  protected coveredMonths(): { key: string; name: string; weeks: DayCell[][] }[] {
+    const [startYear, startMonth] = this.anchor().split('-').map(Number);
+    const [endYear, endMonth] = this.spanEnd().split('-').map(Number);
+    const months: { key: string; name: string; weeks: DayCell[][] }[] = [];
+    let year = startYear;
+    let month = startMonth;
+    while ((year < endYear || (year === endYear && month <= endMonth)) && months.length < 24) {
+      months.push({
+        key: `${year}-${month}`,
+        name: `${MONTHS[month - 1]} ${year}`,
+        weeks: weeksOf(year, month),
+      });
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+    }
+    return months;
+  }
+
+  protected coveredYears(): number[] {
+    const start = Number(this.anchor().slice(0, 4));
+    const end = Number(this.spanEnd().slice(0, 4));
+    const years: number[] = [];
+    for (let year = start; year <= end && years.length < 6; year += 1) years.push(year);
+    return years;
+  }
+
+  protected yearMonths(year: number): { index: number; name: string; weeks: DayCell[][] }[] {
     return MONTHS.map((name, index) => ({ index, name, weeks: weeksOf(year, index + 1) }));
+  }
+
+  protected years(): number[] {
+    const now = new Date().getFullYear();
+    const values = new Set<number>();
+    for (let year = now - 5; year <= now + 5; year += 1) values.add(year);
+    values.add(this.pickYear);
+    values.add(Number(this.anchor().slice(0, 4)));
+    return [...values].sort((left, right) => left - right);
+  }
+
+  protected pickWeeks(): DayCell[][] {
+    return weeksOf(this.pickYear, this.pickMonth);
+  }
+
+  protected pickShift(step: number): void {
+    const cursor = new Date(this.pickYear, this.pickMonth - 1 + step, 1);
+    this.pickYear = cursor.getFullYear();
+    this.pickMonth = cursor.getMonth() + 1;
+    this.pickerBrowsing = true;
+  }
+
+  protected onPickMonth(event: Event): void {
+    this.pickMonth = Number((event.target as HTMLSelectElement).value);
+    this.pickerBrowsing = true;
+  }
+
+  protected onPickYear(event: Event): void {
+    this.pickYear = Number((event.target as HTMLSelectElement).value);
+    this.pickerBrowsing = true;
+  }
+
+  protected pick(date: string): void {
+    if (!this.pickStart || this.rangeDone) {
+      this.pickStart = date;
+      this.pickEnd = date;
+      this.rangeDone = false;
+      this.spanChange.emit({ from: date, to: date });
+      return;
+    }
+    const from = this.pickStart <= date ? this.pickStart : date;
+    const to = this.pickStart <= date ? date : this.pickStart;
+    this.pickStart = from;
+    this.pickEnd = to;
+    this.rangeDone = true;
+    this.pickerBrowsing = true;
+    this.spanChange.emit({ from, to });
+  }
+
+  protected inPick(date: string): boolean {
+    if (!this.pickStart) return false;
+    if (!this.rangeDone) return date === this.pickStart;
+    const from = this.pickStart <= this.pickEnd ? this.pickStart : this.pickEnd;
+    const to = this.pickStart <= this.pickEnd ? this.pickEnd : this.pickStart;
+    return date >= from && date <= to;
+  }
+
+  protected pickHint(): string {
+    if (this.pickStart && !this.rangeDone) {
+      return `Начало: ${longDate(this.pickStart)}. Выберите конец диапазона.`;
+    }
+    if (this.pickStart && this.pickEnd && this.pickStart !== this.pickEnd) {
+      return `${longDate(this.pickStart)} — ${longDate(this.pickEnd)}`;
+    }
+    return 'Первый щелчок — день, второй — конец диапазона.';
   }
 
   protected needsTemplate(): boolean {
@@ -411,6 +659,16 @@ export class CalendarBoardComponent implements OnChanges {
     this.draft = '';
     this.createEvent.emit(draft);
   }
+
+  private followWindow(): void {
+    this.pickerBrowsing = false;
+    this.rangeDone = true;
+  }
+
+  private weekOf(anchor: string): string[] {
+    const start = monday(anchor);
+    return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  }
 }
 
 function weeksOf(year: number, month: number): DayCell[][] {
@@ -429,19 +687,49 @@ function weeksOf(year: number, month: number): DayCell[][] {
 }
 
 function windowFor(mode: CalendarMode, anchor: string): { from: string; to: string } {
-  const [year, month, day] = anchor.split('-').map(Number);
+  const [year, month] = anchor.split('-').map(Number);
   if (mode === 'day') return { from: anchor, to: anchor };
   if (mode === 'week') {
-    const date = new Date(year, month - 1, day);
-    const start = new Date(year, month - 1, day - ((date.getDay() + 6) % 7));
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    return { from: iso(start), to: iso(end) };
+    const start = monday(anchor);
+    return { from: start, to: addDays(start, 6) };
   }
   if (mode === 'year') return { from: `${year}-01-01`, to: `${year}-12-31` };
   const last = new Date(year, month, 0).getDate();
   const pad = String(month).padStart(2, '0');
   return { from: `${year}-${pad}-01`, to: `${year}-${pad}-${String(last).padStart(2, '0')}` };
+}
+
+function monday(value: string): string {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return iso(new Date(year, month - 1, day - ((date.getDay() + 6) % 7)));
+}
+
+function addDays(value: string, days: number): string {
+  const [year, month, day] = value.split('-').map(Number);
+  return iso(new Date(year, month - 1, day + days));
+}
+
+function shiftIso(value: string, mode: CalendarMode, step: number): string {
+  const [year, month, day] = value.split('-').map(Number);
+  if (mode === 'month' || mode === 'year') {
+    const moved = new Date(year, month - 1 + (mode === 'year' ? step * 12 : step), 1);
+    const last = new Date(moved.getFullYear(), moved.getMonth() + 1, 0).getDate();
+    moved.setDate(Math.min(day, last));
+    return iso(moved);
+  }
+  return addDays(value, mode === 'week' ? step * 7 : step);
+}
+
+function eachDay(from: string, to: string): string[] {
+  const end = to < from ? from : to;
+  const days: string[] = [];
+  let cursor = from;
+  while (cursor <= end && days.length < 400) {
+    days.push(cursor);
+    cursor = addDays(cursor, 1);
+  }
+  return days;
 }
 
 function iso(value: Date): string {

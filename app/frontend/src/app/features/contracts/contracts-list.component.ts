@@ -221,7 +221,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         }
         @if (view() === 'calendar') {
           <app-calendar-board
-            [events]="events()" [from]="spanFrom" [mode]="calendarMode" [canCreate]="auth.canWrite()"
+            [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="auth.canWrite()"
             [supplier]="auth.me()?.contour === 'supplier'" [templates]="templates()" [serviceChoices]="serviceChoices()"
             (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
             (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)" />
