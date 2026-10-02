@@ -15,6 +15,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
+import { DateSpanComponent } from '../date-span/date-span.component';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -48,6 +49,7 @@ type CustomField = 'group' | 'rating' | 'stage';
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
+    DateSpanComponent,
   ],
   template: `
     <div class="registry">
@@ -305,13 +307,12 @@ type CustomField = 'group' | 'rating' | 'stage';
 
         @if (view() === 'calendar') {
           <div class="filters">
-            <mat-form-field>
-              <mat-label>Месяц</mat-label>
-              <input matInput type="month" [value]="month" (change)="setMonth($any($event.target).value)" />
-            </mat-form-field>
+            <app-date-span [from]="spanFrom" [to]="spanTo" (spanChange)="setSpan($event)" />
           </div>
           @for (event of events(); track event.date + event.title) {
             <p><b>{{ event.date }}</b> · {{ event.kind }} · {{ event.title }}</p>
+          } @empty {
+            <p class="muted">В выбранных датах нет контрольных дат.</p>
           }
         }
       </div>
@@ -573,7 +574,8 @@ export class AccountsListComponent implements OnInit {
   protected readonly assignee = new FormControl('', { nonNullable: true });
   protected readonly dueOn = new FormControl('', { nonNullable: true });
   protected pageSize = 50;
-  protected month = new Date().toISOString().slice(0, 7);
+  protected spanFrom = monthStart();
+  protected spanTo = monthEnd();
   private page = 1;
   private ordering = '';
 
@@ -792,8 +794,9 @@ export class AccountsListComponent implements OnInit {
     this.reload(1);
   }
 
-  setMonth(value: string): void {
-    this.month = value;
+  setSpan(span: { from: string; to: string }): void {
+    this.spanFrom = span.from;
+    this.spanTo = span.to;
     this.loadCalendar();
   }
 
@@ -1164,7 +1167,7 @@ export class AccountsListComponent implements OnInit {
   }
 
   private loadCalendar(): void {
-    this.api.calendar(this.month, this.query()).subscribe({
+    this.api.calendar({ date_from: this.spanFrom, date_to: this.spanTo }, this.query()).subscribe({
       next: (events) => this.events.set(events),
       error: (e) => this.error.set(errorMessage(e)),
     });
@@ -1236,4 +1239,15 @@ export class AccountsListComponent implements OnInit {
       error: (e) => this.error.set(errorMessage(e)),
     });
   }
+}
+
+function monthStart(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function monthEnd(): string {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
 }

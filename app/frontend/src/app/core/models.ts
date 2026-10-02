@@ -152,6 +152,10 @@ export interface ContractPerson {
   earliest: string | null;
   sample_id: number;
   debt_group?: number | null;
+  service_name?: string;
+  service_count?: number;
+  address?: string;
+  due_on?: string | null;
 }
 
 export interface ContractSummary {

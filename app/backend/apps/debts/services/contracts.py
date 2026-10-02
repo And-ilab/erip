@@ -107,6 +107,10 @@ def _person_groups(qs):
         payer_unp=Max(NullIf("account__payer_unp", Value(""))),
         category=Max("account__debtor_category__name"),
         earliest=Min("debt_started_on"),
+        due_on=Min("repayment_due_on"),
+        service_count=Count("id"),
+        service_name=Min("service_name"),
+        address=Max("account__account_address"),
         sample_id=Max("id"),
     )
 
@@ -149,9 +153,17 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int)
                     "sample_id": row["sample_id"],
                     "payer": row["payer"],
                     "payer_identifier": row["payer_identifier"] or "",
+                    "payer_unp": row["payer_unp"] or "",
+                    "category": row["category"] or "",
                     "ls_count": row["ls_count"],
+                    "service_count": row["service_count"],
+                    "service_name": row["service_name"] or "",
+                    "address": row["address"] or "",
                     "principal": row["principal"],
+                    "penalty": row["penalty"],
                     "debt_group": row["debt_group"],
+                    "earliest": row["earliest"],
+                    "due_on": row["due_on"],
                 }
                 for row in column[start:start + page_size]
             ],

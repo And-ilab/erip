@@ -263,6 +263,27 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
     assert warning["cards"][0]["ls_count"] == 1
     assert warning["cards"][0]["payer_identifier"] == "IN-DBR"
     assert warning["cards"][0]["debt_group"] == 5
+    assert warning["cards"][0]["service_name"] == "Газ"
+    assert warning["cards"][0]["service_count"] == 2
+    assert "penalty" in warning["cards"][0]
+    assert "due_on" in warning["cards"][0]
+
+
+def test_calendar_filters_one_day_or_a_range(api, specialist_a, account_a):
+    account_a.warning_due = date(2026, 10, 3)
+    account_a.claim_due = date(2026, 10, 20)
+    account_a.save(update_fields=["warning_due", "claim_due"])
+    client = api(specialist_a)
+    one = client.get("/api/v1/accounts/calendar/", {"date_from": "2026-10-03", "date_to": "2026-10-03"})
+    assert one.status_code == 200
+    assert {row["date"] for row in one.json()} == {"2026-10-03"}
+    span = client.get("/api/v1/accounts/calendar/", {"date_from": "2026-10-20", "date_to": "2026-10-03"})
+    assert {row["date"] for row in span.json()} == {"2026-10-03", "2026-10-20"}
+    month = client.get("/api/v1/accounts/calendar/", {"month": "2026-11"})
+    assert month.status_code == 200
+    assert month.json() == []
+    bad = client.get("/api/v1/accounts/calendar/", {"date_from": "03.10.2026"})
+    assert bad.status_code == 400
 
 
 def test_account_kanban_exposes_card_marks(api, specialist_a, account_a):

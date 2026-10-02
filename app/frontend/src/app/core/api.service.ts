@@ -156,8 +156,8 @@ export class ApiService {
     return this.http.get<MapLevel>(`${this.base}/accounts/map/`, { params: toParams(params) });
   }
 
-  calendar(month: string, params: Params): Observable<CalendarEvent[]> {
-    return this.http.get<CalendarEvent[]>(`${this.base}/accounts/calendar/`, { params: toParams({ ...params, month }) });
+  calendar(span: { date_from: string; date_to: string }, params: Params): Observable<CalendarEvent[]> {
+    return this.http.get<CalendarEvent[]>(`${this.base}/accounts/calendar/`, { params: toParams({ ...params, ...span }) });
   }
 
   exportAccounts(params: Params): Observable<Blob> {
@@ -194,8 +194,8 @@ export class ApiService {
     );
   }
 
-  contractCalendar(month: string, params: Params): Observable<CalendarEvent[]> {
-    return this.http.get<CalendarEvent[]>(`${this.base}/contracts/calendar/`, { params: toParams({ ...params, month }) });
+  contractCalendar(span: { date_from: string; date_to: string }, params: Params): Observable<CalendarEvent[]> {
+    return this.http.get<CalendarEvent[]>(`${this.base}/contracts/calendar/`, { params: toParams({ ...params, ...span }) });
   }
 
   contractGrouped(params: Params): Observable<{ value: string; accounts: number; debt: string | null; penalty: string | null }[]> {

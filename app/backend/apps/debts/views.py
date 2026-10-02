@@ -402,10 +402,9 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def calendar(self, request):
-        raw = request.query_params.get("month") or timezone.localdate().strftime("%Y-%m")
-        year, month = (int(part) for part in raw.split("-")[:2])
-        start = date(year, month, 1)
-        end = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
+        from .services.calendar import resolve_span
+
+        start, end = resolve_span(request.query_params)
         accounts = self.filter_queryset(self.get_queryset())
         events = []
         for field, kind in (("warning_due", "Предупреждение"), ("claim_due", "Иск")):
@@ -592,14 +591,9 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
 
     @action(detail=False)
     def calendar(self, request):
-        from .services.contracts import bounded_int
+        from .services.calendar import resolve_span
 
-        raw = request.query_params.get("month") or timezone.localdate().strftime("%Y-%m")
-        parts = raw.split("-")
-        year = bounded_int(parts[0] if parts else None, timezone.localdate().year, minimum=2000, maximum=2100, field="month")
-        month = bounded_int(parts[1] if len(parts) > 1 else None, timezone.localdate().month, minimum=1, maximum=12, field="month")
-        start = date(year, month, 1)
-        end = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
+        start, end = resolve_span(request.query_params)
         services = self._visible().select_related("account")
         events = []
         for field, kind in (("repayment_due_on", "Срок погашения"), ("debt_started_on", "Возникновение")):

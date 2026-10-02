@@ -11,6 +11,7 @@ import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { DateSpanComponent } from '../date-span/date-span.component';
 import { AuthService } from '../../core/auth.service';
 import {
   AccountService,
@@ -28,7 +29,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
   standalone: true,
   imports: [
     DecimalPipe, ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatButtonModule,
+    MatInputModule, MatSelectModule, MatButtonModule, DateSpanComponent,
   ],
   template: `
     <div class="registry">
@@ -183,17 +184,19 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                 @for (card of column.cards; track card.sample_id) {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" (click)="open(card.sample_id)">
                     <div class="name">{{ card.payer || 'Без наименования' }}</div>
-                    <div class="line">{{ card.ls_count }} ЛС</div>
-                    @if (card.debt_group) {
-                      <div class="group-line">
-                        <span class="letter">{{ card.debt_group }}</span>
-                        <span>Группа {{ card.debt_group }}</span>
-                      </div>
+                    <div class="line">{{ personId(card) }} · {{ card.ls_count }} ЛС · {{ card.service_count || 1 }} усл.</div>
+                    @if (card.service_name) {
+                      <div class="line">{{ card.service_name }}</div>
                     }
+                    @if (card.address) {
+                      <div class="line">{{ street(card.address) }}</div>
+                    }
+                    <div class="group-line">
+                      <span class="letter">{{ card.debt_group || '—' }}</span>
+                      <span>Группа {{ card.debt_group || '—' }}@if (card.category) { · {{ card.category }} }</span>
+                    </div>
                     <div class="money">{{ money(card.principal) }} р. <small>+ пени {{ money(card.penalty) }} р.</small></div>
-                    @if (card.earliest) {
-                      <div class="foot"><span class="when">{{ card.earliest }}</span></div>
-                    }
+                    <div class="foot"><span class="when">{{ cardMark(card) }}</span></div>
                   </article>
                 }
               </section>
@@ -202,12 +205,12 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         }
         @if (view() === 'calendar') {
           <div class="filters">
-            <button mat-stroked-button (click)="shiftMonth(-1)">←</button>
-            <span>{{ month }}</span>
-            <button mat-stroked-button (click)="shiftMonth(1)">→</button>
+            <app-date-span [from]="spanFrom" [to]="spanTo" (spanChange)="setSpan($event)" />
           </div>
           @for (event of events(); track event.title + event.date) {
             <p>{{ event.date }} · {{ event.kind }} · {{ event.title }}</p>
+          } @empty {
+            <p class="muted">В выбранных датах нет сроков.</p>
           }
         }
         @if (view() === 'grouped') {
@@ -433,7 +436,8 @@ export class ContractsListComponent implements OnInit {
   protected readonly dialDay = new FormControl(25, { nonNullable: true });
   protected readonly dialFrom = new FormControl<number | null>(null);
   protected readonly dialTo = new FormControl<number | null>(null);
-  protected month = new Date().toISOString().slice(0, 7);
+  protected spanFrom = monthStart();
+  protected spanTo = monthEnd();
   private page = 1;
 
   @HostListener('document:click')
@@ -593,7 +597,7 @@ export class ContractsListComponent implements OnInit {
   showCalendar(): void {
     this.dropGrouping();
     this.view.set('calendar');
-    this.api.contractCalendar(this.month, this.query()).subscribe({
+    this.api.contractCalendar({ date_from: this.spanFrom, date_to: this.spanTo }, this.query()).subscribe({
       next: (rows) => this.events.set(rows),
       error: (e) => this.error.set(errorMessage(e)),
     });
@@ -607,11 +611,33 @@ export class ContractsListComponent implements OnInit {
     });
   }
 
-  shiftMonth(delta: number): void {
-    const [year, month] = this.month.split('-').map(Number);
-    const next = new Date(year, month - 1 + delta, 1);
-    this.month = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+  setSpan(span: { from: string; to: string }): void {
+    this.spanFrom = span.from;
+    this.spanTo = span.to;
     this.showCalendar();
+  }
+
+  protected personId(card: ContractPerson): string {
+    if (card.payer_identifier) return `ИН ${card.payer_identifier}`;
+    if (card.payer_unp) return `УНП ${card.payer_unp}`;
+    return 'без ИН';
+  }
+
+  protected cardMark(card: ContractPerson): string {
+    if (card.due_on) return `срок ${card.due_on}`;
+    if (card.earliest) return `долг с ${card.earliest}`;
+    return 'срок не задан';
+  }
+
+  protected street(address: string): string {
+    const lower = address.toLowerCase();
+    const marks = ['ул.', 'ул ', 'пр-т', 'пр.', 'просп', 'пер.', 'б-р', 'тракт', 'пл.', 'ш.'];
+    let cut = -1;
+    for (const mark of marks) {
+      const index = lower.indexOf(mark);
+      if (index >= 0 && (cut < 0 || index < cut)) cut = index;
+    }
+    return (cut >= 0 ? address.slice(cut) : address).replace(/\s+/g, ' ').trim();
   }
 
   remember(): void {
@@ -708,4 +734,15 @@ export class ContractsListComponent implements OnInit {
       billing_provider: this.billing.value,
     };
   }
+}
+
+function monthStart(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function monthEnd(): string {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
 }
