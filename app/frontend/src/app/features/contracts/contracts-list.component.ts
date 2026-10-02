@@ -11,7 +11,7 @@ import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
-import { DateSpanComponent } from '../date-span/date-span.component';
+import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { AuthService } from '../../core/auth.service';
 import {
   AccountService,
@@ -19,7 +19,9 @@ import {
   ContractPerson,
   ContractSummary,
   DebtorCategory,
+  MessageTemplate,
   SavedFilter,
+  ServiceChoice,
 } from '../../core/models';
 
 type CustomField = 'group' | 'category' | 'stage' | 'billing';
@@ -29,7 +31,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
   standalone: true,
   imports: [
     DecimalPipe, ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatButtonModule, DateSpanComponent,
+    MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent,
   ],
   template: `
     <div class="registry">
@@ -218,14 +220,11 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
           </div>
         }
         @if (view() === 'calendar') {
-          <div class="filters">
-            <app-date-span [from]="spanFrom" [to]="spanTo" (spanChange)="setSpan($event)" />
-          </div>
-          @for (event of events(); track event.title + event.date) {
-            <p>{{ event.date }} · {{ event.kind }} · {{ event.title }}</p>
-          } @empty {
-            <p class="muted">В выбранных датах нет сроков.</p>
-          }
+          <app-calendar-board
+            [events]="events()" [from]="spanFrom" [mode]="calendarMode" [canCreate]="auth.canWrite()"
+            [supplier]="auth.me()?.contour === 'supplier'" [templates]="templates()" [serviceChoices]="serviceChoices()"
+            (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
+            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)" />
         }
         @if (view() === 'grouped') {
           <table mat-table [dataSource]="groupsRows()">
@@ -475,6 +474,9 @@ export class ContractsListComponent implements OnInit {
   protected readonly dialTo = new FormControl<number | null>(null);
   protected spanFrom = monthStart();
   protected spanTo = monthEnd();
+  protected calendarMode: CalendarMode = 'month';
+  protected readonly templates = signal<MessageTemplate[]>([]);
+  protected readonly serviceChoices = signal<ServiceChoice[]>([]);
   private page = 1;
 
   @HostListener('document:click')
@@ -725,6 +727,10 @@ export class ContractsListComponent implements OnInit {
   showCalendar(): void {
     this.dropGrouping();
     this.view.set('calendar');
+    if (!this.templates().length) {
+      this.api.templates({ is_active: true, page_size: 200 }).subscribe((page) => this.templates.set(page.results));
+      this.api.serviceChoices().subscribe((page) => this.serviceChoices.set(page.results));
+    }
     this.api.contractCalendar({ date_from: this.spanFrom, date_to: this.spanTo }, this.query()).subscribe({
       next: (rows) => this.events.set(rows),
       error: (e) => this.error.set(errorMessage(e)),
@@ -742,7 +748,31 @@ export class ContractsListComponent implements OnInit {
   setSpan(span: { from: string; to: string }): void {
     this.spanFrom = span.from;
     this.spanTo = span.to;
-    this.showCalendar();
+    if (this.view() === 'calendar') this.showCalendar();
+  }
+
+  protected openCalendarEvent(event: CalendarEvent): void {
+    if (event.measure_id) this.router.navigate(['/measures', event.measure_id]);
+    else if (event.contract_id) this.router.navigate(['/contracts', event.contract_id]);
+    else if (event.account_id) this.router.navigate(['/accounts', event.account_id]);
+  }
+
+  protected submitCalendar(draft: CalendarDraft): void {
+    const body: Record<string, unknown> = { kind: draft.kind, due_on: draft.date, started_on: draft.date };
+    if (draft.template_name) body['template_name'] = draft.template_name;
+    if (draft.catalog_service_ids) body['catalog_service_ids'] = draft.catalog_service_ids;
+    if (draft.channel) body['channel'] = draft.channel;
+    if (draft.time_from) {
+      body['time_from'] = draft.time_from;
+      body['time_to'] = draft.time_to;
+      body['days'] = draft.days;
+    }
+    if (draft.scenario_name) body['scenario_name'] = draft.scenario_name;
+    if (draft.assignee) body['assignee'] = draft.assignee;
+    this.api.contractEvent(body, this.query()).subscribe({
+      next: () => this.showCalendar(),
+      error: (e) => this.error.set(errorMessage(e)),
+    });
   }
 
   protected personId(card: ContractPerson): string {

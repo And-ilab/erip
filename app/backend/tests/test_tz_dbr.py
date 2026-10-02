@@ -306,6 +306,19 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
     ).status_code == 400
 
 
+def test_contract_calendar_creates_an_event_on_the_chosen_day(api, specialist_a, observer_a, account_a):
+    created = api(specialist_a).post("/api/v1/contracts/events/", {
+        "kind": "scenario", "scenario_name": "Мягкий", "started_on": "2026-11-02", "due_on": "2026-11-02",
+    }, format="json")
+    assert created.status_code == 201
+    rows = api(specialist_a).get("/api/v1/contracts/calendar/", {"date_from": "2026-11-02", "date_to": "2026-11-02"}).json()
+    assert any(row.get("measure_id") == created.json()["id"] for row in rows)
+    denied = api(observer_a).post("/api/v1/contracts/events/", {
+        "kind": "scenario", "scenario_name": "Мягкий", "started_on": "2026-11-02", "due_on": "2026-11-02",
+    }, format="json")
+    assert denied.status_code == 403
+
+
 def test_calendar_filters_one_day_or_a_range(api, specialist_a, account_a):
     account_a.warning_due = date(2026, 10, 3)
     account_a.claim_due = date(2026, 10, 20)

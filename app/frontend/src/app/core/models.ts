@@ -397,6 +397,8 @@ export interface CalendarEvent {
   kind: string;
   title: string;
   account_id: number | null;
+  measure_id?: number | null;
+  contract_id?: number | null;
 }
 
 export interface KanbanColumn {

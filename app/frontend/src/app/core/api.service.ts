@@ -201,6 +201,10 @@ export class ApiService {
     );
   }
 
+  contractEvent(body: Record<string, unknown>, params: Params): Observable<{ id: number; kind_display: string }> {
+    return this.http.post<{ id: number; kind_display: string }>(`${this.base}/contracts/events/`, body, { params: toParams(params) });
+  }
+
   contractCalendar(span: { date_from: string; date_to: string }, params: Params): Observable<CalendarEvent[]> {
     return this.http.get<CalendarEvent[]>(`${this.base}/contracts/calendar/`, { params: toParams({ ...params, ...span }) });
   }

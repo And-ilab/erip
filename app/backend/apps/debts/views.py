@@ -620,12 +620,42 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
                     "title": f"{service.service_name} · ЛС {service.account.client_account}",
                     "account_id": service.account_id, "contract_id": service.id,
                 })
-        for measure in Measure.objects.filter(services__in=services, due_on__gte=start, due_on__lt=end).distinct():
+        account_ids = services.values("account_id")
+        measures = Measure.objects.filter(due_on__gte=start, due_on__lt=end).filter(
+            Q(services__in=services) | Q(accounts__in=account_ids, services__isnull=True)
+        ).distinct()
+        for measure in measures:
             events.append({
                 "date": measure.due_on.isoformat(), "kind": measure.get_kind_display(),
                 "title": measure.get_kind_display(), "account_id": None, "measure_id": measure.id,
             })
         return Response(events)
+
+    @action(detail=False, methods=["post"])
+    def events(self, request):
+        from .services.measures import MeasureLaunchError, launch_measure
+
+        visible = self._visible()
+        accounts = list(
+            Account.objects.filter(pk__in=visible.values("account_id")).distinct().prefetch_related(
+                "contacts", "registrations", "services",
+            )
+        )
+        catalog = request.data.get("catalog_service_ids") or []
+        services = list(visible.filter(service_id__in=catalog)) if catalog else []
+        try:
+            result = launch_measure(request.user, accounts, services, request.data)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        measure = result["measure"]
+        record_action(
+            request, AuditLog.Action.CREATE, measure,
+            after={"kind": measure.kind, "accounts": measure.accounts.count(), "source": "calendar"},
+        )
+        return Response(
+            {"id": measure.id, "kind_display": measure.get_kind_display()},
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=False)
     def grouped(self, request):
