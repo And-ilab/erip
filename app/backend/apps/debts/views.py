@@ -80,6 +80,14 @@ def _supplier_ids(user):
     return AccessScope(user).provider_ids()
 
 
+def _debt_sum(user):
+    """В группировке поставщик суммирует сальдо своих услуг, а не общий долг лицевого счёта."""
+    providers = _supplier_ids(user)
+    if providers is None:
+        return Sum("balance_out")
+    return Sum("services__balance_out", filter=Q(services__provider_id__in=providers or [-1]))
+
+
 def _services_for(user, account):
     qs = account.services.all()
     providers = _supplier_ids(user)
@@ -95,11 +103,16 @@ def _visible_accounts(user):
 
 
 def _supplier_measure_filter(user):
-    """Поставщик видит партию без услуг и партию, где есть хотя бы одна его услуга."""
+    """Своё мероприятие поставщика видно только ему. Общее мероприятие схемы — если в нём его услуга или услуг нет."""
     providers = _supplier_ids(user)
     if providers is None:
         return None
-    return Q(services__isnull=True) | Q(services__provider_id__in=providers or [-1])
+    allowed = providers or [-1]
+    own = Q(owner_provider_id__in=allowed)
+    shared = Q(owner_provider_id__isnull=True) & (
+        Q(services__isnull=True) | Q(services__provider_id__in=allowed)
+    )
+    return own | shared
 
 
 def _own_measures(user, account):
@@ -107,7 +120,7 @@ def _own_measures(user, account):
     supplier_filter = _supplier_measure_filter(user)
     if supplier_filter is not None:
         qs = qs.filter(supplier_filter)
-    return annotate_registry(qs.distinct(), _visible_accounts(user))
+    return annotate_registry(qs.distinct(), _visible_accounts(user)).order_by("-created_at", "-id")
 
 
 def _page_offset(raw) -> int:
@@ -149,10 +162,15 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         # распадается на пузырь «1» для каждого счёта.
         if providers is not None and self.action in {"list", "export", "kanban", "retrieve"}:
             allowed = providers or [-1]
+            service_filter = Q(services__provider_id__in=allowed)
             qs = qs.annotate(
-                supplier_principal=Sum("services__balance_out", filter=Q(services__provider_id__in=allowed)),
-                supplier_penalty=Sum("services__balance_mulct_out", filter=Q(services__provider_id__in=allowed)),
-                supplier_services=Count("services", filter=Q(services__provider_id__in=allowed), distinct=True),
+                supplier_principal=Sum("services__balance_out", filter=service_filter),
+                supplier_penalty=Sum("services__balance_mulct_out", filter=service_filter),
+                supplier_services=Count("services", filter=service_filter, distinct=True),
+                supplier_balance_in=Sum("services__balance_in", filter=service_filter),
+                supplier_calc=Sum("services__calc_sum", filter=service_filter),
+                supplier_paid=Sum("services__share_service_summ", filter=service_filter),
+                supplier_subsidy=Sum("services__calc_result_sum", filter=service_filter),
             )
         return qs
 
@@ -167,6 +185,14 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         page = self.paginate_queryset(qs)
         data = serializer_class(page, many=True, context=self.get_serializer_context()).data
         return self.get_paginated_response(data)
+
+    @action(detail=True, url_path="debt-shares")
+    def debt_shares(self, request, pk=None):
+        from apps.debts.services.shares import sync_debt_shares, visible_shares
+
+        account = self.get_object()
+        sync_debt_shares(account)
+        return Response(visible_shares(account, request.user))
 
     @action(detail=True)
     def services(self, request, pk=None):
@@ -343,11 +369,12 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
         key = request.query_params.get("group_by") or "debt_group"
         qs = self.filter_queryset(self.get_queryset())
+        debt = _debt_sum(request.user)
         if key == "period":
             rows = (
                 qs.annotate(bucket=TruncMonth("operational_date"))
                 .values("bucket")
-                .annotate(accounts=Count("id"), debt=Sum("balance_out"))
+                .annotate(accounts=Count("id"), debt=debt)
                 .order_by("bucket")
             )
             return Response([
@@ -367,7 +394,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             raise ValidationError({"group_by": "Неизвестное поле группировки"})
         if key == "debt_group":
             qs = qs.annotate(sort_group=Coalesce("debt_group_manual", "debt_group"))
-        rows = qs.values(field).annotate(accounts=Count("id", distinct=True), debt=Sum("balance_out")).order_by(field)
+        rows = qs.values(field).annotate(accounts=Count("id", distinct=True), debt=debt).order_by(field)
         return Response([
             {"value": "" if row[field] is None else str(row[field]), "accounts": row["accounts"], "debt": row["debt"]}
             for row in rows

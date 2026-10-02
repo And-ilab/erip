@@ -63,6 +63,14 @@ export interface AccountRow {
   inheritance_case: boolean;
 }
 
+export interface DebtShare {
+  provider_id: number | null;
+  provider_name: string;
+  principal: string;
+  penalty: string;
+  total: string;
+}
+
 export interface AccountDetail extends AccountRow {
   schema_name: string;
   house_address: string;
@@ -256,6 +264,7 @@ export interface MeasureRow {
   channel?: string;
   template_name?: string;
   scenario_name?: string;
+  owner_name?: string;
   note?: string;
   started_on?: string | null;
   time_from?: string | null;

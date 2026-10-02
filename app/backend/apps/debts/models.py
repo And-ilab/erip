@@ -270,6 +270,31 @@ class AccountService(AisRecord):
         return self.debt_group_manual if self.debt_group_manual is not None else self.debt_group
 
 
+class DebtShare(TimeStampedModel):
+    """Доля общего долга ЛС, которая приходится на одного поставщика.
+
+    Сумма долей — состав исходящего сальдо. Поставщик видит только свою долю.
+    Ноль в коде поставщика значит, что в выгрузке поставщик не указан.
+    """
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="debt_shares", verbose_name="ЛС")
+    provider_id = models.BigIntegerField("Код поставщика", default=0)
+    provider_name = models.CharField("Поставщик", max_length=250, blank=True)
+    principal = money("Основной долг")
+    penalty = money("Пеня")
+
+    class Meta:
+        ordering = ["provider_name", "provider_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["account", "provider_id"], name="uniq_account_debt_share"),
+        ]
+        verbose_name = "Доля долга"
+        verbose_name_plural = "Доли долга"
+
+    def __str__(self) -> str:
+        return self.provider_name or str(self.provider_id)
+
+
 class ServiceDebtPeriod(AisRecord):
     """Непогашенный период услуги: остаток и срок оплаты, по которым считается группа."""
 
@@ -599,6 +624,11 @@ class Measure(AisRecord):
     created_by = models.ForeignKey(
         "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="measures", verbose_name="Автор",
     )
+    owner_provider_id = models.BigIntegerField(
+        "Поставщик-автор", null=True, blank=True, db_index=True,
+        help_text="Пусто у мероприятия начисляющей организации. У двух поставщиков один и тот же вид живёт отдельно.",
+    )
+    owner_name = models.CharField("Поставщик-автор", max_length=250, blank=True)
     call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
     group_from = models.PositiveSmallIntegerField("Группа с", null=True, blank=True)
     group_to = models.PositiveSmallIntegerField("Группа по", null=True, blank=True)

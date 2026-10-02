@@ -17,7 +17,7 @@ import { finalize, forkJoin } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import {
-  AccountDetail, AccountService, AttachmentRow, BalanceRow, Channel, ContactRow,   DebtorCategory, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, WorkItem,
+  AccountDetail, AccountService, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, WorkItem,
 } from '../../core/models';
 
 @Component({
@@ -76,7 +76,7 @@ import {
               <div class="fact"><span>Закреплённый специалист</span><b>{{ a.assigned_name || '—' }}</b></div>
             </div>
             <div>
-              <div class="fact"><span>Долг по услугам (с пенями)</span><b>{{ a.balance_out | number: '1.2-2' }} р.</b></div>
+              <div class="fact"><span>Долг по услугам (с пенями)</span><button type="button" class="sum-btn" (click)="openShares()">{{ a.balance_out | number: '1.2-2' }} р.</button></div>
               <div class="fact"><span>Пеня</span><b class="amount-danger">{{ penaltyTotal() | number: '1.2-2' }} р.</b></div>
               <div class="fact"><span>Обновлено из АИС</span><b>{{ (a.ais_updated_at | date: 'dd.MM.yyyy HH:mm') || '—' }}</b></div>
               <div class="fact"><span>Сценарий мероприятий</span><b class="link">{{ a.scenario_name || '—' }}</b></div>
@@ -114,7 +114,7 @@ import {
                   <dt>Входящее сальдо</dt><dd>{{ a.balance_in | number: '1.2-2' }}</dd>
                   <dt>Итого начислено</dt><dd>{{ a.total_calc_sum | number: '1.2-2' }}</dd>
                   <dt>Распределённая оплата</dt><dd>{{ a.pay_sum | number: '1.2-2' }}</dd>
-                  <dt>Исходящее сальдо</dt><dd><b>{{ a.balance_out | number: '1.2-2' }}</b></dd>
+                  <dt>Исходящее сальдо</dt><dd><button type="button" class="sum-btn" (click)="openShares()">{{ a.balance_out | number: '1.2-2' }}</button></dd>
                   <dt>Обновлено из АИС</dt><dd>{{ a.ais_updated_at | date: 'dd.MM.yyyy HH:mm' }}</dd>
                   <dt>Операционная дата</dt><dd>{{ a.operational_date | date: 'dd.MM.yyyy' }}</dd>
                   <dt>Рейтинг</dt><dd>{{ a.rating_label || '—' }}</dd>
@@ -310,7 +310,7 @@ import {
           <mat-tab label="Мероприятия">
             <p><a routerLink="/measures">Реестр мероприятий</a></p>
             <table mat-table [dataSource]="measures()">
-              <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/measures', r.id]"><span class="kind-chip {{ r.kind }}">{{ r.kind_display }}</span></a></td></ng-container>
+              <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/measures', r.id]"><span class="kind-chip {{ r.kind }}">{{ r.kind_display }}</span></a>@if (r.owner_name) { · {{ r.owner_name }} }</td></ng-container>
               <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус партии</th><td mat-cell *matCellDef="let r"><span class="status-pill {{ r.status }}">{{ r.status_display }}</span></td></ng-container>
               <ng-container matColumnDef="account_item_status"><th mat-header-cell *matHeaderCellDef>По этому ЛС</th><td mat-cell *matCellDef="let r">{{ r.account_item_status || '—' }}</td></ng-container>
               <ng-container matColumnDef="due_on"><th mat-header-cell *matHeaderCellDef>Срок</th><td mat-cell *matCellDef="let r">{{ r.due_on }}</td></ng-container>
@@ -374,6 +374,33 @@ import {
           </mat-tab>
           }
         </mat-tab-group>
+
+        @if (sharesOpen()) {
+          <div class="backdrop" (click)="sharesOpen.set(false)">
+            <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Состав долга">
+              <h3>Кому должен ЛС {{ a.client_account }}</h3>
+              <table class="shares">
+                <thead><tr><th>Поставщик</th><th>Долг</th><th>Пеня</th><th>Итого</th></tr></thead>
+                <tbody>
+                  @for (row of shares(); track row.provider_name + row.principal + row.penalty) {
+                    <tr>
+                      <td>{{ row.provider_name }}</td>
+                      <td>{{ row.principal | number: '1.2-2' }}</td>
+                      <td [class.amount-danger]="+row.penalty > 0">{{ row.penalty | number: '1.2-2' }}</td>
+                      <td>{{ row.total | number: '1.2-2' }}</td>
+                    </tr>
+                  }
+                  @if (!shares().length) {
+                    <tr><td colspan="4">Долг по поставщикам не разложен</td></tr>
+                  }
+                </tbody>
+              </table>
+              <div class="dialog-actions">
+                <button mat-stroked-button type="button" (click)="sharesOpen.set(false)">Закрыть</button>
+              </div>
+            </div>
+          </div>
+        }
       }
     </div>
   `,
@@ -398,6 +425,20 @@ import {
     .fact span { font-size: 12px; color: var(--erip-muted); }
     .fact b { font-size: 15px; }
     .fact b.link { color: var(--erip-link); }
+    .sum-btn {
+      border: 0; padding: 0; background: transparent; color: var(--erip-link); font: inherit; font-size: 15px;
+      font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+    }
+    .backdrop {
+      position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+      background: rgba(20, 40, 55, .35);
+    }
+    .dialog { width: min(560px, calc(100vw - 32px)); background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 12px 32px rgba(16, 42, 67, .2); }
+    .dialog h3 { margin: 0 0 12px; color: var(--erip-primary-dark); }
+    .shares { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .shares th, .shares td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--erip-border); }
+    .shares th:not(:first-child), .shares td:not(:first-child) { text-align: right; }
+    .dialog-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
     .tabs { padding: 4px 16px 16px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 0; }
     .grid mat-card { border: 1px solid var(--erip-border); box-shadow: none; }
@@ -422,6 +463,8 @@ export class AccountDetailComponent implements OnInit {
   readonly id = input.required<string>();
 
   protected readonly account = signal<AccountDetail | null>(null);
+  protected readonly shares = signal<DebtShare[]>([]);
+  protected readonly sharesOpen = signal(false);
   protected readonly services = signal<AccountService[]>([]);
   protected readonly payments = signal<Payment[]>([]);
   protected readonly registrations = signal<Registration[]>([]);
@@ -635,6 +678,18 @@ export class AccountDetailComponent implements OnInit {
   protected stageIndex(): number {
     const code = this.account()?.funnel_stage || 'new';
     return this.stages.findIndex((stage) => stage.code === code);
+  }
+
+  protected openShares(): void {
+    const id = this.account()?.id;
+    if (!id) return;
+    this.api.debtShares(id).subscribe({
+      next: (rows) => {
+        this.shares.set(rows);
+        this.sharesOpen.set(true);
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
   }
 
   protected penaltyTotal(): number {

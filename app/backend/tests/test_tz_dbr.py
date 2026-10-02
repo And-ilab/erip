@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from django.core.management import call_command
 
-from apps.debts.models import AccountService, Contact, DebtWorkItem, Measure, MeasureItem, StatusHistory
+from apps.debts.models import AccountService, Contact, DebtShare, DebtWorkItem, Measure, MeasureItem, StatusHistory
 from apps.debts.services.contacts import choose_phone
 from apps.debts.services.grouping import DebtGroupCalculator
 from apps.debts.services.portfolio import PortfolioRefresher
@@ -457,3 +457,94 @@ def test_blank_payer_keys_stay_separate_and_bad_ids_are_400(api, specialist_a, o
     )
     assert bad_ids.status_code == 400
     assert service.id
+
+
+def test_debt_shares_keep_parts_and_supplier_sees_only_his(api, specialist_a, org_a, account_a):
+    supplier, water = _supplier(org_a, account_a)
+    gas = account_a.services.exclude(pk=water.pk).get()
+    account_a.balance_out = Decimal("180.00")
+    account_a.balance_in = Decimal("999.00")
+    account_a.pay_sum = Decimal("400.00")
+    account_a.save(update_fields=["balance_out", "balance_in", "pay_sum"])
+    water.balance_in = Decimal("10.00")
+    water.share_service_summ = Decimal("3.00")
+    water.save(update_fields=["balance_in", "share_service_summ"])
+    gas.balance_in = Decimal("20.00")
+    gas.save(update_fields=["balance_in"])
+    rows = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/debt-shares/").json()
+    by_provider = {row["provider_id"]: row for row in rows if row["provider_name"] != "Не разнесено по поставщикам"}
+    assert Decimal(by_provider[900]["principal"]) == Decimal("50.00")
+    assert Decimal(by_provider[900]["penalty"]) == Decimal("5.00")
+    assert Decimal(by_provider[gas.provider_id]["principal"]) == Decimal("100.00")
+    gap = next(row for row in rows if row["provider_name"] == "Не разнесено по поставщикам")
+    assert Decimal(gap["principal"]) == Decimal("30.00")
+    assert DebtShare.objects.filter(account=account_a).count() == 2
+    own = api(supplier).get(f"/api/v1/accounts/{account_a.id}/debt-shares/").json()
+    assert [row["provider_id"] for row in own] == [900]
+    card = api(supplier).get(f"/api/v1/accounts/{account_a.id}/").json()
+    assert Decimal(card["balance_out"]) == Decimal("50.00")
+    assert Decimal(card["balance_in"]) == Decimal("10.00")
+    assert Decimal(card["pay_sum"]) == Decimal("3.00")
+    grouped = api(supplier).get("/api/v1/accounts/grouped/", {"group_by": "rating"}).json()
+    assert sum(Decimal(row["debt"] or 0) for row in grouped) == Decimal("50.00")
+
+
+def test_two_suppliers_set_the_same_measure_on_their_own_services(api, specialist_a, org_a, account_a):
+    water_user, water = _supplier(org_a, account_a)
+    gas = account_a.services.exclude(pk=water.pk).get()
+    gas_org = ServiceOrganization.objects.create(
+        organization=org_a, provider_id=gas.provider_id, short_name="Газ", is_supplier=True,
+    )
+    gas_user = make_user("supplier_gas", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    gas_user.service_organizations.add(gas_org)
+    water_warning = api(water_user).post(
+        "/api/v1/measures/",
+        {
+            "kind": "warning", "account_ids": [account_a.id], "service_ids": [water.id],
+            "template_name": "Предупреждение",
+        },
+        format="json",
+    )
+    gas_warning = api(gas_user).post(
+        "/api/v1/measures/",
+        {
+            "kind": "warning", "account_ids": [account_a.id], "service_ids": [gas.id],
+            "template_name": "Предупреждение",
+        },
+        format="json",
+    )
+    assert water_warning.status_code == 201, water_warning.content
+    assert gas_warning.status_code == 201, gas_warning.content
+    assert water_warning.json()["owner_provider_id"] == 900
+    assert gas_warning.json()["owner_provider_id"] == gas.provider_id
+    assert water_warning.json()["owner_name"] == "Водоканал"
+    water_seen = {
+        row["id"] for row in api(water_user).get(f"/api/v1/accounts/{account_a.id}/measures/").json()["results"]
+    }
+    gas_seen = {
+        row["id"] for row in api(gas_user).get(f"/api/v1/accounts/{account_a.id}/measures/").json()["results"]
+    }
+    assert water_warning.json()["id"] in water_seen
+    assert gas_warning.json()["id"] not in water_seen
+    assert gas_warning.json()["id"] in gas_seen
+    assert water_warning.json()["id"] not in gas_seen
+    billing = {
+        row["id"] for row in api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/measures/").json()["results"]
+    }
+    assert water_warning.json()["id"] in billing and gas_warning.json()["id"] in billing
+    scenario = api(water_user).post(
+        "/api/v1/measures/",
+        {
+            "kind": "scenario", "account_ids": [account_a.id], "service_ids": [water.id],
+            "scenario_name": "Сценарий водоканала", "started_on": "2026-09-01",
+        },
+        format="json",
+    )
+    assert scenario.status_code == 201, scenario.content
+    water.refresh_from_db()
+    gas.refresh_from_db()
+    account_a.refresh_from_db()
+    assert water.scenario_name == "Сценарий водоканала"
+    assert water.scenario_locked is True
+    assert gas.scenario_name == ""
+    assert account_a.scenario_name == ""

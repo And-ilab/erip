@@ -5,6 +5,7 @@ import { Observable } from 'rxjs';
 import {
   AccountDetail,
   AccountRow,
+  DebtShare,
   DebtCharts,
   AccountService,
   ContractDossier,
@@ -109,6 +110,10 @@ export class ApiService {
 
   account(id: number): Observable<AccountDetail> {
     return this.http.get<AccountDetail>(`${this.base}/accounts/${id}/`);
+  }
+
+  debtShares(id: number): Observable<DebtShare[]> {
+    return this.http.get<DebtShare[]>(`${this.base}/accounts/${id}/debt-shares/`);
   }
 
   updateAccount(id: number, body: Partial<AccountDetail>): Observable<AccountDetail> {

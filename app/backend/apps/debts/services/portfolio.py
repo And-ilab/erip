@@ -172,6 +172,9 @@ class PortfolioRefresher:
         self._inheritance(account)
         self._rating(account)
         self._close_paid(account)
+        from apps.debts.services.shares import sync_debt_shares
+
+        sync_debt_shares(account)
         RefreshRequest.objects.filter(account=account, status=RefreshRequest.Status.PENDING).update(
             status=RefreshRequest.Status.DONE, updated_at=timezone.now(),
         )

@@ -25,7 +25,8 @@ from apps.debts.models import (
 from apps.debts.services.contacts import choose_phone
 from apps.notifications.models import Channel, Notification
 from apps.nsi.models import CalculationSettings
-from apps.users.models import User
+from apps.users.models import ServiceOrganization, User
+from apps.users.scoping import AccessScope
 
 AUTO_KINDS = {
     Measure.Kind.CALL,
@@ -359,6 +360,28 @@ def _work(account: Account, kind: str, title: str, started, ended=None, note: st
         row.save(update_fields=["started_on", "ended_on", "note", "updated_at"])
 
 
+def _measure_owner(user, services: list[AccountService]) -> tuple[int | None, str]:
+    """Мероприятие поставщика принадлежит одному поставщику и не затирает такое же у другого."""
+    if getattr(user, "contour", "") != "supplier":
+        return None, ""
+    bound = set(AccessScope(user).provider_ids())
+    picked = {service.provider_id for service in services if service.provider_id is not None}
+    if not picked:
+        picked = bound
+    if len(picked) != 1 or not picked <= bound:
+        raise MeasureLaunchError({"service_ids": "В одной партии услуги одного своего поставщика"})
+    provider_id = next(iter(picked))
+    name = ServiceOrganization.objects.filter(
+        organization_id=getattr(user, "organization_id", None), provider_id=provider_id,
+    ).values_list("short_name", flat=True).first()
+    if not name:
+        name = next(
+            (service.shot_name for service in services if service.provider_id == provider_id and service.shot_name),
+            "",
+        )
+    return provider_id, name or ""
+
+
 def launch_measure(user, accounts: list[Account], services: list[AccountService], data) -> dict:
     kind = data.get("kind")
     if kind not in Measure.Kind.values:
@@ -417,6 +440,9 @@ def launch_measure(user, accounts: list[Account], services: list[AccountService]
         if skipped and all(row["reason"] == "Открыто наследственное дело" for row in skipped):
             raise MeasureLaunchError({"accounts": "По всем выбранным ЛС открыто наследственное дело", "skipped": skipped})
         raise MeasureLaunchError({"accounts": "Ни один лицевой счёт не прошёл отбор", "skipped": skipped})
+    owner_id, owner_name = _measure_owner(user, services)
+    if owner_id and not services:
+        services = list(AccountService.objects.filter(account__in=accounts, provider_id=owner_id))
     assignee = None
     if data.get("assignee"):
         assignee = User.objects.filter(pk=data.get("assignee")).first()
@@ -438,14 +464,22 @@ def launch_measure(user, accounts: list[Account], services: list[AccountService]
         group_to=_optional_int(data.get("group_to"), "group_to"),
         needs_approval=needs_approval,
         approval=MeasureApproval.PENDING if needs_approval else "",
+        owner_provider_id=owner_id,
+        owner_name=owner_name,
     )
     measure.accounts.set(accounts)
     if services:
         measure.services.set(services)
     if kind == Measure.Kind.SCENARIO:
-        Account.objects.filter(pk__in=[account.id for account in accounts]).update(
-            scenario_name=measure.scenario_name, scenario_locked=True,
-        )
+        account_ids = [account.id for account in accounts]
+        if owner_id:
+            AccountService.objects.filter(account_id__in=account_ids, provider_id=owner_id).update(
+                scenario_name=measure.scenario_name, scenario_locked=True, updated_at=timezone.now(),
+            )
+        else:
+            Account.objects.filter(pk__in=account_ids).update(
+                scenario_name=measure.scenario_name, scenario_locked=True,
+            )
     status = MeasureItem.Status.DONE if kind == Measure.Kind.SCENARIO else MeasureItem.Status.ASSIGNED
     MeasureItem.objects.bulk_create([
         MeasureItem(

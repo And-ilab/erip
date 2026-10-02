@@ -121,20 +121,25 @@ def _with_detail(base: str, detail: str) -> str:
 
 def measure_title(measure: Measure) -> str:
     if measure.kind == Measure.Kind.CALL:
-        return _with_detail("Автообзвон", measure.template_name)
-    if measure.kind == Measure.Kind.NOTICE:
+        title = _with_detail("Автообзвон", measure.template_name)
+    elif measure.kind == Measure.Kind.NOTICE:
         channel = _NOTICE_CHANNEL.get(measure.channel, measure.channel)
         base = f"Рассылка {channel}" if channel else "Рассылка уведомления"
-        return _with_detail(base, measure.template_name)
-    if measure.kind == Measure.Kind.WARNING:
-        return _with_detail("Предупреждение", measure.template_name)
-    if measure.kind == Measure.Kind.SCENARIO:
-        return _with_detail("Смена сценария", measure.scenario_name)
-    if measure.kind == Measure.Kind.DISCONNECT:
-        return "Отключение услуг"
-    if measure.kind == Measure.Kind.COLLECTION:
-        return "Взыскание"
-    return measure.get_kind_display()
+        title = _with_detail(base, measure.template_name)
+    elif measure.kind == Measure.Kind.WARNING:
+        title = _with_detail("Предупреждение", measure.template_name)
+    elif measure.kind == Measure.Kind.SCENARIO:
+        title = _with_detail("Смена сценария", measure.scenario_name)
+    elif measure.kind == Measure.Kind.DISCONNECT:
+        title = "Отключение услуг"
+    elif measure.kind == Measure.Kind.COLLECTION:
+        title = "Взыскание"
+    else:
+        title = measure.get_kind_display()
+    owner = (getattr(measure, "owner_name", "") or "").strip()
+    if owner:
+        return f"{title} · {owner}"
+    return title
 
 
 def _day(value: date | None) -> str:

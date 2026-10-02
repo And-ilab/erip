@@ -121,6 +121,10 @@ type CustomField = 'group' | 'rating' | 'stage';
             </div>
           }
         </div>
+        @if (selectedCount()) {
+          <span class="picked-count">Выбрано {{ selectedCount() }}</span>
+          <button type="button" class="tool" (click)="clearSelection()">Снять</button>
+        }
         @if (canLaunch()) {
           <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
         }
@@ -136,7 +140,14 @@ type CustomField = 'group' | 'rating' | 'stage';
 
       @if (measureOpen()) {
         <div class="measure">
-          <p class="hint">Мероприятие уйдёт по всем лицевым счетам текущего фильтра. Шаблон выбирается из списка. Поставщик отмечает свои услуги: в партию попадут только они.</p>
+          <p class="hint">
+            @if (selectedCount()) {
+              Мероприятие уйдёт по {{ selectedCount() }} выбранным лицевым счетам.
+            } @else {
+              Мероприятие уйдёт по всем лицевым счетам текущего фильтра.
+            }
+            Шаблон выбирается из списка. Поставщик отмечает свои услуги: в партию попадут только они.
+          </p>
           <div class="filters">
             <mat-form-field>
               <mat-label>Мероприятие</mat-label>
@@ -204,9 +215,18 @@ type CustomField = 'group' | 'rating' | 'stage';
 
         @if (view() === 'list') {
           <table mat-table [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
+            <ng-container matColumnDef="select">
+              <th mat-header-cell *matHeaderCellDef>
+                <input type="checkbox" aria-label="Выбрать страницу" [checked]="pageAllSelected()" (change)="togglePage($event)" />
+              </th>
+              <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
+                <input type="checkbox" [attr.aria-label]="'Выбрать ЛС ' + r.client_account" [checked]="isSelected(r.id)" (change)="toggleRow(r, $event)" />
+              </td>
+            </ng-container>
             @for (name of columns(); track name) {
               <ng-container [matColumnDef]="name">
-                <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)">{{ label(name) }}</th>
+                <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)"
+                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)">{{ label(name) }}</th>
                 <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0">
                   @switch (name) {
                     @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
@@ -218,8 +238,9 @@ type CustomField = 'group' | 'rating' | 'stage';
                 </td>
               </ng-container>
             }
-            <tr mat-header-row *matHeaderRowDef="columns()"></tr>
-            <tr mat-row *matRowDef="let row; columns: columns()" class="clickable-row" (click)="open(row)"></tr>
+            <tr mat-header-row *matHeaderRowDef="shownColumns()"></tr>
+            <tr mat-row *matRowDef="let row; columns: shownColumns()" class="clickable-row" [class.picked]="isSelected(row.id)"
+                [attr.data-account]="row.id" (pointerdown)="beginSelect($event, row)" (click)="openRow($event, row)"></tr>
           </table>
           <mat-paginator [length]="total()" [pageSize]="pageSize" [pageSizeOptions]="[25, 50, 100]" (page)="pageChanged($event)" />
         }
@@ -237,10 +258,12 @@ type CustomField = 'group' | 'rating' | 'stage';
         @if (view() === 'kanban') {
           <div class="k-board">
             @for (column of board(); track column.stage) {
-              <section class="k-col" [attr.data-stage]="column.stage">
+              <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
+                       (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
                 <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
                 @for (card of column.cards; track card.id) {
-                  <article class="k-card g{{ card.effective_group ?? 0 }}" (click)="open(card)">
+                  <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
+                           [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
                     @if (canMove()) {
                       <button type="button" class="more" aria-label="Сменить этап" (click)="toggleStage($event, card.id)">
@@ -420,6 +443,10 @@ type CustomField = 'group' | 'rating' | 'stage';
       box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.picked, tr.picked { background: #e7f4f1; }
+    .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
+    .picked-count { font-size: 13px; color: var(--erip-primary); white-space: nowrap; }
+    th[draggable="true"] { cursor: grab; }
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
@@ -524,6 +551,8 @@ export class AccountsListComponent implements OnInit {
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly serviceChoices = signal<ServiceChoice[]>([]);
   protected readonly groupedRows = signal<{ value: string; accounts: number; debt: string | null }[]>([]);
+  protected readonly selected = signal<Set<number>>(new Set());
+  protected readonly dropStage = signal<string | null>(null);
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly groupsSelected = new FormControl<number[]>([], { nonNullable: true });
   protected readonly rating = new FormControl<string[]>([], { nonNullable: true });
@@ -548,10 +577,32 @@ export class AccountsListComponent implements OnInit {
   private page = 1;
   private ordering = '';
 
+  private selectAnchor: number | null = null;
+  private pointerSelecting = false;
+  private dragMoved = false;
+  private cardDragged = false;
+  private draggedColumn = '';
+
   @HostListener('document:click')
   protected closeSearch(): void {
     this.panelOpen.set(false);
     this.stageMenu.set(null);
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  protected dragSelect(event: PointerEvent): void {
+    if (!this.pointerSelecting || this.selectAnchor == null) return;
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const row = element?.closest('tr[data-account]');
+    const id = Number(row?.getAttribute('data-account'));
+    if (!id) return;
+    if (id !== this.selectAnchor) this.dragMoved = true;
+    this.selectRange(this.selectAnchor, id);
+  }
+
+  @HostListener('document:pointerup')
+  protected endSelect(): void {
+    this.pointerSelecting = false;
   }
 
   ngOnInit(): void {
@@ -751,6 +802,175 @@ export class AccountsListComponent implements OnInit {
     return !!me && me.role !== 'observer' && me.contour !== 'supplier';
   }
 
+  protected shownColumns(): string[] {
+    return ['select', ...this.columns()];
+  }
+
+  protected selectedCount(): number {
+    return this.selected().size;
+  }
+
+  protected isSelected(id: number): boolean {
+    return this.selected().has(id);
+  }
+
+  protected pageAllSelected(): boolean {
+    const rows = this.rows();
+    return rows.length > 0 && rows.every((row) => this.selected().has(row.id));
+  }
+
+  protected clearSelection(): void {
+    this.selected.set(new Set());
+  }
+
+  protected togglePage(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    const next = new Set(this.selected());
+    for (const row of this.rows()) {
+      if (checked) next.add(row.id);
+      else next.delete(row.id);
+    }
+    this.selected.set(next);
+  }
+
+  protected toggleRow(row: AccountRow, event: Event): void {
+    event.stopPropagation();
+    const next = new Set(this.selected());
+    if (next.has(row.id)) next.delete(row.id);
+    else next.add(row.id);
+    this.selected.set(next);
+    this.selectAnchor = row.id;
+  }
+
+  protected beginSelect(event: PointerEvent, row: AccountRow): void {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('a, button, input')) return;
+    this.pointerSelecting = true;
+    this.dragMoved = false;
+    if (!(event.shiftKey && this.selectAnchor != null)) this.selectAnchor = row.id;
+  }
+
+  protected openRow(event: MouseEvent, row: AccountRow): void {
+    if (this.dragMoved) {
+      this.dragMoved = false;
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest('input, button, a')) return;
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      const next = new Set(this.selected());
+      if (event.shiftKey && this.selectAnchor != null) this.selectRange(this.selectAnchor, row.id);
+      else if (next.has(row.id)) next.delete(row.id);
+      else next.add(row.id);
+      if (!event.shiftKey) {
+        this.selected.set(next);
+        this.selectAnchor = row.id;
+      }
+      return;
+    }
+    this.open(row);
+  }
+
+  protected startColumn(event: DragEvent, name: string): void {
+    this.draggedColumn = name;
+    event.dataTransfer?.setData('text/plain', name);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  protected allowColumn(event: DragEvent): void {
+    if (!this.draggedColumn) return;
+    event.preventDefault();
+  }
+
+  protected dropColumn(event: DragEvent, name: string): void {
+    event.preventDefault();
+    const from = this.draggedColumn;
+    this.draggedColumn = '';
+    if (!from || from === name) return;
+    const columns = [...this.columns()];
+    const source = columns.indexOf(from);
+    const target = columns.indexOf(name);
+    if (source < 0 || target < 0) return;
+    columns.splice(source, 1);
+    columns.splice(target, 0, from);
+    this.columns.set(columns);
+    this.api.saveColumns(columns).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
+  }
+
+  protected startCard(event: DragEvent, card: AccountRow): void {
+    if (!this.canMove()) {
+      event.preventDefault();
+      return;
+    }
+    this.cardDragged = true;
+    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
+    event.dataTransfer?.setData('text/plain', ids.join(','));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    event.stopPropagation();
+  }
+
+  protected allowDrop(event: DragEvent, stage: string): void {
+    if (!this.canMove()) return;
+    event.preventDefault();
+    this.dropStage.set(stage);
+  }
+
+  protected clearDrop(stage: string): void {
+    if (this.dropStage() === stage) this.dropStage.set(null);
+  }
+
+  protected dropOnStage(event: DragEvent, stage: string): void {
+    event.preventDefault();
+    this.dropStage.set(null);
+    if (!this.canMove()) return;
+    const raw = event.dataTransfer?.getData('text/plain') || '';
+    const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
+    if (ids.length) this.moveIds(ids, stage);
+  }
+
+  protected openCard(event: MouseEvent, card: AccountRow): void {
+    if (this.cardDragged) {
+      this.cardDragged = false;
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      event.stopPropagation();
+      const next = new Set(this.selected());
+      if (next.has(card.id)) next.delete(card.id);
+      else next.add(card.id);
+      this.selected.set(next);
+      return;
+    }
+    this.open(card);
+  }
+
+  private selectRange(fromId: number, toId: number): void {
+    const ids = this.rows().map((row) => row.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0) return;
+    const [start, end] = from < to ? [from, to] : [to, from];
+    this.selected.set(new Set(ids.slice(start, end + 1)));
+  }
+
+  private moveIds(ids: number[], stage: string): void {
+    const pending = [...ids];
+    const step = (): void => {
+      const id = pending.shift();
+      if (id == null) {
+        this.selected.set(new Set());
+        this.showKanban();
+        return;
+      }
+      this.api.updateAccount(id, { funnel_stage: stage }).subscribe({
+        next: () => step(),
+        error: (e) => this.snack.open(errorMessage(e), 'OK'),
+      });
+    };
+    step();
+  }
+
   protected toggleStage(event: Event, id: number): void {
     event.stopPropagation();
     this.stageMenu.update((open) => open === id ? null : id);
@@ -802,10 +1022,7 @@ export class AccountsListComponent implements OnInit {
 
   move(card: AccountRow, stage: string): void {
     this.stageMenu.set(null);
-    this.api.updateAccount(card.id, { funnel_stage: stage }).subscribe({
-      next: () => this.showKanban(),
-      error: (e) => this.snack.open(errorMessage(e), 'OK'),
-    });
+    this.moveIds([card.id], stage);
   }
 
   private dayMonth(iso: string): string {
@@ -905,7 +1122,10 @@ export class AccountsListComponent implements OnInit {
       this.snack.open(text, 'OK');
       return;
     }
-    const body: Record<string, unknown> = { kind, filters: this.query(), all_matching: true };
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = chosen.length
+      ? { kind, account_ids: chosen }
+      : { kind, filters: this.query(), all_matching: true };
     if (template) body['template_name'] = template.name;
     if (this.needsServices()) body['catalog_service_ids'] = this.catalogServices.value;
     if (kind === 'call') {

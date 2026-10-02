@@ -100,6 +100,17 @@ def _supplier_totals(instance, data):
         data["debt_total"] = principal or 0
     if "mulct_total" in data:
         data["mulct_total"] = getattr(instance, "supplier_penalty", None) or 0
+    replacements = {
+        "balance_in": getattr(instance, "supplier_balance_in", None) or 0,
+        "total_calc_sum": getattr(instance, "supplier_calc", None) or 0,
+        "pay_sum": getattr(instance, "supplier_paid", None) or 0,
+        "pay_sum_writeoff": 0,
+        "unshared_sum": 0,
+        "calc_result_sum": getattr(instance, "supplier_subsidy", None) or 0,
+    }
+    for key, value in replacements.items():
+        if key in data:
+            data[key] = value
     services = getattr(instance, "supplier_services", None)
     if services is not None and "services_count" in data:
         data["services_count"] = services
@@ -444,6 +455,7 @@ class MeasureSerializer(serializers.ModelSerializer):
             "debtor_name", "debtor_account", "debtor_id", "next_action", "progress",
             "account_item_status", "needs_approval", "approval", "approval_note",
             "suspension_confirmed_on", "suspension_source", "resumed_on", "resume_source",
+            "owner_provider_id", "owner_name",
         ]
 
     def _debtor(self, obj):
