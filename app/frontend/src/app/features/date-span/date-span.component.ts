@@ -75,7 +75,7 @@ interface WeekRow {
               }
             </tbody>
           </table>
-          <p class="hint">Первый щелчок — один день, второй — конец диапазона.</p>
+          <p class="hint">Первый щелчок — день. Месяц и год можно сменить, второй щелчок — конец диапазона.</p>
         </div>
       }
     </div>
@@ -128,6 +128,7 @@ export class DateSpanComponent implements OnChanges {
   private rangeDone = false;
 
   ngOnChanges(): void {
+    if (this.anchor && !this.rangeDone) return;
     const source = this.from || this.today;
     const [year, month] = source.split('-').map(Number);
     if (year && month) {
@@ -183,6 +184,7 @@ export class DateSpanComponent implements OnChanges {
   }
 
   protected marked(value: string): boolean {
+    if (this.anchor && !this.rangeDone) return value === this.anchor;
     if (!this.from || !this.to || this.isWholeMonth()) return false;
     return value === this.from || value === this.to;
   }
@@ -191,6 +193,7 @@ export class DateSpanComponent implements OnChanges {
     const shifted = new Date(year, month - 1, 1);
     this.viewYear = shifted.getFullYear();
     this.viewMonth = shifted.getMonth() + 1;
+    if (this.anchor && !this.rangeDone) return;
     this.anchor = null;
     this.rangeDone = false;
     this.spanChange.emit(monthBounds(this.viewYear, this.viewMonth));
