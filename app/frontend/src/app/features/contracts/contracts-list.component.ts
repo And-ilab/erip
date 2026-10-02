@@ -179,11 +179,25 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         @if (view() === 'kanban') {
           <div class="k-board">
             @for (column of kanban(); track column.stage) {
-              <section class="k-col" [attr.data-stage]="column.stage">
+              <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
+                       (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
                 <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
                 @for (card of column.cards; track card.sample_id) {
-                  <article class="k-card g{{ card.debt_group ?? 0 }}" (click)="open(card.sample_id)">
+                  <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
+                           [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <div class="name">{{ card.payer || 'Без наименования' }}</div>
+                    @if (canMove()) {
+                      <button type="button" class="more" aria-label="Сменить этап" (click)="toggleStage($event, card.sample_id)">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.2 2.8 7.2 8.8M7 3.5H3.5v9h9V9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+                      </button>
+                    }
+                    @if (stageMenu() === card.sample_id) {
+                      <div class="stage-menu" (click)="$event.stopPropagation()">
+                        @for (item of stages; track item.id) {
+                          <button type="button" [class.on]="column.stage === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
+                        }
+                      </div>
+                    }
                     <div class="line">{{ personId(card) }} · {{ card.ls_count }} ЛС · {{ card.service_count || 1 }} усл.</div>
                     @if (card.service_name) {
                       <div class="line">{{ card.service_name }}</div>
@@ -351,11 +365,30 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
     .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
     .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
     .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .k-card {
-      background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1; border-radius: 8px;
+      position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1; border-radius: 8px;
       padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
+    .k-card[draggable="true"] { cursor: grab; }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.picked { background: #e7f4f1; }
+    .k-card .name { padding-right: 18px; }
+    .k-card .more {
+      position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; border: 0;
+      background: transparent; color: #9aa3ad; cursor: pointer;
+    }
+    .k-card .more svg { width: 14px; height: 14px; display: block; }
+    .stage-menu {
+      position: absolute; z-index: 5; top: 28px; right: 8px; min-width: 180px; padding: 4px;
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 20px rgba(16, 42, 67, .16);
+    }
+    .stage-menu button {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 6px 8px; font: inherit; font-size: 12px; border-radius: 4px; cursor: pointer;
+    }
+    .stage-menu button.on, .stage-menu button:hover { background: #f3f6f8; }
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
@@ -424,6 +457,10 @@ export class ContractsListComponent implements OnInit {
   protected readonly saved = signal<SavedFilter[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
+  protected readonly stageMenu = signal<number | null>(null);
+  protected readonly dropStage = signal<string | null>(null);
+  protected readonly selected = signal<Set<number>>(new Set());
+  private cardDragged = false;
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly groups = new FormControl<number[]>([], { nonNullable: true });
   protected readonly category = new FormControl('', { nonNullable: true });
@@ -443,6 +480,7 @@ export class ContractsListComponent implements OnInit {
   @HostListener('document:click')
   protected closeSearch(): void {
     this.panelOpen.set(false);
+    this.stageMenu.set(null);
   }
 
   ngOnInit(): void {
@@ -571,6 +609,96 @@ export class ContractsListComponent implements OnInit {
 
   open(id: number): void {
     this.router.navigate(['/contracts', id]);
+  }
+
+  protected canMove(): boolean {
+    const me = this.auth.me();
+    return !!me && me.role !== 'observer' && me.contour !== 'supplier';
+  }
+
+  protected isSelected(id: number): boolean {
+    return this.selected().has(id);
+  }
+
+  protected startCard(event: DragEvent, card: ContractPerson): void {
+    if (!this.canMove()) {
+      event.preventDefault();
+      return;
+    }
+    this.cardDragged = true;
+    const cards = this.selected().has(card.sample_id) ? [...this.selected()] : [card.sample_id];
+    event.dataTransfer?.setData('text/plain', cards.join(','));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    event.stopPropagation();
+  }
+
+  protected allowDrop(event: DragEvent, stage: string): void {
+    if (!this.canMove()) return;
+    event.preventDefault();
+    this.dropStage.set(stage);
+  }
+
+  protected clearDrop(stage: string): void {
+    if (this.dropStage() === stage) this.dropStage.set(null);
+  }
+
+  protected dropOnStage(event: DragEvent, stage: string): void {
+    event.preventDefault();
+    this.dropStage.set(null);
+    if (!this.canMove()) return;
+    const raw = event.dataTransfer?.getData('text/plain') || '';
+    const sampleIds = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
+    const accountIds = this.accountIds(sampleIds);
+    if (accountIds.length) this.moveAccounts(accountIds, stage);
+  }
+
+  protected openCard(event: MouseEvent, card: ContractPerson): void {
+    if (this.cardDragged) {
+      this.cardDragged = false;
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      event.stopPropagation();
+      const next = new Set(this.selected());
+      if (next.has(card.sample_id)) next.delete(card.sample_id);
+      else next.add(card.sample_id);
+      this.selected.set(next);
+      return;
+    }
+    this.open(card.sample_id);
+  }
+
+  protected toggleStage(event: Event, id: number): void {
+    event.stopPropagation();
+    this.stageMenu.update((open) => open === id ? null : id);
+  }
+
+  move(card: ContractPerson, stage: string): void {
+    this.moveAccounts(card.account_ids || [], stage);
+  }
+
+  private accountIds(sampleIds: number[]): number[] {
+    const wanted = new Set(sampleIds);
+    const ids = new Set<number>();
+    for (const column of this.kanban()) {
+      for (const card of column.cards) {
+        if (!wanted.has(card.sample_id)) continue;
+        for (const id of card.account_ids || []) ids.add(id);
+      }
+    }
+    return [...ids];
+  }
+
+  private moveAccounts(ids: number[], stage: string): void {
+    this.stageMenu.set(null);
+    if (!ids.length) return;
+    this.api.contractStage(ids, stage).subscribe({
+      next: () => {
+        this.selected.set(new Set());
+        this.showKanban();
+      },
+      error: (e) => this.error.set(errorMessage(e)),
+    });
   }
 
   showPersons(): void {

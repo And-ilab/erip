@@ -9,7 +9,7 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, parsers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
@@ -588,6 +588,23 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
         page_size = bounded_int(request.query_params.get("page_size"), 100, maximum=200, field="page_size")
         page = bounded_int(request.query_params.get("page"), 1, field="page")
         return Response(kanban_columns(self._visible(), FUNNEL_STAGES, page, page_size))
+
+    @action(detail=False, methods=["post"])
+    def stage(self, request):
+        from .services.contracts import move_stage
+
+        raw_ids = request.data.get("account_ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValidationError({"account_ids": "Укажите лицевые счета"})
+        try:
+            wanted = {int(item) for item in raw_ids}
+        except (TypeError, ValueError):
+            raise ValidationError({"account_ids": "Укажите лицевые счета"}) from None
+        chosen = list(Account.objects.filter(services__in=self._visible(), pk__in=wanted).distinct())
+        if {account.pk for account in chosen} != wanted:
+            raise NotFound()
+        move_stage(request.user, chosen, request.data.get("funnel_stage") or "")
+        return Response({"status": "ok"})
 
     @action(detail=False)
     def calendar(self, request):

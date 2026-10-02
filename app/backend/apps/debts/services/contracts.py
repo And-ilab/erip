@@ -76,9 +76,9 @@ def reject_supplier_account_fields(user, fields: set[str]) -> None:
         raise ValidationError({name: "Поле недоступно поставщику услуг" for name in blocked})
 
 
-def _person_groups(qs):
-    """Одна строка на должника. Пустые ИН и УНП не склеивают разные счета."""
-    ranked = qs.order_by().annotate(
+def _with_person(qs):
+    """Ключ должника и ранг этапа. Пустые ИН и УНП не склеивают разные счета."""
+    return qs.order_by().annotate(
         person_key=Coalesce(
             NullIf("account__payer_identifier", Value("")),
             NullIf("account__payer_unp", Value("")),
@@ -96,7 +96,10 @@ def _person_groups(qs):
             output_field=IntegerField(),
         ),
     )
-    return ranked.values("person_key").annotate(
+
+
+def _person_groups(qs):
+    return _with_person(qs).values("person_key").annotate(
         rank=Max("stage_rank"),
         debt_group=Max("shown_group"),
         principal=Sum("balance_out"),
@@ -144,6 +147,8 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int)
         rank = 1 if code == "new" else FUNNEL_RANK[code]
         column = grouped.filter(rank=rank).order_by("payer")
         total = column.count()
+        chunk = list(column[start:start + page_size])
+        ids = _account_ids(qs, [row["person_key"] for row in chunk])
         columns.append({
             "stage": code,
             "title": title,
@@ -164,8 +169,39 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int)
                     "debt_group": row["debt_group"],
                     "earliest": row["earliest"],
                     "due_on": row["due_on"],
+                    "account_ids": ids.get(row["person_key"], []),
                 }
-                for row in column[start:start + page_size]
+                for row in chunk
             ],
         })
     return columns
+
+
+def _account_ids(qs, keys: list) -> dict:
+    if not keys:
+        return {}
+    found: dict = {}
+    rows = _with_person(qs).filter(person_key__in=keys).values_list("person_key", "account_id").distinct()
+    for key, account_id in rows:
+        found.setdefault(key, set()).add(account_id)
+    return {key: sorted(ids) for key, ids in found.items()}
+
+
+def move_stage(user, accounts, stage: str) -> None:
+    """Этап карточки должника — этап всех его видимых лицевых счетов."""
+    if getattr(user, "contour", "") == "supplier":
+        raise ValidationError({"funnel_stage": "Поставщик не меняет этап воронки"})
+    if stage not in FUNNEL_RANK:
+        raise ValidationError({"funnel_stage": "Неизвестный этап"})
+    rows = list(accounts)
+    if not rows:
+        return
+    organizations = {row.organization_id for row in rows}
+    if len(organizations) > 1:
+        raise ValidationError({"account_ids": "Несколько схем в одной операции"})
+    for account in rows:
+        if account.funnel_stage == stage:
+            continue
+        account.funnel_stage = stage
+        account.funnel_locked = True
+        account.save(update_fields=["funnel_stage", "funnel_locked", "updated_at"])

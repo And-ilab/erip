@@ -156,6 +156,7 @@ export interface ContractPerson {
   service_count?: number;
   address?: string;
   due_on?: string | null;
+  account_ids?: number[];
 }
 
 export interface ContractSummary {

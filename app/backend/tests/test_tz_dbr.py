@@ -269,6 +269,43 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
     assert "due_on" in warning["cards"][0]
 
 
+def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, specialist_a, observer_a, account_a):
+    columns = api(specialist_a).get("/api/v1/contracts/kanban/").json()
+    card = next(item for column in columns for item in column["cards"] if account_a.id in item["account_ids"])
+    moved = api(specialist_a).post(
+        "/api/v1/contracts/stage/",
+        {"account_ids": card["account_ids"], "funnel_stage": "disconnect"},
+        format="json",
+    )
+    assert moved.status_code == 200
+    account_a.refresh_from_db()
+    assert account_a.funnel_stage == "disconnect"
+    assert account_a.funnel_locked is True
+    board = api(specialist_a).get("/api/v1/contracts/kanban/").json()
+    disconnect = next(column for column in board if column["stage"] == "disconnect")
+    assert any(account_a.id in item["account_ids"] for item in disconnect["cards"])
+    assert api(observer_a).post(
+        "/api/v1/contracts/stage/",
+        {"account_ids": [account_a.id], "funnel_stage": "warning"},
+        format="json",
+    ).status_code == 403
+    foreign = make_account(org_b, 777)
+    denied = api(specialist_a).post(
+        "/api/v1/contracts/stage/",
+        {"account_ids": [account_a.id, foreign.id], "funnel_stage": "court"},
+        format="json",
+    )
+    assert denied.status_code == 404
+    account_a.refresh_from_db()
+    assert account_a.funnel_stage == "disconnect"
+    supplier, _water = _supplier(org_a, account_a)
+    assert api(supplier).post(
+        "/api/v1/contracts/stage/",
+        {"account_ids": [account_a.id], "funnel_stage": "warning"},
+        format="json",
+    ).status_code == 400
+
+
 def test_calendar_filters_one_day_or_a_range(api, specialist_a, account_a):
     account_a.warning_due = date(2026, 10, 3)
     account_a.claim_due = date(2026, 10, 20)

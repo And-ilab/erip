@@ -188,6 +188,13 @@ export class ApiService {
     return this.http.get<Page<ContractPerson>>(`${this.base}/contracts/persons/`, { params: toParams(params) });
   }
 
+  contractStage(accountIds: number[], funnelStage: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`${this.base}/contracts/stage/`, {
+      account_ids: accountIds,
+      funnel_stage: funnelStage,
+    });
+  }
+
   contractKanban(params: Params): Observable<{ stage: string; title: string; total: number; cards: ContractPerson[] }[]> {
     return this.http.get<{ stage: string; title: string; total: number; cards: ContractPerson[] }[]>(
       `${this.base}/contracts/kanban/`, { params: toParams(params) },
