@@ -48,15 +48,8 @@ interface DayCell {
   imports: [ReactiveFormsModule],
   template: `
     <div class="bar">
-      <button type="button" (click)="shift(-1)" aria-label="Назад">‹</button>
       <strong>{{ caption() }}</strong>
-      <button type="button" (click)="shift(1)" aria-label="Вперёд">›</button>
-      <button type="button" (click)="goToday()">Сегодня</button>
-      <button type="button" [class.on]="drawer" [attr.aria-expanded]="drawer" (click)="drawer = true">Период</button>
-      <button type="button" (click)="filters.emit()">Фильтры</button>
-      @if (canCreate) {
-        <button type="button" class="add" (click)="begin(createAnchor())">Событие</button>
-      }
+      <button type="button" [class.on]="drawer" [attr.aria-expanded]="drawer" (click)="drawer = true">Календарь</button>
     </div>
 
     @if (draft) {
@@ -118,12 +111,14 @@ interface DayCell {
         @for (day of coveredDays(); track day) {
           <section class="day">
             <h3>{{ long(day) }}</h3>
-            @for (event of on(day); track track(event)) {
-              <button type="button" class="ev" (click)="openEvent.emit(event)">
-                <b>{{ event.kind }}</b> {{ event.title }}
-              </button>
-            } @empty {
-              <p class="muted">В этот день событий нет.</p>
+            @if (showEvents) {
+              @for (event of on(day); track track(event)) {
+                <button type="button" class="ev" (click)="openEvent.emit(event)">
+                  <b>{{ event.kind }}</b> {{ event.title }}
+                </button>
+              } @empty {
+                <p class="muted">В этот день событий нет.</p>
+              }
             }
           </section>
         }
@@ -134,8 +129,10 @@ interface DayCell {
             @for (day of week; track day) {
               <section [class.dim]="!inSpan(day)">
                 <button type="button" class="num" (click)="begin(day)">{{ long(day) }}</button>
-                @for (event of on(day); track track(event)) {
-                  <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }} · {{ event.title }}</button>
+                @if (showEvents) {
+                  @for (event of on(day); track track(event)) {
+                    <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }} · {{ event.title }}</button>
+                  }
                 }
               </section>
             }
@@ -158,11 +155,13 @@ interface DayCell {
                     @for (day of week; track day.iso) {
                       <td [class.out]="!day.inMonth" [class.dim]="day.inMonth && !inSpan(day.iso)" [class.mark]="marked(day.iso)" [class.today]="day.iso === today">
                         <button type="button" class="num" (click)="begin(day.iso)">{{ day.day }}</button>
-                        @for (event of on(day.iso).slice(0, 3); track track(event)) {
-                          <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }}</button>
-                        }
-                        @if (on(day.iso).length > 3) {
-                          <button type="button" class="more" (click)="focusDay(day.iso)">ещё {{ on(day.iso).length - 3 }}</button>
+                        @if (showEvents) {
+                          @for (event of on(day.iso).slice(0, 3); track track(event)) {
+                            <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }}</button>
+                          }
+                          @if (on(day.iso).length > 3) {
+                            <button type="button" class="more" (click)="focusDay(day.iso)">ещё {{ on(day.iso).length - 3 }}</button>
+                          }
                         }
                       </td>
                     }
@@ -187,7 +186,7 @@ interface DayCell {
                     <tr>
                       @for (day of week; track day.iso) {
                         <td>
-                          <button type="button" class="dot" [class.out]="!day.inMonth || !inSpan(day.iso)" [class.busy]="inSpan(day.iso) && on(day.iso).length" (click)="focusDay(day.iso)">{{ day.day }}</button>
+                          <button type="button" class="dot" [class.out]="!day.inMonth || !inSpan(day.iso)" [class.busy]="showEvents && inSpan(day.iso) && on(day.iso).length" (click)="focusDay(day.iso)">{{ day.day }}</button>
                         </td>
                       }
                     </tr>
@@ -202,13 +201,13 @@ interface DayCell {
 
     @if (drawer) {
       <div class="scrim" (click)="drawer = false"></div>
-      <aside class="drawer" role="dialog" aria-label="Период календаря" (click)="$event.stopPropagation()">
+      <aside class="drawer" role="dialog" aria-label="Календарь" (click)="$event.stopPropagation()">
         <header>
-          <strong>Период</strong>
+          <strong>Календарь</strong>
           <button type="button" (click)="drawer = false" aria-label="Закрыть">×</button>
         </header>
         <section>
-          <h3>Представление</h3>
+          <h3>Виды отображения</h3>
           <div class="modes">
             @for (item of modes; track item.id) {
               <button type="button" [class.on]="mode === item.id" (click)="switchMode(item.id)">{{ item.label }}</button>
@@ -216,7 +215,13 @@ interface DayCell {
           </div>
         </section>
         <section>
-          <h3>День или диапазон</h3>
+          <h3>Выбор дня/диапазона</h3>
+          <div class="tools">
+            <button type="button" (click)="shift(-1)" aria-label="Назад">‹</button>
+            <button type="button" (click)="goToday()">Сегодня</button>
+            <button type="button" (click)="shift(1)" aria-label="Вперёд">›</button>
+            <button type="button" (click)="openFilters($event)">Фильтры</button>
+          </div>
           <div class="pick-nav">
             <button type="button" (click)="pickShift(-1)" aria-label="Предыдущий месяц">‹</button>
             <select (change)="onPickMonth($event)">
@@ -259,13 +264,20 @@ interface DayCell {
           </table>
           <p class="hint">{{ pickHint() }}</p>
         </section>
+        <section>
+          <h3>Отображение событий</h3>
+          <div class="modes">
+            <button type="button" [class.on]="showEvents" (click)="showEvents = true">Вкл</button>
+            <button type="button" [class.on]="!showEvents" (click)="showEvents = false">Выкл</button>
+          </div>
+        </section>
       </aside>
     }
   `,
   styles: [`
     .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-    .bar button, .draft button, .draft select, .draft input, .drawer button, .drawer select {
-      height: 32px; border: 1px solid #d5dde5; border-radius: 6px; background: #fff; font: inherit; cursor: pointer;
+    .bar button, .draft button, .draft select, .draft input, .drawer button:not(.cell), .drawer select {
+      height: 32px; border: 1px solid #d5dde5; border-radius: 6px; background: #fff; color: #1f2933; font: inherit; cursor: pointer;
     }
     .bar button, .draft button, .drawer header button { padding: 0 10px; }
     .bar button.on, .bar .add, .modes button.on { background: #0f6e78; color: #fff; border-color: #0f6e78; }
@@ -310,12 +322,13 @@ interface DayCell {
     .modes button { flex: 1; border-radius: 0; }
     .modes button:first-child { border-radius: 6px 0 0 6px; }
     .modes button:last-child { border-radius: 0 6px 6px 0; }
-    .pick-nav { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .tools, .pick-nav { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .tools button { flex: 1; }
     .pick-nav select { flex: 1; padding: 0 6px; }
     .pick-nav button { width: 32px; padding: 0; }
-    .cell { width: 36px; height: 32px; margin: 1px auto; border: 0; border-radius: 6px; background: transparent; font: inherit; cursor: pointer; }
-    .cell.out { color: #b0b8c0; }
-    .cell.in { background: #e7f2f4; }
+    .cell { width: 36px; height: 32px; margin: 1px auto; border: 0; border-radius: 6px; background: transparent; color: #1f2933; font: inherit; cursor: pointer; }
+    .cell.out { color: #8b97a3; }
+    .cell.in { background: #e7f2f4; color: #1f2933; }
     .cell.start, .cell.end { background: #0f6e78; color: #fff; }
     .cell.today { box-shadow: inset 0 0 0 1px #0f6e78; }
     @media (max-width: 1100px) { .year { grid-template-columns: repeat(2, 1fr); } .week { grid-template-columns: repeat(2, 1fr); } }
@@ -347,6 +360,7 @@ export class CalendarBoardComponent implements OnChanges {
   protected readonly kinds = KINDS;
   protected readonly today = iso(new Date());
   protected drawer = false;
+  protected showEvents = true;
   protected draft = '';
   protected draftError = '';
   protected pickYear = new Date().getFullYear();
@@ -459,6 +473,12 @@ export class CalendarBoardComponent implements OnChanges {
       return;
     }
     this.spanChange.emit({ from: shiftIso(start, this.mode, step), to: shiftIso(end, this.mode, step) });
+  }
+
+  protected openFilters(event: Event): void {
+    event.stopPropagation();
+    this.drawer = false;
+    this.filters.emit();
   }
 
   protected goToday(): void {
