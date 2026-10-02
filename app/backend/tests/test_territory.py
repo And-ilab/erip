@@ -91,6 +91,16 @@ def test_assign_is_idempotent(org_a):
     assert Territory.objects.count() == first
 
 
+def test_map_places_accounts_that_are_not_linked_yet(api, specialist_a, org_a):
+    make_account(org_a, 41, house_address="г. Минск, ул. Тестовая, д. 9", debt_group=2)
+    body = api(specialist_a).get("/api/v1/accounts/map/")
+    assert body.status_code == 200
+    payload = body.json()
+    assert payload["children"][0]["name"] == "Минская область"
+    assert payload["children"][0]["accounts"] == 1
+    assert Account.objects.get(account_id=41).territory_id is not None
+
+
 def test_map_counts_subtree_inside_the_contour(api, specialist_a, org_a, org_b):
     make_account(org_a, 11, house_address="г. Минск, ул. Тестовая, д. 1", debt_group=1)
     make_account(org_a, 12, house_address="г. Минск, ул. Тестовая, д. 1", debt_group=6)

@@ -267,7 +267,13 @@ class TerritoryIndex:
     def assign_queryset(self, queryset: QuerySet) -> int:
         changed: list[Account] = []
         updated = 0
-        accounts = queryset.only("id", "house_address", "account_address", "territory_id").iterator(chunk_size=500)
+        # Реестр уже делает select_related("organization"). only() без сброса
+        # select_related даёт FieldError и карту с 500, пока есть непривязанные счета.
+        accounts = (
+            queryset.select_related(None)
+            .only("id", "house_address", "account_address", "territory_id")
+            .iterator(chunk_size=500)
+        )
         for account in accounts:
             place = self.place_for(account.house_address or account.account_address or "")
             new_id = place.pk if place else None
