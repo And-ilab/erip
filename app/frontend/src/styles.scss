@@ -64,6 +64,18 @@ html, body { height: 100%; margin: 0; font-family: Roboto, "Segoe UI", Arial, sa
 a:not(.mat-mdc-button-base):not(.mat-mdc-list-item) { color: var(--erip-link); text-decoration: none; &:hover { text-decoration: underline; } }
 
 .page { padding: 16px 24px; }
+
+/* Окно списка: видно не больше 10 строк, остальное крутится внутри, страница не растёт. */
+.list-pane {
+  --list-row: 48px;
+  max-height: min(calc(10 * var(--list-row) + 44px), calc(100vh - 220px));
+  overflow: auto;
+}
+.list-pane.cards { --list-row: 136px; max-height: min(calc(10 * var(--list-row)), calc(100vh - 260px)); }
+.list-pane .mat-mdc-header-row,
+.list-pane thead th {
+  position: sticky; top: 0; z-index: 2; background: #f7f9fb;
+}
 .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; h2 { margin: 0; flex: 1; color: var(--erip-primary-dark); } }
 .filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .full-width { width: 100%; }

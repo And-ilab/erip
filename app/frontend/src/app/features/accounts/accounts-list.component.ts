@@ -214,6 +214,7 @@ type CustomField = 'group' | 'rating' | 'stage';
         }
 
         @if (view() === 'list') {
+          <div class="list-pane">
           <table mat-table [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef>
@@ -242,10 +243,12 @@ type CustomField = 'group' | 'rating' | 'stage';
             <tr mat-row *matRowDef="let row; columns: shownColumns()" class="clickable-row" [class.picked]="isSelected(row.id)"
                 [attr.data-account]="row.id" (pointerdown)="beginSelect($event, row)" (click)="openRow($event, row)"></tr>
           </table>
+          </div>
           <mat-paginator [length]="total()" [pageSize]="pageSize" [pageSizeOptions]="[25, 50, 100]" (page)="pageChanged($event)" />
         }
 
         @if (view() === 'grouped') {
+          <div class="list-pane">
           <table mat-table [dataSource]="groupedRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value || '—' }}</td></ng-container>
             <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
@@ -253,6 +256,7 @@ type CustomField = 'group' | 'rating' | 'stage';
             <tr mat-header-row *matHeaderRowDef="['value', 'accounts', 'debt']"></tr>
             <tr mat-row *matRowDef="let row; columns: ['value', 'accounts', 'debt']"></tr>
           </table>
+          </div>
         }
 
         @if (view() === 'kanban') {
@@ -261,6 +265,7 @@ type CustomField = 'group' | 'rating' | 'stage';
               <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
                        (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
                 <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
+                <div class="list-pane cards">
                 @for (card of column.cards; track card.id) {
                   <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
@@ -298,6 +303,7 @@ type CustomField = 'group' | 'rating' | 'stage';
                     </div>
                   </article>
                 }
+                </div>
               </section>
             }
           </div>

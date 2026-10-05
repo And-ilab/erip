@@ -141,7 +141,7 @@ import {
           </mat-tab>
 
           <mat-tab label="Услуги ({{ services().length }})">
-            <table mat-table [dataSource]="services()">
+            <div class="list-pane"><table mat-table [dataSource]="services()">
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th>
                 <td mat-cell *matCellDef="let s">
                   @if (!auth.showSupplier()) {
@@ -160,11 +160,11 @@ import {
                 <td mat-cell *matCellDef="let s">@if (s.debt_group) { <span class="group-badge g{{ s.debt_group }}">{{ s.debt_group }}</span> }</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="serviceColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: serviceColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="Оплаты ({{ payments().length }})">
-            <table mat-table [dataSource]="payments()">
+            <div class="list-pane"><table mat-table [dataSource]="payments()">
               <ng-container matColumnDef="pay_date"><th mat-header-cell *matHeaderCellDef>Дата</th><td mat-cell *matCellDef="let p">{{ p.pay_date | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let p">{{ p.service_name }}</td></ng-container>
               <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг</th><td mat-cell *matCellDef="let p" class="amount-paid">{{ p.pay_service_summ | number: '1.2-2' }}</td></ng-container>
@@ -173,11 +173,11 @@ import {
               <ng-container matColumnDef="payment_type_display"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let p">{{ p.payment_type_display }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="paymentColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: paymentColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="Регистрация ({{ registrations().length }})">
-            <table mat-table [dataSource]="registrations()">
+            <div class="list-pane"><table mat-table [dataSource]="registrations()">
               <ng-container matColumnDef="full_name"><th mat-header-cell *matHeaderCellDef>ФИО</th><td mat-cell *matCellDef="let r">{{ r.full_name }} @if (r.subj_is_main) { <b>(плательщик)</b> }</td></ng-container>
               <ng-container matColumnDef="birthday"><th mat-header-cell *matHeaderCellDef>Дата рождения</th><td mat-cell *matCellDef="let r">{{ r.birthday | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="relation_degree_name"><th mat-header-cell *matHeaderCellDef>Родство</th><td mat-cell *matCellDef="let r">{{ r.relation_degree_name }}</td></ng-container>
@@ -186,22 +186,22 @@ import {
               <ng-container matColumnDef="contacts"><th mat-header-cell *matHeaderCellDef>Контакты</th><td mat-cell *matCellDef="let r">{{ r.contact_phone }} {{ r.email }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="registrationColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: registrationColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="История сумм">
-            <table mat-table [dataSource]="balances()">
+            <div class="list-pane"><table mat-table [dataSource]="balances()">
               <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
               <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r">{{ r.principal | number: '1.2-2' }}</td></ng-container>
               <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r">{{ r.penalty | number: '1.2-2' }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="balanceColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: balanceColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="Группа и рейтинг">
-            <table mat-table [dataSource]="history()">
+            <div class="list-pane"><table mat-table [dataSource]="history()">
               <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Когда</th><td mat-cell *matCellDef="let r">{{ r.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
               <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Что</th><td mat-cell *matCellDef="let r">{{ r.kind }}</td></ng-container>
               <ng-container matColumnDef="old_value"><th mat-header-cell *matHeaderCellDef>Было</th><td mat-cell *matCellDef="let r">{{ r.old_value }}</td></ng-container>
@@ -209,7 +209,7 @@ import {
               <ng-container matColumnDef="reason"><th mat-header-cell *matHeaderCellDef>Основание</th><td mat-cell *matCellDef="let r">{{ r.reason }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="historyColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: historyColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="Работа с задолженностью">
@@ -229,7 +229,7 @@ import {
                 <button mat-stroked-button (click)="addWork()">Добавить документ</button>
               }
             </div>
-            <table mat-table [dataSource]="work()">
+            <div class="list-pane"><table mat-table [dataSource]="work()">
               <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r">{{ r.kind_display }}</td></ng-container>
               <ng-container matColumnDef="title"><th mat-header-cell *matHeaderCellDef>Наименование</th><td mat-cell *matCellDef="let r">{{ r.title }}</td></ng-container>
               <ng-container matColumnDef="started_on"><th mat-header-cell *matHeaderCellDef>Начало</th><td mat-cell *matCellDef="let r">{{ r.started_on | date: 'dd.MM.yyyy' }}</td></ng-container>
@@ -239,7 +239,7 @@ import {
               <ng-container matColumnDef="paid_principal"><th mat-header-cell *matHeaderCellDef>Оплата</th><td mat-cell *matCellDef="let r">{{ r.paid_principal }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="workColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: workColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="Контакты">
@@ -267,7 +267,7 @@ import {
               <button mat-stroked-button (click)="addContact()">Добавить</button>
             </div>
             }
-            <table mat-table [dataSource]="contacts()">
+            <div class="list-pane"><table mat-table [dataSource]="contacts()">
               <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let r">{{ r.kind }}</td></ng-container>
               <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
               <ng-container matColumnDef="source"><th mat-header-cell *matHeaderCellDef>Источник</th><td mat-cell *matCellDef="let r">{{ r.source }} {{ r.ais_updated_at | date: 'dd.MM.yyyy' }}</td></ng-container>
@@ -280,7 +280,7 @@ import {
               </td></ng-container>
               <tr mat-header-row *matHeaderRowDef="contactColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: contactColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="Категория и наследство">
@@ -309,14 +309,14 @@ import {
 
           <mat-tab label="Мероприятия">
             <p><a routerLink="/measures">Реестр мероприятий</a></p>
-            <table mat-table [dataSource]="measures()">
+            <div class="list-pane"><table mat-table [dataSource]="measures()">
               <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/measures', r.id]"><span class="kind-chip {{ r.kind }}">{{ r.kind_display }}</span></a>@if (r.owner_name) { · {{ r.owner_name }} }</td></ng-container>
               <ng-container matColumnDef="status_display"><th mat-header-cell *matHeaderCellDef>Статус партии</th><td mat-cell *matCellDef="let r"><span class="status-pill {{ r.status }}">{{ r.status_display }}</span></td></ng-container>
               <ng-container matColumnDef="account_item_status"><th mat-header-cell *matHeaderCellDef>По этому ЛС</th><td mat-cell *matCellDef="let r">{{ r.account_item_status || '—' }}</td></ng-container>
               <ng-container matColumnDef="due_on"><th mat-header-cell *matHeaderCellDef>Срок</th><td mat-cell *matCellDef="let r">{{ r.due_on }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="measureColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: measureColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           <mat-tab label="Исполнительная надпись">
@@ -348,12 +348,12 @@ import {
                 <input type="file" (change)="onFile($event)" />
               }
             </div>
-            <table mat-table [dataSource]="files()">
+            <div class="list-pane"><table mat-table [dataSource]="files()">
               <ng-container matColumnDef="doc_type"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let r">{{ r.doc_type }}</td></ng-container>
               <ng-container matColumnDef="original_name"><th mat-header-cell *matHeaderCellDef>Файл</th><td mat-cell *matCellDef="let r">{{ r.original_name }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="fileColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: fileColumns"></tr>
-            </table>
+            </table></div>
           </mat-tab>
 
           @if (auth.canWrite()) {
@@ -379,7 +379,7 @@ import {
           <div class="backdrop" (click)="sharesOpen.set(false)">
             <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Состав долга">
               <h3>Кому должен ЛС {{ a.client_account }}</h3>
-              <table class="shares">
+              <div class="list-pane"><table class="shares">
                 <thead><tr><th>Поставщик</th><th>Долг</th><th>Пеня</th><th>Итого</th></tr></thead>
                 <tbody>
                   @for (row of shares(); track row.provider_name + row.principal + row.penalty) {
@@ -394,7 +394,7 @@ import {
                     <tr><td colspan="4">Долг по поставщикам не разложен</td></tr>
                   }
                 </tbody>
-              </table>
+              </table></div>
               <div class="dialog-actions">
                 <button mat-stroked-button type="button" (click)="sharesOpen.set(false)">Закрыть</button>
               </div>

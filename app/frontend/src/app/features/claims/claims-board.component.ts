@@ -41,6 +41,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             С группы 3 — надпись, иск и ОПИ. С группы 4 — ещё выселение и отчуждение.
           </p>
           @if (error()) { <p class="error">{{ error() }}</p> }
+          <div class="list-pane">
           <h3 class="queue-title">Назначено, дело не открыто</h3>
           @if (!assignedVisible().length) {
             <p class="hint">Счетов без открытого дела нет.</p>
@@ -67,6 +68,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
               <em [attr.data-stage]="card.stage">{{ card.stage_label }}</em>
             </a>
           }
+          </div>
         </aside>
 
         <section class="main">
@@ -88,6 +90,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
           @for (stage of stages(); track stage.id) {
             <section class="column" [attr.data-stage]="stage.id">
               <h3><span>{{ stage.label }}</span><b>{{ column(stage.id).length }}</b></h3>
+              <div class="list-pane cards">
               @for (card of column(stage.id); track card.id) {
                 <a class="card" [routerLink]="['/claims', card.id]" (click)="mode.set('list')">
                   <strong>{{ card.short_fio || 'Без ФИО' }}</strong>
@@ -97,6 +100,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                   <span class="money">{{ money(card.balance_out) }} <small>+ пеня {{ money(card.penalty) }}</small></span>
                 </a>
               }
+              </div>
             </section>
           }
         </div>

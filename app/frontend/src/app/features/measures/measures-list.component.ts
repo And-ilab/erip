@@ -78,6 +78,7 @@ const MONTHS = [
         }
         @if (groups().length) {
           <section class="surface registry">
+            <div class="list-pane">
             <table>
               <thead>
                 <tr>
@@ -151,6 +152,7 @@ const MONTHS = [
                 }
               </tbody>
             </table>
+            </div>
           </section>
         }
       }
@@ -169,7 +171,7 @@ const MONTHS = [
               <p class="muted">За выбранные условия мероприятий нет.</p>
             }
             @if (grid.results.length) {
-              <div class="matrix-wrap">
+              <div class="matrix-wrap list-pane">
                 <table class="matrix">
                   <thead>
                     <tr>
@@ -209,6 +211,7 @@ const MONTHS = [
           @for (group of groups(); track group.status) {
             <section class="column" [attr.data-status]="group.status">
               <h3><span>{{ group.label }}</span><b>{{ group.total }}</b></h3>
+              <div class="list-pane cards">
               @for (row of group.results; track row.id) {
                 <a class="card" [routerLink]="['/measures', row.id]">
                   <strong>{{ row.title }}</strong>
@@ -216,6 +219,7 @@ const MONTHS = [
                   <span>{{ row.next_action }}</span>
                 </a>
               }
+              </div>
             </section>
           }
         </div>
@@ -244,6 +248,7 @@ const MONTHS = [
           @if (!candidates().length) {
             <p class="muted pad">Счетов, готовых к отключению, сейчас нет.</p>
           } @else {
+            <div class="list-pane">
             <table>
               <thead>
                 <tr>
@@ -285,6 +290,7 @@ const MONTHS = [
                 }
               </tbody>
             </table>
+            </div>
             <div class="more">
               <span class="muted">Отмечено счетов: {{ picked().size }}</span>
               <button mat-flat-button color="primary" [disabled]="busy() || !picked().size" (click)="launch()">

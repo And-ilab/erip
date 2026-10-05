@@ -50,7 +50,7 @@ const ACTIONS = [
           <button mat-stroked-button (click)="copy()">Копировать в схему</button>
         </div>
       </header>
-      <div class="picker">
+      <div class="picker list-pane">
         @for (row of scenarios(); track row.id) {
           <button type="button" [class.on]="current()?.id === row.id" (click)="select(row)">
             {{ row.name }}
@@ -61,6 +61,7 @@ const ACTIONS = [
       @if (current(); as row) {
         <div class="layout">
           <section class="table-wrap">
+            <div class="list-pane">
             <table>
               <thead><tr><th>№</th><th>Мера</th><th>Дней</th><th>Режим</th></tr></thead>
               <tbody>
@@ -74,6 +75,7 @@ const ACTIONS = [
                 }
               </tbody>
             </table>
+            </div>
             <button mat-stroked-button (click)="addStep()">+ Шаг</button>
           </section>
           @if (steps[picked()]; as step) {
@@ -131,7 +133,7 @@ const ACTIONS = [
       <section class="forms">
         <h3>Печатные формы</h3>
         <p class="muted">Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{services}' }}, {{ '{last_payment}' }}, {{ '{organization}' }}, {{ '{due_days}' }}, {{ '{tariff}' }}. Документ запоминает версию шаблона.</p>
-        <div class="picker">
+        <div class="picker list-pane">
           @for (form of forms(); track form.id) {
             <button type="button" [class.on]="print()?.id === form.id" (click)="selectForm(form)">{{ form.name }} <small>v{{ form.version }}</small></button>
           }

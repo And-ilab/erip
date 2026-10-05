@@ -217,6 +217,7 @@ const DELIVERY_METHODS = [
           @if (!m.items.length) {
             <p class="muted pad">В этой партии нет лицевых счетов вашего контура.</p>
           } @else {
+            <div class="list-pane">
             <table>
               <thead>
                 <tr>
@@ -351,12 +352,14 @@ const DELIVERY_METHODS = [
                 }
               </tbody>
             </table>
+            </div>
           }
         </section>
 
         @if (m.events.length) {
           <section class="surface group">
             <div class="group-head"><span>Журнал переходов</span></div>
+            <div class="list-pane">
             <table>
               <thead>
                 <tr><th>Когда</th><th>Кто</th><th>Переход</th><th>Основание</th></tr>
@@ -372,6 +375,7 @@ const DELIVERY_METHODS = [
                 }
               </tbody>
             </table>
+            </div>
           </section>
         }
       }

@@ -16,6 +16,7 @@ import { NotificationsStore } from './notifications.store';
       <button mat-icon-button (click)="store.load()" title="Обновить"><mat-icon>refresh</mat-icon></button>
       <button mat-icon-button (click)="closed.emit()" title="Закрыть"><mat-icon>close</mat-icon></button>
     </div>
+    <div class="list-pane">
     @for (item of store.items(); track item.id) {
       <div class="item" [class.unread]="!item.is_read" (click)="store.markRead(item)">
         <div class="muted">{{ item.created_at | date: 'dd.MM.yyyy HH:mm' }} · {{ item.status_display }}</div>
@@ -24,6 +25,7 @@ import { NotificationsStore } from './notifications.store';
     } @empty {
       <p class="muted">Уведомлений нет</p>
     }
+    </div>
   `,
   styles: `
     :host { display: block; padding: 12px; }

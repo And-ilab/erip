@@ -147,6 +147,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         }
         @if (error()) { <p class="status-failed">{{ error() }}</p> }
         @if (view() === 'persons') {
+          <div class="list-pane">
           <table mat-table [dataSource]="persons()">
             <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>Должник</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
             <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>ИН</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
@@ -159,9 +160,11 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             <tr mat-header-row *matHeaderRowDef="personColumns"></tr>
             <tr mat-row *matRowDef="let row; columns: personColumns" class="clickable-row" (click)="open(row.sample_id)"></tr>
           </table>
+          </div>
           <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
         }
         @if (view() === 'services') {
+          <div class="list-pane">
           <table mat-table [dataSource]="rows()">
             <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>Должник</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
             <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>ИН</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
@@ -179,6 +182,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             <tr mat-header-row *matHeaderRowDef="columns"></tr>
             <tr mat-row *matRowDef="let row; columns: columns" class="clickable-row" (click)="open(row.id)"></tr>
           </table>
+          </div>
           <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
         }
         @if (view() === 'kanban') {
@@ -187,6 +191,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
               <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
                        (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
                 <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
+                <div class="list-pane cards">
                 @for (card of column.cards; track card.sample_id) {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
@@ -218,6 +223,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                     <div class="foot"><span class="when">{{ cardMark(card) }}</span></div>
                   </article>
                 }
+                </div>
               </section>
             }
           </div>
@@ -233,6 +239,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)" />
         }
         @if (view() === 'grouped') {
+          <div class="list-pane">
           <table mat-table [dataSource]="groupsRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
             <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
@@ -241,6 +248,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
             <tr mat-row *matRowDef="let row; columns: groupColumns"></tr>
           </table>
+          </div>
         }
       </div>
 
