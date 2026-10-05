@@ -1,5 +1,9 @@
 """Дела взыскания: /api/v1/claims/."""
 
+from __future__ import annotations
+
+from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -8,7 +12,7 @@ from rest_framework.response import Response
 from apps.audit.models import AuditLog
 from apps.audit.services import record_action
 from apps.core.permissions import RolePermission
-from apps.users.scoping import ScopedQuerysetMixin
+from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
 from .models import Account, ClaimCase
 from .services.claims import (
@@ -45,7 +49,11 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
                 "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
             )
         ]
-        return Response({"results": rows, "stages": [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices]})
+        return Response({
+            "results": rows,
+            "stages": [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices],
+            "assigned": self._assigned([case.account_id for case in self.get_queryset()]),
+        })
 
     def retrieve(self, request, pk=None):
         case = self._case(pk)
@@ -122,6 +130,33 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         record_action(request, AuditLog.Action.UPDATE, case, after={"decision": request.data.get("decision")})
         return Response(case_payload(case, with_choices=True))
 
+    def _assigned(self, held: list[int]) -> list[dict]:
+        """ЛС, которым назначена претензионная работа, но дело ещё не открыто."""
+        visible = AccessScope(self.request.user).apply(
+            Account.objects.all(), "organization", "provider_id", "services__provider_id",
+        )
+        queued = visible.filter(
+            Q(funnel_stage__in=["enforcement", "court"]) | Q(measures__kind="collection"),
+        )
+        if held:
+            queued = queued.exclude(pk__in=held)
+        queued = (
+            queued.annotate(shown_group=Coalesce("debt_group_manual", "debt_group"))
+            .distinct()
+            .order_by("short_fio", "client_account")[:100]
+        )
+        return [
+            {
+                "account": account.pk,
+                "client_account": account.client_account,
+                "short_fio": account.short_fio,
+                "debt_group": account.shown_group,
+                "account_address": account.account_address,
+                "funnel_stage": account.funnel_stage,
+            }
+            for account in queued
+        ]
+
     def _case(self, pk) -> ClaimCase:
         return get_object_or_404(
             self.get_queryset().select_related("account__assigned_to").prefetch_related(
@@ -131,8 +166,6 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         )
 
     def _account(self, account_id) -> Account:
-        from apps.users.scoping import AccessScope
-
         account = AccessScope(self.request.user).apply(
             Account.objects.all(), "organization", "provider_id",
         ).filter(pk=account_id).first()

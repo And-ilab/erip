@@ -104,8 +104,8 @@ export class ApiService {
     return this.http.get<Page<AccountRow>>(`${this.base}/accounts/`, { params: toParams(params) });
   }
 
-  charts(): Observable<DebtCharts> {
-    return this.http.get<DebtCharts>(`${this.base}/accounts/charts/`);
+  charts(scope = ''): Observable<DebtCharts> {
+    return this.http.get<DebtCharts>(`${this.base}/accounts/charts/`, { params: toParams({ scope }) });
   }
 
   account(id: number): Observable<AccountDetail> {
@@ -413,8 +413,8 @@ export class ApiService {
     return this.http.get<Page<ErrorLogEntry>>(`${this.base}/audit/errors/`, { params: toParams(params) });
   }
 
-  claims(): Observable<{ results: ClaimCase[]; stages: Named[] }> {
-    return this.http.get<{ results: ClaimCase[]; stages: Named[] }>(`${this.base}/claims/`);
+  claims(): Observable<{ results: ClaimCase[]; stages: Named[]; assigned: AssignedAccount[] }> {
+    return this.http.get<{ results: ClaimCase[]; stages: Named[]; assigned: AssignedAccount[] }>(`${this.base}/claims/`);
   }
 
   claim(id: number): Observable<ClaimCase> {
@@ -485,6 +485,15 @@ export class ApiService {
 }
 
 export interface Named { id: string; label: string }
+
+export interface AssignedAccount {
+  account: number;
+  client_account: string;
+  short_fio: string;
+  debt_group: number | null;
+  account_address: string;
+  funnel_stage: string;
+}
 
 export interface ClaimCase {
   id: number;

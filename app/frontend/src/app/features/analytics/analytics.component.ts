@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, Input, OnChanges, OnInit, SimpleChanges, computed, inject, signal } from '@angular/core';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
@@ -221,9 +221,13 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
     }
   `,
 })
-export class AnalyticsComponent implements OnInit {
+export class AnalyticsComponent implements OnInit, OnChanges {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+
+  /** Пусто — все лицевые счета контура. measures и claims сужают ту же сводку. */
+  @Input() scope = '';
+  @Input() scopeLabel = '';
 
   protected readonly mode = signal<Mode>('bar');
   protected readonly loading = signal(true);
@@ -245,10 +249,10 @@ export class AnalyticsComponent implements OnInit {
       const note = data.monthsSource === 'current'
         ? 'текущий срез'
         : `${monthLabel(data.months[0]?.period)} – ${monthLabel(data.months[data.months.length - 1]?.period)}`;
-      return `Все группы · ${org} · ${note} · под осью — число дел`;
+      return `${this.scopeTitle()} · ${org} · ${note} · под осью — число дел`;
     }
     const total = data.principal + data.penalty;
-    return `Все группы · ${org} · по состоянию на ${when} · ${data.cases} дел на сумму ${rub(total)} (в т.ч. пеня ${rub(data.penalty)})`;
+    return `${this.scopeTitle()} · ${org} · по состоянию на ${when} · ${data.cases} дел на сумму ${rub(total)} (в т.ч. пеня ${rub(data.penalty)})`;
   });
 
   protected readonly bar = computed(() => buildBars(this.chart()?.stages ?? []));
@@ -260,7 +264,20 @@ export class AnalyticsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.api.charts().subscribe({
+    this.reload();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['scope'] && !changes['scope'].firstChange) this.reload();
+  }
+
+  private scopeTitle(): string {
+    return this.scopeLabel || 'Все группы';
+  }
+
+  private reload(): void {
+    this.loading.set(true);
+    this.api.charts(this.scope).subscribe({
       next: (payload) => {
         this.chart.set(parseCharts(payload));
         this.loading.set(false);

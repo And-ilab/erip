@@ -6,7 +6,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AuthService } from '../core/auth.service';
 import { NotificationsPanelComponent } from '../features/notifications/notifications-panel.component';
@@ -23,13 +23,6 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     <mat-toolbar class="topbar">
       <mat-icon class="brand-icon">apps</mat-icon>
       <span class="brand">ЕРИП · Работа с задолженностью</span>
-      <nav class="module-tabs" aria-label="Разделы взыскания">
-        <a routerLink="/accounts" [class.on]="tab() === 'cases'">Дела</a>
-        <a routerLink="/measures" [class.on]="tab() === 'measures'">Мероприятия</a>
-        <a routerLink="/claims" [class.on]="tab() === 'claims'">Претензионно-исковая работа</a>
-        <a routerLink="/accounts" [queryParams]="{ view: 'charts' }" [class.on]="tab() === 'reports'">Отчётность</a>
-        <a routerLink="/scenarios" [class.on]="tab() === 'settings'">Настройка</a>
-      </nav>
       <span class="spacer"></span>
       <button mat-icon-button (click)="panel.toggle()" matTooltip="Уведомления">
         <mat-icon [matBadge]="store.unread() || null" matBadgeColor="warn">notifications</mat-icon>
@@ -47,6 +40,9 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
           <a mat-list-item routerLink="/contracts" routerLinkActive="active">Реестр договоров</a>
           <a mat-list-item routerLink="/measures" routerLinkActive="active">Мероприятия</a>
           <a mat-list-item routerLink="/claims" routerLinkActive="active">Претензионно-исковая работа</a>
+          @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
+            <a mat-list-item routerLink="/scenarios" routerLinkActive="active">Настройка</a>
+          }
           <a mat-list-item routerLink="/password" routerLinkActive="active">Смена пароля</a>
           <a mat-list-item routerLink="/notifications" routerLinkActive="active">Оповещения</a>
           @if (auth.canManageTemplates() || (auth.canWrite() && auth.me()?.contour !== 'supplier')) {
@@ -71,14 +67,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     .topbar { gap: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); z-index: 2; }
     .topbar .mat-mdc-icon-button { color: #fff; }
     .brand-icon { opacity: .85; }
-    .brand { font-weight: 600; font-size: 15px; white-space: nowrap; }
-    .module-tabs { display: flex; gap: 2px; margin-left: 12px; flex-wrap: wrap; }
-    .module-tabs a {
-      color: rgba(255, 255, 255, .82); text-decoration: none; font-size: 14px; font-weight: 500;
-      padding: 6px 10px; border-radius: 6px; border-bottom: 2px solid transparent;
-    }
-    .module-tabs a.on { color: #fff; border-bottom-color: var(--erip-accent); }
-    .module-tabs a:hover { color: #fff; background: rgba(255, 255, 255, .08); }
+    .brand { font-weight: 600; font-size: 17px; }
     .org, .user { font-size: 13px; }
     .org { padding: 4px 12px; border-radius: 6px; background: rgba(255, 255, 255, .14); }
     .user { opacity: .92; }
@@ -106,19 +95,8 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
   `,
 })
 export class ShellComponent {
-  private readonly router = inject(Router);
   protected readonly auth = inject(AuthService);
   protected readonly store = inject(NotificationsStore);
-
-  protected tab(): string {
-    const [path, query] = this.router.url.split('?');
-    if (path.startsWith('/measures')) return 'measures';
-    if (path.startsWith('/claims')) return 'claims';
-    if (path.startsWith('/scenarios') || path.startsWith('/templates')) return 'settings';
-    if (path.startsWith('/accounts') && (query || '').includes('view=charts')) return 'reports';
-    if (path.startsWith('/accounts')) return 'cases';
-    return '';
-  }
 
   protected orgLabel(): string {
     const me = this.auth.me();

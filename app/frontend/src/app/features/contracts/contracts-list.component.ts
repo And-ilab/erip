@@ -11,7 +11,9 @@ import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
+import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
 import {
   AccountService,
@@ -31,7 +33,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
   standalone: true,
   imports: [
     DecimalPipe, ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent,
+    MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent,
   ],
   template: `
     <div class="registry">
@@ -110,10 +112,11 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
           }
         </div>
         <div class="views">
-          <button type="button" class="view-btn wide" [class.on]="view() === 'persons'" (click)="showPersons()">Лица</button>
-          <button type="button" class="view-btn wide" [class.on]="view() === 'services'" (click)="showServices()">Услуги</button>
-          <button type="button" class="view-btn" [class.on]="view() === 'kanban'" title="Канбан" (click)="showKanban()">▦</button>
-          <button type="button" class="view-btn" [class.on]="view() === 'calendar'" title="Календарь" (click)="showCalendar()">▤</button>
+          @if (view() === 'persons' || view() === 'services' || view() === 'grouped') {
+            <button type="button" class="view-btn wide" [class.on]="view() === 'persons'" (click)="showPersons()">Лица</button>
+            <button type="button" class="view-btn wide" [class.on]="view() === 'services'" (click)="showServices()">Услуги</button>
+          }
+          <app-registry-views [mode]="registryMode()" (modeChange)="showRegistry($event)" />
         </div>
       </div>
 
@@ -218,6 +221,9 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
               </section>
             }
           </div>
+        }
+        @if (view() === 'charts') {
+          <app-analytics scope="contracts" scopeLabel="Лицевые счета с услугами" />
         }
         @if (view() === 'calendar') {
           <app-calendar-board
@@ -442,7 +448,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly columns = this.serviceColumns();
   protected readonly groupChoices = this.contractGroupChoices();
   protected readonly groupColumns = ['value', 'accounts', 'debt', 'penalty'];
-  protected readonly view = signal<'persons' | 'services' | 'kanban' | 'calendar' | 'grouped'>('persons');
+  protected readonly view = signal<'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('persons');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
   protected readonly persons = signal<ContractPerson[]>([]);
@@ -703,6 +709,19 @@ export class ContractsListComponent implements OnInit {
     });
   }
 
+  registryMode(): string {
+    const current = this.view();
+    if (current === 'persons' || current === 'services' || current === 'grouped') return 'list';
+    return current;
+  }
+
+  showRegistry(mode: string): void {
+    if (mode === 'list') this.showPersons();
+    else if (mode === 'kanban') this.showKanban();
+    else if (mode === 'calendar') this.showCalendar();
+    else if (mode === 'charts') this.view.set('charts');
+  }
+
   showPersons(): void {
     this.dropGrouping();
     this.view.set('persons');
@@ -857,6 +876,7 @@ export class ContractsListComponent implements OnInit {
       this.showCalendar();
       return;
     }
+    if (this.view() === 'charts') return;
     if (this.groupBy.value || this.view() === 'grouped') {
       this.showGrouped();
       return;

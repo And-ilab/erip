@@ -5,37 +5,57 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
-import { ApiService, ClaimCase, Named, errorMessage } from '../../core/api.service';
+import { ApiService, AssignedAccount, ClaimCase, Named, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { AccountRow } from '../../core/models';
+import { AccountRow, CalendarEvent } from '../../core/models';
+import { AnalyticsComponent } from '../analytics/analytics.component';
+import { CalendarBoardComponent } from '../calendar/calendar-board.component';
+import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
   selector: 'app-claims-board',
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
+    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent,
   ],
   template: `
     <div class="page" [class.dim]="dialog()">
+      <div class="toolbar">
+        <h2>Претензионно-исковая работа</h2>
+        @if (canAdd()) {
+          <button type="button" class="add" (click)="openCreate()">+ Добавить исполнительную надпись</button>
+        }
+        <app-registry-views [mode]="mode()" (modeChange)="showView($event)" />
+      </div>
+      @if (mode() === 'list') {
       <div class="layout">
         <aside>
-          @if (canAdd()) {
-            <button type="button" class="add" (click)="openCreate()">+ Добавить исполнительную надпись</button>
-          }
           <div class="chips">
             <button type="button" [class.on]="lane() === 'all'" (click)="lane.set('all')">Все дела</button>
             <button type="button" [class.on]="lane() === 'g3'" (click)="lane.set('g3')">Группа 3</button>
             <button type="button" [class.on]="lane() === 'late'" (click)="lane.set('late')">Группы 4–6</button>
-            <button type="button" [class.on]="mode() === 'kanban'" (click)="mode.set(mode() === 'kanban' ? 'list' : 'kanban')">
-              {{ mode() === 'kanban' ? 'Список' : 'Воронка' }}
-            </button>
           </div>
           <p class="hint">
             Группа 2 остаётся в мероприятиях: предупреждение и приостановление услуг.
             С группы 3 — надпись, иск и ОПИ. С группы 4 — ещё выселение и отчуждение.
           </p>
           @if (error()) { <p class="error">{{ error() }}</p> }
-          @if (!visible().length && !error()) {
+          <h3 class="queue-title">Назначено, дело не открыто</h3>
+          @if (!assignedVisible().length) {
+            <p class="hint">Счетов без открытого дела нет.</p>
+          } @else {
+            @for (row of assignedVisible(); track row.account) {
+              <button type="button" class="debtor queue" (click)="openAssigned(row)">
+                <span>
+                  <b>{{ row.short_fio || 'Без ФИО' }}</b>
+                  <small>ЛС {{ row.client_account }} · группа {{ row.debt_group || '—' }}</small>
+                </span>
+                <em>назначено</em>
+              </button>
+            }
+          }
+          @if (!visible().length && !assignedVisible().length && !error()) {
             <p class="hint">Дел пока нет. Добавьте надпись по лицевому счёту группы 3 или старше.</p>
           }
           @for (card of visible(); track card.id) {
@@ -50,41 +70,51 @@ import { AccountRow } from '../../core/models';
         </aside>
 
         <section class="main">
-          <div [hidden]="mode() === 'kanban'">
-            <router-outlet />
-            @if (!caseOpen()) {
-              <div class="empty">
-                <h2>Претензионно-исковая работа</h2>
-                <p>Группа 3: пакет документов нотариусу или в суд, учёт решения, обмен с ОПИ, нотариальный тариф и госпошлина.</p>
-                <p>Группы 4–6: дополнительно выселение из государственного фонда (ст. 80), арендного жилья (ст. 86), общежития (ст. 87) или отчуждение (ст. 137).</p>
-                <p class="hint">Выберите должника слева или добавьте исполнительную надпись. Суммы долга и пени приходят из АИС и здесь не правятся.</p>
-              </div>
-            }
-          </div>
-          @if (mode() === 'kanban') {
-            <div class="board">
-              @for (stage of stages(); track stage.id) {
-                <section class="column" [attr.data-stage]="stage.id">
-                  <h3><span>{{ stage.label }}</span><b>{{ column(stage.id).length }}</b></h3>
-                  @for (card of column(stage.id); track card.id) {
-                    <a class="card" [routerLink]="['/claims', card.id]">
-                      <strong>{{ card.short_fio || 'Без ФИО' }}</strong>
-                      <span class="ls">ЛС {{ card.client_account }}</span>
-                      <span class="addr">{{ card.account_address || 'Адрес не указан' }}</span>
-                      <span class="meta"><em>Гр. {{ card.debt_group || '—' }}</em></span>
-                      <span class="money">{{ money(card.balance_out) }} <small>+ пеня {{ money(card.penalty) }}</small></span>
-                    </a>
-                  }
-                </section>
-              }
+          <router-outlet />
+          @if (!caseOpen()) {
+            <div class="empty">
+              <h2>Претензионно-исковая работа</h2>
+              <p>Группа 3: пакет документов нотариусу или в суд, учёт решения, обмен с ОПИ, нотариальный тариф и госпошлина.</p>
+              <p>Группы 4–6: дополнительно выселение из государственного фонда (ст. 80), арендного жилья (ст. 86), общежития (ст. 87) или отчуждение (ст. 137).</p>
+              <p class="hint">Выберите должника слева или добавьте исполнительную надпись. Суммы долга и пени приходят из АИС и здесь не правятся.</p>
             </div>
           }
         </section>
       </div>
+      }
+
+      @if (mode() === 'kanban') {
+        <div class="board">
+          @for (stage of stages(); track stage.id) {
+            <section class="column" [attr.data-stage]="stage.id">
+              <h3><span>{{ stage.label }}</span><b>{{ column(stage.id).length }}</b></h3>
+              @for (card of column(stage.id); track card.id) {
+                <a class="card" [routerLink]="['/claims', card.id]" (click)="mode.set('list')">
+                  <strong>{{ card.short_fio || 'Без ФИО' }}</strong>
+                  <span class="ls">ЛС {{ card.client_account }}</span>
+                  <span class="addr">{{ card.account_address || 'Адрес не указан' }}</span>
+                  <span class="meta"><em>Гр. {{ card.debt_group || '—' }}</em></span>
+                  <span class="money">{{ money(card.balance_out) }} <small>+ пеня {{ money(card.penalty) }}</small></span>
+                </a>
+              }
+            </section>
+          }
+        </div>
+      }
+
+      @if (mode() === 'calendar') {
+        <app-calendar-board
+          [events]="claimEvents()" [from]="spanFrom" [to]="spanTo" [canCreate]="false"
+          (spanChange)="setSpan($event)" (openEvent)="openClaimEvent($event)" />
+      }
+
+      @if (mode() === 'charts') {
+        <app-analytics scope="claims" scopeLabel="Лицевые счета претензионно-исковой работы" />
+      }
 
       @if (dialog()) {
         <div class="backdrop" (click)="closeDialog()">
-          <form class="modal" (click)="$event.stopPropagation()" (ngSubmit)="save(false)">
+          <form class="modal" (click)="pickerOpen.set(false); $event.stopPropagation()" (ngSubmit)="save(false)">
             <h2>Добавление исполнительной надписи</h2>
             <p class="hint">
               Пакет собирается из шаблона и вложений. Переход «Направлено нотариусу» возможен только с датой вручения предупреждения и нотариальным тарифом.
@@ -92,18 +122,26 @@ import { AccountRow } from '../../core/models';
             </p>
 
             <h3>Дело</h3>
-            <label>ЛС / должник
-              <input [formControl]="query" placeholder="Номер ЛС или ФИО" />
-            </label>
-            @if (found().length) {
-              <div class="picks">
-                @for (row of found(); track row.id) {
-                  <button type="button" [class.on]="picked()?.id === row.id" (click)="choose(row)">
-                    {{ row.client_account }} — {{ row.short_fio || 'без ФИО' }} (Группа {{ groupOf(row) || '—' }})
-                  </button>
-                }
-              </div>
-            }
+            <div class="picker" (click)="$event.stopPropagation()">
+              <label>ЛС / должник
+                <input [formControl]="query" placeholder="Номер ЛС или ФИО" (click)="openPicker()" />
+              </label>
+              @if (pickerOpen()) {
+                <div class="picks">
+                  @if (query.value.trim().length < 2) {
+                    <p>Введите не меньше 2 символов — в списке не больше 12 счетов.</p>
+                  } @else if (!found().length) {
+                    <p>Ничего не найдено.</p>
+                  } @else {
+                    @for (row of found(); track row.id) {
+                      <button type="button" [class.on]="picked()?.id === row.id" (click)="choose(row)">
+                        {{ row.client_account }} — {{ row.short_fio || 'без ФИО' }} (Группа {{ groupOf(row) || '—' }})
+                      </button>
+                    }
+                  }
+                </div>
+              }
+            </div>
             @if (picked(); as row) {
               <p class="chosen">{{ row.client_account }} — {{ row.short_fio || 'без ФИО' }} (Группа {{ groupOf(row) || '—' }})</p>
               @if (early(row)) {
@@ -169,12 +207,16 @@ import { AccountRow } from '../../core/models';
     </div>
   `,
   styles: `
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .toolbar h2 { margin: 0; color: var(--erip-primary-dark); font-size: 20px; }
     .layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
     aside { background: #fff; border: 1px solid var(--erip-border); border-radius: 10px; padding: 12px; }
     .add {
-      width: 100%; border: 0; background: var(--erip-primary); color: #fff; border-radius: 8px; padding: 10px 12px;
-      font: inherit; font-weight: 600; cursor: pointer; text-align: left;
+      border: 0; background: var(--erip-primary); color: #fff; border-radius: 8px; padding: 8px 12px;
+      font: inherit; font-weight: 600; cursor: pointer;
     }
+    .queue-title { margin: 8px 0 4px; font-size: 12px; letter-spacing: .03em; color: var(--erip-muted); font-weight: 700; }
+    .debtor.queue { width: 100%; border: 0; background: transparent; font: inherit; cursor: pointer; text-align: left; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
     .chips button { border: 1px solid var(--erip-border); background: #fff; border-radius: 999px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 12px; }
     .chips button.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
@@ -208,8 +250,12 @@ import { AccountRow } from '../../core/models';
     .column[data-stage="impossible"] h3, .column[data-stage="writeoff"] h3 { background: #6b7280; }
     .card { display: flex; flex-direction: column; gap: 3px; background: #fff; border-radius: 8px; padding: 10px; margin-bottom: 8px; text-decoration: none; color: inherit; }
     .ls, .addr, .money small { color: var(--erip-muted); font-size: 12px; }
-    .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(20, 40, 55, .45); display: flex; align-items: flex-start; justify-content: center; overflow: auto; padding: 32px 16px; }
-    .modal { width: min(720px, 100%); background: #fff; border-radius: 12px; padding: 20px 22px 16px; box-shadow: 0 16px 40px rgba(16, 42, 67, .25); }
+    .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(20, 40, 55, .45); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+    .modal {
+      box-sizing: border-box; width: 720px; max-width: calc(100vw - 32px);
+      height: min(640px, calc(100vh - 48px)); overflow: auto;
+      background: #fff; border-radius: 12px; padding: 20px 22px 16px; box-shadow: 0 16px 40px rgba(16, 42, 67, .25);
+    }
     .modal h2 { margin: 0 0 6px; font-size: 20px; color: #1f2933; }
     .modal h3 { margin: 14px 0 8px; font-size: 12px; letter-spacing: .04em; color: var(--erip-muted); }
     .modal label { display: grid; grid-template-columns: 220px 1fr; gap: 8px; align-items: center; margin: 6px 0; font-size: 14px; }
@@ -217,7 +263,13 @@ import { AccountRow } from '../../core/models';
     .modal input[readonly], .modal input:disabled { background: #f7f8fa; color: #374151; }
     .modal label.miss input { border-color: var(--erip-danger); background: #fff6f6; }
     .modal label.total input { font-weight: 700; }
-    .picks { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px 220px; }
+    .picker { position: relative; }
+    .picks {
+      position: absolute; z-index: 2; left: 220px; right: 0; top: 100%; max-height: 240px; overflow: auto;
+      display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0; padding: 6px;
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 8px; box-shadow: 0 8px 20px rgba(16, 42, 67, .15);
+    }
+    .picks p { margin: 4px; color: var(--erip-muted); font-size: 13px; }
     .picks button, .chosen { font-size: 13px; }
     .picks button { text-align: left; border: 1px solid var(--erip-border); background: #fff; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
     .picks button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
@@ -235,8 +287,10 @@ import { AccountRow } from '../../core/models';
     .primary { border: 0; background: var(--erip-primary); color: #fff; font-weight: 600; }
     .ghost { border: 1px solid var(--erip-border); background: #fff; }
     @media (max-width: 900px) {
-      .layout, .modal label, .picks { grid-template-columns: 1fr; margin-left: 0; }
-      .picks, .check, .aside-note { margin-left: 0; }
+      .layout, .modal label { grid-template-columns: 1fr; }
+      .picks { left: 0; }
+      .check, .aside-note { margin-left: 0; }
+      .toolbar { flex-wrap: wrap; }
     }
   `,
 })
@@ -250,8 +304,12 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly stages = signal<Named[]>([]);
   protected readonly cards = signal<ClaimCase[]>([]);
   protected readonly error = signal('');
-  protected readonly mode = signal<'list' | 'kanban'>('list');
+  protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('list');
   protected readonly lane = signal<'all' | 'g3' | 'late'>('all');
+  protected readonly assigned = signal<AssignedAccount[]>([]);
+  protected readonly pickerOpen = signal(false);
+  protected spanFrom = monthStart();
+  protected spanTo = monthEnd();
   protected readonly caseOpen = signal(false);
   protected readonly dialog = signal(false);
   protected readonly found = signal<AccountRow[]>([]);
@@ -286,12 +344,50 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected visible(): ClaimCase[] {
-    const lane = this.lane();
-    return this.cards().filter((card) => {
-      const group = card.debt_group || 0;
-      if (lane === 'g3') return group === 3;
-      if (lane === 'late') return group >= 4;
-      return true;
+    return this.cards().filter((card) => this.inLane(card.debt_group));
+  }
+
+  protected assignedVisible(): AssignedAccount[] {
+    return this.assigned().filter((row) => this.inLane(row.debt_group));
+  }
+
+  protected claimEvents(): CalendarEvent[] {
+    const events: CalendarEvent[] = [];
+    for (const card of this.visible()) {
+      this.pushEvent(events, card, card.warning_delivered_on, 'Предупреждение');
+      this.pushEvent(events, card, card.lawsuit_filed_on, 'Иск');
+      this.pushEvent(events, card, card.package_filed_on, 'Пакет');
+    }
+    return events;
+  }
+
+  protected showView(mode: string): void {
+    if (mode === 'list' || mode === 'kanban' || mode === 'calendar' || mode === 'charts') this.mode.set(mode);
+  }
+
+  protected setSpan(span: { from: string; to: string }): void {
+    this.spanFrom = span.from;
+    this.spanTo = span.to;
+  }
+
+  protected openClaimEvent(event: CalendarEvent): void {
+    const card = this.cards().find((row) => row.account === event.account_id);
+    if (!card) return;
+    this.mode.set('list');
+    this.router.navigate(['/claims', card.id]);
+  }
+
+  protected openAssigned(row: AssignedAccount): void {
+    if (!this.canAdd()) {
+      this.router.navigate(['/accounts', row.account]);
+      return;
+    }
+    this.api.openClaim(row.account).subscribe({
+      next: (claim) => {
+        this.reload();
+        this.router.navigate(['/claims', claim.id]);
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }
 
@@ -352,12 +448,19 @@ export class ClaimsBoardComponent implements OnInit {
     this.tariff = '';
     this.sendTried.set(false);
     this.query.setValue('');
+    this.found.set([]);
+    this.pickerOpen.set(false);
     this.dialog.set(true);
-    this.lookup('');
+  }
+
+  protected openPicker(): void {
+    this.pickerOpen.set(true);
+    this.lookup(this.query.value);
   }
 
   protected choose(row: AccountRow): void {
     this.picked.set(row);
+    this.pickerOpen.set(false);
     if (!this.warningDate && row.warning_handed_on) this.warningDate = row.warning_handed_on;
   }
 
@@ -443,9 +546,32 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   private lookup(value: string): void {
-    this.api.accounts({ q: value.trim(), page_size: 20 }).subscribe({
-      next: (page) => this.found.set(page.results),
+    const text = value.trim();
+    if (!this.pickerOpen() || text.length < 2) {
+      this.found.set([]);
+      return;
+    }
+    this.api.accounts({ q: text, page_size: 12 }).subscribe({
+      next: (page) => this.found.set(page.results.slice(0, 12)),
       error: () => this.found.set([]),
+    });
+  }
+
+  private inLane(group: number | null): boolean {
+    const lane = this.lane();
+    const value = group || 0;
+    if (lane === 'g3') return value === 3;
+    if (lane === 'late') return value >= 4;
+    return true;
+  }
+
+  private pushEvent(events: CalendarEvent[], card: ClaimCase, date: string | null, kind: string): void {
+    if (!date) return;
+    events.push({
+      date: date.slice(0, 10),
+      kind,
+      title: `${card.short_fio || 'Без ФИО'} · ЛС ${card.client_account}`,
+      account_id: card.account,
     });
   }
 
@@ -463,8 +589,20 @@ export class ClaimsBoardComponent implements OnInit {
       next: (page) => {
         this.stages.set(page.stages);
         this.cards.set(page.results);
+        this.assigned.set(page.assigned || []);
       },
       error: (err) => this.error.set(errorMessage(err)),
     });
   }
+}
+
+function monthStart(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function monthEnd(): string {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
 }

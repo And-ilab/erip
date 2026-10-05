@@ -13,7 +13,10 @@ import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { DisconnectCandidate, MeasureGroup, MeasureMatrix } from '../../core/models';
+import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix } from '../../core/models';
+import { AnalyticsComponent } from '../analytics/analytics.component';
+import { CalendarBoardComponent } from '../calendar/calendar-board.component';
+import { RegistryViewsComponent } from '../registry-views.component';
 
 const MONTHS = [
   'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
@@ -26,12 +29,13 @@ const MONTHS = [
   imports: [
     DatePipe, FormsModule, ReactiveFormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
     MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
+    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent,
   ],
   template: `
     <div class="page">
       <div class="toolbar">
         <h2>Реестр мероприятий</h2>
-        @if (view() !== 'ready') {
+        @if (view() === 'list' || view() === 'kanban') {
           <label class="searchbar">
             <mat-icon>search</mat-icon>
             @if (period.value) {
@@ -40,25 +44,18 @@ const MONTHS = [
             <input [formControl]="search" placeholder="Поиск по ЛС, должнику, типу мероприятия..." />
             <input class="month" type="month" [formControl]="period" aria-label="Период" />
           </label>
-        } @else {
+        } @else if (view() === 'ready') {
           <p class="ready-title">Срок предупреждения истёк — можно приостанавливать услуги</p>
         }
-        <div class="views">
-          <button type="button" [class.on]="view() === 'list'" matTooltip="Список" (click)="show('list')">
-            <mat-icon>view_list</mat-icon>
+        <button type="button" class="icon" matTooltip="Скачать видимый список" (click)="download()">
+          <mat-icon>download</mat-icon>
+        </button>
+        @if (canOrderDisconnect()) {
+          <button type="button" class="icon" [class.on]="view() === 'ready'" matTooltip="Готовы к отключению" (click)="show('ready')">
+            <mat-icon>power_off</mat-icon>
           </button>
-          <button type="button" matTooltip="Матрица по типам" (click)="scrollMatrix()">
-            <mat-icon>grid_on</mat-icon>
-          </button>
-          <button type="button" matTooltip="Скачать видимый список" (click)="download()">
-            <mat-icon>download</mat-icon>
-          </button>
-          @if (canOrderDisconnect()) {
-            <button type="button" [class.on]="view() === 'ready'" matTooltip="Готовы к отключению" (click)="show('ready')">
-              <mat-icon>power_off</mat-icon>
-            </button>
-          }
-        </div>
+        }
+        <app-registry-views [mode]="view() === 'ready' ? 'list' : view()" (modeChange)="showRegistry($event)" />
       </div>
 
       @if (view() === 'list') {
@@ -158,7 +155,7 @@ const MONTHS = [
         }
       }
 
-      @if (view() !== 'ready') {
+      @if (view() === 'list') {
         @if (matrix(); as grid) {
           <section class="surface registry" id="measure-matrix">
             <h3><mat-icon>grid_on</mat-icon> Мероприятия по типам (представление «Матрица»)</h3>
@@ -205,6 +202,33 @@ const MONTHS = [
             }
           </section>
         }
+      }
+
+      @if (view() === 'kanban') {
+        <div class="board">
+          @for (group of groups(); track group.status) {
+            <section class="column" [attr.data-status]="group.status">
+              <h3><span>{{ group.label }}</span><b>{{ group.total }}</b></h3>
+              @for (row of group.results; track row.id) {
+                <a class="card" [routerLink]="['/measures', row.id]">
+                  <strong>{{ row.title }}</strong>
+                  <small>{{ row.debtor_name }} · ЛС {{ row.debtor_account }}</small>
+                  <span>{{ row.next_action }}</span>
+                </a>
+              }
+            </section>
+          }
+        </div>
+      }
+
+      @if (view() === 'calendar') {
+        <app-calendar-board
+          [events]="events()" [from]="spanFrom" [to]="spanTo" [canCreate]="false"
+          (spanChange)="setSpan($event)" (openEvent)="openCalendar($event)" />
+      }
+
+      @if (view() === 'charts') {
+        <app-analytics scope="measures" scopeLabel="Лицевые счета с мероприятиями" />
       }
 
       @if (view() === 'ready') {
@@ -286,13 +310,23 @@ const MONTHS = [
       padding: 2px 8px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
     }
     .month { flex: 0 0 9.2rem; width: 9.2rem; max-width: 9.2rem; min-width: 0; border: 0; color: var(--erip-muted); background: transparent; }
-    .views { display: flex; gap: 4px; margin-left: auto; }
-    .views button {
+    .icon {
       width: 36px; height: 36px; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
       color: var(--erip-muted); cursor: pointer; display: grid; place-items: center;
     }
-    .views button.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
-    .views mat-icon { font-size: 20px; width: 20px; height: 20px; }
+    .icon.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
+    .board { display: flex; gap: 10px; overflow-x: auto; align-items: flex-start; margin-top: 12px; }
+    .column { width: 240px; flex: 0 0 240px; background: #f7f8fa; border-radius: 10px; padding: 0 8px 8px; }
+    .column h3 { margin: 0 -8px 8px; padding: 8px 10px; border-radius: 10px 10px 0 0; color: #fff; font-size: 13px; display: flex; justify-content: space-between; background: var(--erip-primary); }
+    .column[data-status="done"] h3 { background: var(--erip-success); }
+    .column[data-status="failed"] h3 { background: var(--erip-danger); }
+    .column[data-status="running"] h3 { background: #b45309; }
+    .card {
+      display: flex; flex-direction: column; gap: 3px; background: #fff; border-radius: 8px; padding: 10px; margin-bottom: 8px;
+      text-decoration: none; color: inherit;
+    }
+    .card small { color: var(--erip-muted); }
     .ready-title { margin: 0; color: var(--erip-muted); }
     .guide { margin: 0 0 12px; color: var(--erip-muted); font-size: 13px; }
     .guide button, .guide a { margin: 0 4px; }
@@ -352,7 +386,10 @@ export class MeasuresListComponent implements OnInit {
 
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly period = new FormControl('', { nonNullable: true });
-  protected readonly view = signal<'list' | 'ready'>('list');
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('list');
+  protected readonly events = signal<CalendarEvent[]>([]);
+  protected spanFrom = '';
+  protected spanTo = '';
   protected readonly marked = signal<Set<number>>(new Set());
   protected readonly waitDays = signal(5);
   protected readonly groups = signal<MeasureGroup[]>([]);
@@ -384,20 +421,29 @@ export class MeasuresListComponent implements OnInit {
     this.load();
   }
 
+  protected showRegistry(mode: string): void {
+    if (mode !== 'list' && mode !== 'kanban' && mode !== 'calendar' && mode !== 'charts') return;
+    this.view.set(mode);
+    if (mode === 'calendar') this.loadCalendar();
+    else if (mode !== 'charts') this.load();
+  }
+
+  protected setSpan(span: { from: string; to: string }): void {
+    this.spanFrom = span.from;
+    this.spanTo = span.to;
+    this.loadCalendar();
+  }
+
+  protected openCalendar(event: CalendarEvent): void {
+    if (event.measure_id) this.router.navigate(['/measures', event.measure_id]);
+    else if (event.account_id) this.router.navigate(['/accounts', event.account_id]);
+  }
+
   protected mark(id: number): void {
     const next = new Set(this.marked());
     if (next.has(id)) next.delete(id);
     else next.add(id);
     this.marked.set(next);
-  }
-
-  protected scrollMatrix(): void {
-    if (this.view() !== 'list') {
-      this.show('list');
-      setTimeout(() => document.getElementById('measure-matrix')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      return;
-    }
-    document.getElementById('measure-matrix')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   protected download(): void {
@@ -533,6 +579,20 @@ export class MeasuresListComponent implements OnInit {
 
   private params(extra: Record<string, string | number> = {}): Record<string, string | number> {
     return { search: this.search.value.trim(), period: this.period.value, ...extra };
+  }
+
+  private loadCalendar(): void {
+    if (!this.spanFrom) {
+      const now = new Date();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      this.spanFrom = `${now.getFullYear()}-${month}-01`;
+      this.spanTo = `${now.getFullYear()}-${month}-${String(last).padStart(2, '0')}`;
+    }
+    this.api.calendar({ date_from: this.spanFrom, date_to: this.spanTo }, {}).subscribe({
+      next: (events) => this.events.set(events.filter((event) => event.measure_id)),
+      error: (err) => this.error.set(errorMessage(err)),
+    });
   }
 
   private load(): void {

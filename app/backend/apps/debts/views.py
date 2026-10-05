@@ -330,6 +330,15 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=False)
     def charts(self, request):
         accounts = self.filter_queryset(self.get_queryset())
+        scope = (request.query_params.get("scope") or "").strip()
+        if scope == "measures":
+            accounts = accounts.filter(measures__isnull=False).distinct()
+        elif scope == "claims":
+            accounts = accounts.filter(
+                Q(claim_case__isnull=False) | Q(funnel_stage__in=["enforcement", "court"]) | Q(measures__kind="collection"),
+            ).distinct()
+        elif scope == "contracts":
+            accounts = accounts.filter(services__isnull=False).distinct()
         payload = DebtCharts(accounts, _supplier_ids(request.user)).build()
         record_query(request, "debts.Account", count=payload["cases"])
         return Response(payload)
