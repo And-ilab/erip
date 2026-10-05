@@ -87,18 +87,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (mode() === 'kanban') {
         <div class="board">
-          @for (stage of stages(); track stage.id) {
-            <section class="column" [attr.data-stage]="stage.id">
-              <h3><span>{{ stage.label }}</span><b>{{ column(stage.id).length }}</b></h3>
+          @for (lane of lanes; track lane.id) {
+            <section class="column" [attr.data-lane]="lane.id">
+              <h3><span>{{ lane.label }}</span><b>{{ laneCards(lane.id).length }}</b></h3>
               <div class="list-pane cards">
-              @for (card of column(stage.id); track card.id) {
-                <a class="card" [routerLink]="['/claims', card.id]" (click)="mode.set('list')">
+              @for (card of laneCards(lane.id); track card.id) {
+                <button type="button" class="card" (click)="openLaneCard(card)">
                   <strong>{{ card.short_fio || 'Без ФИО' }}</strong>
                   <span class="ls">ЛС {{ card.client_account }}</span>
                   <span class="addr">{{ card.account_address || 'Адрес не указан' }}</span>
-                  <span class="meta"><em>Гр. {{ card.debt_group || '—' }}</em></span>
+                  <span class="meta"><em [attr.data-stage]="card.stage">{{ card.stage_label }}</em> · Гр. {{ card.debt_group || '—' }}</span>
                   <span class="money">{{ money(card.balance_out) }} <small>+ пеня {{ money(card.penalty) }}</small></span>
-                </a>
+                </button>
               }
               </div>
             </section>
@@ -246,13 +246,22 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .board { display: flex; gap: 10px; overflow-x: auto; align-items: flex-start; }
     .column { width: 220px; flex: 0 0 220px; background: #f7f8fa; border-radius: 10px; padding: 0 8px 8px; }
     .column h3 { margin: 0 -8px 8px; padding: 8px 10px; border-radius: 10px 10px 0 0; color: #fff; font-size: 13px; display: flex; justify-content: space-between; background: var(--erip-claim); }
-    .column[data-stage="prep"] h3 { background: #2e7d32; }
-    .column[data-stage="refused"] h3 { background: var(--erip-danger); }
-    .column[data-stage="lawsuit"] h3, .column[data-stage="court"] h3 { background: var(--erip-notice); }
-    .column[data-stage="opi"] h3, .column[data-stage="opi_measures"] h3 { background: var(--erip-cut); }
-    .column[data-stage="recovered"] h3 { background: var(--erip-success); }
-    .column[data-stage="impossible"] h3, .column[data-stage="writeoff"] h3 { background: #6b7280; }
-    .card { display: flex; flex-direction: column; gap: 3px; background: #fff; border-radius: 8px; padding: 10px; margin-bottom: 8px; text-decoration: none; color: inherit; }
+    .column[data-lane="pack"] h3 { background: #2e7d32; }
+    .column[data-lane="notary"] h3 { background: var(--erip-claim); }
+    .column[data-lane="court"] h3 { background: var(--erip-notice); }
+    .column[data-lane="opi"] h3 { background: var(--erip-cut); }
+    .column[data-lane="finish"] h3 { background: #6b7280; }
+    .card {
+      display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; font: inherit; cursor: pointer;
+      background: #fff; border: 0; border-radius: 8px; padding: 10px; margin-bottom: 8px; color: inherit;
+    }
+    .card em {
+      font-style: normal; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px;
+      background: #e8eef8; color: #2458a6;
+    }
+    .card em[data-stage="writ_done"], .card em[data-stage="recovered"] { background: #e5f6ea; color: #1b7a32; }
+    .card em[data-stage="refused"], .card em[data-stage="impossible"] { background: #fdecec; color: #b42318; }
+    .card em[data-stage="prep"] { background: #f3f4f6; color: #4b5563; }
     .ls, .addr, .money small { color: var(--erip-muted); font-size: 12px; }
     .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(20, 40, 55, .45); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
     .modal {
@@ -395,8 +404,25 @@ export class ClaimsBoardComponent implements OnInit {
     });
   }
 
-  protected column(stage: string): ClaimCase[] {
-    return this.visible().filter((card) => card.stage === stage);
+  protected readonly lanes = [
+    { id: 'pack', label: 'Пакет', stages: ['prep', 'notary'] },
+    { id: 'notary', label: 'Ответ нотариуса', stages: ['writ_done', 'refused'] },
+    { id: 'court', label: 'Суд', stages: ['lawsuit', 'court'] },
+    { id: 'opi', label: 'ОПИ', stages: ['opi', 'opi_measures'] },
+    { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'] },
+  ];
+
+  protected openLaneCard(card: ClaimCase): void {
+    this.mode.set('list');
+    setTimeout(() => this.router.navigate(['/claims', card.id]));
+  }
+
+  protected laneCards(laneId: string): ClaimCase[] {
+    const known = new Set(this.lanes.flatMap((lane) => lane.stages));
+    return this.visible().filter((card) => {
+      const lane = this.lanes.find((item) => item.stages.includes(card.stage));
+      return lane ? lane.id === laneId : laneId === 'pack' && !known.has(card.stage);
+    });
   }
 
   protected early(row: AccountRow): boolean {
