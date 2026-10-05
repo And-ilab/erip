@@ -13,10 +13,10 @@ from apps.debts.models import Account, Measure
 
 MATRIX_KINDS = (
     (Measure.Kind.CALL, "Автообзвон"),
-    (Measure.Kind.NOTICE, "Уведомление"),
+    (Measure.Kind.NOTICE, "E-mail"),
     (Measure.Kind.WARNING, "Предупреждение"),
-    (Measure.Kind.DISCONNECT, "Отключение"),
-    (Measure.Kind.COLLECTION, "Взыскание"),
+    (Measure.Kind.DISCONNECT, "Отключение услуг"),
+    (Measure.Kind.COLLECTION, "Испол. надпись"),
 )
 GROUP_LIMIT = 40
 MATRIX_LIMIT = 200

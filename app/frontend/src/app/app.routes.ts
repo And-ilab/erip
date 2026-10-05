@@ -51,10 +51,12 @@ export const routes: Routes = [
       {
         path: 'claims',
         loadComponent: () => import('./features/claims/claims-board.component').then((m) => m.ClaimsBoardComponent),
-      },
-      {
-        path: 'claims/:id',
-        loadComponent: () => import('./features/claims/claim-detail.component').then((m) => m.ClaimDetailComponent),
+        children: [
+          {
+            path: ':id',
+            loadComponent: () => import('./features/claims/claim-detail.component').then((m) => m.ClaimDetailComponent),
+          },
+        ],
       },
       {
         path: 'scenarios',

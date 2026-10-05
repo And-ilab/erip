@@ -8,7 +8,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
@@ -498,6 +498,7 @@ type CustomField = 'group' | 'rating' | 'stage';
 export class AccountsListComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly snack = inject(MatSnackBar);
   private readonly auth = inject(AuthService);
 
@@ -606,6 +607,10 @@ export class AccountsListComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.route.queryParamMap.subscribe((params) => {
+      if (params.get('view') === 'charts') this.showCharts();
+      else if (this.view() === 'charts') this.view.set('list');
+    });
     this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.onFilter());
     this.groupsSelected.valueChanges.subscribe(() => this.onFilter());
     this.rating.valueChanges.subscribe(() => this.onFilter());
@@ -1266,7 +1271,7 @@ export class AccountsListComponent implements OnInit {
       this.showGrouped();
       return;
     }
-    this.view.set('list');
+    if (this.route.snapshot.queryParamMap.get('view') !== 'charts') this.view.set('list');
     this.api.accounts({ page, page_size: this.pageSize, ordering: this.ordering, ...this.query() }).subscribe({
       next: (result) => {
         this.rows.set(result.results);

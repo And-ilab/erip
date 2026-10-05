@@ -6,7 +6,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
 
@@ -18,18 +18,30 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
     MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
-    <div class="page">
-      <p class="back"><a routerLink="/claims">Все дела</a></p>
+    <div class="case">
       @if (claim(); as row) {
         <section class="sheet">
           <header>
             <div>
-              <h2>Исполнительная надпись</h2>
-              <p>{{ row.short_fio || 'Должник не указан' }} · ЛС {{ row.client_account }}</p>
-              <p class="muted">{{ row.account_address || 'Адрес не указан' }} · группа {{ row.debt_group || '—' }} · рейтинг {{ row.rating || '—' }}</p>
+              <h2>{{ row.short_fio || 'Должник не указан' }}</h2>
+              <p>ЛС {{ row.client_account }} · {{ row.account_address || 'Адрес не указан' }}</p>
+              <p class="muted">Группа {{ row.debt_group || '—' }} · рейтинг {{ row.rating || '—' }}</p>
             </div>
             <span class="stage">{{ row.stage_label }}</span>
           </header>
+          @if (row.debt_group != null && row.debt_group < 3) {
+            <p class="banner">Группа {{ row.debt_group }} ведётся предупреждением и приостановлением услуг. Исполнительная надпись включается с группы 3. <a routerLink="/measures">Реестр мероприятий</a></p>
+          }
+          @if (row.debt_group === 3) {
+            <p class="hint">Группа 3: пакет нотариусу или в суд, учёт решения, ОПИ, нотариальный тариф и госпошлина. Долг и пеня из АИС здесь не правятся.</p>
+          }
+          @if ((row.debt_group || 0) >= 4) {
+            <p class="banner">Группа {{ row.debt_group }}: помимо взыскания доступны выселение (ст. 80, 86, 87 ЖК) и отчуждение (ст. 137 ЖК). Шаги идут последовательно, где этого требует закон.</p>
+          }
+          <p class="actions">
+            <button mat-stroked-button type="button" (click)="openWrit()">Форма исполнительной надписи</button>
+            <a mat-button routerLink="/claims">К списку</a>
+          </p>
           <div class="split">
             <div class="form">
               @if (row.blockers.length) {
@@ -121,6 +133,9 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
           <div class="grid">
             <div class="fields">
               <mat-form-field><mat-label>Номер иска</mat-label><input matInput [(ngModel)]="lawsuitNumber" /></mat-form-field>
+              @if ((claim()?.debt_group || 0) >= 4) {
+                <p class="hint">Для групп 4–6 в виде иска выберите выселение или отчуждение, если есть основания.</p>
+              }
               <mat-form-field><mat-label>Вид</mat-label>
                 <mat-select [(ngModel)]="lawsuitKind">
                   @for (kind of row.lawsuit_kinds || []; track kind.id) {
@@ -205,7 +220,7 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
     </div>
   `,
   styles: `
-    .back a { color: var(--erip-link); }
+    .case { min-width: 0; }
     .sheet, .more { background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
     header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
     h2, h3 { margin: 0 0 4px; color: var(--erip-primary-dark); }
@@ -241,6 +256,7 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
 export class ClaimDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
   protected readonly Number = Number;
@@ -266,7 +282,11 @@ export class ClaimDetailComponent implements OnInit {
   protected refusalFile = 0;
 
   ngOnInit(): void {
-    this.load(Number(this.route.snapshot.paramMap.get('id')));
+    this.route.paramMap.subscribe((params) => this.load(Number(params.get('id'))));
+  }
+
+  protected openWrit(): void {
+    this.router.navigate([], { queryParams: { writ: 1 }, queryParamsHandling: 'merge' });
   }
 
   protected money(value: string | null): string {

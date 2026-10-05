@@ -29,41 +29,48 @@ const MONTHS = [
   ],
   template: `
     <div class="page">
-      <div class="page-header">
+      <div class="toolbar">
         <h2>Реестр мероприятий</h2>
-        <button mat-icon-button [class.active]="view() === 'list'" matTooltip="Список" (click)="show('list')">
-          <mat-icon>view_list</mat-icon>
-        </button>
-        <button mat-icon-button [class.active]="view() === 'matrix'" matTooltip="Матрица по типам" (click)="show('matrix')">
-          <mat-icon>grid_on</mat-icon>
-        </button>
-        @if (canOrderDisconnect()) {
-          <button
-            mat-icon-button
-            [class.active]="view() === 'ready'"
-            matTooltip="Готовы к отключению"
-            (click)="show('ready')">
-            <mat-icon>power_off</mat-icon>
-          </button>
+        @if (view() !== 'ready') {
+          <label class="searchbar">
+            <mat-icon>search</mat-icon>
+            @if (period.value) {
+              <button type="button" class="period" (click)="period.setValue('')">Период: {{ periodLabel(period.value) }} ×</button>
+            }
+            <input [formControl]="search" placeholder="Поиск по ЛС, должнику, типу мероприятия..." />
+            <input class="month" type="month" [formControl]="period" aria-label="Период" />
+          </label>
+        } @else {
+          <p class="ready-title">Срок предупреждения истёк — можно приостанавливать услуги</p>
         }
-        <a mat-stroked-button routerLink="/claims">Дела взыскания</a>
-        <a mat-stroked-button routerLink="/scenarios">Сценарии</a>
-      </div>
-
-      @if (view() !== 'ready') {
-        <div class="filters">
-          <mat-form-field class="search">
-            <mat-label>Поиск по ЛС, должнику, типу мероприятия</mat-label>
-            <input matInput [formControl]="search" />
-          </mat-form-field>
-          <mat-form-field>
-            <mat-label>Период</mat-label>
-            <input matInput type="month" [formControl]="period" />
-          </mat-form-field>
-          @if (period.value) {
-            <button type="button" class="chip" (click)="period.setValue('')">Период: {{ periodLabel(period.value) }} ×</button>
+        <div class="views">
+          <button type="button" [class.on]="view() === 'list'" matTooltip="Список" (click)="show('list')">
+            <mat-icon>view_list</mat-icon>
+          </button>
+          <button type="button" matTooltip="Матрица по типам" (click)="scrollMatrix()">
+            <mat-icon>grid_on</mat-icon>
+          </button>
+          <button type="button" matTooltip="Скачать видимый список" (click)="download()">
+            <mat-icon>download</mat-icon>
+          </button>
+          @if (canOrderDisconnect()) {
+            <button type="button" [class.on]="view() === 'ready'" matTooltip="Готовы к отключению" (click)="show('ready')">
+              <mat-icon>power_off</mat-icon>
+            </button>
           }
         </div>
+      </div>
+
+      @if (view() === 'list') {
+        <p class="guide">
+          Группа 2: предупреждение, затем {{ waitDays() }} календарных дней на оплату (постановление № 465).
+          Если долг остался — приостановление выбранных услуг.
+          @if (canOrderDisconnect()) {
+            <button type="button" (click)="show('ready')">К отключению</button>
+          }
+          Группы 3–6 ведутся во вкладке
+          <a routerLink="/claims">претензионно-исковая работа</a>.
+        </p>
       }
 
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
@@ -72,83 +79,89 @@ const MONTHS = [
         @if (loaded() && !groups().length && !error()) {
           <p class="muted">За выбранные условия мероприятий нет.</p>
         }
-        @for (group of groups(); track group.status) {
-          <section class="surface group st-{{ group.status }}">
-            <button type="button" class="group-head" (click)="toggle(group.status)">
-              <mat-icon>{{ collapsed().has(group.status) ? 'chevron_right' : 'expand_more' }}</mat-icon>
-              <span>{{ group.label }}</span>
-              <span class="count">{{ group.total }}</span>
-            </button>
-            @if (!collapsed().has(group.status)) {
-              <table>
-                <thead>
-                  <tr>
-                    <th>Мероприятие</th>
-                    <th>Должник</th>
-                    <th>Исполнитель</th>
-                    <th>Следующее действие</th>
-                    <th>Статус</th>
+        @if (groups().length) {
+          <section class="surface registry">
+            <table>
+              <thead>
+                <tr>
+                  <th class="tick"></th>
+                  <th>Мероприятие</th>
+                  <th>Должник</th>
+                  <th>Исполнитель</th>
+                  <th>Следующее действие</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (group of groups(); track group.status) {
+                  <tr class="band">
+                    <td colspan="6">
+                      <button type="button" (click)="toggle(group.status)">
+                        <mat-icon>{{ collapsed().has(group.status) ? 'chevron_right' : 'expand_more' }}</mat-icon>
+                        {{ group.label }} ({{ group.total }})
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  @for (row of group.results; track row.id) {
-                    <tr class="row-{{ row.kind }}">
-                      <td>
-                        <div class="title-line">
-                          <span class="kind-chip {{ row.kind }}">{{ row.kind_display }}</span>
+                  @if (!collapsed().has(group.status)) {
+                    @for (row of group.results; track row.id) {
+                      <tr>
+                        <td class="tick">
+                          <mat-checkbox [checked]="marked().has(row.id)" (change)="mark(row.id)" />
+                        </td>
+                        <td>
                           <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
-                        </div>
-                        @if (row.progress && row.progress.total) {
-                          <div class="mini">
-                            <span class="track"><span [style.width.%]="share(row)"></span></span>
-                            <span class="muted">{{ row.progress.done }} / {{ row.progress.total }} ЛС</span>
-                          </div>
-                        }
-                        @if (row.artifact) { <a [href]="row.artifact">Файл</a> }
-                      </td>
-                      <td>
-                        @if (row.debtor_id) {
-                          <a [routerLink]="['/accounts', row.debtor_id]">{{ row.debtor_name || 'ЛС' }}</a>
-                        } @else {
-                          <span>{{ row.debtor_name || '—' }}</span>
-                        }
-                        @if (row.debtor_account) { <div class="muted">ЛС {{ row.debtor_account }}</div> }
-                        @if (row.accounts_count > 1) {
-                          <div class="muted">ещё {{ row.accounts_count - 1 }} ЛС</div>
-                        }
-                      </td>
-                      <td>
-                        @if (row.assignee_name) {
-                          <span class="person" [matTooltip]="row.assignee_name">
-                            <span class="face t{{ tone(row.assignee_name) }}">{{ initials(row.assignee_name) }}</span>
-                          </span>
-                        } @else {
-                          <span class="muted">—</span>
-                        }
-                      </td>
-                      <td>
-                        <span class="action-dot {{ row.status }}"></span>{{ row.next_action }}
-                      </td>
-                      <td><span class="status-pill {{ row.status }}">{{ row.status_display }}</span></td>
-                    </tr>
+                          @if (row.progress && row.progress.total > 1) {
+                            <div class="mini">
+                              <span class="track"><span [style.width.%]="share(row)"></span></span>
+                              <span class="muted">{{ row.progress.done }} / {{ row.progress.total }} ЛС</span>
+                            </div>
+                          }
+                          @if (row.artifact) { <a [href]="row.artifact">Файл</a> }
+                        </td>
+                        <td>
+                          @if (row.debtor_id) {
+                            <a [routerLink]="['/accounts', row.debtor_id]">{{ row.debtor_name || 'ЛС' }}</a>
+                          } @else {
+                            <span>{{ row.debtor_name || '—' }}</span>
+                          }
+                          @if (row.debtor_account) { <div class="muted">ЛС {{ row.debtor_account }}</div> }
+                          @if (row.accounts_count > 1) {
+                            <div class="muted">ещё {{ row.accounts_count - 1 }} ЛС</div>
+                          }
+                        </td>
+                        <td>
+                          @if (row.assignee_name) {
+                            <span class="person" [matTooltip]="row.assignee_name">
+                              <span class="face t{{ tone(row.assignee_name) }}">{{ initials(row.assignee_name) }}</span>
+                            </span>
+                          } @else {
+                            <span class="dash">—</span>
+                          }
+                        </td>
+                        <td><span class="action-dot {{ row.status }}"></span>{{ row.next_action }}</td>
+                        <td><span class="status-pill {{ row.status }}">{{ row.status_display }}</span></td>
+                      </tr>
+                    }
+                    @if (group.results.length < group.total) {
+                      <tr class="more-row">
+                        <td colspan="6">
+                          <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
+                          <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
+                        </td>
+                      </tr>
+                    }
                   }
-                </tbody>
-              </table>
-              @if (group.results.length < group.total) {
-                <div class="more">
-                  <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
-                  <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
-                </div>
-              }
-            }
+                }
+              </tbody>
+            </table>
           </section>
         }
       }
 
       @if (view() !== 'ready') {
         @if (matrix(); as grid) {
-          <section class="surface group">
-            <h3>Мероприятия по типам</h3>
+          <section class="surface registry" id="measure-matrix">
+            <h3><mat-icon>grid_on</mat-icon> Мероприятия по типам (представление «Матрица»)</h3>
             @if (grid.results.length < grid.total) {
               <div class="more">
                 <span class="muted">Показаны {{ grid.results.length }} из {{ grid.total }}</span>
@@ -260,47 +273,63 @@ const MONTHS = [
     </div>
   `,
   styles: `
-    .search { min-width: 360px; }
-    .page-header button.active { background: var(--erip-primary-soft); color: var(--erip-primary); }
-    .group { margin-top: 12px; overflow: hidden; border-left: 4px solid #cbd5e1; }
-    .st-assigned { border-left-color: #2563eb; }
-    .st-running { border-left-color: #d97706; }
-    .st-done { border-left-color: #16a34a; }
-    .st-failed { border-left-color: #dc2626; }
-    .st-paused { border-left-color: #ca8a04; }
-    .st-cancelled { border-left-color: #9ca3af; }
-    .group-head {
-      display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0;
-      background: #f7f9fb; font: inherit; font-weight: 700; color: var(--erip-primary-dark); cursor: pointer;
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    h2 { margin: 0; font-size: 18px; color: var(--erip-primary-dark); white-space: nowrap; }
+    .searchbar {
+      flex: 1; display: flex; align-items: center; gap: 8px; min-width: 280px; height: 40px; padding: 0 10px;
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 8px;
     }
-    .st-assigned .group-head { background: #eff6ff; color: #1d4ed8; }
-    .st-running .group-head { background: #fffbeb; color: #b45309; }
-    .st-done .group-head { background: #f0fdf4; color: #15803d; }
-    .st-failed .group-head { background: #fef2f2; color: #b91c1c; }
-    .st-paused .group-head { background: #fefce8; color: #854d0e; }
-    .st-cancelled .group-head { background: #f9fafb; color: #6b7280; }
-    .count {
-      min-width: 22px; padding: 1px 8px; border-radius: 10px; background: #fff; font-size: 12px; font-weight: 700;
+    .searchbar mat-icon { color: var(--erip-muted); font-size: 20px; width: 20px; height: 20px; }
+    .searchbar input:not([type="month"]) { flex: 1; border: 0; outline: 0; font: inherit; background: transparent; min-width: 80px; }
+    .period {
+      border: 0; background: var(--erip-primary-soft); color: var(--erip-primary); border-radius: 999px;
+      padding: 2px 8px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+    .month { flex: 0 0 9.2rem; width: 9.2rem; max-width: 9.2rem; min-width: 0; border: 0; color: var(--erip-muted); background: transparent; }
+    .views { display: flex; gap: 4px; margin-left: auto; }
+    .views button {
+      width: 36px; height: 36px; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
+      color: var(--erip-muted); cursor: pointer; display: grid; place-items: center;
+    }
+    .views button.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .views mat-icon { font-size: 20px; width: 20px; height: 20px; }
+    .ready-title { margin: 0; color: var(--erip-muted); }
+    .guide { margin: 0 0 12px; color: var(--erip-muted); font-size: 13px; }
+    .guide button, .guide a { margin: 0 4px; }
+    .guide button {
+      border: 0; background: transparent; color: var(--erip-link); font: inherit; font-weight: 600; cursor: pointer; padding: 0;
+    }
+    .registry { margin-top: 12px; overflow: hidden; }
+    .band td { background: #f7f9fb; padding: 0; }
+    .band button {
+      display: flex; align-items: center; gap: 4px; width: 100%; border: 0; background: transparent;
+      padding: 8px 8px; font: inherit; font-weight: 700; color: #1f2933; cursor: pointer; text-align: left;
     }
     table { border: 0; border-radius: 0; }
-    th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; color: var(--erip-muted); padding: 8px 12px; }
-    td { padding: 10px 12px; border-top: 1px solid var(--erip-border); vertical-align: top; }
-    tr.row-call { border-left: 3px solid var(--erip-call); }
-    tr.row-notice { border-left: 3px solid var(--erip-notice); }
-    tr.row-warning { border-left: 3px solid var(--erip-warn-kind); }
-    tr.row-disconnect { border-left: 3px solid var(--erip-cut); }
-    tr.row-collection { border-left: 3px solid var(--erip-claim); }
-    .title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .title { font-weight: 600; }
+    th { text-align: left; font-size: 12px; font-weight: 600; color: var(--erip-muted); padding: 8px 12px; background: #fff; }
+    td { padding: 10px 12px; border-top: 1px solid var(--erip-border); vertical-align: middle; }
+    .title { font-weight: 600; color: inherit; }
     .mini { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
     .track { display: block; width: 72px; height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; }
     .track span { display: block; height: 100%; background: #16a34a; }
     .person { display: inline-flex; }
+    .dash { color: var(--erip-muted); }
+    .more-row td { display: flex; align-items: center; gap: 12px; }
     .more { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 12px 12px; }
     .tick { width: 40px; }
     .pad { padding: 0 12px 8px; }
     a.cell { text-decoration: none; }
-    h3 { margin: 0; padding: 12px 12px 0; font-size: 15px; color: var(--erip-primary-dark); }
+    h3 {
+      margin: 0; padding: 12px 12px 0; font-size: 15px; color: var(--erip-primary-dark);
+      display: flex; align-items: center; gap: 6px;
+    }
+    h3 mat-icon { font-size: 18px; width: 18px; height: 18px; color: var(--erip-muted); }
+    .group { margin-top: 12px; overflow: hidden; border-left: 4px solid #dc2626; }
+    .group-head {
+      display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0;
+      background: #fef2f2; font: inherit; font-weight: 700; color: #b91c1c;
+    }
+    .count { min-width: 22px; padding: 1px 8px; border-radius: 10px; background: #fff; font-size: 12px; font-weight: 700; }
     .matrix-wrap { overflow: auto; }
     .matrix { min-width: 860px; }
     .cell {
@@ -323,7 +352,9 @@ export class MeasuresListComponent implements OnInit {
 
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly period = new FormControl('', { nonNullable: true });
-  protected readonly view = signal<'list' | 'matrix' | 'ready'>('list');
+  protected readonly view = signal<'list' | 'ready'>('list');
+  protected readonly marked = signal<Set<number>>(new Set());
+  protected readonly waitDays = signal(5);
   protected readonly groups = signal<MeasureGroup[]>([]);
   protected readonly matrix = signal<MeasureMatrix | null>(null);
   protected readonly candidates = signal<DisconnectCandidate[]>([]);
@@ -342,12 +373,50 @@ export class MeasuresListComponent implements OnInit {
   ngOnInit(): void {
     this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.load());
     this.period.valueChanges.subscribe(() => this.load());
+    this.api.dialSettings().subscribe({
+      next: (settings) => this.waitDays.set(settings.warning_wait_days || 5),
+    });
     this.load();
   }
 
-  protected show(mode: 'list' | 'matrix' | 'ready'): void {
+  protected show(mode: 'list' | 'ready'): void {
     this.view.set(mode);
     this.load();
+  }
+
+  protected mark(id: number): void {
+    const next = new Set(this.marked());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.marked.set(next);
+  }
+
+  protected scrollMatrix(): void {
+    if (this.view() !== 'list') {
+      this.show('list');
+      setTimeout(() => document.getElementById('measure-matrix')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      return;
+    }
+    document.getElementById('measure-matrix')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  protected download(): void {
+    const lines = ['Мероприятие;Должник;ЛС;Исполнитель;Следующее действие;Статус'];
+    const chosen = this.marked();
+    for (const group of this.groups()) {
+      for (const row of group.results) {
+        if (chosen.size && !chosen.has(row.id)) continue;
+        lines.push([row.title, row.debtor_name, row.debtor_account, row.assignee_name, row.next_action, row.status_display]
+          .map((value) => `"${String(value || '').replaceAll('"', '""')}"`)
+          .join(';'));
+      }
+    }
+    const blob = new Blob([`\ufeff${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'meropriyatiya.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
   }
 
   /** Отметка счёта тянет за собой его услуги: отключать нечего, если ни одна не выбрана. */
@@ -477,17 +546,6 @@ export class MeasuresListComponent implements OnInit {
           this.candidates.set(payload.results);
           this.picked.set(new Set());
           this.services.set(new Set());
-        },
-        error: (err) => {
-          if (current === this.request) this.error.set(errorMessage(err));
-        },
-      });
-      return;
-    }
-    if (this.view() === 'matrix') {
-      this.api.measureMatrix(params).subscribe({
-        next: (payload) => {
-          if (current === this.request) this.matrix.set(payload);
         },
         error: (err) => {
           if (current === this.request) this.error.set(errorMessage(err));
