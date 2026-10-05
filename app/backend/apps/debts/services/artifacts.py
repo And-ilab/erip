@@ -67,7 +67,8 @@ def attach_warning_pdf(measure: Measure, accounts: list[Account]) -> None:
     measure.artifact.save(f"warning-{measure.pk}.pdf", ContentFile(payload), save=True)
 
 
-def _pdf_bytes(lines: list[str]) -> bytes:
+def _pdf_bytes(lines: list[str], font_size: int = 12, indent_mm: int = 0) -> bytes:
+    size = font_size if 8 <= font_size <= 24 else 12
     font = _font_path()
     if font is not None:
         try:
@@ -80,9 +81,11 @@ def _pdf_bytes(lines: list[str]) -> bytes:
     pdf = FPDF()
     pdf.add_font("Body", "", str(font))
     pdf.add_page()
-    pdf.set_font("Body", size=12)
+    pdf.set_font("Body", size=size)
+    if indent_mm:
+        pdf.set_left_margin(pdf.l_margin + min(indent_mm, 40))
     for line in lines:
-        pdf.multi_cell(pdf.epw, 8, line or " ")
+        pdf.multi_cell(pdf.epw, max(size * 0.5, 6), line or " ")
     return bytes(pdf.output())
 
 

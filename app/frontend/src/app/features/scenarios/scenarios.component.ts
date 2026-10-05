@@ -7,8 +7,9 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
-import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, errorMessage } from '../../core/api.service';
+import { ApiService, DebtGroupBand, PrintFormRow, ScenarioRow, ScenarioStep, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { DialSettings } from '../../core/models';
 
 const ACTIONS = [
   { id: 'call', label: 'Автообзвон' },
@@ -83,9 +84,54 @@ const ACTIONS = [
               <h3>Шаг {{ step.order }}. {{ actionLabel(step.action) }}</h3>
               <h4>Условия запуска</h4>
               <div class="line">
-                <mat-form-field><mat-label>Ждать дней</mat-label><input matInput type="number" [(ngModel)]="step.wait_days" /></mat-form-field>
+                <mat-form-field><mat-label>Предшествующее мероприятие</mat-label>
+                  <mat-select [(ngModel)]="step.previous_action">
+                    <mat-option value="">Любое</mat-option>
+                    @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field><mat-label>Через сколько дней</mat-label><input matInput type="number" [(ngModel)]="step.wait_days" /></mat-form-field>
+              </div>
+              <div class="line">
+                <mat-form-field><mat-label>Применимо к группам</mat-label>
+                  <mat-select [(ngModel)]="step.groups" multiple>
+                    @for (group of groups; track group) { <mat-option [value]="group">Группа {{ group }}</mat-option> }
+                  </mat-select>
+                </mat-form-field>
                 <mat-form-field><mat-label>Группа от</mat-label><input matInput type="number" [(ngModel)]="step.branch_group" /></mat-form-field>
               </div>
+              <div class="line">
+                <mat-form-field><mat-label>Категория должника</mat-label>
+                  <mat-select [(ngModel)]="step.debtor_category">
+                    <mat-option [value]="null">Любая</mat-option>
+                    @for (category of categories(); track category.id) { <mat-option [value]="category.id">{{ category.name }}</mat-option> }
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field><mat-label>Тип организации</mat-label>
+                  <mat-select [(ngModel)]="step.org_kind">
+                    <mat-option value="any">Любая</mat-option>
+                    <mat-option value="billing">Начисляющая</mat-option>
+                    <mat-option value="supplier">Поставщик</mat-option>
+                  </mat-select>
+                </mat-form-field>
+              </div>
+              <div class="line">
+                <mat-form-field><mat-label>Лицо</mat-label>
+                  <mat-select [(ngModel)]="step.party">
+                    <mat-option value="any">Любое</mat-option>
+                    <mat-option value="person">Физическое</mat-option>
+                    <mat-option value="legal">Юридическое</mat-option>
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field><mat-label>Статус предыдущего</mat-label>
+                  <mat-select [(ngModel)]="step.require_status">
+                    <mat-option value="">Не важен</mat-option>
+                    <mat-option value="done">Завершено</mat-option>
+                  </mat-select>
+                </mat-form-field>
+              </div>
+              <mat-checkbox [(ngModel)]="step.require_phone">Есть телефон +375</mat-checkbox>
+              <mat-checkbox [(ngModel)]="step.exclude_if_paid">Исключить, если оплата поступила</mat-checkbox>
               <h4>Действие</h4>
               <div class="line">
                 <mat-form-field><mat-label>Мера</mat-label>
@@ -96,10 +142,12 @@ const ACTIONS = [
                 <mat-form-field><mat-label>Шаблон</mat-label><input matInput [(ngModel)]="step.template" /></mat-form-field>
               </div>
               <mat-checkbox [(ngModel)]="step.approval">Нужно согласование</mat-checkbox>
+              <mat-checkbox [(ngModel)]="step.auto_complete">Считать выполненным при успешной отправке</mat-checkbox>
               @if (step.action === 'messenger') {
                 <p class="banner">Мессенджер в сценарии есть, сообщение не отправляется.</p>
               }
               <h4>Переход</h4>
+              <mat-checkbox [(ngModel)]="step.blocks_next">Обязателен для перехода</mat-checkbox>
               <mat-checkbox [(ngModel)]="step.terminal">Конечный шаг</mat-checkbox>
               <p class="muted">Следующий шаг — строка ниже в таблице. Два шага с одним номером и тупик без конца сценарий не сохранит.</p>
               <button mat-button (click)="removeStep(picked())">Убрать шаг</button>
@@ -116,6 +164,14 @@ const ACTIONS = [
           <button mat-stroked-button (click)="assign(true)">Поставить на паузу</button>
         </div>
         @if (runNote()) { <p>{{ runNote() }}</p> }
+        @if (pauses().length) {
+          <section class="history">
+            <h3>Паузы по счёту</h3>
+            @for (item of pauses(); track item.at) {
+              <div class="rev"><span>{{ item.paused ? 'Пауза' : 'В работе' }} · {{ item.actor }} · {{ item.reason }}</span></div>
+            }
+          </section>
+        }
         @if (current()?.revisions?.length) {
           <section class="history">
             <h3>Версии сценария</h3>
@@ -145,20 +201,43 @@ const ACTIONS = [
           <mat-form-field><mat-label>Вид</mat-label>
             <mat-select [(ngModel)]="formKind">
               <mat-option value="warning">Предупреждение</mat-option>
+              <mat-option value="act">Акт</mat-option>
               <mat-option value="writ">Исполнительная надпись</mat-option>
               <mat-option value="claim">Иск</mat-option>
               <mat-option value="writeoff">Акт списания</mat-option>
               <mat-option value="disconnect">Заказ-наряд на отключение</mat-option>
             </mat-select>
           </mat-form-field>
+          <mat-form-field><mat-label>Адресат</mat-label>
+            <mat-select [(ngModel)]="formAddressee">
+              <mat-option value="debtor">Должник</mat-option>
+              <mat-option value="supplier">Поставщик услуги</mat-option>
+              <mat-option value="district">Администрация района, ст. 137</mat-option>
+            </mat-select>
+          </mat-form-field>
         </div>
+        <div class="line">
+          <mat-form-field><mat-label>Шрифт, пт</mat-label><input matInput type="number" [(ngModel)]="formFont" /></mat-form-field>
+          <mat-form-field><mat-label>Отступ, мм</mat-label><input matInput type="number" [(ngModel)]="formIndent" /></mat-form-field>
+          <mat-form-field class="grow"><mat-label>Логотип</mat-label><input matInput [(ngModel)]="formLogo" /></mat-form-field>
+        </div>
+        <mat-form-field class="wide"><mat-label>Реквизиты</mat-label><textarea matInput rows="2" [(ngModel)]="formRequisites"></textarea></mat-form-field>
+        <mat-form-field class="wide"><mat-label>Подпись уполномоченного</mat-label><input matInput [(ngModel)]="formSignatory" /></mat-form-field>
         <mat-form-field class="wide"><mat-label>Текст</mat-label><textarea matInput rows="4" [(ngModel)]="formBody"></textarea></mat-form-field>
         <div class="actions">
           <button mat-flat-button color="primary" (click)="saveForm()">Сохранить макет</button>
-          <mat-form-field><mat-label>ID счёта для сборки</mat-label><input matInput type="number" [(ngModel)]="renderAccount" /></mat-form-field>
-          <button mat-stroked-button (click)="render()">Собрать документ</button>
+          <mat-form-field class="grow"><mat-label>ID счетов через запятую</mat-label><input matInput [(ngModel)]="renderAccounts" /></mat-form-field>
+          <button mat-stroked-button (click)="render()">Собрать PDF</button>
         </div>
         @if (rendered()) { <pre>{{ rendered() }}</pre> }
+        @if (printDocs().length) {
+          <div class="rev">
+            @for (doc of printDocs(); track doc.id) {
+              <button mat-stroked-button (click)="downloadDoc(doc.id)">PDF ЛС {{ doc.account }} · v{{ doc.version }}</button>
+            }
+            @if (printBatch()) { <button mat-stroked-button (click)="downloadPackage()">Пакет PDF</button> }
+          </div>
+        }
         @if (print()?.revisions?.length) {
           <h4>Версии макета</h4>
           <p class="muted">Уже собранный документ остаётся на версии, которой его печатали.</p>
@@ -170,6 +249,70 @@ const ACTIONS = [
           }
         }
       </section>
+
+      <section class="forms">
+        <h3>Обзвон</h3>
+        @if (canEdit()) {
+          <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
+          <button mat-stroked-button (click)="saveCalling()">Сохранить признак схемы</button>
+        }
+        @if (current()) {
+          <div class="line">
+            <mat-form-field><mat-label>ЮЛ в этом сценарии</mat-label>
+              <mat-select [(ngModel)]="scenarioCall">
+                <mat-option value="inherit">Как в схеме</mat-option>
+                <mat-option value="yes">Звонить</mat-option>
+                <mat-option value="no">Не звонить</mat-option>
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="scenarioDialDay" /></mat-form-field>
+          </div>
+          <p class="muted">Пустое число и пустые дни берут общее правило. Дни сценария: отметьте, в какие дни недели брать только мобильный.</p>
+          <div class="line">
+            @for (day of weekDays; track day.id) {
+              <mat-checkbox [checked]="scenarioWeekdays.includes(day.id)" (change)="toggleScenarioDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
+            }
+          </div>
+        }
+      </section>
+
+      @if (auth.isSuperadmin()) {
+        <section class="forms">
+          <h3>Настройка методологии</h3>
+          <p class="muted">Шкалу и рейтинг меняет суперадминистратор. Сохранение не переписывает уже записанную историю. Текущие буквы обновляются при следующем пересчёте, а с галкой — сразу.</p>
+          <div class="list-pane">
+            <table>
+              <thead><tr><th>Группа</th><th>Название</th><th>Месяцев от</th><th>Месяцев до</th></tr></thead>
+              <tbody>
+                @for (band of bands(); track band.group) {
+                  <tr>
+                    <td>{{ band.group }}</td>
+                    <td><input [(ngModel)]="band.name" /></td>
+                    <td><input type="number" [(ngModel)]="band.months_from" /></td>
+                    <td><input type="number" [(ngModel)]="band.months_to" /></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <div class="line">
+            <mat-form-field><mat-label>B с группы</mat-label><input matInput type="number" [(ngModel)]="ratingB" /></mat-form-field>
+            <mat-form-field><mat-label>C с группы</mat-label><input matInput type="number" [(ngModel)]="ratingCFrom" /></mat-form-field>
+            <mat-form-field><mat-label>C по группу</mat-label><input matInput type="number" [(ngModel)]="ratingCTo" /></mat-form-field>
+            <mat-form-field><mat-label>E с группы</mat-label><input matInput type="number" [(ngModel)]="ratingE" /></mat-form-field>
+            <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="dialDay" /></mat-form-field>
+          </div>
+          <div class="line">
+            @for (day of weekDays; track day.id) {
+              <mat-checkbox [checked]="dialWeekdays.includes(day.id)" (change)="toggleDialDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
+            }
+          </div>
+          <mat-checkbox [(ngModel)]="applyRecorded">Применить к уже рассчитанным текущим значениям</mat-checkbox>
+          <div class="actions">
+            <button mat-flat-button color="primary" (click)="saveMethodology()">Сохранить методологию</button>
+          </div>
+        </section>
+      }
     </div>
   `,
   styles: `
@@ -209,6 +352,11 @@ export class ScenariosComponent implements OnInit {
   protected readonly auth = inject(AuthService);
 
   protected readonly actions = ACTIONS;
+  protected readonly groups = [1, 2, 3, 4, 5, 6];
+  protected readonly weekDays = [
+    { id: 0, label: 'Пн' }, { id: 1, label: 'Вт' }, { id: 2, label: 'Ср' },
+    { id: 3, label: 'Чт' }, { id: 4, label: 'Пт' }, { id: 5, label: 'Сб' }, { id: 6, label: 'Вс' },
+  ];
   protected readonly scenarios = signal<ScenarioRow[]>([]);
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly current = signal<ScenarioRow | null>(null);
@@ -217,6 +365,11 @@ export class ScenariosComponent implements OnInit {
   protected readonly warnings = signal<string[]>([]);
   protected readonly runNote = signal('');
   protected readonly rendered = signal('');
+  protected readonly pauses = signal<{ paused: boolean; reason: string; at: string; actor: string }[]>([]);
+  protected readonly categories = signal<{ id: number; name: string }[]>([]);
+  protected readonly bands = signal<DebtGroupBand[]>([]);
+  protected readonly printDocs = signal<{ id: number; account: number; version: number }[]>([]);
+  protected readonly printBatch = signal('');
 
   protected name = '';
   protected steps: ScenarioStep[] = [];
@@ -225,9 +378,26 @@ export class ScenariosComponent implements OnInit {
   protected formCode = '';
   protected formName = '';
   protected formKind = 'warning';
+  protected formAddressee = 'debtor';
+  protected formFont = 12;
+  protected formIndent = 0;
+  protected formLogo = '';
+  protected formRequisites = '';
+  protected formSignatory = '';
   protected formBody = 'Уважаемый {fio}, по счёту {account} долг {amount}. Услуги: {services}. Оплатите за {due_days} дн. {organization}.';
-  protected renderAccount: number | null = null;
+  protected renderAccounts = '';
   protected applyRunning = false;
+  protected orgCallLegal = false;
+  protected scenarioCall = 'inherit';
+  protected scenarioDialDay: number | null = null;
+  protected scenarioWeekdays: number[] = [];
+  protected ratingB = 3;
+  protected ratingCFrom = 4;
+  protected ratingCTo = 5;
+  protected ratingE = 6;
+  protected dialDay = 25;
+  protected dialWeekdays: number[] = [5, 6];
+  protected applyRecorded = false;
 
   ngOnInit(): void {
     this.reload();
@@ -235,6 +405,26 @@ export class ScenariosComponent implements OnInit {
       next: (page) => this.forms.set(page.results),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
+    this.api.debtorCategories().subscribe({
+      next: (page) => this.categories.set(page.results),
+      error: () => this.categories.set([]),
+    });
+    if (this.canEdit()) {
+      this.api.scenarioCalling().subscribe({
+        next: (row) => this.orgCallLegal = row.call_legal,
+        error: () => undefined,
+      });
+    }
+    if (this.auth.isSuperadmin()) {
+      this.api.debtGroups().subscribe({
+        next: (page) => this.bands.set(page.results.map((band) => ({ ...band }))),
+        error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      });
+      this.api.dialSettings().subscribe({
+        next: (row) => this.readDial(row),
+        error: () => undefined,
+      });
+    }
   }
 
   protected canEdit(): boolean {
@@ -253,7 +443,18 @@ export class ScenariosComponent implements OnInit {
   protected select(row: ScenarioRow): void {
     this.current.set(row);
     this.name = row.name;
-    this.steps = row.steps.map((step) => ({ ...step }));
+    this.steps = row.steps.map((step) => ({
+      ...step,
+      groups: step.groups || [],
+      party: step.party || 'any',
+      org_kind: step.org_kind || 'any',
+      previous_action: step.previous_action || '',
+      require_status: step.require_status || '',
+      blocks_next: step.blocks_next !== false,
+    }));
+    this.scenarioCall = row.call_legal == null ? 'inherit' : row.call_legal ? 'yes' : 'no';
+    this.scenarioDialDay = row.dial_mobile_from_day ?? null;
+    this.scenarioWeekdays = [...(row.dial_mobile_weekdays || [])];
     this.picked.set(0);
     this.warnings.set([]);
     this.runNote.set('');
@@ -285,7 +486,7 @@ export class ScenariosComponent implements OnInit {
   protected save(): void {
     const row = this.current();
     if (!row) return;
-    this.api.saveScenario({ id: row.id, name: this.name, steps: this.clean() }).subscribe({
+    this.api.saveScenario({ id: row.id, name: this.name, steps: this.clean(), ...this.callFields() }).subscribe({
       next: (saved) => {
         this.select(saved);
         this.reload(saved.id);
@@ -297,7 +498,7 @@ export class ScenariosComponent implements OnInit {
   protected publish(): void {
     const row = this.current();
     if (!row) return;
-    this.api.saveScenario({ id: row.id, name: this.name, steps: this.clean() }).subscribe({
+    this.api.saveScenario({ id: row.id, name: this.name, steps: this.clean(), ...this.callFields() }).subscribe({
       next: (saved) => this.api.publishScenario(saved.id, this.applyRunning).subscribe({
         next: (result) => {
           this.warnings.set(result.warnings);
@@ -350,11 +551,15 @@ export class ScenariosComponent implements OnInit {
     this.api.assignScenario(row.id, {
       account: this.accountId, paused, pause_reason: this.pauseReason,
     }).subscribe({
-      next: (run) => this.runNote.set(
-        paused
-          ? 'Сценарий на паузе.'
-          : `На счёте версия ${run.version}. Текущая опубликованная — ${run.current_version}.`,
-      ),
+      next: (run) => {
+        this.pauses.set(run.pauses || []);
+        const skip = run.last_skip ? ` ${run.last_skip}` : '';
+        this.runNote.set(
+          paused
+            ? 'Сценарий на паузе.'
+            : `На счёте версия ${run.version}. Текущая опубликованная — ${run.current_version}.${skip}`,
+        );
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }
@@ -364,7 +569,15 @@ export class ScenariosComponent implements OnInit {
     this.formCode = form.code;
     this.formName = form.name;
     this.formKind = form.doc_kind;
+    this.formAddressee = form.addressee || 'debtor';
+    this.formFont = form.font_size || 12;
+    this.formIndent = form.indent_mm || 0;
+    this.formLogo = form.logo_text || '';
+    this.formRequisites = form.requisites || '';
+    this.formSignatory = form.signatory || '';
     this.formBody = form.body;
+    this.printDocs.set([]);
+    this.printBatch.set('');
   }
 
   protected newForm(): void {
@@ -377,7 +590,9 @@ export class ScenariosComponent implements OnInit {
   protected saveForm(): void {
     const current = this.print();
     const body = {
-      id: current?.id, code: this.formCode, name: this.formName, doc_kind: this.formKind, body: this.formBody,
+      id: current?.id, code: this.formCode, name: this.formName, doc_kind: this.formKind,
+      addressee: this.formAddressee, font_size: Number(this.formFont) || 12, indent_mm: Number(this.formIndent) || 0,
+      logo_text: this.formLogo, requisites: this.formRequisites, signatory: this.formSignatory, body: this.formBody,
     };
     this.api.savePrintForm(body).subscribe({
       next: (saved) => {
@@ -390,11 +605,28 @@ export class ScenariosComponent implements OnInit {
 
   protected render(): void {
     const form = this.print();
-    if (!form || !this.renderAccount) return;
-    this.api.renderPrintForm(form.id, this.renderAccount).subscribe({
-      next: (result) => this.rendered.set(`Версия шаблона ${result.version}\n\n${result.text}`),
+    const accounts = this.renderAccounts.split(/[,\s]+/).map((item) => Number(item)).filter((item) => item > 0);
+    if (!form || !accounts.length) return;
+    this.api.renderPrintForm(form.id, accounts).subscribe({
+      next: (result) => {
+        this.printDocs.set(result.documents || []);
+        this.printBatch.set(result.batch || '');
+        this.rendered.set(`Версия шаблона ${result.version}\n\n${result.text}`);
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
+  }
+
+  protected downloadDoc(id: number): void {
+    const form = this.print();
+    if (!form) return;
+    this.saveBlob(this.api.printFile(form.id, `documents/${id}`), `document-${id}.pdf`);
+  }
+
+  protected downloadPackage(): void {
+    const form = this.print();
+    if (!form || !this.printBatch()) return;
+    this.saveBlob(this.api.printFile(form.id, `package/${this.printBatch()}`), `package-${this.printBatch().slice(0, 8)}.pdf`);
   }
 
   private clean(): ScenarioStep[] {
@@ -405,8 +637,96 @@ export class ScenariosComponent implements OnInit {
       template: step.template || '',
       approval: Boolean(step.approval),
       branch_group: step.branch_group ? Number(step.branch_group) : null,
+      groups: (step.groups || []).map((group) => Number(group)),
+      party: step.party || 'any',
+      org_kind: step.org_kind || 'any',
+      require_phone: Boolean(step.require_phone),
+      debtor_category: step.debtor_category ? Number(step.debtor_category) : null,
+      previous_action: step.previous_action || '',
+      require_status: step.require_status || '',
+      exclude_if_paid: Boolean(step.exclude_if_paid),
+      auto_complete: Boolean(step.auto_complete),
+      blocks_next: step.blocks_next !== false,
       terminal: Boolean(step.terminal),
     }));
+  }
+
+  private callFields(): Partial<ScenarioRow> {
+    return {
+      call_legal: this.scenarioCall === 'inherit' ? null : this.scenarioCall === 'yes',
+      dial_mobile_from_day: this.scenarioDialDay ? Number(this.scenarioDialDay) : null,
+      dial_mobile_weekdays: this.scenarioWeekdays.length ? [...this.scenarioWeekdays] : null,
+    };
+  }
+
+  protected saveCalling(): void {
+    this.api.saveScenarioCalling(this.orgCallLegal).subscribe({
+      next: () => this.snack.open('Признак схемы сохранён', 'OK', { duration: 2000 }),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected toggleScenarioDay(day: number, checked: boolean): void {
+    this.scenarioWeekdays = checked
+      ? [...this.scenarioWeekdays, day].sort()
+      : this.scenarioWeekdays.filter((item) => item !== day);
+  }
+
+  protected toggleDialDay(day: number, checked: boolean): void {
+    this.dialWeekdays = checked
+      ? [...this.dialWeekdays, day].sort()
+      : this.dialWeekdays.filter((item) => item !== day);
+  }
+
+  protected saveMethodology(): void {
+    const bands = this.bands().map((band) => ({
+      ...band,
+      months_from: Number(band.months_from),
+      months_to: band.months_to === null || band.months_to === undefined || String(band.months_to) === ''
+        ? null
+        : Number(band.months_to),
+    }));
+    this.api.saveDebtGroups(bands).subscribe({
+      next: (saved) => {
+        this.bands.set(saved.map((band) => ({ ...band })));
+        this.api.saveDialSettings({
+          dial_mobile_from_day: Number(this.dialDay),
+          dial_mobile_weekdays: [...this.dialWeekdays],
+          rating_b_group: Number(this.ratingB),
+          rating_c_from: Number(this.ratingCFrom),
+          rating_c_to: Number(this.ratingCTo),
+          rating_e_from: Number(this.ratingE),
+          apply_recorded: this.applyRecorded,
+        } as Partial<DialSettings>).subscribe({
+          next: () => this.snack.open('Методология сохранена', 'OK', { duration: 2500 }),
+          error: (err) => this.snack.open(errorMessage(err), 'OK'),
+        });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private readDial(row: DialSettings): void {
+    this.dialDay = row.dial_mobile_from_day;
+    this.dialWeekdays = [...(row.dial_mobile_weekdays || [5, 6])];
+    this.ratingB = row.rating_b_group ?? 3;
+    this.ratingCFrom = row.rating_c_from ?? 4;
+    this.ratingCTo = row.rating_c_to ?? 5;
+    this.ratingE = row.rating_e_from ?? 6;
+  }
+
+  private saveBlob(source: { subscribe: Function }, filename: string): void {
+    source.subscribe({
+      next: (blob: Blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
+      },
+      error: (err: unknown) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   private reload(selectId?: number): void {

@@ -191,8 +191,15 @@ export interface DialSettings {
   dial_mobile_from_day: number;
   dial_mobile_from_hour: number | null;
   dial_mobile_to_hour: number | null;
+  dial_mobile_weekdays?: number[];
+  rating_period_months?: number;
+  rating_b_group?: number;
+  rating_c_from?: number;
+  rating_c_to?: number;
+  rating_e_from?: number;
   warning_wait_days?: number;
   disconnect_requires_approval?: boolean;
+  apply_recorded?: boolean;
 }
 
 export interface ContactRow {
@@ -457,6 +464,8 @@ export interface MessageTemplate {
   subject: string;
   body: string;
   debt_group: number | null;
+  version?: number;
+  revisions?: { version: number; at: string; author?: string }[];
   is_active: boolean;
 }
 

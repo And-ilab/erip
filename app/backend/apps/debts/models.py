@@ -630,6 +630,14 @@ class Measure(AisRecord):
     )
     owner_name = models.CharField("Поставщик-автор", max_length=250, blank=True)
     call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
+    source_scenario = models.ForeignKey(
+        "nsi.ScenarioDefinition", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="measures", verbose_name="Сценарий-источник",
+    )
+    source_version = models.PositiveIntegerField("Версия сценария", null=True, blank=True)
+    source_step = models.PositiveSmallIntegerField("Шаг сценария", null=True, blank=True)
+    source_action = models.CharField("Действие шага", max_length=30, blank=True)
+    auto_complete = models.BooleanField("Закрыть после отправки", default=False)
     group_from = models.PositiveSmallIntegerField("Группа с", null=True, blank=True)
     group_to = models.PositiveSmallIntegerField("Группа по", null=True, blank=True)
     needs_approval = models.BooleanField("Нужно согласование", default=False)
@@ -900,10 +908,28 @@ class AccountScenarioRun(AisRecord):
     version = models.PositiveIntegerField("Версия")
     paused = models.BooleanField("Приостановлен", default=False)
     pause_reason = models.CharField("Причина приостановки", max_length=500, blank=True)
+    last_skip = models.CharField("Почему шаг не стартовал", max_length=300, blank=True)
+    skipped_orders = models.JSONField("Пропущенные шаги", default=list, blank=True)
 
     class Meta:
         verbose_name = "Запуск сценария"
         verbose_name_plural = "Запуски сценариев"
+
+
+class ScenarioPause(TimeStampedModel):
+    """История паузы и возобновления сценария по одному лицевому счёту."""
+
+    run = models.ForeignKey(AccountScenarioRun, on_delete=models.CASCADE, related_name="pauses", verbose_name="Запуск")
+    paused = models.BooleanField("Пауза")
+    reason = models.CharField("Причина", max_length=500, blank=True)
+    actor = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Кто",
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "Пауза сценария"
+        verbose_name_plural = "Паузы сценария"
 
 
 class RefreshRequest(AisRecord):

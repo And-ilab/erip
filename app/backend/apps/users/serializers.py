@@ -15,7 +15,7 @@ ROLE_RANK = {
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ["id", "schema_name", "name", "unp", "is_active", "created_at", "updated_at"]
+        fields = ["id", "schema_name", "name", "unp", "call_legal", "is_active", "created_at", "updated_at"]
         read_only_fields = ["is_active", "created_at", "updated_at"]
 
 

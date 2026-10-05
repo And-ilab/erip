@@ -157,6 +157,10 @@ def rollup(measure: Measure, *, respect_pause: bool = True) -> None:
         measure.status = new
         measure.save(update_fields=["status", "updated_at"])
         log_event(measure, None, None, old, new, "Пересчёт по частным мероприятиям")
+        if new == Measure.Status.DONE and measure.source_scenario_id:
+            from apps.nsi.services.scenario_engine import advance_after_measure
+
+            advance_after_measure(measure)
 
 
 def _skip(account: Account, reason: str) -> dict:
@@ -172,7 +176,12 @@ def _select(kind: str, accounts: list[Account], data, started: date) -> tuple[li
     group_to = _optional_int(data.get("group_to"), "group_to")
     if group_from and group_to and group_from > group_to:
         raise MeasureLaunchError({"group_to": "Верхняя группа меньше нижней"})
-    call_legal = bool(data.get("call_legal"))
+    if "call_legal" in data and data.get("call_legal") is not None:
+        call_legal = bool(data.get("call_legal"))
+    elif accounts:
+        call_legal = bool(accounts[0].organization.call_legal)
+    else:
+        call_legal = False
     channel = (data.get("channel") or "").strip()
     at = _parse_time(data.get("time_from"))
     for account in accounts:

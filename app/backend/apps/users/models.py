@@ -10,6 +10,7 @@ class Organization(TimeStampedModel, SoftDeleteModel):
     schema_name = models.CharField("Имя схемы АИС", max_length=30, unique=True)
     name = models.CharField("Наименование", max_length=250)
     unp = models.CharField("УНП", max_length=9, blank=True)
+    call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
 
     class Meta:
         ordering = ["name"]

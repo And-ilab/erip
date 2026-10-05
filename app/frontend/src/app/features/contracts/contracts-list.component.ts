@@ -131,7 +131,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         }
         @if (dial(); as rule) {
           <p class="hint">
-            Обзвон: с {{ rule.dial_mobile_from_day }}-го числа и в выходные — только мобильный.
+            Обзвон: с {{ rule.dial_mobile_from_day }}-го числа и в выбранные дни недели — только мобильный.
             @if (rule.dial_mobile_from_hour != null) {
               Часы только мобильного: {{ rule.dial_mobile_from_hour }}–{{ rule.dial_mobile_to_hour }}.
             }

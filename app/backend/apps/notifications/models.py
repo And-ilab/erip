@@ -32,6 +32,7 @@ class MessageTemplate(TimeStampedModel, SoftDeleteModel):
         "Группа задолженности", null=True, blank=True, db_index=True,
         help_text="Если задана, каркас подставляется для ЛС с этой группой (ручная важнее расчётной).",
     )
+    version = models.PositiveIntegerField("Версия", default=1)
 
     class Meta:
         ordering = ["debt_group", "name"]
@@ -50,6 +51,26 @@ class MessageTemplate(TimeStampedModel, SoftDeleteModel):
         return self.name
 
 
+class MessageTemplateRevision(TimeStampedModel):
+    """Снимок текста. Уже отправленное оповещение хранит номер версии и не переписывается."""
+
+    template = models.ForeignKey(MessageTemplate, on_delete=models.CASCADE, related_name="revisions")
+    version = models.PositiveIntegerField("Версия")
+    subject = models.CharField("Тема", max_length=250, blank=True)
+    body = models.TextField("Текст")
+    author = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Автор",
+    )
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["template", "version"], name="uniq_message_template_revision"),
+        ]
+        verbose_name = "Версия шаблона сообщения"
+        verbose_name_plural = "Версии шаблонов сообщений"
+
+
 class Notification(TimeStampedModel):
     class Status(models.TextChoices):
         NEW = "new", "Новое"
@@ -64,6 +85,7 @@ class Notification(TimeStampedModel):
     template = models.ForeignKey(
         MessageTemplate, null=True, blank=True, on_delete=models.SET_NULL, verbose_name="Шаблон"
     )
+    template_version = models.PositiveIntegerField("Версия шаблона", null=True, blank=True)
     body = models.TextField("Текст (если без шаблона)", blank=True)
     recipient_user = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="notifications",

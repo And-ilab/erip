@@ -105,6 +105,10 @@ class CalculationSettingsViewSet(NsiViewSet):
         serializer = self.get_serializer(CalculationSettings.load(), data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if request.data.get("apply_recorded"):
+            from apps.debts.services.portfolio import apply_rating_now
+
+            apply_rating_now()
         return Response(serializer.data)
 
 
@@ -208,10 +212,17 @@ class ScenarioDefinitionViewSet(NsiViewSet):
             reason=str(request.data.get("pause_reason") or ""),
         )
         record_action(request, AuditLog.Action.UPDATE, run)
+        from apps.debts.models import ScenarioPause
+
+        pauses = [
+            {"paused": item.paused, "reason": item.reason, "at": item.created_at.isoformat(),
+             "actor": item.actor.display_name if item.actor_id else ""}
+            for item in ScenarioPause.objects.filter(run=run).select_related("actor")[:20]
+        ]
         return Response({
             "account": account.pk, "scenario": scenario.pk, "version": run.version,
             "paused": run.paused, "pause_reason": run.pause_reason,
-            "current_version": scenario.version,
+            "current_version": scenario.version, "last_skip": run.last_skip, "pauses": pauses,
         })
 
     def _admin_only(self) -> None:
@@ -227,6 +238,23 @@ class ScenarioDefinitionViewSet(NsiViewSet):
 
         if steps:
             check_steps(steps)
+
+    @action(detail=False, methods=["get", "patch"], url_path="calling")
+    def calling(self, request):
+        """Признак обзвона юридических лиц схемы. Дни номера читаются из общих настроек."""
+        self._admin_only()
+        organization = request.user.organization
+        if organization is None:
+            raise ValidationError({"organization": "У пользователя нет схемы"})
+        if request.method == "PATCH":
+            organization.call_legal = bool(request.data.get("call_legal"))
+            organization.save(update_fields=["call_legal", "updated_at"])
+        settings = CalculationSettings.load()
+        return Response({
+            "call_legal": organization.call_legal,
+            "dial_mobile_from_day": settings.dial_mobile_from_day,
+            "dial_mobile_weekdays": settings.dial_mobile_weekdays,
+        })
 
 
 class PrintFormViewSet(NsiViewSet):
@@ -260,26 +288,72 @@ class PrintFormViewSet(NsiViewSet):
             raise PermissionDenied("Макет настраивает администратор организации")
         if serializer.instance.organization_id is None and not self.request.user.is_superadmin:
             raise PermissionDenied("Центральный макет меняет суперадминистратор")
+        from .services.scenarios import layout_of
+
         previous = serializer.instance.body
+        previous_layout = layout_of(serializer.instance)
         super().perform_update(serializer)
-        remember_print_version(serializer.instance, previous)
+        remember_print_version(serializer.instance, previous, previous_layout)
 
     @action(detail=True, methods=["post"])
     def render(self, request, pk=None):
         from apps.debts.models import Account
         from apps.users.scoping import AccessScope
 
-        from .services.scenarios import render_print
+        from .services.scenarios import new_batch, render_print
 
         form = self.get_object()
-        account = AccessScope(request.user).apply(
+        raw_ids = request.data.get("accounts")
+        if raw_ids in (None, ""):
+            raw_ids = [request.data.get("account")] if request.data.get("account") else []
+        if not isinstance(raw_ids, list) or not raw_ids or len(raw_ids) > 100:
+            raise ValidationError({"accounts": "Передайте от 1 до 100 лицевых счетов"})
+        visible = AccessScope(request.user).apply(
             Account.objects.select_related("organization"), "organization", "provider_id",
-        ).filter(pk=request.data.get("account")).first()
-        if account is None:
-            raise ValidationError({"account": "Лицевой счёт не найден"})
-        text = render_print(form, account, tariff=str(request.data.get("tariff") or ""))
-        record_action(request, AuditLog.Action.CREATE, form, after={"account": account.pk, "version": form.version})
-        return Response({"text": text, "version": form.version})
+        )
+        accounts = list(visible.filter(pk__in=raw_ids))
+        if len(accounts) != len(set(raw_ids)):
+            raise ValidationError({"accounts": "Лицевой счёт не найден"})
+        batch = new_batch() if len(accounts) > 1 else ""
+        tariff = str(request.data.get("tariff") or "")
+        documents = [render_print(form, account, tariff=tariff, batch=batch) for account in accounts]
+        record_action(request, AuditLog.Action.CREATE, form, after={"accounts": raw_ids, "version": form.version})
+        payload = [_document_payload(item) for item in documents]
+        if len(payload) == 1:
+            return Response(payload[0] | {"documents": payload, "batch": batch})
+        return Response({"batch": batch, "version": form.version, "documents": payload, "text": payload[0]["text"]})
+
+    @action(detail=True, methods=["get"], url_path=r"documents/(?P<doc_id>[0-9]+)")
+    def document(self, request, pk=None, doc_id=None):
+        from django.http import FileResponse
+
+        from apps.debts.models import Account
+        from apps.users.scoping import AccessScope
+
+        from .models import PrintedDocument
+
+        form = self.get_object()
+        printed = PrintedDocument.objects.filter(form=form, pk=doc_id).select_related("account").first()
+        if printed is None:
+            raise ValidationError({"document": "Документ не найден"})
+        visible = AccessScope(request.user).apply(Account.objects.all(), "organization", "provider_id")
+        if not visible.filter(pk=printed.account_id).exists():
+            raise ValidationError({"document": "Документ не найден"})
+        return FileResponse(printed.file.open("rb"), as_attachment=True, filename=printed.file.name.rsplit("/", 1)[-1])
+
+    @action(detail=True, methods=["get"], url_path=r"package/(?P<batch>[0-9a-f]+)")
+    def package(self, request, pk=None, batch=None):
+        from django.http import FileResponse
+
+        from django.core.files.base import ContentFile
+
+        from .services.scenarios import package_pdf
+
+        form = self.get_object()
+        if not form.documents.filter(batch=batch).exists():
+            raise ValidationError({"batch": "Пакет не найден"})
+        payload = package_pdf(form, batch)
+        return FileResponse(ContentFile(payload), as_attachment=True, filename=f"{form.code}-{batch[:8]}.pdf")
 
     @action(detail=True, methods=["post"])
     def restore(self, request, pk=None):
@@ -296,8 +370,64 @@ class PrintFormViewSet(NsiViewSet):
         return Response(self.get_serializer(form).data)
 
 
+def _document_payload(document) -> dict:
+    return {
+        "id": document.pk,
+        "account": document.account_id,
+        "version": document.version,
+        "text": document.body,
+        "addressee": document.addressee,
+        "batch": document.batch,
+    }
+
+
+class DebtGroupScaleViewSet(NsiViewSet):
+    queryset = DebtGroupScale.objects.all()
+    serializer_class = DebtGroupScaleSerializer
+    search_fields = ["name"]
+
+    def perform_destroy(self, instance):
+        from .services.scale import scale_problem
+
+        rows = [
+            (row.group, row.months_from, row.months_to)
+            for row in DebtGroupScale.objects.filter(is_active=True).exclude(pk=instance.pk)
+        ]
+        problem = scale_problem(rows)
+        if problem:
+            raise ValidationError(problem)
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=["put"])
+    def replace(self, request):
+        from .services.scale import scale_problem
+
+        rows = request.data if isinstance(request.data, list) else None
+        if not isinstance(rows, list) or not rows:
+            raise ValidationError("Передайте список групп")
+        bands = []
+        for row in rows:
+            end = row.get("months_to")
+            bands.append((int(row["group"]), int(row["months_from"]), None if end in (None, "") else int(end)))
+        problem = scale_problem(bands)
+        if problem:
+            raise ValidationError(problem)
+        for row, band in zip(rows, bands, strict=True):
+            DebtGroupScale.objects.update_or_create(
+                group=band[0],
+                defaults={
+                    "name": row.get("name") or f"Группа {band[0]}",
+                    "months_from": band[1],
+                    "months_to": band[2],
+                    "is_active": True,
+                    "deactivated_at": None,
+                },
+            )
+        return Response(self.get_serializer(self.get_queryset().filter(is_active=True), many=True).data)
+
+
 NSI_REGISTRY = {
-    "debt-groups": nsi_viewset(DebtGroupScale, DebtGroupScaleSerializer, ["name"]),
+    "debt-groups": DebtGroupScaleViewSet,
     "debtor-categories": DebtorCategoryViewSet,
     "scenario-rules": nsi_viewset(ScenarioRule, ScenarioRuleSerializer, ["name"]),
     "scenarios": ScenarioDefinitionViewSet,

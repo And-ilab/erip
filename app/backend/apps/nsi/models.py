@@ -4,6 +4,10 @@ from django.db import models
 from apps.core.models import SoftDeleteModel, TimeStampedModel
 
 
+def weekend_days() -> list[int]:
+    return [5, 6]
+
+
 class DebtGroupScale(TimeStampedModel, SoftDeleteModel):
     """Шкала групп задолженности (ТЗ 4.2.1.5, параметр НСИ). months_to не включается."""
 
@@ -93,6 +97,17 @@ class ScenarioDefinition(TimeStampedModel, SoftDeleteModel):
     based_on = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copies", verbose_name="Источник",
     )
+    call_legal = models.BooleanField(
+        "Звонить юридическим лицам", null=True, blank=True,
+        help_text="Пусто — брать признак организации.",
+    )
+    dial_mobile_from_day = models.PositiveSmallIntegerField(
+        "С этого числа только мобильный", null=True, blank=True,
+    )
+    dial_mobile_weekdays = models.JSONField(
+        "Дни недели только мобильного", null=True, blank=True,
+        help_text="Пусто — общее правило. Числа 0–6, понедельник = 0.",
+    )
 
     class Meta:
         ordering = ["name"]
@@ -132,15 +147,23 @@ class PrintForm(TimeStampedModel, SoftDeleteModel):
     code = models.SlugField("Код", max_length=100)
     name = models.CharField("Название", max_length=250)
     doc_kind = models.CharField("Вид документа", max_length=30)
+    addressee = models.CharField("Адресат", max_length=20, default="debtor")
     body = models.TextField("Текст")
+    font_size = models.PositiveSmallIntegerField("Размер шрифта", default=12)
+    indent_mm = models.PositiveSmallIntegerField("Отступ, мм", default=0)
+    logo_text = models.CharField("Логотип", max_length=250, blank=True)
+    requisites = models.TextField("Реквизиты", blank=True)
+    signatory = models.CharField("Подпись уполномоченного", max_length=250, blank=True)
     version = models.PositiveIntegerField("Версия", default=1)
 
     class Meta:
         ordering = ["name"]
         constraints = [
-            models.UniqueConstraint(fields=["organization", "code"], name="uniq_print_form_code"),
+            models.UniqueConstraint(fields=["organization", "code", "addressee"], name="uniq_print_form_code"),
             models.UniqueConstraint(
-                fields=["code"], condition=models.Q(organization__isnull=True), name="uniq_central_print_form",
+                fields=["code", "addressee"],
+                condition=models.Q(organization__isnull=True),
+                name="uniq_central_print_form",
             ),
         ]
         verbose_name = "Печатная форма"
@@ -154,6 +177,7 @@ class PrintFormRevision(TimeStampedModel):
     form = models.ForeignKey(PrintForm, on_delete=models.CASCADE, related_name="revisions")
     version = models.PositiveIntegerField("Версия")
     body = models.TextField("Текст")
+    layout = models.JSONField("Макет", default=dict, blank=True)
 
     class Meta:
         ordering = ["-version"]
@@ -162,6 +186,25 @@ class PrintFormRevision(TimeStampedModel):
         ]
         verbose_name = "Версия печатной формы"
         verbose_name_plural = "Версии печатных форм"
+
+
+class PrintedDocument(TimeStampedModel):
+    """Готовый PDF. Файл остаётся на версии макета, которой его собрали."""
+
+    form = models.ForeignKey(PrintForm, on_delete=models.PROTECT, related_name="documents", verbose_name="Макет")
+    version = models.PositiveIntegerField("Версия макета")
+    account = models.ForeignKey(
+        "debts.Account", on_delete=models.CASCADE, related_name="printed_documents", verbose_name="ЛС",
+    )
+    addressee = models.CharField("Адресат", max_length=20, default="debtor")
+    body = models.TextField("Текст")
+    batch = models.CharField("Пакет", max_length=36, blank=True)
+    file = models.FileField("PDF", upload_to="printed/%Y/%m/")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Сформированный документ"
+        verbose_name_plural = "Сформированные документы"
 
 
 class CalculationSettings(TimeStampedModel):
@@ -179,6 +222,14 @@ class CalculationSettings(TimeStampedModel):
     dial_mobile_to_hour = models.PositiveSmallIntegerField(
         "До этого часа только мобильный", null=True, blank=True,
     )
+    dial_mobile_weekdays = models.JSONField(
+        "Дни недели только мобильного", default=weekend_days, blank=True,
+        help_text="0 — понедельник, 6 — воскресенье.",
+    )
+    rating_b_group = models.PositiveSmallIntegerField("Группа рейтинга B", default=3)
+    rating_c_from = models.PositiveSmallIntegerField("Группа рейтинга C от", default=4)
+    rating_c_to = models.PositiveSmallIntegerField("Группа рейтинга C по", default=5)
+    rating_e_from = models.PositiveSmallIntegerField("Группа рейтинга E от", default=6)
     warning_wait_days = models.PositiveSmallIntegerField(
         "Дней на оплату после вручения предупреждения", default=5,
     )

@@ -258,3 +258,205 @@ def test_print_form_restore_keeps_printed_documents(api, admin_a, specialist_a, 
     notes = list(DebtWorkItem.objects.filter(account=account_a).values_list("note", flat=True))
     assert any("версии 1" in note for note in notes)
     assert not any("версии 3" in note for note in notes)
+
+
+@pytest.mark.django_db
+def test_scenario_branches_by_group_and_starts_the_step(api, admin_a, org_a, account_a):
+    from apps.debts.models import Measure
+
+    account_a.debt_group = 2
+    account_a.save(update_fields=["debt_group"])
+    older = make_account(org_a, 1002, client_account="00001002")
+    older.debt_group = 4
+    older.save(update_fields=["debt_group"])
+    steps = [
+        {"order": 1, "action": "email", "groups": [1, 2], "template": "Письмо", "terminal": False, "blocks_next": True},
+        {"order": 2, "action": "warning", "branch_group": 3, "template": "Предупреждение", "terminal": True},
+    ]
+    created = api(admin_a).post("/api/v1/nsi/scenarios/", {"name": "Ветки", "steps": steps}, format="json")
+    assert created.status_code == 201, created.content
+    scenario_id = created.json()["id"]
+    published = api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {}, format="json")
+    assert published.status_code == 200, published.content
+    young = api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/assign/", {"account": account_a.id}, format="json")
+    assert young.status_code == 200, young.content
+    notice = Measure.objects.get(accounts=account_a, source_scenario_id=scenario_id)
+    assert notice.kind == "notice"
+    assert notice.channel == "email"
+    assert notice.source_version == published.json()["version"]
+    mature = api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/assign/", {"account": older.id}, format="json")
+    assert mature.status_code == 200, mature.content
+    warning = Measure.objects.get(accounts=older, source_scenario_id=scenario_id)
+    assert warning.kind == "warning"
+    assert warning.source_action == "warning"
+
+
+@pytest.mark.django_db
+def test_pause_keeps_a_history(api, admin_a, account_a):
+    from apps.debts.models import Measure, ScenarioPause
+
+    listing = api(admin_a).get("/api/v1/nsi/scenarios/")
+    standard = next(row for row in listing.json()["results"] if row["name"] == "Стандартное взыскание")
+    copied = api(admin_a).post(f"/api/v1/nsi/scenarios/{standard['id']}/copy/", {}, format="json")
+    scenario_id = copied.json()["id"]
+    api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {}, format="json")
+    paused = api(admin_a).post(
+        f"/api/v1/nsi/scenarios/{scenario_id}/assign/",
+        {"account": account_a.id, "paused": True, "pause_reason": "судебный спор"},
+        format="json",
+    )
+    assert paused.status_code == 200, paused.content
+    assert paused.json()["pauses"][0]["reason"] == "судебный спор"
+    assert not Measure.objects.filter(source_scenario_id=scenario_id).exists()
+    resumed = api(admin_a).post(
+        f"/api/v1/nsi/scenarios/{scenario_id}/assign/",
+        {"account": account_a.id, "paused": False},
+        format="json",
+    )
+    assert resumed.status_code == 200, resumed.content
+    assert ScenarioPause.objects.filter(run__account=account_a).count() == 2
+
+
+@pytest.mark.django_db
+def test_scale_rejects_overlap_and_history_stays(api, superadmin, account_a):
+    from django.core.management import call_command
+
+    from apps.debts.models import StatusHistory
+    from apps.nsi.models import DebtGroupScale
+
+    call_command("loaddata", "debt_group_scale", verbosity=0)
+    group = DebtGroupScale.objects.get(group=2)
+    overlapped = api(superadmin).patch(
+        f"/api/v1/nsi/debt-groups/{group.id}/", {"months_from": 0}, format="json",
+    )
+    assert overlapped.status_code == 400
+    account_a.debt_group = 6
+    account_a.rating = "E"
+    account_a.save(update_fields=["debt_group", "rating"])
+    past = StatusHistory.objects.create(
+        organization=account_a.organization, account=account_a, kind=StatusHistory.Kind.RATING,
+        old_value="C/1", new_value="E", reason="было",
+    )
+    saved = api(superadmin).patch(
+        "/api/v1/nsi/calculation-settings/current/",
+        {"rating_b_group": 3, "rating_c_from": 4, "rating_c_to": 6, "rating_e_from": 7},
+        format="json",
+    )
+    assert saved.status_code == 200, saved.content
+    past.refresh_from_db()
+    account_a.refresh_from_db()
+    assert past.new_value == "E"
+    assert account_a.rating == "E"
+    applied = api(superadmin).patch(
+        "/api/v1/nsi/calculation-settings/current/",
+        {"rating_b_group": 3, "rating_c_from": 4, "rating_c_to": 5, "rating_e_from": 6, "apply_recorded": True},
+        format="json",
+    )
+    assert applied.status_code == 200, applied.content
+    past.refresh_from_db()
+    assert past.new_value == "E"
+
+
+@pytest.mark.django_db
+def test_weekday_rule_and_scenario_call_legal(api, admin_a, org_a, account_a):
+    from datetime import date
+
+    from apps.debts.models import Contact, Measure
+    from apps.debts.services.contacts import choose_phone
+    from apps.nsi.models import CalculationSettings
+
+    Contact.objects.create(
+        organization=org_a, account=account_a, kind=Contact.Kind.CITY, value="+375172220000",
+        source=Contact.Source.PM, priority=9,
+    )
+    Contact.objects.create(
+        organization=org_a, account=account_a, kind=Contact.Kind.MOBILE, value="+375291110000",
+        source=Contact.Source.PM, priority=1,
+    )
+    settings = CalculationSettings.load()
+    settings.dial_mobile_weekdays = [0]
+    settings.dial_mobile_from_day = 28
+    settings.dial_mobile_from_hour = None
+    settings.dial_mobile_to_hour = None
+    settings.save()
+    assert choose_phone(account_a, date(2026, 10, 5), None).value == "+375291110000"
+    account_a.payer_unp = "190000000"
+    account_a.payer_identifier = ""
+    account_a.debt_group = 1
+    account_a.save(update_fields=["payer_unp", "payer_identifier", "debt_group"])
+    created = api(admin_a).post(
+        "/api/v1/nsi/scenarios/",
+        {"name": "ЮЛ", "call_legal": True, "steps": [
+            {"order": 1, "action": "call", "template": "Голос", "terminal": True},
+        ]},
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    scenario_id = created.json()["id"]
+    api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {}, format="json")
+    assigned = api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/assign/", {"account": account_a.id}, format="json")
+    assert assigned.status_code == 200, assigned.content
+    measure = Measure.objects.get(source_scenario_id=scenario_id)
+    assert measure.call_legal is True
+    assert measure.kind == "call"
+
+
+@pytest.mark.django_db
+def test_message_template_version_stays_on_the_sent_notice(api, admin_a, specialist_a, account_a, fake_gateway):
+    from apps.notifications.models import Notification
+
+    created = api(admin_a).post(
+        "/api/v1/templates/",
+        {"code": "letter-v", "name": "Письмо", "channel": "email", "subject": "Долг", "body": "Первая {fio}"},
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    template_id = created.json()["id"]
+    sent = api(specialist_a).post(
+        "/api/v1/notifications/",
+        {"channel": "email", "template": template_id, "account": account_a.id},
+        format="json",
+    )
+    assert sent.status_code == 201, sent.content
+    assert sent.json()["template_version"] == 1
+    changed = api(admin_a).patch(f"/api/v1/templates/{template_id}/", {"body": "Вторая {fio}"}, format="json")
+    assert changed.status_code == 200, changed.content
+    assert changed.json()["version"] == 2
+    assert Notification.objects.get(pk=sent.json()["id"]).template_version == 1
+    rolled = api(admin_a).post(f"/api/v1/templates/{template_id}/rollback/", {"version": 1}, format="json")
+    assert rolled.status_code == 200, rolled.content
+    assert rolled.json()["version"] == 3
+    assert rolled.json()["body"] == "Первая {fio}"
+    assert Notification.objects.get(pk=sent.json()["id"]).template_version == 1
+
+
+@pytest.mark.django_db
+def test_print_package_keeps_the_pdf_of_its_version(api, admin_a, specialist_a, org_a, account_a):
+    other = make_account(org_a, 1003, client_account="00001003")
+    created = api(admin_a).post(
+        "/api/v1/nsi/print-forms/",
+        {
+            "code": "warn-pdf", "name": "Предупреждение PDF", "doc_kind": "warning", "addressee": "district",
+            "body": "Долг {amount}", "font_size": 14, "indent_mm": 10,
+            "logo_text": "ЕРИП", "requisites": "УНП 1", "signatory": "Директор",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    form_id = created.json()["id"]
+    rendered = api(specialist_a).post(
+        f"/api/v1/nsi/print-forms/{form_id}/render/",
+        {"accounts": [account_a.id, other.id]},
+        format="json",
+    )
+    assert rendered.status_code == 200, rendered.content
+    assert len(rendered.json()["documents"]) == 2
+    assert rendered.json()["documents"][0]["version"] == 1
+    document_id = rendered.json()["documents"][0]["id"]
+    downloaded = api(specialist_a).get(f"/api/v1/nsi/print-forms/{form_id}/documents/{document_id}/")
+    assert downloaded.status_code == 200
+    payload = b"".join(downloaded.streaming_content)
+    assert payload.startswith(b"%PDF")
+    api(admin_a).patch(f"/api/v1/nsi/print-forms/{form_id}/", {"body": "Новая {fio}"}, format="json")
+    again = api(specialist_a).get(f"/api/v1/nsi/print-forms/{form_id}/documents/{document_id}/")
+    assert b"".join(again.streaming_content) == payload

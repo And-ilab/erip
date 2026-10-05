@@ -10,17 +10,28 @@ from .services.dispatcher import template_for_account
 class MessageTemplateSerializer(serializers.ModelSerializer):
     channel_display = serializers.CharField(source="get_channel_display", read_only=True)
     is_central = serializers.SerializerMethodField()
+    revisions = serializers.SerializerMethodField()
 
     class Meta:
         model = MessageTemplate
         fields = [
             "id", "organization", "is_central", "code", "name", "channel", "channel_display", "subject", "body",
-            "debt_group", "is_active", "created_at", "updated_at",
+            "debt_group", "version", "revisions", "is_active", "created_at", "updated_at",
         ]
-        read_only_fields = ["is_active", "created_at", "updated_at"]
+        read_only_fields = ["is_active", "created_at", "updated_at", "version", "revisions"]
 
     def get_is_central(self, obj) -> bool:
         return obj.organization_id is None
+
+    def get_revisions(self, obj) -> list[dict]:
+        return [
+            {
+                "version": revision.version,
+                "at": revision.created_at.isoformat(),
+                "author": revision.author.display_name if revision.author_id else "",
+            }
+            for revision in obj.revisions.all()
+        ]
 
     def validate(self, attrs):
         user = self.context["request"].user
@@ -28,6 +39,19 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             # Локальные шаблоны — только своей схемы; центральные правит суперадминистратор
             attrs["organization"] = user.organization
         return attrs
+
+    def create(self, validated_data):
+        from .services.versions import remember_template
+
+        template = super().create(validated_data)
+        return remember_template(template, None, None, self.context["request"].user)
+
+    def update(self, instance, validated_data):
+        from .services.versions import remember_template
+
+        previous_body, previous_subject = instance.body, instance.subject
+        template = super().update(instance, validated_data)
+        return remember_template(template, previous_body, previous_subject, self.context["request"].user)
 
 
 class TemplatePreviewSerializer(serializers.Serializer):
@@ -45,14 +69,21 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = [
-            "id", "organization", "channel", "channel_display", "template", "body", "recipient_user", "account",
+            "id", "organization", "channel", "channel_display", "template", "template_version", "body",
+            "recipient_user", "account",
             "recipient_name", "recipient_address", "context", "status", "status_display", "gateway_id",
             "rendered_text", "error", "request_id", "is_read", "sent_at", "created_at",
         ]
         read_only_fields = [
             "organization", "status", "gateway_id", "rendered_text", "error", "request_id", "is_read", "sent_at",
-            "created_at",
+            "created_at", "template_version",
         ]
+
+    def create(self, validated_data):
+        template = validated_data.get("template")
+        if template is not None:
+            validated_data["template_version"] = template.version
+        return super().create(validated_data)
 
     def validate(self, attrs):
         user = self.context["request"].user

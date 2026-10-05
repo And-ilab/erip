@@ -405,6 +405,10 @@ export class ApiService {
     return this.http.post<MessageTemplate>(`${this.base}/templates/${id}/restore/`, {});
   }
 
+  rollbackTemplate(id: number, version: number): Observable<MessageTemplate> {
+    return this.http.post<MessageTemplate>(`${this.base}/templates/${id}/rollback/`, { version });
+  }
+
   previewTemplate(id: number, userName: string, body?: string, context: Record<string, unknown> = {}): Observable<{ text: string }> {
     return this.http.post<{ text: string }>(`${this.base}/templates/${id}/preview/`, { user_name: userName, body, context });
   }
@@ -459,10 +463,30 @@ export class ApiService {
     return this.http.post<ScenarioRow>(`${this.base}/nsi/scenarios/${id}/copy/`, {});
   }
 
-  assignScenario(id: number, body: object): Observable<{ version: number; current_version: number; paused: boolean }> {
-    return this.http.post<{ version: number; current_version: number; paused: boolean }>(
-      `${this.base}/nsi/scenarios/${id}/assign/`, body,
+  assignScenario(id: number, body: object): Observable<ScenarioAssign> {
+    return this.http.post<ScenarioAssign>(`${this.base}/nsi/scenarios/${id}/assign/`, body);
+  }
+
+  scenarioCalling(): Observable<{ call_legal: boolean; dial_mobile_from_day: number; dial_mobile_weekdays: number[] }> {
+    return this.http.get<{ call_legal: boolean; dial_mobile_from_day: number; dial_mobile_weekdays: number[] }>(
+      `${this.base}/nsi/scenarios/calling/`,
     );
+  }
+
+  saveScenarioCalling(callLegal: boolean): Observable<{ call_legal: boolean }> {
+    return this.http.patch<{ call_legal: boolean }>(`${this.base}/nsi/scenarios/calling/`, { call_legal: callLegal });
+  }
+
+  debtGroups(): Observable<Page<DebtGroupBand>> {
+    return this.http.get<Page<DebtGroupBand>>(`${this.base}/nsi/debt-groups/`, { params: { page_size: 20 } });
+  }
+
+  saveDebtGroups(bands: DebtGroupBand[]): Observable<DebtGroupBand[]> {
+    return this.http.put<DebtGroupBand[]>(`${this.base}/nsi/debt-groups/replace/`, bands);
+  }
+
+  debtorCategories(): Observable<Page<{ id: number; name: string }>> {
+    return this.http.get<Page<{ id: number; name: string }>>(`${this.base}/nsi/debtor-categories/`, { params: { page_size: 100 } });
   }
 
   printForms(): Observable<Page<PrintFormRow>> {
@@ -479,8 +503,14 @@ export class ApiService {
     return this.http.post<PrintFormRow>(`${this.base}/nsi/print-forms/${id}/restore/`, { version });
   }
 
-  renderPrintForm(id: number, account: number, tariff = ''): Observable<{ text: string; version: number }> {
-    return this.http.post<{ text: string; version: number }>(`${this.base}/nsi/print-forms/${id}/render/`, { account, tariff });
+  renderPrintForm(id: number, accounts: number[], tariff = ''): Observable<PrintRender> {
+    return this.http.post<PrintRender>(`${this.base}/nsi/print-forms/${id}/render/`, {
+      account: accounts[0], accounts, tariff,
+    });
+  }
+
+  printFile(formId: number, path: string): Observable<Blob> {
+    return this.http.get(`${this.base}/nsi/print-forms/${formId}/${path}/`, { responseType: 'blob' });
   }
 }
 
@@ -549,9 +579,41 @@ export interface ScenarioStep {
   template?: string;
   approval?: boolean;
   branch_group?: number | null;
-  person?: string;
-  has_phone?: boolean | null;
+  groups?: number[];
+  party?: string;
+  org_kind?: string;
+  require_phone?: boolean;
+  debtor_category?: number | null;
+  previous_action?: string;
+  require_status?: string;
+  exclude_if_paid?: boolean;
+  auto_complete?: boolean;
+  blocks_next?: boolean;
   terminal?: boolean;
+}
+
+export interface ScenarioAssign {
+  version: number;
+  current_version: number;
+  paused: boolean;
+  last_skip?: string;
+  pauses?: { paused: boolean; reason: string; at: string; actor: string }[];
+}
+
+export interface DebtGroupBand {
+  id?: number;
+  group: number;
+  name: string;
+  months_from: number;
+  months_to: number | null;
+}
+
+export interface PrintRender {
+  text: string;
+  version: number;
+  id?: number;
+  batch?: string;
+  documents: { id: number; account: number; version: number; text: string }[];
 }
 
 export interface VersionRow {
@@ -568,6 +630,9 @@ export interface ScenarioRow {
   steps: ScenarioStep[];
   organization: number | null;
   is_active: boolean;
+  call_legal?: boolean | null;
+  dial_mobile_from_day?: number | null;
+  dial_mobile_weekdays?: number[] | null;
   revisions?: VersionRow[];
 }
 
@@ -576,7 +641,13 @@ export interface PrintFormRow {
   code: string;
   name: string;
   doc_kind: string;
+  addressee?: string;
   body: string;
+  font_size?: number;
+  indent_mm?: number;
+  logo_text?: string;
+  requisites?: string;
+  signatory?: string;
   version: number;
   organization: number | null;
   revisions?: VersionRow[];

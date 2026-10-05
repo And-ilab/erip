@@ -108,6 +108,16 @@ export class TemplateDeleteDialog {
             <button mat-stroked-button [disabled]="!current()" (click)="preview(name.value)">Предпросмотр через шлюз</button>
           </div>
           @if (previewText()) { <pre class="message">{{ previewText() }}</pre> }
+          @if (current()?.revisions?.length) {
+            <h3 class="archive-title">Версии текста</h3>
+            <p class="muted">Уже отправленное оповещение остаётся на версии, которой его собрали.</p>
+            @for (rev of current()?.revisions; track rev.version) {
+              <div class="rev">
+                <span>v{{ rev.version }} {{ rev.author }}</span>
+                <button mat-stroked-button (click)="rollback(rev.version)" [disabled]="rev.version === current()?.version">Вернуть текст новой версией</button>
+              </div>
+            }
+          }
         </mat-card-content>
       </mat-card>
     </div>
@@ -118,6 +128,8 @@ export class TemplateDeleteDialog {
     .actions { margin-top: 12px; }
     .selected { background: rgba(0, 90, 200, .08); }
     .archive-title { margin: 16px 0 0; font-size: 14px; font-weight: 600; }
+    .rev { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    .muted { color: var(--erip-muted); }
   `,
 })
 export class TemplatesComponent implements OnInit {
@@ -185,6 +197,20 @@ export class TemplatesComponent implements OnInit {
         },
         error: (e) => this.snack.open(errorMessage(e), 'OK'),
       });
+    });
+  }
+
+  rollback(version: number): void {
+    const template = this.current();
+    if (!template) return;
+    this.api.rollbackTemplate(template.id, version).subscribe({
+      next: (saved) => {
+        this.current.set(saved);
+        this.form.patchValue({ body: saved.body, subject: saved.subject });
+        this.snack.open(`Текст версии ${version} сохранён как v${saved.version}`, 'OK', { duration: 3000 });
+        this.load();
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
 

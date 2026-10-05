@@ -27,10 +27,25 @@ def choose_phone(account: Account, on_date: date | None = None, at: time | None 
     elif mode == "ais":
         qs = qs.filter(source=Contact.Source.AIS)
     hour = at.hour if at is not None else (datetime.now().hour if on_date == today else None)
-    mobile_only = on_date.weekday() >= 5 or on_date.day >= settings.dial_mobile_from_day
+    day_from, weekdays = _dial_rule(account, settings)
+    mobile_only = on_date.weekday() in weekdays or on_date.day >= day_from
     if hour is not None and _mobile_hours(hour, settings.dial_mobile_from_hour, settings.dial_mobile_to_hour):
         mobile_only = True
     ordered = qs.order_by("-priority", "kind")
     if mobile_only:
         return ordered.filter(kind=Contact.Kind.MOBILE).first()
     return ordered.first()
+
+
+def _dial_rule(account: Account, settings: CalculationSettings) -> tuple[int, list[int]]:
+    day_from = settings.dial_mobile_from_day
+    weekdays = [int(day) for day in (settings.dial_mobile_weekdays or [])]
+    from apps.debts.models import AccountScenarioRun
+
+    run = AccountScenarioRun.objects.filter(account_id=account.pk).select_related("scenario").first()
+    if run is not None:
+        if run.scenario.dial_mobile_from_day is not None:
+            day_from = run.scenario.dial_mobile_from_day
+        if run.scenario.dial_mobile_weekdays is not None:
+            weekdays = [int(day) for day in run.scenario.dial_mobile_weekdays]
+    return day_from, weekdays

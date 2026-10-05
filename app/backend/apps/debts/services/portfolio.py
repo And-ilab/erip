@@ -126,12 +126,20 @@ def scenario_names() -> dict[int, str]:
     }
 
 
-def rating_letter(group: int | None, aggravating: bool) -> str:
-    if group is None or group <= 2:
+def rating_letter(group: int | None, aggravating: bool, rules=None) -> str:
+    """Буквы A–E из п. 4.2.1.5. Пороги берутся из настроек, история строк не переписывается."""
+    if rules is None:
+        from apps.nsi.models import CalculationSettings
+
+        rules = CalculationSettings.load()
+    b_group = rules.rating_b_group
+    c_from = rules.rating_c_from
+    e_from = rules.rating_e_from
+    if group is None or group < b_group:
         return "A"
-    if group == 3:
+    if group < c_from:
         return "B"
-    if group == 6:
+    if group >= e_from:
         return "E"
     return "D" if aggravating else "C"
 
@@ -342,7 +350,7 @@ class PortfolioRefresher:
                 account.rating_repeat = None
                 account.save(update_fields=["rating", "rating_repeat", "updated_at"])
             return
-        letter = rating_letter(worst, aggravating)
+        letter = rating_letter(worst, aggravating, self.settings)
         if account.rating == letter and (letter == "E" or account.rating_repeat):
             return
         repeat = self._repeat(account, letter)
@@ -407,6 +415,16 @@ class PortfolioRefresher:
             organization=account.organization, account=account, service=service, kind=kind,
             old_value=old or "", new_value=new or "", reason=reason,
         )
+
+
+def apply_rating_now() -> int:
+    """Пересчитывает текущие буквы. Старые строки истории остаются как были."""
+    refresher = PortfolioRefresher()
+    count = 0
+    for account in Account.objects.all().iterator():
+        refresher._rating(account)
+        count += 1
+    return count
 
 
 def sync_supplier_organizations(accounts) -> None:
