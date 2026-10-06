@@ -46,14 +46,18 @@ function belarusStyle(tileUrl: string, glyphs: string): StyleSpecification {
         paint: { 'line-color': '#f0d48a', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 14, 3.2] },
       },
       {
-        id: 'buildings', type: 'fill-extrusion', source: 'belarus', 'source-layer': 'buildings', minzoom: 14,
+        id: 'buildings-shadow', type: 'fill', source: 'belarus', 'source-layer': 'buildings', minzoom: 14,
         filter: ['in', 'kind', 'building', 'building_part'],
         paint: {
-          'fill-extrusion-color': '#e4d3bc',
-          'fill-extrusion-height': ['case', ['>', ['coalesce', ['get', 'height'], 0], 0], ['get', 'height'], 14],
-          'fill-extrusion-base': 0,
-          'fill-extrusion-opacity': 0.92,
+          'fill-color': '#d2c3ad',
+          'fill-translate': ['interpolate', ['linear'], ['zoom'], 14, ['literal', [1, 1]], 17, ['literal', [5, 5]]],
+          'fill-translate-anchor': 'viewport',
         },
+      },
+      {
+        id: 'buildings', type: 'fill', source: 'belarus', 'source-layer': 'buildings', minzoom: 14,
+        filter: ['in', 'kind', 'building', 'building_part'],
+        paint: { 'fill-color': '#f4efe6', 'fill-outline-color': '#e6d9c8' },
       },
       {
         id: 'road-label-major', type: 'symbol', source: 'belarus', 'source-layer': 'roads', minzoom: 12,
@@ -200,6 +204,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
         center: [27.95, 53.7],
         zoom: 6,
         maxZoom: 17,
+        maxPitch: 0,
         fadeDuration: 0,
       });
       this.map = map;
@@ -317,11 +322,9 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       this.markers.push(marker);
     }
     if (placed.length === 1) {
-      const zoom = this.zoom(placed[0].kind);
       map.jumpTo({
         center: [placed[0].longitude as number, placed[0].latitude as number],
-        zoom,
-        pitch: zoom >= 14 ? 55 : 0,
+        zoom: this.zoom(placed[0].kind),
       });
       return;
     }
@@ -329,7 +332,6 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       const bounds = new maplibregl.LngLatBounds();
       for (const child of placed) bounds.extend([child.longitude as number, child.latitude as number]);
       map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 0 });
-      map.setPitch(0);
     }
   }
 
