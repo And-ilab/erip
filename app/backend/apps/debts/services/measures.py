@@ -888,8 +888,11 @@ def close_paid_measures(account: Account, service: AccountService | None) -> Non
             measure.suspension_confirmed_on or measure.items.filter(account=account, suspended_on__isnull=False).exists()
         ):
             continue
+        collected = measure.kind == Measure.Kind.COLLECTION
         measure.items.filter(account=account, status__in=ITEM_OPEN).update(
-            status=MeasureItem.Status.CANCELLED, note="Долг погашен", updated_at=now,
+            status=MeasureItem.Status.DONE if collected else MeasureItem.Status.CANCELLED,
+            note="Погашено по выгрузке АИС" if collected else "Долг погашен",
+            updated_at=now,
         )
         if measure.items.filter(status__in=ITEM_OPEN).exists():
             rollup(measure, respect_pause=False)

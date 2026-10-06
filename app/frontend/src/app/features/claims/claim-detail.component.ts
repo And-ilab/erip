@@ -188,6 +188,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               <p>Актов: {{ row.acts_count }}. @for (item of row.acts; track item.id) { {{ item.title }}; }</p>
               <div class="actions">
                 <button mat-stroked-button (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
+                <p class="hint">Повторная загрузка этого лицевого счёта сама переводит дело в «Взыскано», когда исходящее сальдо и пеня погашены, а нотариальный тариф уже указан.</p>
                 <button mat-stroked-button (click)="act('ais-receipt')">Имитация выгрузки АИС</button>
                 <button mat-stroked-button (click)="act('move', { stage: 'recovered' })">Взыскано</button>
               </div>
