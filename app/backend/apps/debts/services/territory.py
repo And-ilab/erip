@@ -129,6 +129,14 @@ _SETTLEMENT = re.compile(
 )
 
 
+def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    arc = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlon / 2) ** 2
+    return 6371 * 2 * math.asin(min(1.0, math.sqrt(arc)))
+
+
 def _spread(latitude: float, longitude: float, key: str, kind: str) -> tuple[float, float]:
     span = {
         "oblast": 0.35,
@@ -173,23 +181,39 @@ def _catalog_point(
         place = catalog.place_of(name_key, oblast.name_key if oblast else "")
         if place is not None:
             return place.latitude, place.longitude
+    if kind == Territory.Kind.HOUSE:
+        street = _ancestor(parent, Territory.Kind.STREET)
+        settlement = _ancestor(parent, Territory.Kind.SETTLEMENT)
+        oblast = _ancestor(parent, Territory.Kind.OBLAST)
+        number = name_key.removeprefix("д.").strip()
+        if street is not None and settlement is not None and number:
+            found = catalog.house_point(
+                street.name_key,
+                number,
+                settlement.name_key,
+                oblast.name_key if oblast else "",
+            )
+            if found is not None:
+                return found
     return None
 
 
 def _point(
     kind: str, name_key: str, parent: Territory | None, catalog: StreetCatalog | None = None,
 ) -> tuple[Decimal, Decimal]:
+    # Справочник точнее ручного списка: ул. Кольцова в нём на севере Минска, а не в Грушевке.
+    if catalog is not None and kind in (Territory.Kind.STREET, Territory.Kind.SETTLEMENT, Territory.Kind.HOUSE):
+        found = _catalog_point(kind, name_key, parent, catalog)
+        if found:
+            lat, lon = found
+            return Decimal(str(lat)), Decimal(str(lon))
     known = KNOWN_POINTS.get((kind, name_key))
     if known:
         lat, lon = known
     else:
-        found = _catalog_point(kind, name_key, parent, catalog) if catalog is not None else None
-        if found:
-            lat, lon = found
-        else:
-            base_lat = float(parent.latitude) if parent and parent.latitude is not None else 53.7
-            base_lon = float(parent.longitude) if parent and parent.longitude is not None else 27.95
-            lat, lon = _spread(base_lat, base_lon, f"{kind}:{name_key}", kind)
+        base_lat = float(parent.latitude) if parent and parent.latitude is not None else 53.7
+        base_lon = float(parent.longitude) if parent and parent.longitude is not None else 27.95
+        lat, lon = _spread(base_lat, base_lon, f"{kind}:{name_key}", kind)
     return Decimal(str(lat)), Decimal(str(lon))
 
 
@@ -204,6 +228,7 @@ class AddressPath:
         if not parts:
             return []
         self._complete_place(parts, hint)
+        self._drop_far_place(parts)
         settlement_key = norm(parts["settlement"]) if parts["settlement"] else ""
         district_key = norm(parts["district"]).removesuffix(" район") if parts["district"] else ""
         oblast_name = parts["oblast"] or CITY_OBLAST.get(settlement_key) or UNKNOWN_OBLAST
@@ -254,6 +279,35 @@ class AddressPath:
         parts["settlement"] = place.name
         if not parts["oblast"]:
             parts["oblast"] = place.oblast_name
+
+    def _drop_far_place(self, parts: dict[str, str]) -> None:
+        """Адрес из выгрузки не удерживает улицу в чужом микрорайоне и районе."""
+        if not parts["street"]:
+            return
+        catalog = self._catalog if self._catalog is not None else default_catalog()
+        if catalog.is_empty:
+            return
+        settlement_key = norm(parts["settlement"]) if parts["settlement"] else ""
+        found = catalog.street_point(norm(parts["street"]), settlement_key)
+        if found is None:
+            return
+        if parts["microdistrict"]:
+            known = KNOWN_POINTS.get(("microdistrict", norm(parts["microdistrict"])))
+            if known is not None and _km(known[0], known[1], found[0], found[1]) > 2:
+                parts["microdistrict"] = ""
+        district_key = norm(parts["district"]).removesuffix(" район")
+        if district_key not in MINSK_DISTRICTS:
+            return
+        known = MINSK_DISTRICTS[district_key]
+        if _km(known[0], known[1], found[0], found[1]) <= 8:
+            return
+        nearest = min(
+            MINSK_DISTRICTS,
+            key=lambda key: _km(MINSK_DISTRICTS[key][0], MINSK_DISTRICTS[key][1], found[0], found[1]),
+        )
+        distance = _km(MINSK_DISTRICTS[nearest][0], MINSK_DISTRICTS[nearest][1], found[0], found[1])
+        if distance <= 6:
+            parts["district"] = f"{_title(nearest)} район"
 
     def _scan(self, text: str) -> dict[str, str] | None:
         found = {"oblast": "", "district": "", "settlement": "", "microdistrict": "", "street": "", "house": ""}

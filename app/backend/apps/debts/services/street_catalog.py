@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,10 +56,22 @@ class StreetCatalog:
         self._by_exact: dict[tuple[str, str, str], StreetHit] = {}
         self._by_name: dict[str, list[StreetHit]] = {}
         self._by_bare: dict[str, list[StreetHit]] = {}
+        self._by_last: dict[tuple[str, str, str], list[StreetHit]] = {}
+        self._houses: dict[tuple[str, str, str], tuple[float, float, str]] = {}
+        self._path: Path | None = None
+        self._house_db: sqlite3.Connection | None = None
+        self._house_mode = ""
+        self._house_lock = threading.Lock()
+        self._aliases: dict[tuple[str, str], list[str]] | None = None
         for street in streets:
             self._by_exact.setdefault((street.oblast_key, street.settlement_key, street.name_key), street)
             self._by_name.setdefault(street.name_key, []).append(street)
-            self._by_bare.setdefault(bare_street_key(street.name_key), []).append(street)
+            bare = bare_street_key(street.name_key)
+            self._by_bare.setdefault(bare, []).append(street)
+            last = bare.split()[-1] if bare else ""
+            if last and last != bare:
+                prefix = street.name_key[: -len(bare)]
+                self._by_last.setdefault((street.settlement_key, prefix, last), []).append(street)
 
     @classmethod
     def empty(cls) -> StreetCatalog:
@@ -95,7 +108,9 @@ class StreetCatalog:
             return cls.empty()
         finally:
             connection.close()
-        return cls(streets, places)
+        catalog = cls(streets, places)
+        catalog._path = chosen
+        return catalog
 
     @property
     def is_empty(self) -> bool:
@@ -149,6 +164,84 @@ class StreetCatalog:
             return None
         return hit.latitude, hit.longitude
 
+    def house_point(
+        self, street_key: str, house_key: str, settlement_key: str, oblast_key: str = "",
+    ) -> tuple[float, float] | None:
+        street = self._in_settlement(street_key, settlement_key, oblast_key)
+        resolved = street.name_key if street is not None else street_key
+        found = self._houses.get((settlement_key, resolved, house_key))
+        if found is not None:
+            if oblast_key and found[2] and found[2] != oblast_key:
+                return None
+            return found[0], found[1]
+        found = self._house_from_db(settlement_key, resolved, house_key)
+        if found is not None:
+            return found
+        for alias in self._alias_keys(settlement_key, resolved):
+            found = self._house_from_db(settlement_key, alias, house_key)
+            if found is not None:
+                return found
+        return None
+
+    def _alias_keys(self, settlement_key: str, street_key: str) -> list[str]:
+        """Русское и белорусское имя одной улицы лежат в одной точке: «Кольцова» и «Кальцова»."""
+        if self._aliases is None:
+            grouped: dict[tuple, list[tuple[str, str]]] = {}
+            for street in self._by_exact.values():
+                cell = (street.settlement_key, round(street.latitude, 4), round(street.longitude, 4))
+                folded = bare_street_key(street.name_key).replace("і", "и").replace("ў", "у").replace("а", "о")
+                grouped.setdefault(cell, [])
+                if (street.name_key, folded) not in grouped[cell]:
+                    grouped[cell].append((street.name_key, folded))
+            aliases: dict[tuple[str, str], list[str]] = {}
+            for (settlement, _lat, _lon), pairs in grouped.items():
+                for name_key, folded in pairs:
+                    others = [other for other, other_folded in pairs if other != name_key and other_folded == folded]
+                    if others:
+                        aliases[(settlement, name_key)] = others
+            self._aliases = aliases
+        return self._aliases.get((settlement_key, street_key), [])
+
+    def _house_from_db(self, settlement_key: str, street_key: str, house_key: str) -> tuple[float, float] | None:
+        if self._path is None:
+            return None
+        with self._house_lock:
+            if self._house_db is None:
+                connection = sqlite3.connect(self._path, check_same_thread=False)
+                columns = [row[1] for row in connection.execute("PRAGMA table_info(houses)")]
+                if "street_id" in columns:
+                    self._house_mode = "slim"
+                elif "settlement_key" in columns:
+                    self._house_mode = "wide"
+                else:
+                    self._house_mode = ""
+                self._house_db = connection
+            if self._house_mode == "slim":
+                row = self._house_db.execute(
+                    """
+                    SELECT h.latitude, h.longitude
+                    FROM house_streets s
+                    JOIN houses h ON h.street_id = s.id
+                    WHERE s.settlement_key = ? AND s.street_key = ? AND h.house_key = ?
+                    """,
+                    (settlement_key, street_key, house_key),
+                ).fetchone()
+                if row is None:
+                    return None
+                return row[0] / 1_000_000, row[1] / 1_000_000
+            if self._house_mode == "wide":
+                row = self._house_db.execute(
+                    """
+                    SELECT latitude, longitude FROM houses
+                    WHERE settlement_key = ? AND street_key = ? AND house_key = ?
+                    """,
+                    (settlement_key, street_key, house_key),
+                ).fetchone()
+                if row is None:
+                    return None
+                return float(row[0]), float(row[1])
+        return None
+
     def _named(self, street_key: str) -> list[StreetHit]:
         exact = self._by_name.get(street_key, [])
         if exact:
@@ -166,6 +259,17 @@ class StreetCatalog:
         if bare == street_key:
             return None
         hits = self._scoped(self._by_bare.get(bare, []), settlement_key, oblast_key)
+        keys = {hit.name_key for hit in hits}
+        if len(keys) == 1:
+            return hits[0]
+        return self._longer_name(street_key, bare, settlement_key, oblast_key)
+
+    def _longer_name(self, street_key: str, bare: str, settlement_key: str, oblast_key: str) -> StreetHit | None:
+        """«ул. Богдановича» — это «ул. Максима Богдановича», если в городе такое имя одно."""
+        if not bare or " " in bare:
+            return None
+        prefix = street_key[: -len(bare)] if street_key.endswith(bare) else ""
+        hits = self._scoped(self._by_last.get((settlement_key, prefix, bare), []), settlement_key, oblast_key)
         keys = {hit.name_key for hit in hits}
         if len(keys) == 1:
             return hits[0]

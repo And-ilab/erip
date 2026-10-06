@@ -27,7 +27,7 @@
             "tsConfig": "tsconfig.app.json",
             "allowedCommonJsDependencies": ["maplibre-gl"],
             "inlineStyleLanguage": "scss",
-            "assets": [],
+            "assets": [{ "glob": "**/*", "input": "public" }],
             "styles": [
               "node_modules/material-icons/iconfont/filled.css",
               "node_modules/maplibre-gl/dist/maplibre-gl.css",

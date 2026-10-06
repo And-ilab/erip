@@ -45,7 +45,7 @@ def test_minsk_district_and_microdistrict_sit_under_the_city(org_a):
     TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))
     account.refresh_from_db()
     assert _chain(account) == [
-        "Беларусь", "Минская область", "Минск", "Московский район", "Грушевка", "ул. Корженевского", "д. 10",
+        "Беларусь", "Минская область", "Минск", "Московский район", "ул. Корженевского", "д. 10",
     ]
 
 
@@ -69,7 +69,7 @@ def test_known_point_replaces_an_earlier_offset(org_a):
 
 def test_known_minsk_street_uses_its_point(org_a):
     account = make_account(org_a, 30, house_address="г. Минск, Центральный район, ул. Немига, д. 5, кв. 2")
-    TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))
+    TerritoryIndex(StreetCatalog.empty()).assign_queryset(Account.objects.filter(pk=account.pk))
     account.refresh_from_db()
     street = account.territory.parent
     assert street.name == "ул. Немига"
@@ -228,15 +228,42 @@ def test_unknown_street_stays_near_the_schema_city(org_a):
     assert abs(float(account.territory.parent.latitude) - 53.894) < 0.05
 
 
-def test_known_minsk_point_wins_over_the_catalog(org_a):
+def test_catalog_street_overrides_the_hardcoded_point(org_a):
     catalog = StreetCatalog.from_rows([
-        StreetHit("ул. Немига", "ул. немига", "Минск", "минск", "Минская область", "минская область", 0, 0),
+        StreetHit("ул. Кольцова", "ул. кольцова", "Минск", "минск", "Минская область", "минская область", 53.9515, 27.5918),
     ], [])
-    account = make_account(org_a, 75, house_address="г. Минск, ул. Немига, д.5")
+    account = make_account(org_a, 75, house_address="г. Минск, Московский район, мкр. Грушевка, ул. Кольцова, д. 4")
     TerritoryIndex(catalog).assign_queryset(Account.objects.filter(pk=account.pk))
     account.refresh_from_db()
-    assert float(account.territory.parent.latitude) == 53.9054
-    assert float(account.territory.parent.longitude) == 27.5512
+    assert "Грушевка" not in _chain(account)
+    assert "Московский район" not in _chain(account)
+    assert "Советский район" in _chain(account)
+    assert float(account.territory.parent.latitude) == 53.9515
+    assert float(account.territory.parent.longitude) == 27.5918
+
+
+def test_numbered_house_uses_its_own_point(org_a):
+    catalog = StreetCatalog.from_rows([
+        StreetHit("ул. Кольцова", "ул. кольцова", "Минск", "минск", "Минская область", "минская область", 53.9515, 27.5918),
+    ], [])
+    catalog._houses[("минск", "ул. кольцова", "4")] = (53.9522, 27.5931, "минская область")
+    account = make_account(org_a, 77, house_address="г. Минск, ул. Кольцова, д. 4")
+    TerritoryIndex(catalog).assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    assert float(account.territory.latitude) == 53.9522
+    assert float(account.territory.longitude) == 27.5931
+
+
+def test_short_street_name_uses_the_full_osm_name(org_a):
+    catalog = StreetCatalog.from_rows([
+        StreetHit("ул. Максима Богдановича", "ул. максима богдановича", "Минск", "минск", "Минская область", "минская область", 53.9273, 27.5737),
+        StreetHit("пер. Максима Богдановича", "пер. максима богдановича", "Минск", "минск", "Минская область", "минская область", 53.9462, 27.587),
+    ], [])
+    account = make_account(org_a, 76, house_address="г. Минск, ул. Богдановича, д. 80")
+    TerritoryIndex(catalog).assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    assert float(account.territory.parent.latitude) == 53.9273
+    assert float(account.territory.parent.longitude) == 27.5737
 
 
 def test_schema_hint_accepts_latin_c_in_brest():

@@ -7,9 +7,11 @@ import { MapBubble, MapLevel } from '../../core/models';
 
 let pmtilesReady = false;
 
-function belarusStyle(tileUrl: string): StyleSpecification {
+function belarusStyle(tileUrl: string, glyphs: string): StyleSpecification {
+  const streetName = ['coalesce', ['get', 'name'], ['get', 'pgf:name']];
   return {
     version: 8,
+    glyphs,
     sources: {
       belarus: {
         type: 'vector',
@@ -44,8 +46,36 @@ function belarusStyle(tileUrl: string): StyleSpecification {
         paint: { 'line-color': '#f0d48a', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 14, 3.2] },
       },
       {
-        id: 'buildings', type: 'fill', source: 'belarus', 'source-layer': 'buildings', minzoom: 14,
-        paint: { 'fill-color': '#e4d9c8', 'fill-opacity': 0.85 },
+        id: 'buildings', type: 'fill-extrusion', source: 'belarus', 'source-layer': 'buildings', minzoom: 14,
+        filter: ['in', 'kind', 'building', 'building_part'],
+        paint: {
+          'fill-extrusion-color': '#e4d3bc',
+          'fill-extrusion-height': ['case', ['>', ['coalesce', ['get', 'height'], 0], 0], ['get', 'height'], 14],
+          'fill-extrusion-base': 0,
+          'fill-extrusion-opacity': 0.92,
+        },
+      },
+      {
+        id: 'road-label-major', type: 'symbol', source: 'belarus', 'source-layer': 'roads', minzoom: 12,
+        filter: ['all', ['in', 'kind', 'highway', 'major_road'], ['any', ['has', 'name'], ['has', 'pgf:name']]],
+        layout: {
+          'symbol-placement': 'line',
+          'text-field': streetName,
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 13,
+        },
+        paint: { 'text-color': '#3f3a32', 'text-halo-color': '#f7f3ea', 'text-halo-width': 1.4 },
+      },
+      {
+        id: 'road-label-minor', type: 'symbol', source: 'belarus', 'source-layer': 'roads', minzoom: 14,
+        filter: ['all', ['in', 'kind', 'minor_road', 'other'], ['any', ['has', 'name'], ['has', 'pgf:name']]],
+        layout: {
+          'symbol-placement': 'line',
+          'text-field': streetName,
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 12,
+        },
+        paint: { 'text-color': '#4b5563', 'text-halo-color': '#f7f3ea', 'text-halo-width': 1.4 },
       },
     ],
   } as StyleSpecification;
@@ -163,10 +193,13 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       }
       const map = new maplibregl.Map({
         container: this.canvas.nativeElement,
-        style: belarusStyle(`${window.location.origin}/maps/belarus.pmtiles`),
+        style: belarusStyle(
+          `${window.location.origin}/maps/belarus.pmtiles`,
+          `${window.location.origin}/fonts/{fontstack}/{range}.pbf`,
+        ),
         center: [27.95, 53.7],
         zoom: 6,
-        maxZoom: 16,
+        maxZoom: 17,
         fadeDuration: 0,
       });
       this.map = map;
@@ -284,9 +317,11 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       this.markers.push(marker);
     }
     if (placed.length === 1) {
+      const zoom = this.zoom(placed[0].kind);
       map.jumpTo({
         center: [placed[0].longitude as number, placed[0].latitude as number],
-        zoom: this.zoom(placed[0].kind),
+        zoom,
+        pitch: zoom >= 14 ? 55 : 0,
       });
       return;
     }
@@ -294,6 +329,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       const bounds = new maplibregl.LngLatBounds();
       for (const child of placed) bounds.extend([child.longitude as number, child.latitude as number]);
       map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 0 });
+      map.setPitch(0);
     }
   }
 
