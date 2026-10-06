@@ -57,12 +57,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
                 <thead>
                   <tr>
                     <th>Должник</th>
-                    <th>ЛС</th>
-                    <th>Адрес</th>
+                    <th>Лицевой счёт (Номер ЛС)</th>
+                    <th>Адрес ЛС запросом (Адрес)</th>
                     <th>Группа</th>
                     <th>Рейтинг</th>
-                    <th>Долг</th>
-                    <th>Пеня</th>
+                    <th>Исходящее сальдо с пенями</th>
+                    <th>Исходящее сальдо пени</th>
                     <th>Этап</th>
                     <th>Дело</th>
                   </tr>
@@ -167,8 +167,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
             <h3>Дело</h3>
             <div class="picker" (click)="$event.stopPropagation()">
-              <label>ЛС / должник
-                <input [formControl]="query" placeholder="Номер ЛС или ФИО" (click)="openPicker()" />
+              <label>Лицевой счёт (Номер ЛС) / должник
+                <input [formControl]="query" placeholder="Лицевой счёт (Номер ЛС) или ФИО плательщиков" (click)="openPicker()" />
               </label>
               @if (pickerOpen()) {
                 <div class="picks">
@@ -213,8 +213,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
             </p>
 
             <h3>Суммы</h3>
-            <label>Основной долг <span class="sum-box"><app-money [value]="picked()?.balance_out ?? editing()?.balance_out ?? null" /></span></label>
-            <label>Пеня <span class="sum-box"><app-money [value]="picked()?.mulct_total ?? editing()?.penalty ?? null" /></span></label>
+            <label>Исходящее сальдо с пенями <span class="sum-box"><app-money [value]="picked()?.balance_out ?? editing()?.balance_out ?? null" /></span></label>
+            <label>Исходящее сальдо пени <span class="sum-box"><app-money [value]="picked()?.mulct_total ?? editing()?.penalty ?? null" /></span></label>
             <label [class.miss]="sendTried() && !(Number(tariff) > 0)">Нотариальный тариф
               <span class="with-sign">
                 <input [(ngModel)]="tariff" name="tariff" placeholder="считает АИС, пока можно внести" />

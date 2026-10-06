@@ -433,7 +433,7 @@ export class MeasuresListComponent implements OnInit {
   }
 
   protected download(): void {
-    const lines = ['Мероприятие;Должник;ЛС;Исполнитель;Следующее действие;Статус'];
+    const lines = ['Мероприятие;Должник;Лицевой счёт (Номер ЛС);Исполнитель;Следующее действие;Статус'];
     for (const group of this.groups()) {
       for (const row of group.results) {
         lines.push([row.title, row.debtor_name, row.debtor_account, row.assignee_name, row.next_action, row.status_display]

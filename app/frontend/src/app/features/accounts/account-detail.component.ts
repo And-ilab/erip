@@ -50,7 +50,7 @@ import {
             <div>
               <h2>{{ a.short_fio || 'ЛС ' + a.client_account }}</h2>
               <div class="muted sub">
-                ЛС {{ a.client_account }}
+                Лицевой счёт (Номер ЛС) {{ a.client_account }}
                 @if (a.account_address || a.house_address) { · {{ a.account_address || a.house_address }} }
                 @if (auth.showServiceOrg() && a.provider_short_name) { · {{ a.provider_short_name }} }
                 @if (a.ownership_type_name) { · {{ a.ownership_type_name }} }
@@ -71,14 +71,14 @@ import {
 
           <div class="facts">
             <div>
-              <div class="fact"><span>Плательщик</span><b class="link">{{ a.short_fio || '—' }}</b></div>
-              <div class="fact"><span>Проживающих / комнат</span><b>{{ a.subj_count ?? '—' }} / {{ a.room_count ?? '—' }}</b></div>
+              <div class="fact"><span>ФИО плательщиков (краткое) (Плательщик ФИО)</span><b class="link">{{ a.short_fio || '—' }}</b></div>
+              <div class="fact"><span>Кол-во человек (всех) (Проживающие) / Кол-во комнат</span><b>{{ a.subj_count ?? '—' }} / {{ a.room_count ?? '—' }}</b></div>
               <div class="fact"><span>Дата возникновения долга</span><b>{{ (a.debt_started_on | date: 'dd.MM.yyyy') || '—' }}</b></div>
               <div class="fact"><span>Закреплённый специалист</span><b>{{ a.assigned_name || '—' }}</b></div>
             </div>
             <div>
-              <div class="fact"><span>Долг по услугам (с пенями)</span><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="a.balance_out" [blank]="false" /></button></div>
-              <div class="fact"><span>Пеня</span><b class="amount-danger"><app-money [value]="penaltyTotal()" [blank]="false" /></b></div>
+              <div class="fact"><span>Исходящее сальдо</span><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="a.balance_out" [blank]="false" /></button></div>
+              <div class="fact"><span>Исходящее сальдо пени</span><b class="amount-danger"><app-money [value]="penaltyTotal()" [blank]="false" /></b></div>
               <div class="fact"><span>Обновлено из АИС</span><b>{{ (a.ais_updated_at | date: 'dd.MM.yyyy HH:mm') || '—' }}</b></div>
               <div class="fact"><span>Сценарий мероприятий</span><b class="link">{{ a.scenario_name || '—' }}</b></div>
             </div>
@@ -99,29 +99,32 @@ import {
             <div class="grid">
               <mat-card><mat-card-content>
                 <dl>
-                  <dt>Плательщик</dt><dd>{{ a.short_fio }}</dd>
-                  <dt>Адрес</dt><dd>{{ a.account_address || a.house_address }}</dd>
-                  @if (auth.showSchema()) { <dt>Схема</dt><dd>{{ a.schema_label }}</dd> }
-                  @if (auth.showServiceOrg()) { <dt>Обслуживающая организация</dt><dd>{{ a.provider_short_name }}</dd> }
-                  <dt>УЕН ЛС</dt><dd>{{ a.unified_account }}</dd>
-                  <dt>Тип собственности</dt><dd>{{ a.ownership_type_name }}</dd>
-                  <dt>Площадь / комнат / проживающих</dt><dd>{{ a.acc_total_space }} / {{ a.room_count }} / {{ a.subj_count }}</dd>
-                  <dt>Телефон</dt><dd>{{ a.contact_phone || a.phone }}</dd>
-                  <dt>Период действия</dt><dd>{{ a.start_date | date: 'dd.MM.yyyy' }} — {{ a.stop_date | date: 'dd.MM.yyyy' }}</dd>
+                  <dt>ФИО плательщиков (краткое) (Плательщик ФИО)</dt><dd>{{ a.short_fio }}</dd>
+                  <dt>Адрес ЛС запросом (Адрес)</dt><dd>{{ a.account_address || a.house_address }}</dd>
+                  @if (auth.showSchema()) { <dt>Наименование схемы</dt><dd>{{ a.schema_label }}</dd> }
+                  @if (auth.showServiceOrg()) { <dt>Краткое наименование поставщика или обслуживающей организации</dt><dd>{{ a.provider_short_name }}</dd> }
+                  <dt>Уникальный единый номер ЛС (УЕН ЛС)</dt><dd>{{ a.unified_account }}</dd>
+                  <dt>Наименование типа собственности (тип собственности)</dt><dd>{{ a.ownership_type_name }}</dd>
+                  <dt>Общая площадь ЛС (Площадь) / Кол-во комнат / Кол-во человек (всех) (Проживающие)</dt><dd>{{ a.acc_total_space }} / {{ a.room_count }} / {{ a.subj_count }}</dd>
+                  <dt>Контактный телефон</dt><dd>{{ a.contact_phone || '—' }}</dd>
+                  <dt>Телефон</dt><dd>{{ a.phone || '—' }}</dd>
+                  <dt>Дата открытия ЛС (Период действия)</dt><dd>{{ a.start_date | date: 'dd.MM.yyyy' }}</dd>
+                  <dt>Дата закрытия ЛС (Период действия)</dt><dd>{{ a.stop_date | date: 'dd.MM.yyyy' }}</dd>
                 </dl>
               </mat-card-content></mat-card>
               <mat-card><mat-card-content>
                 <dl>
                   <dt>Входящее сальдо</dt><dd><app-money [value]="a.balance_in" [blank]="false" /></dd>
                   <dt>Итого начислено</dt><dd><app-money [value]="a.total_calc_sum" [blank]="false" /></dd>
-                  <dt>Распределённая оплата</dt><dd><app-money [value]="a.pay_sum" [blank]="false" /></dd>
+                  <dt>Распределенная оплата</dt><dd><app-money [value]="a.pay_sum" [blank]="false" /></dd>
                   <dt>Исходящее сальдо</dt><dd><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="a.balance_out" [blank]="false" /></button></dd>
                   <dt>Обновлено из АИС</dt><dd>{{ a.ais_updated_at | date: 'dd.MM.yyyy HH:mm' }}</dd>
                   <dt>Операционная дата</dt><dd>{{ a.operational_date | date: 'dd.MM.yyyy' }}</dd>
                   <dt>Рейтинг</dt><dd>{{ a.rating_label || '—' }}</dd>
                   <dt>Дата возникновения</dt><dd>{{ a.debt_started_on | date: 'dd.MM.yyyy' }}</dd>
                   <dt>Сценарий</dt><dd>{{ a.scenario_name }}</dd>
-                  <dt>ИН/УНП</dt><dd>{{ a.payer_identifier }}</dd>
+                  <dt>Идентификационный номер паспорта</dt><dd>{{ a.payer_identifier || '—' }}</dd>
+                  <dt>Учетный номер плательщика</dt><dd>{{ a.payer_unp || '—' }}</dd>
                 </dl>
                 @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
                 <h4>Ручная корректировка группы</h4>
@@ -143,7 +146,7 @@ import {
 
           <mat-tab label="Услуги ({{ services().length }})">
             <div class="list-pane"><table mat-table [dataSource]="services()">
-              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th>
+              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th>
                 <td mat-cell *matCellDef="let s">
                   @if (!auth.showSupplier()) {
                     <a [routerLink]="['/contracts', s.id]">{{ s.service_name }}</a>
@@ -152,11 +155,11 @@ import {
                   }
                 </td>
               </ng-container>
-              <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик</th>
+              <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Краткое наименование поставщика</th>
                 <td mat-cell *matCellDef="let s"><a [routerLink]="['/contracts', s.id]">{{ s.shot_name }}</a></td></ng-container>
-              <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг (с пенями)</th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_out" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0"><app-money [value]="s.balance_mulct_out" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Мес. долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period }}</td></ng-container>
+              <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_out" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0"><app-money [value]="s.balance_mulct_out" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Кол-во периодов долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period }}</td></ng-container>
               <ng-container matColumnDef="debt_group"><th mat-header-cell *matHeaderCellDef>Группа</th>
                 <td mat-cell *matCellDef="let s">@if (s.debt_group) { <span class="group-badge g{{ s.debt_group }}">{{ s.debt_group }}</span> }</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="serviceColumns"></tr>
@@ -166,12 +169,12 @@ import {
 
           <mat-tab label="Оплаты ({{ payments().length }})">
             <div class="list-pane"><table mat-table [dataSource]="payments()">
-              <ng-container matColumnDef="pay_date"><th mat-header-cell *matHeaderCellDef>Дата</th><td mat-cell *matCellDef="let p">{{ p.pay_date | date: 'dd.MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let p">{{ p.service_name }}</td></ng-container>
-              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг</th><td mat-cell *matCellDef="let p" class="amount-paid"><app-money [value]="p.pay_service_summ" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="pay_mulct_summ"><th mat-header-cell *matHeaderCellDef>Оплата пени</th><td mat-cell *matCellDef="let p"><app-money [value]="p.pay_mulct_summ" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="bank_name"><th mat-header-cell *matHeaderCellDef>Банк</th><td mat-cell *matCellDef="let p">{{ p.bank_name }}</td></ng-container>
-              <ng-container matColumnDef="payment_type_display"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let p">{{ p.payment_type_display }}</td></ng-container>
+              <ng-container matColumnDef="pay_date"><th mat-header-cell *matHeaderCellDef>Дата оплаты</th><td mat-cell *matCellDef="let p">{{ p.pay_date | date: 'dd.MM.yyyy' }}</td></ng-container>
+              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга - Наименование</th><td mat-cell *matCellDef="let p">{{ p.service_name }}</td></ng-container>
+              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг по квитанции</th><td mat-cell *matCellDef="let p" class="amount-paid"><app-money [value]="p.pay_service_summ" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="pay_mulct_summ"><th mat-header-cell *matHeaderCellDef>Оплата пени по квитанции</th><td mat-cell *matCellDef="let p"><app-money [value]="p.pay_mulct_summ" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="bank_name"><th mat-header-cell *matHeaderCellDef>Банк - Наименование</th><td mat-cell *matCellDef="let p">{{ p.bank_name }}</td></ng-container>
+              <ng-container matColumnDef="payment_type_display"><th mat-header-cell *matHeaderCellDef>Тип оплаты</th><td mat-cell *matCellDef="let p">{{ p.payment_type_display }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="paymentColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: paymentColumns"></tr>
             </table></div>
@@ -179,12 +182,12 @@ import {
 
           <mat-tab label="Регистрация ({{ registrations().length }})">
             <div class="list-pane"><table mat-table [dataSource]="registrations()">
-              <ng-container matColumnDef="full_name"><th mat-header-cell *matHeaderCellDef>ФИО</th><td mat-cell *matCellDef="let r">{{ r.full_name }} @if (r.subj_is_main) { <b>(плательщик)</b> }</td></ng-container>
+              <ng-container matColumnDef="full_name"><th mat-header-cell *matHeaderCellDef>Фамилия, Имя, Отчество</th><td mat-cell *matCellDef="let r">{{ r.full_name }} @if (r.subj_is_main) { <b>(Является плательщиком)</b> }</td></ng-container>
               <ng-container matColumnDef="birthday"><th mat-header-cell *matHeaderCellDef>Дата рождения</th><td mat-cell *matCellDef="let r">{{ r.birthday | date: 'dd.MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="relation_degree_name"><th mat-header-cell *matHeaderCellDef>Родство</th><td mat-cell *matCellDef="let r">{{ r.relation_degree_name }}</td></ng-container>
-              <ng-container matColumnDef="reg_type_name"><th mat-header-cell *matHeaderCellDef>Регистрация</th><td mat-cell *matCellDef="let r">{{ r.reg_type_name }}</td></ng-container>
+              <ng-container matColumnDef="relation_degree_name"><th mat-header-cell *matHeaderCellDef>Наименование степени родства</th><td mat-cell *matCellDef="let r">{{ r.relation_degree_name }}</td></ng-container>
+              <ng-container matColumnDef="reg_type_name"><th mat-header-cell *matHeaderCellDef>Тип регистрации</th><td mat-cell *matCellDef="let r">{{ r.reg_type_name }}</td></ng-container>
               <ng-container matColumnDef="debtor_role"><th mat-header-cell *matHeaderCellDef>Роль</th><td mat-cell *matCellDef="let r">{{ r.debtor_role }}</td></ng-container>
-              <ng-container matColumnDef="contacts"><th mat-header-cell *matHeaderCellDef>Контакты</th><td mat-cell *matCellDef="let r">{{ r.contact_phone }} {{ r.email }}</td></ng-container>
+              <ng-container matColumnDef="contacts"><th mat-header-cell *matHeaderCellDef>Контактный телефон, E-mail</th><td mat-cell *matCellDef="let r">{{ r.contact_phone }} {{ r.email }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="registrationColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: registrationColumns"></tr>
             </table></div>
@@ -193,9 +196,9 @@ import {
           <mat-tab label="История сумм">
             <div class="list-pane"><table mat-table [dataSource]="balances()">
               <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
-              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
+              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Остаток основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Остаток пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
               <tr mat-header-row *matHeaderRowDef="balanceColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: balanceColumns"></tr>
             </table></div>
@@ -379,9 +382,9 @@ import {
         @if (sharesOpen()) {
           <div class="backdrop" (click)="sharesOpen.set(false)">
             <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Состав долга">
-              <h3>Кому должен ЛС {{ a.client_account }}</h3>
+              <h3>Кому должен лицевой счёт {{ a.client_account }}</h3>
               <div class="list-pane"><table class="shares">
-                <thead><tr><th>Поставщик</th><th>Долг</th><th>Пеня</th><th>Итого</th></tr></thead>
+                <thead><tr><th>Краткое наименование поставщика</th><th>Исходящее сальдо с пенями</th><th>Исходящее сальдо пени</th><th>Итого</th></tr></thead>
                 <tbody>
                   @for (row of shares(); track row.provider_name + row.principal + row.penalty) {
                     <tr>

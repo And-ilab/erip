@@ -58,7 +58,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             }
             <input
               [formControl]="search"
-              placeholder="Поиск по ФИО, номеру ЛС, услуге, ИН, УНП…"
+              placeholder="Поиск по ФИО плательщиков, лицевому счёту, наименованию услуги, идентификационному номеру, учетному номеру…"
               (focus)="panelOpen.set(true)"
             />
             <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
@@ -82,7 +82,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                   <button type="button" class="menu-item" [class.on]="stage.value === item.id" (click)="setStage(item.id)">{{ item.label }}</button>
                 }
                 @if (auth.showServiceOrg()) {
-                  <div class="sub">Обслуживающая организация</div>
+                  <div class="sub">Краткое наименование поставщика или обслуживающей организации</div>
                   <div class="save-row">
                     <input [formControl]="billing" placeholder="Название или код" (click)="$event.stopPropagation()" />
                   </div>
@@ -149,12 +149,12 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         @if (view() === 'persons') {
           <div class="list-pane">
           <table mat-table [dataSource]="persons()">
-            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>Должник</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
-            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>ИН</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
-            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>УНП</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
-            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>ЛС с долгом</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
-            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>ФИО плательщиков (краткое) (Плательщик ФИО)</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
+            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>Идентификационный номер паспорта</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
+            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учетный номер плательщика</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
+            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Лицевой счёт (Номер ЛС) с долгом</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
+            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="earliest"><th mat-header-cell *matHeaderCellDef>Ранний период</th><td mat-cell *matCellDef="let r">{{ r.earliest }}</td></ng-container>
             <ng-container matColumnDef="category"><th mat-header-cell *matHeaderCellDef>Категория</th><td mat-cell *matCellDef="let r">{{ r.category }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="personColumns"></tr>
@@ -166,16 +166,16 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         @if (view() === 'services') {
           <div class="list-pane">
           <table mat-table [dataSource]="rows()">
-            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>Должник</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
-            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>ИН</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
-            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>УНП</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
-            <ng-container matColumnDef="account_number"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.account_number }}</td></ng-container>
-            <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
-            <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
-            <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
-            <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Схема</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
-            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>ФИО плательщиков (краткое) (Плательщик ФИО)</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
+            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>Идентификационный номер паспорта</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
+            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учетный номер плательщика</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
+            <ng-container matColumnDef="account_number"><th mat-header-cell *matHeaderCellDef>Лицевой счёт (Номер ЛС)</th><td mat-cell *matCellDef="let r">{{ r.account_number }}</td></ng-container>
+            <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
+            <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Краткое наименование поставщика</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
+            <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Краткое наименование поставщика или обслуживающей организации</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
+            <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Наименование схемы</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
+            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Возникновение</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
             <ng-container matColumnDef="category_name"><th mat-header-cell *matHeaderCellDef>Категория</th><td mat-cell *matCellDef="let r">{{ r.category_name }}</td></ng-container>
@@ -242,9 +242,9 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
           <div class="list-pane">
           <table mat-table [dataSource]="groupsRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
-            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>Лицевой счёт (Номер ЛС)</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
+            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
             <tr mat-row *matRowDef="let row; columns: groupColumns"></tr>
           </table>
@@ -265,7 +265,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                   <mat-option value="category">Категория</mat-option>
                   <mat-option value="stage">Этап воронки</mat-option>
                   @if (auth.showServiceOrg()) {
-                    <mat-option value="billing">Обслуживающая организация</mat-option>
+                    <mat-option value="billing">Краткое наименование поставщика или обслуживающей организации</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -447,7 +447,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly groupOptions = [
     { id: 'debt_group', label: 'Группа' },
     { id: 'provider', label: 'Поставщик' },
-    { id: 'billing', label: 'Обслуживающая организация' },
+    { id: 'billing', label: 'Краткое наименование поставщика или обслуживающей организации' },
     { id: 'category', label: 'Категория' },
   ];
   protected readonly personColumns = [

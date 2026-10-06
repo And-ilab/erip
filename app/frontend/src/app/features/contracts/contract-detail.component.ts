@@ -44,15 +44,15 @@ import {
             <h3>{{ personTitle() }}</h3>
             <dl>
               @if (mainPerson()?.subj_legal_entity) {
-                <dt>УНП</dt><dd>{{ c.payer_unp || mainPerson()?.personal_num }}</dd>
-                <dt>Юридический адрес</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
+                <dt>Учетный номер плательщика</dt><dd>{{ c.payer_unp || mainPerson()?.personal_num }}</dd>
+                <dt>Адрес местожительства</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
                 <dt>Статус</dt><dd>{{ legalLabel() }}</dd>
               } @else {
-                <dt>ФИО</dt><dd>{{ mainPerson()?.full_name || c.payer }}</dd>
+                <dt>ФИО плательщика</dt><dd>{{ mainPerson()?.full_name || c.payer }}</dd>
                 <dt>Дата рождения</dt><dd>{{ mainPerson()?.birthday | date: 'dd.MM.yyyy' }}</dd>
-                <dt>Адрес регистрации</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
-                <dt>Место работы</dt><dd>{{ mainPerson()?.work_place_name || '—' }}</dd>
-                <dt>ИН</dt><dd>{{ c.payer_identifier }}</dd>
+                <dt>Адрес местожительства</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
+                <dt>Наименование предприятия</dt><dd>{{ mainPerson()?.work_place_name || '—' }}</dd>
+                <dt>Идентификационный номер паспорта</dt><dd>{{ c.payer_identifier }}</dd>
               }
               <dt>Категория</dt><dd>{{ c.category_name || '—' }}</dd>
               <dt>Рейтинг</dt><dd>{{ c.rating_label || '—' }}</dd>
@@ -60,15 +60,15 @@ import {
           </mat-card-content></mat-card>
           <mat-card><mat-card-content>
             <dl>
-              <dt>Договор</dt><dd>{{ c.service_list_id }} с {{ c.start_date | date: 'dd.MM.yyyy' }}</dd>
-              <dt>Услуга</dt><dd>{{ c.service_name }}</dd>
+              <dt>Код договора на услугу (ID Договора)</dt><dd>{{ c.service_list_id }} с {{ c.start_date | date: 'dd.MM.yyyy' }}</dd>
+              <dt>Наименование услуги</dt><dd>{{ c.service_name }}</dd>
               @if (auth.showSupplier()) {
-                <dt>Поставщик</dt><dd>{{ c.full_name || c.shot_name }}</dd>
+                <dt>Полное наименование поставщика</dt><dd>{{ c.full_name || c.shot_name }}</dd>
               }
               <dt>Первоначальный долг</dt><dd><app-money [value]="c.initial_principal" [blank]="false" /></dd>
               <dt>Первоначальная пеня</dt><dd><app-money [value]="c.initial_penalty" [blank]="false" /></dd>
-              <dt>Остаток долга</dt><dd><b><app-money [value]="c.balance_out" [blank]="false" /></b></dd>
-              <dt>Остаток пени</dt><dd><app-money [value]="c.balance_mulct_out" [blank]="false" /></dd>
+              <dt>Исходящее сальдо с пенями</dt><dd><b><app-money [value]="c.balance_out" [blank]="false" /></b></dd>
+              <dt>Исходящее сальдо пени</dt><dd><app-money [value]="c.balance_mulct_out" [blank]="false" /></dd>
               <dt>Возникновение</dt><dd>{{ c.debt_started_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Срок погашения</dt><dd>{{ c.repayment_due_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Последняя оплата</dt><dd>{{ c.last_payment_date | date: 'dd.MM.yyyy' }}</dd>

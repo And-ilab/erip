@@ -22,24 +22,24 @@ import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
   account_id: 'Код ЛС',
-  client_account: 'Номер ЛС',
-  unified_account: 'УЕН',
-  provider_short_name: 'Обслуживающая организация',
-  schema_label: 'Схема',
-  account_address: 'Адрес',
-  short_fio: 'Должник',
-  payer_identifier: 'ИН',
-  payer_unp: 'УНП',
+  client_account: 'Лицевой счёт (Номер ЛС)',
+  unified_account: 'Уникальный единый номер ЛС (УЕН ЛС)',
+  provider_short_name: 'Краткое наименование поставщика или обслуживающей организации',
+  schema_label: 'Наименование схемы',
+  account_address: 'Адрес ЛС запросом (Адрес)',
+  short_fio: 'ФИО плательщиков (краткое) (Плательщик ФИО)',
+  payer_identifier: 'Идентификационный номер паспорта',
+  payer_unp: 'Учетный номер плательщика',
   rating_label: 'Рейтинг',
   debt_started_on: 'Дата возникновения',
-  debt_total: 'Долг',
-  mulct_total: 'Пеня',
+  debt_total: 'Исходящее сальдо с пенями',
+  mulct_total: 'Исходящее сальдо пени',
   effective_group: 'Группа',
   scenario_name: 'Сценарий',
   assigned_name: 'Специалист',
-  ownership_type_name: 'Тип собственности',
-  months_debt: 'Месяцев долга',
-  subj_count: 'Проживающих',
+  ownership_type_name: 'Наименование типа собственности (тип собственности)',
+  months_debt: 'Кол-во периодов долга',
+  subj_count: 'Кол-во человек (всех) (Проживающие)',
   funnel_stage: 'Этап воронки',
 };
 
@@ -76,7 +76,7 @@ type CustomField = 'group' | 'rating' | 'stage';
             }
             <input
               [formControl]="search"
-              placeholder="Поиск по ФИО, номеру ЛС, адресу, ИН…"
+              placeholder="Поиск по ФИО плательщиков, лицевому счёту, адресу, идентификационному номеру…"
               (focus)="panelOpen.set(true)"
             />
             <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
@@ -255,7 +255,7 @@ type CustomField = 'group' | 'rating' | 'stage';
           <table mat-table [dataSource]="groupedRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value || '—' }}</td></ng-container>
             <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сальдо</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
             <tr mat-header-row *matHeaderRowDef="['value', 'accounts', 'debt']"></tr>
             <tr mat-row *matRowDef="let row; columns: ['value', 'accounts', 'debt']"></tr>
           </table>
@@ -285,7 +285,7 @@ type CustomField = 'group' | 'rating' | 'stage';
                         }
                       </div>
                     }
-                    <div class="line">ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address) }} }</div>
+                    <div class="line">Лицевой счёт (Номер ЛС) {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address) }} }</div>
                     @if (card.effective_group) {
                       <div class="group-line">
                         <span class="letter">{{ letter(card.rating_label) }}</span>
@@ -520,7 +520,7 @@ export class AccountsListComponent implements OnInit {
     { id: 'closed', label: 'Не должник' },
   ];
   protected readonly groupOptions = [
-    { id: 'provider', label: 'Организация' },
+    { id: 'provider', label: 'Краткое наименование поставщика или обслуживающей организации' },
     { id: 'debt_group', label: 'Группа задолженности' },
     { id: 'rating', label: 'Рейтинг' },
     { id: 'category', label: 'Категория' },
@@ -656,7 +656,7 @@ export class AccountsListComponent implements OnInit {
   protected groupChoices(): { id: string; label: string }[] {
     const items = this.groupOptions.filter((item) => item.id !== 'provider' || this.auth.showServiceOrg());
     if (!this.auth.showSchema()) return items;
-    return [{ id: 'schema', label: 'Схема' }, ...items];
+    return [{ id: 'schema', label: 'Наименование схемы' }, ...items];
   }
 
   protected canLaunch(): boolean {

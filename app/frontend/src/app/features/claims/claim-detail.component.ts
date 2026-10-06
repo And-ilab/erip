@@ -51,8 +51,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </ul>
               }
               <div class="sums">
-                <div><span>Основной долг</span><b><app-money [value]="row.balance_out" /></b></div>
-                <div><span>Пеня</span><b><app-money [value]="row.penalty" /></b></div>
+                <div><span>Исходящее сальдо с пенями</span><b><app-money [value]="row.balance_out" /></b></div>
+                <div><span>Исходящее сальдо пени</span><b><app-money [value]="row.penalty" /></b></div>
                 <div><span>Нотариальный тариф</span><b><app-money [value]="tariff || null" /></b></div>
                 <div class="total"><span>Итого</span><b><app-money [value]="grand(row)" [blank]="false" /></b></div>
               </div>
