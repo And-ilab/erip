@@ -56,7 +56,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
           @if (canOrderDisconnect()) {
             <button type="button" (click)="show('ready')">К отключению</button>
           }
-          Группы 3–6 ведутся во вкладке
+          Группы 3–6 в этом реестре — то же мероприятие, что сценарий на карточке лицевого счёта.
+          Дело ведётся во вкладке
           <a routerLink="/claims">претензионно-исковая работа</a>.
         </p>
       }
@@ -194,18 +195,23 @@ import { RegistryViewsComponent } from '../registry-views.component';
       }
 
       @if (view() === 'kanban') {
-        <div class="board">
-          @for (group of groups(); track group.status) {
-            <section class="column" [attr.data-status]="group.status">
-              <h3><span>{{ group.label }}</span><b>{{ group.total }}</b></h3>
+        <div class="k-board">
+          @for (lane of lanes; track lane.status) {
+            <section class="k-col" [attr.data-status]="lane.status">
+              <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane.status) }}</b></h3>
               <div class="list-pane cards">
-              @for (row of group.results; track row.id) {
-                <a class="card" [routerLink]="['/measures', row.id]">
-                  <strong>{{ row.title }}</strong>
-                  <small>{{ row.debtor_name }} · ЛС {{ row.debtor_account }}</small>
-                  <span>{{ row.next_action }}</span>
-                </a>
-              }
+                @for (row of laneRows(lane.status); track row.id) {
+                  <a class="k-card {{ row.kind }}" [routerLink]="['/measures', row.id]">
+                    <div class="name">{{ row.title }}</div>
+                    <div class="line">{{ row.debtor_name || 'ЛС' }} · ЛС {{ row.debtor_account }}</div>
+                    <div class="foot"><span class="when">{{ row.next_action }}</span></div>
+                  </a>
+                }
+                @if (laneGroup(lane.status); as group) {
+                  @if (group.results.length < group.total) {
+                    <button type="button" class="more-lane" (click)="more(group)">Показать ещё</button>
+                  }
+                }
               </div>
             </section>
           }
@@ -300,18 +306,40 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .icon.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
-    .board { display: flex; gap: 10px; overflow: auto; align-items: flex-start; margin-top: 12px; flex: 1; min-height: 0; }
-    app-calendar-board, app-analytics { display: block; flex: 1; min-height: 0; overflow: auto; }
-    .column { width: 240px; flex: 0 0 240px; background: #f7f8fa; border-radius: 10px; padding: 0 8px 8px; }
-    .column h3 { margin: 0 -8px 8px; padding: 8px 10px; border-radius: 10px 10px 0 0; color: #fff; font-size: 13px; display: flex; justify-content: space-between; background: var(--erip-primary); }
-    .column[data-status="done"] h3 { background: var(--erip-success); }
-    .column[data-status="failed"] h3 { background: var(--erip-danger); }
-    .column[data-status="running"] h3 { background: #b45309; }
-    .card {
-      display: flex; flex-direction: column; gap: 3px; background: #fff; border-radius: 8px; padding: 10px; margin-bottom: 8px;
-      text-decoration: none; color: inherit;
+    .k-board { display: flex; gap: 14px; overflow: auto; align-items: stretch; flex: 1; min-height: 0; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; display: flex; flex-direction: column; min-height: 0; }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
+      font-size: 13px; font-weight: 600; color: #243140;
     }
-    .card small { color: var(--erip-muted); }
+    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col[data-status="assigned"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-status="running"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-status="done"] h3 { border-bottom-color: #1f9d55; }
+    .k-col[data-status="failed"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-status="paused"] h3 { border-bottom-color: #c8962e; }
+    .k-col[data-status="cancelled"] h3 { border-bottom-color: #9ca3af; }
+    .k-col .list-pane { flex: 1; min-height: 0; }
+    .k-col .list-pane.cards { --list-row: 96px; }
+    .k-card {
+      display: flex; flex-direction: column; gap: 4px; background: #fff; border: 1px solid #e6ebf0;
+      border-left: 3px solid #cbd5e1; border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px;
+      text-decoration: none; color: inherit; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
+    }
+    .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.call { border-left-color: #2563eb; }
+    .k-card.notice { border-left-color: #0f766e; }
+    .k-card.warning { border-left-color: #e0a106; }
+    .k-card.disconnect { border-left-color: #f08c2e; }
+    .k-card.collection { border-left-color: #e53935; }
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; color: #1f2933; }
+    .k-card .line, .k-card .when { font-size: 12px; line-height: 1.35; color: #6b7280; }
+    .more-lane {
+      border: 0; background: transparent; color: var(--erip-link); font: inherit; font-weight: 600;
+      cursor: pointer; padding: 4px 2px 8px;
+    }
+    app-calendar-board, app-analytics { display: block; flex: 1; min-height: 0; overflow: auto; }
     .ready-title { margin: 0; color: var(--erip-muted); }
     .guide { margin: 0 0 8px; color: var(--erip-muted); font-size: 13px; flex: 0 0 auto; }
     .guide button, .guide a { margin: 0 4px; }
@@ -382,6 +410,14 @@ export class MeasuresListComponent implements OnInit {
   private readonly snack = inject(MatSnackBar);
 
   protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('list');
+  protected readonly lanes = [
+    { status: 'assigned', label: 'Назначено' },
+    { status: 'running', label: 'Выполняется' },
+    { status: 'done', label: 'Завершено' },
+    { status: 'failed', label: 'Завершено с ошибкой' },
+    { status: 'paused', label: 'Приостановлено' },
+    { status: 'cancelled', label: 'Прервано' },
+  ];
   private filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
   protected readonly events = signal<CalendarEvent[]>([]);
   protected spanFrom = '';
@@ -524,6 +560,18 @@ export class MeasuresListComponent implements OnInit {
   protected share(row: { progress?: { total: number; done: number } }): number {
     const total = row.progress?.total ?? 0;
     return total ? Math.round(((row.progress?.done ?? 0) / total) * 100) : 0;
+  }
+
+  protected laneGroup(status: string): MeasureGroup | undefined {
+    return this.groups().find((group) => group.status === status);
+  }
+
+  protected laneRows(status: string) {
+    return this.laneGroup(status)?.results ?? [];
+  }
+
+  protected laneTotal(status: string): number {
+    return this.laneGroup(status)?.total ?? 0;
   }
 
   protected more(group: MeasureGroup): void {

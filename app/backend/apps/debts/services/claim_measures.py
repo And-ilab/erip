@@ -1,6 +1,7 @@
 """Дело взыскания — та же строка, что реестр мероприятий. Иначе ЛС есть в исковой работе и нет в мероприятиях."""
 
 from django.db.models import Count, Q, QuerySet
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from apps.debts.models import Account, ClaimCase, Measure, MeasureItem
@@ -100,7 +101,19 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
         .values_list("pk", flat=True)
         .distinct()[:2000]
     )
-    ordered = list(dict.fromkeys([*ids, *retry]))
+    # Уже назначенный автообзвон не прячет шаг старшей группы: карточка и реестр читают одно мероприятие.
+    open_call = [Measure.Status.ASSIGNED, Measure.Status.RUNNING, Measure.Status.PAUSED]
+    stale = list(dict.fromkeys(
+        accounts.filter(Q(debt_group__isnull=False) | Q(debt_group_manual__isnull=False))
+        .exclude(pk__in=claimed)
+        .filter(measures__kind=Measure.Kind.CALL, measures__status__in=open_call)
+        .order_by()
+        .annotate(shown_group=Coalesce("debt_group_manual", "debt_group"))
+        .filter(shown_group__gte=2)
+        .order_by("-shown_group", "pk")
+        .values_list("pk", flat=True)[:2000]
+    ))
+    ordered = list(dict.fromkeys([*stale, *ids, *retry]))[:2000]
     if not ordered:
         return
     from apps.nsi.services.scenario_engine import ensure_imported_runs

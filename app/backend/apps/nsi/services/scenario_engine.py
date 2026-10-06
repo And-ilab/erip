@@ -124,24 +124,59 @@ def _step_for(steps: list[dict], measure: Measure) -> dict | None:
     return None
 
 
+def _group_ids(step: dict) -> list[int]:
+    return [int(item) for item in (step.get("groups") or [])]
+
+
 def _outside_groups(step: dict, account: Account) -> bool:
-    groups = step.get("groups") or []
+    groups = _group_ids(step)
     if not groups:
         return False
-    return account.effective_group not in [int(item) for item in groups]
+    return account.effective_group not in groups
+
+
+def _steps_for_account(steps: list[dict], account: Account) -> list[dict]:
+    """Шаг группы — один источник для карточки и реестра.
+
+    Опубликованный сценарий используется, если в нём есть шаг этой группы.
+    Иначе берётся шкала п. 4.2.1.5, а не общий автообзвон без группы.
+    """
+    group = account.effective_group
+    if not group:
+        return steps
+    if any(group in _group_ids(step) for step in steps):
+        return steps
+    from apps.nsi.services.scenarios import STANDARD_STEPS
+
+    scale = [step for step in STANDARD_STEPS if group in _group_ids(step)]
+    return scale or steps
 
 
 def _release_other_groups(account: Account, steps: list[dict], measures: list[Measure]) -> list[Measure]:
-    """Открытый шаг чужой группы снимается, чтобы счёт остался на мероприятии своей группы."""
+    """Открытый шаг чужой группы снимается, чтобы счёт остался на мероприятии своей группы.
+
+    Если у группы есть свой шаг, автообзвон без группы тоже снимается: иначе карточка
+    показывает «Взыскание», а реестр оставляет старый звонок.
+    """
+    targeted = {
+        (step.get("order"), step.get("action") or "")
+        for step in steps
+        if account.effective_group in _group_ids(step)
+    }
     kept = []
     for item in measures:
         if item.status in {Measure.Status.DONE, Measure.Status.CANCELLED}:
             kept.append(item)
             continue
-        step = _step_for(steps, item)
-        if step is not None and not _outside_groups(step, account):
-            kept.append(item)
-            continue
+        if targeted:
+            if (item.source_step, item.source_action or "") in targeted:
+                kept.append(item)
+                continue
+        else:
+            step = _step_for(steps, item)
+            if step is not None and not _outside_groups(step, account):
+                kept.append(item)
+                continue
         item.items.all().delete()
         item.delete()
     return kept
@@ -152,7 +187,7 @@ def _advance_once(account: Account) -> bool:
     if run is None or run.paused:
         return False
     revision = run.scenario.revisions.filter(version=run.version).first()
-    steps = list((revision.steps if revision else run.scenario.steps) or [])
+    steps = _steps_for_account(list((revision.steps if revision else run.scenario.steps) or []), account)
     if not steps:
         return False
     measures = _release_other_groups(account, steps, list(

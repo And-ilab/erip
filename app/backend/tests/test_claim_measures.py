@@ -153,3 +153,43 @@ def test_accounts_without_measures_are_grouped_by_id():
     sql = str(query.query).lower()
     assert "group by" in sql
     assert "client_account" not in sql.split("order by", 1)[-1]
+
+
+@pytest.mark.django_db
+def test_assigned_autodial_without_a_group_yields_to_the_card_scenario(api, specialist_a, org_a):
+    """Карточка и реестр читают шаг группы. Назначенный автообзвон без группы не остаётся вместо взыскания."""
+    from apps.nsi.models import ScenarioDefinition, ScenarioRevision
+
+    account = _with_group(org_a, 8201, 5, 14)
+    account.scenario_name = "Взыскание через ОПИ"
+    account.save(update_fields=["scenario_name"])
+    steps = [{"order": 1, "action": "call", "wait_days": 0, "template": "Голос группы 1", "terminal": False}]
+    scenario = ScenarioDefinition.objects.create(
+        organization=org_a, name="Всем звонок", status=ScenarioDefinition.Status.ACTIVE, version=1, steps=steps,
+    )
+    ScenarioRevision.objects.create(scenario=scenario, version=1, steps=steps)
+    AccountScenarioRun.objects.create(
+        organization=org_a, account=account, scenario=scenario, version=1,
+    )
+    call = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.CALL, status=Measure.Status.ASSIGNED,
+        template_name="Голос группы 1", scenario_name=scenario.name,
+        started_on=timezone.localdate(), due_on=timezone.localdate(),
+        source_scenario=scenario, source_version=1, source_step=1, source_action="call",
+    )
+    call.accounts.add(account)
+    MeasureItem.objects.create(
+        organization=org_a, measure=call, account=account, status=MeasureItem.Status.ASSIGNED,
+    )
+
+    listed = api(specialist_a).get("/api/v1/measures/registry/")
+    assert listed.status_code == 200, listed.content
+    titles = [row["title"] for group in listed.json()["groups"] for row in group["results"]]
+    assert "Взыскание через ОПИ" in titles
+    assert not any(title.startswith("Автообзвон") for title in titles)
+    opened = api(specialist_a).get(f"/api/v1/accounts/{account.id}/measures/")
+    assert opened.status_code == 200, opened.content
+    card_titles = [row["title"] for row in opened.json()["results"]]
+    assert card_titles == ["Взыскание через ОПИ"]
+    account.refresh_from_db()
+    assert account.scenario_name == card_titles[0]
