@@ -68,9 +68,13 @@ def test_debt_group_opens_its_own_measure(org_a, specialist_a):
     first = _with_group(org_a, 8101, 1, 1)
     second = _with_group(org_a, 8102, 2, 2)
     third = _with_group(org_a, 8103, 5, 14)
+    fourth = _with_group(org_a, 8105, 6, 42)
+    fourth.scenario_name = "Взыскание, безнадёжная задолженность"
+    fourth.save(update_fields=["scenario_name"])
     ensure_imported_run(first)
     ensure_imported_run(second)
     ensure_imported_run(third)
+    ensure_imported_run(fourth)
 
     assert list(Measure.objects.filter(accounts=first).values_list("kind", "template_name")) == [
         (Measure.Kind.CALL, "Голос группы 1"),
@@ -84,6 +88,11 @@ def test_debt_group_opens_its_own_measure(org_a, specialist_a):
     assert row.template_name == "Взыскание через ОПИ"
     assert row.status == Measure.Status.ASSIGNED
     assert row.assignee_id == specialist_a.id
+    from apps.debts.services.registry import measure_title
+
+    hopeless = Measure.objects.get(accounts=fourth)
+    assert hopeless.kind == Measure.Kind.COLLECTION
+    assert measure_title(hopeless) == "Взыскание, безнадёжная задолженность"
 
 
 @pytest.mark.django_db

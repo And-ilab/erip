@@ -10,6 +10,7 @@ from django.db.models import Count, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 
 from apps.debts.models import Account, Measure
+from apps.debts.services.portfolio import DEFAULT_SCENARIO_NAMES
 
 MATRIX_KINDS = (
     (Measure.Kind.CALL, "Автообзвон"),
@@ -133,7 +134,8 @@ def measure_title(measure: Measure) -> str:
     elif measure.kind == Measure.Kind.DISCONNECT:
         title = "Отключение услуг"
     elif measure.kind == Measure.Kind.COLLECTION:
-        title = _with_detail("Взыскание", measure.template_name)
+        text = (measure.template_name or "").strip()
+        title = text if text in DEFAULT_SCENARIO_NAMES.values() else _with_detail("Взыскание", text)
     else:
         title = measure.get_kind_display()
     owner = (getattr(measure, "owner_name", "") or "").strip()

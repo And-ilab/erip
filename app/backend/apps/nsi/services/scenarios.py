@@ -305,7 +305,7 @@ STANDARD_STEPS = [
     },
     {"order": 3, "action": "call", "wait_days": 0, "template": "Голос группы 2", "groups": [2], "terminal": False},
     {
-        "order": 4, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись",
+        "order": 4, "action": "writ", "wait_days": 0, "template": "Отключение и подготовка взыскания",
         "groups": [3], "terminal": False,
     },
     {
@@ -313,7 +313,7 @@ STANDARD_STEPS = [
         "groups": [4, 5], "terminal": False,
     },
     {
-        "order": 6, "action": "writ", "wait_days": 0, "template": "Безнадёжная задолженность",
+        "order": 6, "action": "writ", "wait_days": 0, "template": "Взыскание, безнадёжная задолженность",
         "groups": [6], "terminal": True,
     },
 ]

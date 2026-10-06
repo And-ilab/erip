@@ -192,7 +192,7 @@ def test_reimport_updates_changed_fields_and_shows_measure(org_a, specialist_a):
     measure = Measure.objects.get(accounts=account)
     assert measure.kind == Measure.Kind.COLLECTION
     assert measure.status == Measure.Status.ASSIGNED
-    assert measure.template_name == "Исполнительная надпись"
+    assert measure.template_name == "Отключение и подготовка взыскания"
     assert measure.assignee_id == specialist_a.id
 
     changed = "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;BALANCE_OUT;SHORT_FIO\n10;501;00000010;80,00;Петров\n"

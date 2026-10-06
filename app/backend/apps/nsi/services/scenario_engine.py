@@ -314,6 +314,11 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
         services = list(account.services.all())
         data["service_ids"] = [service.id for service in services]
     if kind == Measure.Kind.COLLECTION:
+        from apps.debts.services.portfolio import scenario_names
+
+        card = (account.scenario_name or "").strip() or scenario_names().get(account.effective_group or 0, "")
+        if card:
+            data["template_name"] = card
         assignee = User.objects.filter(
             organization_id=account.organization_id, is_active=True,
         ).exclude(role=User.Role.OBSERVER).order_by("id").first()

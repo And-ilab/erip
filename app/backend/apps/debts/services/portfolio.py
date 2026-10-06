@@ -112,18 +112,21 @@ def release_expired_inheritance(account: Account) -> bool:
     return True
 
 
+DEFAULT_SCENARIO_NAMES = {
+    1: "Превентивный обзвон и уведомления",
+    2: "Письменное предупреждение",
+    3: "Отключение и подготовка взыскания",
+    4: "Взыскание через ОПИ",
+    5: "Взыскание через ОПИ",
+    6: "Взыскание, безнадёжная задолженность",
+}
+
+
 def scenario_names() -> dict[int, str]:
     rows = dict(
         ScenarioRule.objects.active().filter(category__isnull=True).values_list("group", "name")
     )
-    return rows or {
-        1: "Превентивный обзвон и уведомления",
-        2: "Письменное предупреждение",
-        3: "Отключение и подготовка взыскания",
-        4: "Взыскание через ОПИ",
-        5: "Взыскание через ОПИ",
-        6: "Взыскание, безнадёжная задолженность",
-    }
+    return rows or DEFAULT_SCENARIO_NAMES
 
 
 def rating_letter(group: int | None, aggravating: bool, rules=None) -> str:
