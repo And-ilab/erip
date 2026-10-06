@@ -363,20 +363,9 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         page = max(int(request.query_params.get("page") or 1), 1)
         base = AccountRepository.with_board_marks(self.filter_queryset(self.get_queryset()))
         start = (page - 1) * page_size
-        scope = (request.query_params.get("scope") or "").strip()
-        if scope == "claims":
-            from apps.debts.models import ClaimCase
-
-            stages = [("queue", "К взысканию"), *list(ClaimCase.Stage.choices)]
-        else:
-            stages = FUNNEL_STAGES
         columns = []
-        for code, title in stages:
-            if scope == "claims" and code == "queue":
-                stage_qs = base.filter(claim_case__isnull=True)
-            elif scope == "claims":
-                stage_qs = base.filter(claim_case__stage=code)
-            elif code != "new":
+        for code, title in FUNNEL_STAGES:
+            if code != "new":
                 stage_qs = base.filter(funnel_stage=code)
             else:
                 stage_qs = base.filter(funnel_stage__in=["", "new"])

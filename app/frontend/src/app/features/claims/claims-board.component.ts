@@ -36,8 +36,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
           (queryChange)="onFilter($event)" />
       </div>
       <p class="hint">
-        С группы 3: исполнительная надпись, иск и ОПИ. Канбан — этапы дела.
-        Список, календарь и графики показывают тех же должников.
+        С группы 3: исполнительная надпись, иск и ОПИ.
+        Канбан, список, календарь и графики — как в реестре лицевых счетов, здесь только эти должники.
       </p>
       @if (error()) { <p class="error">{{ error() }}</p> }
 
@@ -93,13 +93,27 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (mode() === 'kanban') {
         <div class="k-board">
-          @for (column of claimColumns(); track column.stage) {
-            <section class="k-col" [attr.data-stage]="column.stage">
+          @for (column of board(); track column.stage) {
+            <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
+                     (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
               <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
               <div class="list-pane cards">
               @for (card of column.cards; track card.id) {
-                <article class="k-card g{{ card.effective_group ?? 0 }}" (click)="openDebtor(card)">
+                <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
+                         [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                   <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
+                  @if (canMove()) {
+                    <button type="button" class="more" aria-label="Сменить этап" (click)="toggleStage($event, card.id)">
+                      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.2 2.8 7.2 8.8M7 3.5H3.5v9h9V9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+                    </button>
+                  }
+                  @if (stageMenu() === card.id) {
+                    <div class="stage-menu" (click)="$event.stopPropagation()">
+                      @for (item of funnel; track item.id) {
+                        <button type="button" [class.on]="(card.funnel_stage || 'new') === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
+                      }
+                    </div>
+                  }
                   <div class="line">ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address || '') }} }</div>
                   @if (card.effective_group) {
                     <div class="group-line">
@@ -110,7 +124,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
                   <div class="money">{{ moneyPlain(card.debt_total) }} р. <small>+ пени {{ moneyPlain(card.mulct_total) }} р.</small></div>
                   <div class="foot">
                     @if (mark(card); as note) {
-                      <span class="when">{{ note }}</span>
+                      <span class="when">
+                        <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+                        {{ note }}
+                      </span>
                     } @else { <span></span> }
                     @if (initials(card.assigned_name); as who) {
                       <span class="who" [style.background]="avatarColor(card.assigned_name)">{{ who }}</span>
@@ -122,7 +139,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             </section>
           }
         </div>
-        @if (!claimColumns().length) {
+        @if (boardEmpty()) {
           <p class="hint">По этому отбору должников нет.</p>
         }
       }
@@ -265,10 +282,27 @@ import { RegistryViewsComponent } from '../registry-views.component';
       box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.picked { background: #e7f4f1; }
+    .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
-    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; color: #1f2933; }
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; padding-right: 18px; color: #1f2933; }
+    .k-card .more {
+      position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; border: 0;
+      background: transparent; color: #9aa3ad; cursor: pointer;
+    }
+    .k-card .more svg { width: 14px; height: 14px; display: block; }
+    .stage-menu {
+      position: absolute; z-index: 5; top: 28px; right: 8px; min-width: 180px; padding: 4px;
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 20px rgba(16, 42, 67, .16);
+    }
+    .stage-menu button {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 6px 8px; font: inherit; font-size: 12px; border-radius: 4px; cursor: pointer;
+    }
+    .stage-menu button.on, .stage-menu button:hover { background: #f3f6f8; }
     .k-card .line { margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; }
     .k-card .group-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; }
     .k-card .letter {
@@ -284,7 +318,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; color: #1f2933; }
     .k-card .money small { font-weight: 400; color: #6b7280; }
     .k-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 26px; }
-    .k-card .when { font-size: 12px; color: #6b7280; }
+    .k-card .when { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; }
+    .k-card .cal { width: 14px; height: 14px; flex: 0 0 14px; }
     .k-card .who {
       width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700;
       display: grid; place-items: center; flex: 0 0 26px;
@@ -368,6 +403,10 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly debtors = signal<AccountRow[]>([]);
   protected readonly debtorTotal = signal(0);
   protected readonly board = signal<KanbanColumn[]>([]);
+  protected readonly selected = signal<Set<number>>(new Set());
+  protected readonly dropStage = signal<string | null>(null);
+  protected readonly stageMenu = signal<number | null>(null);
+  private cardDragged = false;
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly error = signal('');
   protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('list');
@@ -410,6 +449,94 @@ export class ClaimsBoardComponent implements OnInit {
     return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
   }
 
+  protected boardEmpty(): boolean {
+    return !this.board().some((column) => column.total > 0);
+  }
+
+  protected canMove(): boolean {
+    const me = this.auth.me();
+    return !!me && me.role !== 'observer' && me.contour !== 'supplier';
+  }
+
+  protected isSelected(id: number): boolean {
+    return this.selected().has(id);
+  }
+
+  protected startCard(event: DragEvent, card: AccountRow): void {
+    if (!this.canMove()) {
+      event.preventDefault();
+      return;
+    }
+    this.cardDragged = true;
+    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
+    event.dataTransfer?.setData('text/plain', ids.join(','));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    event.stopPropagation();
+  }
+
+  protected allowDrop(event: DragEvent, stage: string): void {
+    if (!this.canMove()) return;
+    event.preventDefault();
+    this.dropStage.set(stage);
+  }
+
+  protected clearDrop(stage: string): void {
+    if (this.dropStage() === stage) this.dropStage.set(null);
+  }
+
+  protected dropOnStage(event: DragEvent, stage: string): void {
+    event.preventDefault();
+    this.dropStage.set(null);
+    if (!this.canMove()) return;
+    const raw = event.dataTransfer?.getData('text/plain') || '';
+    const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
+    if (ids.length) this.moveIds(ids, stage);
+  }
+
+  protected openCard(event: MouseEvent, card: AccountRow): void {
+    if (this.cardDragged) {
+      this.cardDragged = false;
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest('button')) return;
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      const next = new Set(this.selected());
+      if (next.has(card.id)) next.delete(card.id);
+      else next.add(card.id);
+      this.selected.set(next);
+      return;
+    }
+    this.openDebtor(card);
+  }
+
+  protected toggleStage(event: Event, id: number): void {
+    event.stopPropagation();
+    this.stageMenu.update((open) => open === id ? null : id);
+  }
+
+  protected move(card: AccountRow, stage: string): void {
+    this.stageMenu.set(null);
+    this.moveIds([card.id], stage);
+  }
+
+  private moveIds(ids: number[], stage: string): void {
+    const pending = [...ids];
+    const step = (): void => {
+      const id = pending.shift();
+      if (id == null) {
+        this.selected.set(new Set());
+        this.loadBoard();
+        return;
+      }
+      this.api.updateAccount(id, { funnel_stage: stage }).subscribe({
+        next: () => step(),
+        error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      });
+    };
+    step();
+  }
+
   protected hiddenDebtors(): number {
     return Math.max(this.debtorTotal() - this.debtors().length, 0);
   }
@@ -420,10 +547,6 @@ export class ClaimsBoardComponent implements OnInit {
 
   protected stageLabel(id: string): string {
     return this.funnel.find((item) => item.id === (id || 'new'))?.label || 'Новый должник';
-  }
-
-  protected claimColumns(): KanbanColumn[] {
-    return this.board().filter((column) => column.total > 0 || column.stage === 'queue' || column.stage === 'prep');
   }
 
   protected onFilter(query: RegistryFilterQuery): void {

@@ -498,8 +498,12 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
     assert {on_writ.id, on_measure.id, from_group.id} <= cards
     assert outsider.id not in cards
     by_stage = {column["stage"]: column["total"] for column in columns}
-    assert by_stage["queue"] >= 3
-    assert by_stage["prep"] == 0
+    assert [column["stage"] for column in columns] == [
+        "new", "prevention", "warning", "disconnect", "enforcement", "court", "closed",
+    ]
+    assert by_stage["warning"] >= 1
+    assert by_stage["disconnect"] >= 1
+    assert by_stage["enforcement"] >= 1
 
     events = api(specialist_a).get("/api/v1/accounts/calendar/", {
         "scope": "claims", "date_from": "2026-10-01", "date_to": "2026-10-31",
