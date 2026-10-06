@@ -180,10 +180,6 @@ class PortfolioRefresher:
         self._inheritance(account)
         self._rating(account)
         self._close_paid(account)
-        from apps.debts.services.claims import sync_claim_from_import
-
-        sync_claim_from_import(account)
-        self._settle_cleared_funnel(account)
         from apps.debts.services.shares import sync_debt_shares
 
         sync_debt_shares(account)
@@ -407,21 +403,6 @@ class PortfolioRefresher:
                 account.scenario_locked = False
                 account.save(update_fields=["scenario_name", "scenario_locked", "updated_at"])
         note_disconnected_but_paid(account)
-
-    def _settle_cleared_funnel(self, account: Account) -> None:
-        """Погашение по выгрузке снимает ручной этап: карточка уходит из воронки взыскания."""
-        threshold = self.settings.close_threshold or Decimal("0")
-        from apps.debts.services.claims import _balances_clear
-
-        if not _balances_clear(account, threshold):
-            return
-        if account.funnel_stage == "closed" and not account.funnel_locked:
-            return
-        previous = account.funnel_stage
-        account.funnel_stage = "closed"
-        account.funnel_locked = False
-        account.save(update_fields=["funnel_stage", "funnel_locked", "updated_at"])
-        self._log(account, StatusHistory.Kind.FUNNEL, previous, "closed", reason="Погашение по выгрузке АИС")
 
     @staticmethod
     def _log(account, kind, old, new, service=None, reason=""):

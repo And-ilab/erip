@@ -170,51 +170,6 @@ def record_opi(case: ClaimCase, user, number: str, status: str) -> ClaimCase:
     return case
 
 
-def sync_claim_from_import(account) -> None:
-    """Повторная выгрузка того же ЛС сама двигает дело. Списание и отказ нотариуса не перескакивает.
-
-    Долг и пеня погашены, когда остаток каждой услуги не выше порога закрытия.
-    Тариф считается поступившим, если он уже записан в деле и сальдо погашено:
-    отдельной колонки тарифа в файле АИС нет, сумму тарифа ПМ не выдумывает.
-    """
-    case = ClaimCase.objects.filter(account=account).first()
-    if case is None or case.stage in {
-        ClaimCase.Stage.WRITEOFF, ClaimCase.Stage.IMPOSSIBLE, ClaimCase.Stage.REFUSED, ClaimCase.Stage.RECOVERED,
-    }:
-        return
-    from apps.nsi.models import CalculationSettings
-
-    threshold = CalculationSettings.load().close_threshold or Decimal("0")
-    cleared = _balances_clear(account, threshold)
-    fields = []
-    notes = []
-    if cleared and not case.ais_debt_cleared:
-        case.ais_debt_cleared = True
-        fields.append("ais_debt_cleared")
-        notes.append("долг и пеня погашены")
-    tariff = case.notary_tariff or Decimal("0")
-    if cleared and not case.application_withdrawn and tariff > 0 and not case.tariff_received:
-        case.tariff_received = True
-        fields.append("tariff_received")
-        notes.append("нотариальный тариф уже указан в деле")
-    if fields:
-        case.save(update_fields=[*fields, "updated_at"])
-        _event(case, None, case.stage, case.stage, "Повторная выгрузка АИС: " + ", ".join(notes))
-    if case.ais_debt_cleared and case.tariff_received:
-        move_case(case, ClaimCase.Stage.RECOVERED, None, "Погашение долга, пени и тарифа по выгрузке АИС")
-
-
-def _balances_clear(account, threshold: Decimal) -> bool:
-    services = list(account.services.all())
-    if not services:
-        return (account.balance_out or Decimal("0")) <= threshold
-    return all(
-        (service.balance_out or Decimal("0")) <= threshold
-        and (service.balance_mulct_out or Decimal("0")) <= threshold
-        for service in services
-    )
-
-
 def apply_ais_receipt(case: ClaimCase, user) -> ClaimCase:
     """Имитация ночной выгрузки: тариф поступил и долг с пеней закрыты. Сальдо АИС не переписывается."""
     case.tariff_received = True
