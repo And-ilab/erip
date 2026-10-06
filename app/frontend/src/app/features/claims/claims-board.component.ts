@@ -9,7 +9,7 @@ import { ApiService, AssignedAccount, ClaimCase, Named, errorMessage } from '../
 import { AuthService } from '../../core/auth.service';
 import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
-import { CalendarBoardComponent } from '../calendar/calendar-board.component';
+import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -152,8 +152,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (mode() === 'calendar') {
         <app-calendar-board
-          [events]="events()" [from]="spanFrom" [to]="spanTo" [canCreate]="false"
-          (spanChange)="setSpan($event)" (openEvent)="openClaimEvent($event)" />
+          [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="false"
+          (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openClaimEvent($event)" />
       }
 
       @if (mode() === 'charts') {
@@ -419,6 +419,7 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly pickerOpen = signal(false);
   protected spanFrom = monthStart();
   protected spanTo = monthEnd();
+  protected calendarMode: CalendarMode = 'month';
   protected readonly caseOpen = signal(false);
   protected readonly dialog = signal(false);
   protected readonly found = signal<AccountRow[]>([]);

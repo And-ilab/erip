@@ -457,6 +457,7 @@ export class CalendarBoardComponent implements OnChanges {
     const end = this.spanEnd();
     const previous = windowFor(this.mode, start);
     const custom = previous.from !== start || previous.to !== end;
+    this.mode = mode;
     this.modeChange.emit(mode);
     if (custom) return;
     this.followWindow();
@@ -488,6 +489,7 @@ export class CalendarBoardComponent implements OnChanges {
 
   protected focusDay(date: string): void {
     this.followWindow();
+    this.mode = 'day';
     this.modeChange.emit('day');
     this.spanChange.emit({ from: date, to: date });
   }
