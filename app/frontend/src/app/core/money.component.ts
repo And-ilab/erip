@@ -19,22 +19,13 @@ export function formatMoney(
   selector: 'app-byn-sign',
   standalone: true,
   template: `
-    <span class="byn" role="img" aria-label="белорусский рубль">
-      <span class="bar" aria-hidden="true"></span>
-      <span class="letter" aria-hidden="true">Б</span>
-    </span>
+    <svg viewBox="0 0 174 214" role="img" aria-label="белорусский рубль" focusable="false">
+      <path fill="currentColor" fill-rule="evenodd" d="M32 0H149V22H55V89H119L137 95L151 104L162 116L169 129L173 147L171 167L165 181L155 194L134 208L116 213H32V164H2V140H32ZM56 111H110L123 114L134 120L145 132L150 147L148 164L142 174L132 183L113 190H55V163H107V141H56Z" />
+    </svg>
   `,
   styles: `
-    :host { display: inline-block; vertical-align: baseline; }
-    .byn {
-      position: relative; display: inline-block; padding-left: 0.2em;
-      font-weight: 700; font-family: Roboto, "Segoe UI", Arial, sans-serif; line-height: 1;
-    }
-    .letter { font-weight: 700; }
-    /* Нижняя перекладина печатной «Б», продолженная влево. */
-    .bar {
-      position: absolute; left: 0; top: 0.40em; width: 0.42em; height: 0.11em; background: currentColor;
-    }
+    :host { display: inline-block; line-height: 0; vertical-align: -0.12em; }
+    svg { width: 0.82em; height: 1em; display: block; }
   `,
 })
 export class BynSignComponent {}
