@@ -4,15 +4,14 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.debts.models import Account, Measure
+from apps.debts.models import Account, Measure, Territory
 from apps.imports.sample_catalog import sample_files
-from apps.users.models import Organization
 
 
 class Command(BaseCommand):
     help = (
-        "Удаляет лицевые счета и мероприятия схем из каталога выборки и загружает файлы заново. "
-        "Пользователей и другие схемы не трогает."
+        "Очищает все карточки лицевых счетов, мероприятия и карту, затем загружает "
+        "только файлы выборки тем же импортом, что экран «Загрузка АИС». Пользователей не удаляет."
     )
 
     def add_arguments(self, parser):
@@ -23,14 +22,13 @@ class Command(BaseCommand):
         files = sample_files(directory)
         if not files:
             raise CommandError(f"В каталоге нет файлов выборки: {directory}")
-        schemas = sorted({schema for schema, _entity, _path in files})
-        organizations = list(Organization.objects.filter(schema_name__in=schemas))
-        if organizations:
-            measures, _measure_detail = Measure.objects.filter(organization__in=organizations).delete()
-            accounts, _account_detail = Account.objects.filter(organization__in=organizations).delete()
-            names = ", ".join(org.schema_name for org in organizations)
-            self.stdout.write(f"Удалено по схемам {names}: лицевых счетов {accounts}, мероприятий {measures}")
-        else:
-            self.stdout.write("Схем выборки в базе ещё нет, удалять нечего")
+        measures, _measure_detail = Measure.objects.all().delete()
+        accounts, _account_detail = Account.objects.all().delete()
+        territories, _territory_detail = Territory.objects.all().delete()
+        self.stdout.write(
+            f"Очищено: лицевых счетов {accounts}, мероприятий {measures}, узлов карты {territories}"
+        )
         call_command("load_ais_sample", dir=directory)
-        self.stdout.write(self.style.SUCCESS("Выборка загружена заново. Дальше: link_territories"))
+        self.stdout.write(self.style.SUCCESS(
+            "Загружены только файлы выборки. Дальше: link_territories"
+        ))

@@ -44,7 +44,7 @@ docker compose exec backend python manage.py load_ais_sample
 docker compose exec backend python manage.py link_territories
 ```
 
-Полная замена уже загруженной выборки: удаляются лицевые счета и мероприятия только этих четырёх схем, затем файлы читаются заново. Пользователи и другие схемы остаются.
+Полная замена: `reload_ais_sample` удаляет все карточки лицевых счетов, мероприятия и узлы карты, пользователей не трогает, и заново читает только 16 файлов выборки тем же импортом, что экран «Загрузка АИС» (`AisImporter`). После импорта у счетов с долгом появляются мероприятия.
 
 ```powershell
 docker compose exec backend python manage.py reload_ais_sample
