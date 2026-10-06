@@ -16,6 +16,10 @@ from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import Coalesce
 
 from apps.debts.models import Account, Territory, TerritoryLink
+from apps.debts.services.street_catalog import StreetCatalog, default_catalog
+from apps.debts.services.street_names import STREET_PREFIX as _STREET_PREFIX
+from apps.debts.services.street_names import STREET_RE as _STREET
+from apps.debts.services.street_names import norm, title_name as _title
 
 COUNTRY = "Беларусь"
 UNKNOWN_OBLAST = "Без области"
@@ -118,38 +122,11 @@ _CORPUS = re.compile(r"^(?:корп\.?|корпус|к\.)\s*(\d+\S*)$", re.IGNOR
 _OBLAST = re.compile(r"^(.+?)\s+(?:область|обл\.?)$", re.IGNORECASE)
 _RAYON = re.compile(r"^(.+?)\s+(?:район|р-н\.?)$", re.IGNORECASE)
 _MICRO = re.compile(r"^(?:микрорайон|мкр\.?)\s+(.+)$", re.IGNORECASE)
-_STREET = re.compile(
-    r"^(улица|ул\.?|проспект|пр-т|просп\.?|переулок|пер\.?|бульвар|бул\.?|б-р|тракт|площадь|пл\.?)\s+(.+)$",
-    re.IGNORECASE,
-)
 _HOUSE = re.compile(r"^(?:дом|д\.)\s*(\d+\S*)$", re.IGNORECASE)
 _SETTLEMENT = re.compile(
     r"^(?:город|г\.|гп|аг|агрогородок|деревня|д\.|посёлок|поселок|п\.|село|с\.)\s+(.+)$",
     re.IGNORECASE,
 )
-_STREET_PREFIX = {
-    "улица": "ул.",
-    "ул": "ул.",
-    "проспект": "просп.",
-    "пр-т": "просп.",
-    "просп": "просп.",
-    "переулок": "пер.",
-    "пер": "пер.",
-    "бульвар": "бул.",
-    "бул": "бул.",
-    "б-р": "бул.",
-    "тракт": "тракт",
-    "площадь": "пл.",
-    "пл": "пл.",
-}
-
-
-def norm(value: str) -> str:
-    return " ".join(value.lower().replace("ё", "е").split())
-
-
-def _title(value: str) -> str:
-    return " ".join(part[:1].upper() + part[1:].lower() for part in value.split() if part)
 
 
 def _spread(latitude: float, longitude: float, key: str, kind: str) -> tuple[float, float]:
@@ -169,24 +146,64 @@ def _spread(latitude: float, longitude: float, key: str, kind: str) -> tuple[flo
     return round(lat, 6), round(lon, 6)
 
 
-def _point(kind: str, name_key: str, parent: Territory | None) -> tuple[Decimal, Decimal]:
+def _ancestor(parent: Territory | None, kind: str) -> Territory | None:
+    current = parent
+    while current is not None:
+        if current.kind == kind:
+            return current
+        current = current.parent
+    return None
+
+
+def _catalog_point(
+    kind: str, name_key: str, parent: Territory | None, catalog: StreetCatalog,
+) -> tuple[float, float] | None:
+    if catalog.is_empty:
+        return None
+    if kind == Territory.Kind.STREET:
+        settlement = _ancestor(parent, Territory.Kind.SETTLEMENT)
+        oblast = _ancestor(parent, Territory.Kind.OBLAST)
+        return catalog.street_point(
+            name_key,
+            settlement.name_key if settlement else "",
+            oblast.name_key if oblast else "",
+        )
+    if kind == Territory.Kind.SETTLEMENT:
+        oblast = _ancestor(parent, Territory.Kind.OBLAST)
+        place = catalog.place_of(name_key, oblast.name_key if oblast else "")
+        if place is not None:
+            return place.latitude, place.longitude
+    return None
+
+
+def _point(
+    kind: str, name_key: str, parent: Territory | None, catalog: StreetCatalog | None = None,
+) -> tuple[Decimal, Decimal]:
     known = KNOWN_POINTS.get((kind, name_key))
     if known:
         lat, lon = known
     else:
-        base_lat = float(parent.latitude) if parent and parent.latitude is not None else 53.7
-        base_lon = float(parent.longitude) if parent and parent.longitude is not None else 27.95
-        lat, lon = _spread(base_lat, base_lon, f"{kind}:{name_key}", kind)
+        found = _catalog_point(kind, name_key, parent, catalog) if catalog is not None else None
+        if found:
+            lat, lon = found
+        else:
+            base_lat = float(parent.latitude) if parent and parent.latitude is not None else 53.7
+            base_lon = float(parent.longitude) if parent and parent.longitude is not None else 27.95
+            lat, lon = _spread(base_lat, base_lon, f"{kind}:{name_key}", kind)
     return Decimal(str(lat)), Decimal(str(lon))
 
 
 class AddressPath:
     """Разбирает строку адреса в цепочку от страны до дома."""
 
-    def steps(self, text: str) -> list[tuple[str, str, str]]:
+    def __init__(self, catalog: StreetCatalog | None = None):
+        self._catalog = catalog
+
+    def steps(self, text: str, hint: str = "") -> list[tuple[str, str, str]]:
         parts = self._scan(text)
         if not parts:
             return []
+        self._complete_place(parts, hint)
         settlement_key = norm(parts["settlement"]) if parts["settlement"] else ""
         district_key = norm(parts["district"]).removesuffix(" район") if parts["district"] else ""
         oblast_name = parts["oblast"] or CITY_OBLAST.get(settlement_key) or UNKNOWN_OBLAST
@@ -213,6 +230,30 @@ class AddressPath:
         if parts["house"]:
             chain.append((Territory.Kind.HOUSE, parts["house"], norm(parts["house"])))
         return chain
+
+    def _complete_place(self, parts: dict[str, str], hint: str) -> None:
+        """Город из справочника, если в адресе его нет: уникальная улица или название схемы."""
+        if parts["settlement"]:
+            return
+        catalog = self._catalog if self._catalog is not None else default_catalog()
+        if catalog.is_empty:
+            return
+        street_key = norm(parts["street"]) if parts["street"] else ""
+        if street_key:
+            hit = catalog.resolve(street_key, "", "", hint)
+            if hit is not None:
+                parts["settlement"] = hit.settlement_name
+                if not parts["oblast"]:
+                    parts["oblast"] = hit.oblast_name
+                return
+        if not (parts["street"] or parts["house"]):
+            return
+        place = catalog.place_from_hint(hint)
+        if place is None:
+            return
+        parts["settlement"] = place.name
+        if not parts["oblast"]:
+            parts["oblast"] = place.oblast_name
 
     def _scan(self, text: str) -> dict[str, str] | None:
         found = {"oblast": "", "district": "", "settlement": "", "microdistrict": "", "street": "", "house": ""}
@@ -260,9 +301,10 @@ class AddressPath:
 class TerritoryIndex:
     """Кладёт лицевой счёт на дом (или на самый глубокий распознанный узел)."""
 
-    def __init__(self):
+    def __init__(self, catalog: StreetCatalog | None = None):
         self._cache: dict[tuple, Territory] = {}
-        self._parser = AddressPath()
+        self._catalog = default_catalog() if catalog is None else catalog
+        self._parser = AddressPath(self._catalog)
 
     def assign_queryset(self, queryset: QuerySet) -> int:
         changed: list[Account] = []
@@ -271,11 +313,13 @@ class TerritoryIndex:
         # select_related даёт FieldError и карту с 500, пока есть непривязанные счета.
         accounts = (
             queryset.select_related(None)
-            .only("id", "house_address", "account_address", "territory_id")
+            .select_related("organization")
+            .only("id", "house_address", "account_address", "territory_id", "organization__name")
             .iterator(chunk_size=500)
         )
         for account in accounts:
-            place = self.place_for(account.house_address or account.account_address or "")
+            hint = account.organization.name if account.organization_id else ""
+            place = self.place_for(account.house_address or account.account_address or "", hint)
             new_id = place.pk if place else None
             if account.territory_id != new_id:
                 account.territory_id = new_id
@@ -289,10 +333,10 @@ class TerritoryIndex:
             updated += len(changed)
         return updated
 
-    def place_for(self, text: str) -> Territory | None:
+    def place_for(self, text: str, hint: str = "") -> Territory | None:
         parent = None
         node = None
-        for kind, name, name_key in self._parser.steps(text):
+        for kind, name, name_key in self._parser.steps(text, hint):
             node = self._node(parent, kind, name, name_key)
             parent = node
         return node
@@ -302,7 +346,7 @@ class TerritoryIndex:
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
-        latitude, longitude = _point(kind, name_key, parent)
+        latitude, longitude = _point(kind, name_key, parent, self._catalog)
         node, created = Territory.objects.get_or_create(
             parent=parent,
             kind=kind,
@@ -311,7 +355,7 @@ class TerritoryIndex:
         )
         if created:
             self._link(node, parent)
-        elif (kind, name_key) in KNOWN_POINTS and (node.latitude != latitude or node.longitude != longitude):
+        elif node.latitude != latitude or node.longitude != longitude:
             node.latitude = latitude
             node.longitude = longitude
             node.save(update_fields=["latitude", "longitude", "updated_at"])

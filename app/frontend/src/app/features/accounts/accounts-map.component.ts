@@ -1,9 +1,55 @@
 import { AfterViewInit, Component, ElementRef, Input, OnChanges, OnDestroy, SimpleChanges, ViewChild, inject, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import type { Map as MlMap, Marker } from 'maplibre-gl';
+import type { Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { MapBubble, MapLevel } from '../../core/models';
+
+let pmtilesReady = false;
+
+function belarusStyle(tileUrl: string): StyleSpecification {
+  return {
+    version: 8,
+    sources: {
+      belarus: {
+        type: 'vector',
+        url: `pmtiles://${tileUrl}`,
+        attribution: '© OpenStreetMap',
+      },
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#c5dff0' } },
+      { id: 'earth', type: 'fill', source: 'belarus', 'source-layer': 'earth', paint: { 'fill-color': '#f4f0e6' } },
+      { id: 'landcover', type: 'fill', source: 'belarus', 'source-layer': 'landcover', paint: { 'fill-color': '#e4efd4', 'fill-opacity': 0.7 } },
+      {
+        id: 'landuse-green', type: 'fill', source: 'belarus', 'source-layer': 'landuse',
+        filter: ['in', 'kind', 'park', 'forest', 'wood', 'grass', 'meadow', 'garden', 'national_park', 'nature_reserve'],
+        paint: { 'fill-color': '#d5e8c0' },
+      },
+      {
+        id: 'landuse-residential', type: 'fill', source: 'belarus', 'source-layer': 'landuse',
+        filter: ['==', 'kind', 'residential'],
+        paint: { 'fill-color': '#efe8dc' },
+      },
+      { id: 'water', type: 'fill', source: 'belarus', 'source-layer': 'water', filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#b7d4e8' } },
+      { id: 'water-line', type: 'line', source: 'belarus', 'source-layer': 'water', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#9ec4dc', 'line-width': 1 } },
+      {
+        id: 'roads-minor', type: 'line', source: 'belarus', 'source-layer': 'roads',
+        filter: ['==', 'kind', 'minor_road'],
+        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 15, 2.2] },
+      },
+      {
+        id: 'roads-major', type: 'line', source: 'belarus', 'source-layer': 'roads',
+        filter: ['in', 'kind', 'highway', 'major_road'],
+        paint: { 'line-color': '#f0d48a', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 14, 3.2] },
+      },
+      {
+        id: 'buildings', type: 'fill', source: 'belarus', 'source-layer': 'buildings', minzoom: 13,
+        paint: { 'fill-color': '#e4d9c8', 'fill-opacity': 0.85 },
+      },
+    ],
+  } as StyleSpecification;
+}
 
 const GROUP_COLOR: Record<number, string> = {
   1: '#22c55e',
@@ -37,7 +83,7 @@ const GROUP_COLOR: Record<number, string> = {
         <span class="muted">Без адреса: {{ level()?.unplaced }}. Они остаются в списке.</span>
       }
     </div>
-    <p class="muted">Подложка временная и грузится из публичного сервиса. Боевая карта — файл на нашем сервере. Число в пузыре — лицевые счета, цвет — группа, которой в этом месте больше.</p>
+    <p class="muted">Число в пузыре — лицевые счета, цвет — группа, которой в этом месте больше. Подложка — файл карты на этом сервере.</p>
     @if (error()) { <p class="status-failed">{{ error() }}</p> }
     @if (mapFailed()) { <p class="status-failed">{{ mapFailed() }}</p> }
     <ul class="tree">
@@ -109,11 +155,18 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       };
       const maplibregl = loaded.default?.Map ? loaded.default : loaded;
       this.maplibregl = maplibregl;
+      if (!pmtilesReady) {
+        const { Protocol } = await import('pmtiles');
+        const protocol = new Protocol();
+        maplibregl.addProtocol('pmtiles', protocol.tile);
+        pmtilesReady = true;
+      }
       const map = new maplibregl.Map({
         container: this.canvas.nativeElement,
-        style: 'https://tiles.openfreemap.org/styles/liberty',
+        style: belarusStyle(`${window.location.origin}/maps/belarus.pmtiles`),
         center: [27.95, 53.7],
         zoom: 6,
+        maxZoom: 18,
       });
       this.map = map;
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -125,7 +178,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
         if (level) this.draw(level);
       });
       map.on('error', () => {
-        if (!this.mapLoaded) this.mapFailed.set('Подложка карты не загрузилась. Пузыри сверху всё равно открывают дерево.');
+        if (!this.mapLoaded) this.mapFailed.set('Файл карты на сервере не открылся. Пузыри сверху всё равно открывают дерево.');
       });
     } catch {
       this.mapFailed.set('Карта не открылась. Пузыри сверху всё равно открывают дерево.');

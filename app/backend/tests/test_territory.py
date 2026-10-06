@@ -1,4 +1,7 @@
+import pytest
+
 from apps.debts.models import Account, AccountService, Territory
+from apps.debts.services.street_catalog import PlaceHit, StreetCatalog, StreetHit
 from apps.debts.services.territory import AddressPath, TerritoryIndex
 from apps.users.models import ServiceOrganization, User
 
@@ -161,3 +164,114 @@ def test_dzerzhinsk_hangs_on_minsk_oblast_without_a_district():
     assert [name for _kind, name, _key in steps] == [
         "Беларусь", "Минская область", "Дзержинск", "ул. Советская", "д. 2",
     ]
+
+
+def _sample_catalog() -> StreetCatalog:
+    places = [
+        PlaceHit("Могилёв", "могилев", "Могилёвская область", "могилевская область", 53.894, 30.331, 1),
+        PlaceHit("Минск", "минск", "Минская область", "минская область", 53.9006, 27.559, 1),
+        PlaceHit("Брест", "брест", "Брестская область", "брестская область", 52.097, 23.734, 1),
+    ]
+    streets = [
+        StreetHit("ул. Челюскинцев", "ул. челюскинцев", "Могилёв", "могилев", "Могилёвская область", "могилевская область", 53.91, 30.34),
+        StreetHit("ул. Ленина", "ул. ленина", "Могилёв", "могилев", "Могилёвская область", "могилевская область", 53.90, 30.35),
+        StreetHit("ул. Ленина", "ул. ленина", "Минск", "минск", "Минская область", "минская область", 53.92, 27.56),
+    ]
+    return StreetCatalog.from_rows(streets, places)
+
+
+def test_ais_prefixes_keep_the_house_under_the_street():
+    parser = AddressPath(StreetCatalog.empty())
+    cases = (
+        ("наб. Франциска Скорины, д.32", "наб. Франциска Скорины", "д. 32"),
+        ("пр-д Бумажкова, д.12", "проезд Бумажкова", "д. 12"),
+        ("тр-т Логойский, д.31", "тракт Логойский", "д. 31"),
+        ("пр-т Победителей, д.5", "просп. Победителей", "д. 5"),
+    )
+    for address, street, house in cases:
+        names = [name for _kind, name, _key in parser.steps(address)]
+        assert names[-2:] == [street, house]
+
+
+def test_unique_street_without_a_city_uses_the_catalog(org_a):
+    account = make_account(org_a, 71, house_address="ул. Челюскинцев, д.124")
+    TerritoryIndex(_sample_catalog()).assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    assert _chain(account) == ["Беларусь", "Могилёвская область", "Могилёв", "ул. Челюскинцев", "д. 124"]
+    assert float(account.territory.parent.latitude) == 53.91
+
+
+def test_ambiguous_street_follows_the_schema_name(org_a):
+    org_a.name = "Могилев МОЦИС"
+    org_a.save(update_fields=["name", "updated_at"])
+    account = make_account(org_a, 72, house_address="ул. Ленина, д.3")
+    TerritoryIndex(_sample_catalog()).assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    assert _chain(account)[2] == "Могилёв"
+    assert float(account.territory.parent.longitude) == 30.35
+
+
+def test_ambiguous_street_without_a_hint_is_not_assigned_to_a_random_city(org_a):
+    account = make_account(org_a, 73, house_address="ул. Ленина, д.3")
+    TerritoryIndex(_sample_catalog()).assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    assert "Без населённого пункта" in _chain(account)
+
+
+def test_unknown_street_stays_near_the_schema_city(org_a):
+    org_a.name = "Могилев МОЦИС"
+    org_a.save(update_fields=["name", "updated_at"])
+    account = make_account(org_a, 74, house_address="ул. Новая, д.1")
+    TerritoryIndex(_sample_catalog()).assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    assert _chain(account)[2] == "Могилёв"
+    assert abs(float(account.territory.parent.latitude) - 53.894) < 0.05
+
+
+def test_known_minsk_point_wins_over_the_catalog(org_a):
+    catalog = StreetCatalog.from_rows([
+        StreetHit("ул. Немига", "ул. немига", "Минск", "минск", "Минская область", "минская область", 0, 0),
+    ], [])
+    account = make_account(org_a, 75, house_address="г. Минск, ул. Немига, д.5")
+    TerritoryIndex(catalog).assign_queryset(Account.objects.filter(pk=account.pk))
+    account.refresh_from_db()
+    assert float(account.territory.parent.latitude) == 53.9054
+    assert float(account.territory.parent.longitude) == 27.5512
+
+
+def test_schema_hint_accepts_latin_c_in_brest():
+    catalog = StreetCatalog.from_rows([], [
+        PlaceHit("Брест", "брест", "Брестская область", "брестская область", 52.097, 23.734, 1),
+    ])
+    hinted = "Бре" + "c" + "т ЖРЭУ г.Брест"
+    place = catalog.place_from_hint(hinted)
+    assert place is not None
+    assert place.name == "Брест"
+
+
+def test_map_tile_rejects_a_foreign_name(client):
+    assert client.get("/maps/other.pmtiles").status_code == 404
+
+
+def test_map_tile_returns_the_requested_range(client):
+    from django.conf import settings
+
+    path = settings.BASE_DIR.parent / "maps" / "belarus.pmtiles"
+    if not path.is_file():
+        pytest.skip("файла подложки нет")
+    response = client.get("/maps/belarus.pmtiles", HTTP_RANGE="bytes=0-15")
+    assert response.status_code == 206
+    body = b"".join(response.streaming_content)
+    assert body.startswith(b"PMTiles")
+    assert len(body) == 16
+    assert response.headers["Content-Length"] == "16"
+
+
+def test_shipped_catalog_knows_chelyuskintsev():
+    catalog = StreetCatalog.load()
+    if catalog.is_empty:
+        pytest.skip("справочник улиц ещё не собран")
+    hit = catalog.resolve("ул. челюскинцев", "", "", "Могилев МОЦИС")
+    assert hit is not None
+    assert hit.settlement_key == "могилев"
+

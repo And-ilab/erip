@@ -8,5 +8,6 @@ postgres
 **/*.pyc
 **/*.sqlite3
 frontend/node_modules
+maps
 frontend/dist
 frontend/.angular
