@@ -9,13 +9,14 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 
 @Component({
   selector: 'app-claim-detail',
   standalone: true,
   imports: [
     FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule,
+    MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent,
   ],
   template: `
     <div class="case">
@@ -50,10 +51,10 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
                 </ul>
               }
               <div class="sums">
-                <div><span>Основной долг</span><b>{{ money(row.balance_out) }}</b></div>
-                <div><span>Пеня</span><b>{{ money(row.penalty) }}</b></div>
-                <div><span>Нотариальный тариф</span><b>{{ money(tariff || null) }}</b></div>
-                <div class="total"><span>Итого</span><b>{{ grand(row) }}</b></div>
+                <div><span>Основной долг</span><b><app-money [value]="row.balance_out" /></b></div>
+                <div><span>Пеня</span><b><app-money [value]="row.penalty" /></b></div>
+                <div><span>Нотариальный тариф</span><b><app-money [value]="tariff || null" /></b></div>
+                <div class="total"><span>Итого</span><b><app-money [value]="grand(row)" [blank]="false" /></b></div>
               </div>
               <p class="hint">Долг и пеня приходят из АИС и в этой форме не меняются. Тариф вносит специалист, пока его не считает АИС.</p>
               <div class="line">
@@ -65,6 +66,7 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
               <div class="line">
                 <mat-form-field><mat-label>Нотариальный тариф</mat-label>
                   <input matInput [(ngModel)]="tariff" />
+                  <span matTextSuffix><app-byn-sign /></span>
                 </mat-form-field>
                 <mat-checkbox [(ngModel)]="withdrawn">Заявление отозвано</mat-checkbox>
               </div>
@@ -145,7 +147,7 @@ import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
               </mat-form-field>
               <mat-form-field><mat-label>Ответчик</mat-label><input matInput [(ngModel)]="defendant" /></mat-form-field>
               <mat-form-field><mat-label>Дата подачи</mat-label><input matInput type="date" [(ngModel)]="lawsuitDate" /></mat-form-field>
-              <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /></mat-form-field>
+              <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
               @if (housingKind()) {
                 <mat-form-field><mat-label>Дата пакета на выселение</mat-label><input matInput type="date" [(ngModel)]="packageDate" /></mat-form-field>
                 <mat-form-field><mat-label>Ветвь выселения</mat-label>
@@ -289,18 +291,11 @@ export class ClaimDetailComponent implements OnInit {
     this.router.navigate([], { queryParams: { writ: 1 }, queryParamsHandling: 'merge' });
   }
 
-  protected money(value: string | null): string {
-    if (!value) return '—';
-    const number = Number(value);
-    if (Number.isNaN(number)) return value;
-    return number.toLocaleString('ru-BY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
-  protected grand(row: ClaimCase): string {
+  protected grand(row: ClaimCase): number {
     const debt = Number(row.balance_out || 0);
     const penalty = Number(row.penalty || 0);
     const tariff = Number(this.tariff || 0);
-    return this.money(String(debt + penalty + tariff));
+    return debt + penalty + tariff;
   }
 
   protected housingKind(): boolean {

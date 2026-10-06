@@ -2,6 +2,7 @@ import { Component, Input, OnChanges, OnInit, SimpleChanges, computed, inject, s
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { BYN_SIGN_PATH, MoneyComponent, formatMoney } from '../../core/money.component';
 import { DebtCharts } from '../../core/models';
 
 type Mode = 'bar' | 'line' | 'pie';
@@ -64,6 +65,7 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
 @Component({
   selector: 'app-analytics',
   standalone: true,
+  imports: [MoneyComponent],
   template: `
     <div class="charts">
       <div class="toolbar">
@@ -81,7 +83,13 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
       @if (chart(); as data) {
         <section class="surface panel">
           <h3>{{ heading() }}</h3>
-          <p class="sub">{{ subtitle() }}</p>
+          <p class="sub">
+            {{ subtitleLead() }}
+            @if (mode() !== 'line') {
+              <app-money [value]="totalAmount()" [blank]="false" />
+              (в т.ч. пеня <app-money [value]="data.penalty" [blank]="false" />)
+            }
+          </p>
 
           @if (data.cases === 0) {
             <p class="empty">В контуре нет лицевых счетов.</p>
@@ -91,7 +99,12 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
               <span><i class="swatch light"></i> Светлая часть — пеня</span>
             </div>
             <svg [attr.viewBox]="'0 0 ' + bar().width + ' ' + bar().height" role="img" [attr.aria-label]="heading()">
-              <text class="axis-name" x="8" y="16">{{ bar().unitLabel }}</text>
+              <g class="axis-unit">
+                @if (bar().unitLabel) { <text class="axis-name" x="8" y="15">{{ bar().unitLabel }}</text> }
+                <svg [attr.x]="bar().unitLabel ? 34 : 8" y="2" width="14" height="16" viewBox="0 0 68 72" aria-hidden="true">
+                  <path [attr.d]="bynPath" fill="currentColor" fill-rule="evenodd" />
+                </svg>
+              </g>
               @for (tick of bar().ticks; track tick.y) {
                 <line [attr.x1]="bar().left" [attr.x2]="bar().width - 12" [attr.y1]="tick.y" [attr.y2]="tick.y" class="grid" />
                 <text class="tick" [attr.x]="bar().left - 8" [attr.y]="tick.y + 4" text-anchor="end">{{ tick.label }}</text>
@@ -133,7 +146,10 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
                   <text class="pie-caption" x="160" y="312" text-anchor="middle">Количество дел</text>
                   <text class="pie-total" x="160" y="328" text-anchor="middle">{{ data.cases }} дел</text>
                   <text class="pie-caption" x="460" y="312" text-anchor="middle">Сумма задолженности (с пеней)</text>
-                  <text class="pie-total" x="460" y="328" text-anchor="middle">{{ money(totalAmount()) }}</text>
+                  <text class="pie-total" x="460" y="328" text-anchor="middle">{{ pieMoney().text }}</text>
+                  <svg [attr.x]="pieMoney().signX" y="316" width="14" height="16" viewBox="0 0 68 72" aria-hidden="true">
+                    <path [attr.d]="bynPath" fill="currentColor" fill-rule="evenodd" />
+                  </svg>
                 </svg>
                 <ul class="legend">
                   @for (slice of slices(); track slice.title) {
@@ -141,7 +157,7 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
                       <i [style.background]="slice.color"></i>
                       <span>{{ slice.title }}</span>
                       <b>{{ slice.cases }} дел</b>
-                      <b>{{ money(slice.amount) }}</b>
+                      <b><app-money [value]="slice.amount" [compact]="true" [blank]="false" /></b>
                     </li>
                   }
                 </ul>
@@ -156,7 +172,12 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
               <p class="hint">Истории сумм по периодам ещё нет: на графике текущий срез.</p>
             }
             <svg [attr.viewBox]="'0 0 ' + line().width + ' ' + line().height" role="img" [attr.aria-label]="heading()">
-              <text class="axis-name" x="8" y="16">{{ line().unitLabel }}</text>
+              <g class="axis-unit">
+                @if (line().unitLabel) { <text class="axis-name" x="8" y="15">{{ line().unitLabel }}</text> }
+                <svg [attr.x]="line().unitLabel ? 34 : 8" y="2" width="14" height="16" viewBox="0 0 68 72" aria-hidden="true">
+                  <path [attr.d]="bynPath" fill="currentColor" fill-rule="evenodd" />
+                </svg>
+              </g>
               @for (tick of line().ticks; track tick.y) {
                 <line [attr.x1]="line().left" [attr.x2]="line().width - 16" [attr.y1]="tick.y" [attr.y2]="tick.y" class="grid" />
                 <text class="tick" [attr.x]="line().left - 8" [attr.y]="tick.y + 4" text-anchor="end">{{ tick.label }}</text>
@@ -199,6 +220,8 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
     .grid { stroke: #e6edf2; stroke-width: 1; }
     .tick { font-size: 11px; fill: var(--erip-muted); }
     .axis-name { font-size: 11px; fill: var(--erip-muted); }
+    .axis-unit { color: var(--erip-muted); }
+    .pie-total + svg { color: var(--erip-muted); }
     .bar-count { font-size: 11px; fill: #607d8b; }
     .bar-total { font-size: 13px; font-weight: 700; fill: #1f2933; }
     .bar-name { font-size: 11px; fill: #334e68; }
@@ -235,13 +258,19 @@ export class AnalyticsComponent implements OnInit, OnChanges {
   protected readonly error = signal('');
   protected readonly chart = signal<ParsedCharts | null>(null);
 
+  protected readonly bynPath = BYN_SIGN_PATH;
+  protected readonly pieMoney = computed(() => {
+    const text = formatMoney(this.totalAmount(), { blank: false, compact: true }) ?? '';
+    return { text, signX: 460 + text.length * 3.2 + 4 };
+  });
+
   protected readonly heading = computed(() => {
     if (this.mode() === 'pie') return 'Распределение дел и суммы задолженности по группам';
     if (this.mode() === 'line') return 'Динамика задолженности по месяцам';
     return 'Задолженность по этапам воронки взыскания';
   });
 
-  protected readonly subtitle = computed(() => {
+  protected readonly subtitleLead = computed(() => {
     const data = this.chart();
     if (!data) return '';
     const org = this.auth.me()?.organization_name || 'все схемы';
@@ -252,8 +281,7 @@ export class AnalyticsComponent implements OnInit, OnChanges {
         : `${monthLabel(data.months[0]?.period)} – ${monthLabel(data.months[data.months.length - 1]?.period)}`;
       return `${this.scopeTitle()} · ${org} · ${note} · под осью — число дел`;
     }
-    const total = data.principal + data.penalty;
-    return `${this.scopeTitle()} · ${org} · по состоянию на ${when} · ${data.cases} дел на сумму ${rub(total)} (в т.ч. пеня ${rub(data.penalty)})`;
+    return `${this.scopeTitle()} · ${org} · по состоянию на ${when} · ${data.cases} дел на сумму `;
   });
 
   protected readonly bar = computed(() => buildBars(this.chart()?.stages ?? []));
@@ -290,10 +318,6 @@ export class AnalyticsComponent implements OnInit, OnChanges {
         this.loading.set(false);
       },
     });
-  }
-
-  protected money(value: number): string {
-    return money(value);
   }
 
   protected axisValue(value: number, unit: number): string {
@@ -381,17 +405,6 @@ function monthLabel(iso: string | undefined): string {
   return `${name} ${iso.slice(0, 4)}`;
 }
 
-function rub(value: number): string {
-  return `${value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} р.`;
-}
-
-function money(value: number): string {
-  if (Math.abs(value) >= 1000) {
-    return `${(value / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} тыс. р.`;
-  }
-  return rub(value);
-}
-
 function axisValue(value: number, unit: number): string {
   const shown = value / unit;
   return shown.toLocaleString('ru-RU', { maximumFractionDigits: shown >= 100 ? 0 : 1 });
@@ -410,7 +423,7 @@ function scaleOf(max: number): { axisMax: number; unit: number; unitLabel: strin
   return {
     axisMax: niceMax(max / unit) * unit,
     unit,
-    unitLabel: unit === 1000 ? 'тыс. р.' : 'р.',
+    unitLabel: unit === 1000 ? 'тыс.' : '',
   };
 }
 

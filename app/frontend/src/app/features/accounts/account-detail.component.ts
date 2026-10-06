@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatCheckboxModule } from '@angular/material/checkbox';
@@ -15,6 +15,7 @@ import { RouterLink } from '@angular/router';
 import { finalize, forkJoin } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail, AccountService, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, WorkItem,
@@ -24,7 +25,7 @@ import {
   selector: 'app-account-detail',
   standalone: true,
   imports: [
-    DatePipe, DecimalPipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule,
+    DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
     MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
   ],
   template: `
@@ -76,8 +77,8 @@ import {
               <div class="fact"><span>Закреплённый специалист</span><b>{{ a.assigned_name || '—' }}</b></div>
             </div>
             <div>
-              <div class="fact"><span>Долг по услугам (с пенями)</span><button type="button" class="sum-btn" (click)="openShares()">{{ a.balance_out | number: '1.2-2' }} р.</button></div>
-              <div class="fact"><span>Пеня</span><b class="amount-danger">{{ penaltyTotal() | number: '1.2-2' }} р.</b></div>
+              <div class="fact"><span>Долг по услугам (с пенями)</span><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="a.balance_out" [blank]="false" /></button></div>
+              <div class="fact"><span>Пеня</span><b class="amount-danger"><app-money [value]="penaltyTotal()" [blank]="false" /></b></div>
               <div class="fact"><span>Обновлено из АИС</span><b>{{ (a.ais_updated_at | date: 'dd.MM.yyyy HH:mm') || '—' }}</b></div>
               <div class="fact"><span>Сценарий мероприятий</span><b class="link">{{ a.scenario_name || '—' }}</b></div>
             </div>
@@ -111,10 +112,10 @@ import {
               </mat-card-content></mat-card>
               <mat-card><mat-card-content>
                 <dl>
-                  <dt>Входящее сальдо</dt><dd>{{ a.balance_in | number: '1.2-2' }}</dd>
-                  <dt>Итого начислено</dt><dd>{{ a.total_calc_sum | number: '1.2-2' }}</dd>
-                  <dt>Распределённая оплата</dt><dd>{{ a.pay_sum | number: '1.2-2' }}</dd>
-                  <dt>Исходящее сальдо</dt><dd><button type="button" class="sum-btn" (click)="openShares()">{{ a.balance_out | number: '1.2-2' }}</button></dd>
+                  <dt>Входящее сальдо</dt><dd><app-money [value]="a.balance_in" [blank]="false" /></dd>
+                  <dt>Итого начислено</dt><dd><app-money [value]="a.total_calc_sum" [blank]="false" /></dd>
+                  <dt>Распределённая оплата</dt><dd><app-money [value]="a.pay_sum" [blank]="false" /></dd>
+                  <dt>Исходящее сальдо</dt><dd><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="a.balance_out" [blank]="false" /></button></dd>
                   <dt>Обновлено из АИС</dt><dd>{{ a.ais_updated_at | date: 'dd.MM.yyyy HH:mm' }}</dd>
                   <dt>Операционная дата</dt><dd>{{ a.operational_date | date: 'dd.MM.yyyy' }}</dd>
                   <dt>Рейтинг</dt><dd>{{ a.rating_label || '—' }}</dd>
@@ -153,8 +154,8 @@ import {
               </ng-container>
               <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик</th>
                 <td mat-cell *matCellDef="let s"><a [routerLink]="['/contracts', s.id]">{{ s.shot_name }}</a></td></ng-container>
-              <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг (с пенями)</th><td mat-cell *matCellDef="let s">{{ s.balance_out | number: '1.2-2' }}</td></ng-container>
-              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0">{{ s.balance_mulct_out | number: '1.2-2' }}</td></ng-container>
+              <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг (с пенями)</th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_out" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0"><app-money [value]="s.balance_mulct_out" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Мес. долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period }}</td></ng-container>
               <ng-container matColumnDef="debt_group"><th mat-header-cell *matHeaderCellDef>Группа</th>
                 <td mat-cell *matCellDef="let s">@if (s.debt_group) { <span class="group-badge g{{ s.debt_group }}">{{ s.debt_group }}</span> }</td></ng-container>
@@ -167,8 +168,8 @@ import {
             <div class="list-pane"><table mat-table [dataSource]="payments()">
               <ng-container matColumnDef="pay_date"><th mat-header-cell *matHeaderCellDef>Дата</th><td mat-cell *matCellDef="let p">{{ p.pay_date | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let p">{{ p.service_name }}</td></ng-container>
-              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг</th><td mat-cell *matCellDef="let p" class="amount-paid">{{ p.pay_service_summ | number: '1.2-2' }}</td></ng-container>
-              <ng-container matColumnDef="pay_mulct_summ"><th mat-header-cell *matHeaderCellDef>Оплата пени</th><td mat-cell *matCellDef="let p">{{ p.pay_mulct_summ | number: '1.2-2' }}</td></ng-container>
+              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг</th><td mat-cell *matCellDef="let p" class="amount-paid"><app-money [value]="p.pay_service_summ" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="pay_mulct_summ"><th mat-header-cell *matHeaderCellDef>Оплата пени</th><td mat-cell *matCellDef="let p"><app-money [value]="p.pay_mulct_summ" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="bank_name"><th mat-header-cell *matHeaderCellDef>Банк</th><td mat-cell *matCellDef="let p">{{ p.bank_name }}</td></ng-container>
               <ng-container matColumnDef="payment_type_display"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let p">{{ p.payment_type_display }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="paymentColumns"></tr>
@@ -193,8 +194,8 @@ import {
             <div class="list-pane"><table mat-table [dataSource]="balances()">
               <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
-              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r">{{ r.principal | number: '1.2-2' }}</td></ng-container>
-              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r">{{ r.penalty | number: '1.2-2' }}</td></ng-container>
+              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
               <tr mat-header-row *matHeaderRowDef="balanceColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: balanceColumns"></tr>
             </table></div>
@@ -220,9 +221,9 @@ import {
               <button mat-stroked-button (click)="workTab = 'payment'; loadWork()">Оплата по взысканию</button>
             </div>
             <div class="filters">
-              <mat-form-field><mat-label>Долг от</mat-label><input matInput [(ngModel)]="workPrincipal" (change)="loadWork()" /></mat-form-field>
-              <mat-form-field><mat-label>Пеня от</mat-label><input matInput [(ngModel)]="workPenalty" (change)="loadWork()" /></mat-form-field>
-              <mat-form-field><mat-label>Оплата от</mat-label><input matInput [(ngModel)]="workPaid" (change)="loadWork()" /></mat-form-field>
+              <mat-form-field><mat-label>Долг от</mat-label><input matInput [(ngModel)]="workPrincipal" (change)="loadWork()" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
+              <mat-form-field><mat-label>Пеня от</mat-label><input matInput [(ngModel)]="workPenalty" (change)="loadWork()" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
+              <mat-form-field><mat-label>Оплата от</mat-label><input matInput [(ngModel)]="workPaid" (change)="loadWork()" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
               <mat-form-field><mat-label>Начало с</mat-label><input matInput type="date" [(ngModel)]="workFrom" (change)="loadWork()" /></mat-form-field>
               <mat-form-field><mat-label>Начало по</mat-label><input matInput type="date" [(ngModel)]="workTo" (change)="loadWork()" /></mat-form-field>
               @if (auth.canWrite()) {
@@ -234,9 +235,9 @@ import {
               <ng-container matColumnDef="title"><th mat-header-cell *matHeaderCellDef>Наименование</th><td mat-cell *matCellDef="let r">{{ r.title }}</td></ng-container>
               <ng-container matColumnDef="started_on"><th mat-header-cell *matHeaderCellDef>Начало</th><td mat-cell *matCellDef="let r">{{ r.started_on | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="ended_on"><th mat-header-cell *matHeaderCellDef>Окончание</th><td mat-cell *matCellDef="let r">{{ r.ended_on | date: 'dd.MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r">{{ r.principal }}</td></ng-container>
-              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r">{{ r.penalty }}</td></ng-container>
-              <ng-container matColumnDef="paid_principal"><th mat-header-cell *matHeaderCellDef>Оплата</th><td mat-cell *matCellDef="let r">{{ r.paid_principal }}</td></ng-container>
+              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" /></td></ng-container>
+              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" /></td></ng-container>
+              <ng-container matColumnDef="paid_principal"><th mat-header-cell *matHeaderCellDef>Оплата</th><td mat-cell *matCellDef="let r"><app-money [value]="r.paid_principal" /></td></ng-container>
               <tr mat-header-row *matHeaderRowDef="workColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: workColumns"></tr>
             </table></div>
@@ -385,9 +386,9 @@ import {
                   @for (row of shares(); track row.provider_name + row.principal + row.penalty) {
                     <tr>
                       <td>{{ row.provider_name }}</td>
-                      <td>{{ row.principal | number: '1.2-2' }}</td>
-                      <td [class.amount-danger]="+row.penalty > 0">{{ row.penalty | number: '1.2-2' }}</td>
-                      <td>{{ row.total | number: '1.2-2' }}</td>
+                      <td><app-money [value]="row.principal" [blank]="false" /></td>
+                      <td [class.amount-danger]="+row.penalty > 0"><app-money [value]="row.penalty" [blank]="false" /></td>
+                      <td><app-money [value]="row.total" [blank]="false" /></td>
                     </tr>
                   }
                   @if (!shares().length) {

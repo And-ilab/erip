@@ -13,6 +13,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { MoneyComponent } from '../../core/money.component';
 import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
@@ -50,7 +51,7 @@ type CustomField = 'group' | 'rating' | 'stage';
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
-    CalendarBoardComponent, RegistryViewsComponent,
+    CalendarBoardComponent, RegistryViewsComponent, MoneyComponent,
   ],
   template: `
     <div class="registry">
@@ -234,6 +235,8 @@ type CustomField = 'group' | 'rating' | 'stage';
                     @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
                     @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
                     @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
+                    @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
+                    @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
                     @default { {{ cell(r, name) }} }
                   }
                 </td>
@@ -252,7 +255,7 @@ type CustomField = 'group' | 'rating' | 'stage';
           <table mat-table [dataSource]="groupedRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value || '—' }}</td></ng-container>
             <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сальдо</th><td mat-cell *matCellDef="let r">{{ r.debt }}</td></ng-container>
+            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сальдо</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
             <tr mat-header-row *matHeaderRowDef="['value', 'accounts', 'debt']"></tr>
             <tr mat-row *matRowDef="let row; columns: ['value', 'accounts', 'debt']"></tr>
           </table>
@@ -289,7 +292,7 @@ type CustomField = 'group' | 'rating' | 'stage';
                         <span>Группа {{ card.effective_group }}</span>
                       </div>
                     }
-                    <div class="money">{{ money(card.debt_total) }} р. <small>+ пени {{ money(card.mulct_total) }} р.</small></div>
+                    <div class="money"><app-money [value]="card.debt_total" [blank]="false" /> <small>+ пени <app-money [value]="card.mulct_total" [blank]="false" /></small></div>
                     <div class="foot">
                       @if (mark(card); as note) {
                         <span class="when">
@@ -1041,12 +1044,6 @@ export class AccountsListComponent implements OnInit {
       if (index >= 0 && (cut < 0 || index < cut)) cut = index;
     }
     return (cut >= 0 ? address.slice(cut) : address).replace(/\s+/g, ' ').trim();
-  }
-
-  protected money(value: string | null): string {
-    const number = Number(value ?? 0);
-    if (Number.isNaN(number)) return '0,00';
-    return number.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   protected mark(card: AccountRow): string {

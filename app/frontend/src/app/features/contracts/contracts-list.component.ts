@@ -1,4 +1,4 @@
-import { DecimalPipe } from '@angular/common';
+import { MoneyComponent } from '../../core/money.component';
 import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -32,7 +32,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
   selector: 'app-contracts-list',
   standalone: true,
   imports: [
-    DecimalPipe, ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule,
+    ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent,
   ],
   template: `
@@ -124,7 +124,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         @if (summary(); as s) {
           <p class="hint">
             Лицевых счетов с задолженностью: <b>{{ s.ls_count }}</b>.
-            Долг {{ s.principal | number: '1.2-2' }}, пеня {{ s.penalty | number: '1.2-2' }}.
+            Долг <app-money [value]="s.principal" [blank]="false" />, пеня <app-money [value]="s.penalty" [blank]="false" />.
             Мероприятия:
             @for (item of s.measures; track item.kind) { {{ item.kind }} {{ item.total }}; }
           </p>
@@ -153,8 +153,8 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>ИН</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
             <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>УНП</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
             <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>ЛС с долгом</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
-            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r">{{ r.principal | number: '1.2-2' }}</td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r">{{ r.penalty | number: '1.2-2' }}</td></ng-container>
+            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="earliest"><th mat-header-cell *matHeaderCellDef>Ранний период</th><td mat-cell *matCellDef="let r">{{ r.earliest }}</td></ng-container>
             <ng-container matColumnDef="category"><th mat-header-cell *matHeaderCellDef>Категория</th><td mat-cell *matCellDef="let r">{{ r.category }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="personColumns"></tr>
@@ -174,8 +174,8 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
             <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
             <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Схема</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
-            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r">{{ r.balance_out | number: '1.2-2' }}</td></ng-container>
-            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r">{{ r.balance_mulct_out | number: '1.2-2' }}</td></ng-container>
+            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Возникновение</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
             <ng-container matColumnDef="category_name"><th mat-header-cell *matHeaderCellDef>Категория</th><td mat-cell *matCellDef="let r">{{ r.category_name }}</td></ng-container>
@@ -219,7 +219,7 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                       <span class="letter">{{ card.debt_group || '—' }}</span>
                       <span>Группа {{ card.debt_group || '—' }}@if (card.category) { · {{ card.category }} }</span>
                     </div>
-                    <div class="money">{{ money(card.principal) }} р. <small>+ пени {{ money(card.penalty) }} р.</small></div>
+                    <div class="money"><app-money [value]="card.principal" [blank]="false" /> <small>+ пени <app-money [value]="card.penalty" [blank]="false" /></small></div>
                     <div class="foot"><span class="when">{{ cardMark(card) }}</span></div>
                   </article>
                 }
@@ -243,8 +243,8 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
           <table mat-table [dataSource]="groupsRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
             <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r">{{ r.debt | number: '1.2-2' }}</td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r">{{ r.penalty | number: '1.2-2' }}</td></ng-container>
+            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
             <tr mat-row *matRowDef="let row; columns: groupColumns"></tr>
           </table>
@@ -615,12 +615,6 @@ export class ContractsListComponent implements OnInit {
   pageChanged(event: PageEvent): void {
     this.page = event.pageIndex + 1;
     this.reload();
-  }
-
-  protected money(value: string | null): string {
-    const number = Number(value ?? 0);
-    if (Number.isNaN(number)) return '0,00';
-    return number.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   open(id: number): void {

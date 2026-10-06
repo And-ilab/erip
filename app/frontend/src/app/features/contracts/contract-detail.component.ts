@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,6 +11,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail,
@@ -27,7 +28,7 @@ import {
   selector: 'app-contract-detail',
   standalone: true,
   imports: [
-    DatePipe, DecimalPipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule,
+    DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MoneyComponent,
     MatInputModule, MatSelectModule, MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
@@ -64,10 +65,10 @@ import {
               @if (auth.showSupplier()) {
                 <dt>Поставщик</dt><dd>{{ c.full_name || c.shot_name }}</dd>
               }
-              <dt>Первоначальный долг</dt><dd>{{ c.initial_principal | number: '1.2-2' }}</dd>
-              <dt>Первоначальная пеня</dt><dd>{{ c.initial_penalty | number: '1.2-2' }}</dd>
-              <dt>Остаток долга</dt><dd><b>{{ c.balance_out | number: '1.2-2' }}</b></dd>
-              <dt>Остаток пени</dt><dd>{{ c.balance_mulct_out | number: '1.2-2' }}</dd>
+              <dt>Первоначальный долг</dt><dd><app-money [value]="c.initial_principal" [blank]="false" /></dd>
+              <dt>Первоначальная пеня</dt><dd><app-money [value]="c.initial_penalty" [blank]="false" /></dd>
+              <dt>Остаток долга</dt><dd><b><app-money [value]="c.balance_out" [blank]="false" /></b></dd>
+              <dt>Остаток пени</dt><dd><app-money [value]="c.balance_mulct_out" [blank]="false" /></dd>
               <dt>Возникновение</dt><dd>{{ c.debt_started_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Срок погашения</dt><dd>{{ c.repayment_due_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Последняя оплата</dt><dd>{{ c.last_payment_date | date: 'dd.MM.yyyy' }}</dd>
@@ -82,8 +83,8 @@ import {
           <p>
             <a [routerLink]="['/contracts', service.id]">{{ service.service_name }}</a>
             · ЛС {{ service.account_number }}
-            · долг {{ service.balance_out | number: '1.2-2' }}
-            · пеня {{ service.balance_mulct_out | number: '1.2-2' }}
+            · долг <app-money [value]="service.balance_out" [blank]="false" />
+            · пеня <app-money [value]="service.balance_mulct_out" [blank]="false" />
             · группа {{ service.effective_group }}
           </p>
         }
@@ -92,8 +93,8 @@ import {
         @for (period of periods(); track period.service_id + period.period) {
           <p>
             {{ period.service_name }} · {{ period.period }}
-            · долг {{ period.principal | number: '1.2-2' }}
-            · пеня {{ period.penalty | number: '1.2-2' }}
+            · долг <app-money [value]="period.principal" [blank]="false" />
+            · пеня <app-money [value]="period.penalty" [blank]="false" />
             · срок {{ period.due_on }}
           </p>
         }
