@@ -45,25 +45,6 @@ import { RegistryViewsComponent } from '../registry-views.component';
       @if (error()) { <p class="error">{{ error() }}</p> }
 
       @if (mode() === 'list') {
-      <div class="layout" [class.solo]="!caseOpen()">
-        @if (caseOpen()) {
-        <aside>
-          <div class="list-pane">
-          @for (row of debtors(); track row.id) {
-            <button type="button" class="debtor queue" [class.on]="claimOf(row)?.id === openCaseId()" (click)="openDebtor(row)">
-              <span>
-                <b>{{ row.short_fio || 'Без ФИО' }}</b>
-                <small>ЛС {{ row.client_account }} · {{ stageLabel(row.funnel_stage) }}</small>
-              </span>
-              <em>{{ claimOf(row)?.stage_label || 'дело не открыто' }}</em>
-            </button>
-          }
-          @if (!debtors().length) {
-            <p class="hint">По этому отбору должников нет.</p>
-          }
-          </div>
-        </aside>
-        }
         <section class="main">
           <router-outlet />
           @if (!caseOpen()) {
@@ -111,7 +92,6 @@ import { RegistryViewsComponent } from '../registry-views.component';
             }
           }
         </section>
-      </div>
       }
 
       @if (mode() === 'kanban') {
@@ -267,7 +247,6 @@ import { RegistryViewsComponent } from '../registry-views.component';
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: #f7f9fb; }
     .account-no { color: var(--erip-link); }
-    .layout.solo { grid-template-columns: 1fr; }
     .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
     .k-col { width: 268px; flex: 0 0 268px; }
     .k-col h3 {
@@ -315,33 +294,15 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
     .toolbar h2 { margin: 0; color: var(--erip-primary-dark); font-size: 20px; }
-    .layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
-    aside { background: #fff; border: 1px solid var(--erip-border); border-radius: 10px; padding: 12px; }
     .add {
       border: 0; background: var(--erip-primary); color: #fff; border-radius: 8px; padding: 8px 12px;
       font: inherit; font-weight: 600; cursor: pointer;
     }
-    .queue-title { margin: 8px 0 4px; font-size: 12px; letter-spacing: .03em; color: var(--erip-muted); font-weight: 700; }
-    .debtor.queue { width: 100%; border: 0; background: transparent; font: inherit; cursor: pointer; text-align: left; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
     .chips button { border: 1px solid var(--erip-border); background: #fff; border-radius: 999px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 12px; }
     .chips button.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
     .hint, .empty p { color: var(--erip-muted); font-size: 13px; }
     .error, .warn { color: var(--erip-danger); font-size: 13px; }
-    .debtor {
-      display: flex; justify-content: space-between; gap: 8px; align-items: center; text-decoration: none; color: inherit;
-      padding: 8px 4px; border-top: 1px solid var(--erip-border);
-    }
-    .debtor.on { background: var(--erip-primary-soft); border-radius: 8px; }
-    .debtor b { display: block; font-size: 14px; }
-    .debtor small { color: var(--erip-muted); }
-    .debtor em {
-      font-style: normal; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap;
-      background: #e8eef8; color: #2458a6;
-    }
-    .debtor em[data-stage="writ_done"], .debtor em[data-stage="recovered"] { background: #e5f6ea; color: #1b7a32; }
-    .debtor em[data-stage="refused"], .debtor em[data-stage="impossible"] { background: #fdecec; color: #b42318; }
-    .debtor em[data-stage="prep"] { background: #f3f4f6; color: #4b5563; }
     .main { min-width: 0; }
     .empty { background: #fff; border: 1px solid var(--erip-border); border-radius: 10px; padding: 16px 18px; }
     .empty h2 { margin: 0 0 8px; color: var(--erip-primary-dark); font-size: 18px; }
@@ -382,7 +343,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .primary { border: 0; background: var(--erip-primary); color: #fff; font-weight: 600; }
     .ghost { border: 1px solid var(--erip-border); background: #fff; }
     @media (max-width: 900px) {
-      .layout, .modal label { grid-template-columns: 1fr; }
+      .modal label { grid-template-columns: 1fr; }
       .picks { left: 0; }
       .check, .aside-note { margin-left: 0; }
       .toolbar { flex-wrap: wrap; }
@@ -456,11 +417,6 @@ export class ClaimsBoardComponent implements OnInit {
 
   protected hiddenDebtors(): number {
     return Math.max(this.debtorTotal() - this.debtors().length, 0);
-  }
-
-  protected openCaseId(): number | null {
-    const match = this.router.url.match(/\/claims\/(\d+)/);
-    return match ? Number(match[1]) : null;
   }
 
   protected claimOf(row: AccountRow): ClaimCase | undefined {
