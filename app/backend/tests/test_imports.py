@@ -209,3 +209,27 @@ def test_management_command_reports_created(capsys):
 
     call_command("import_ais", "account", str(file_of("BR2000", "account")), "--schema", "BR2000", "--create-org")
     assert "создано 20" in capsys.readouterr().out
+
+
+@pytest.mark.django_db
+def test_reload_ais_sample_replaces_only_sample_schemas(org_a, tmp_path):
+    from django.core.management import call_command
+
+    from .conftest import make_account
+
+    kept = make_account(org_a, 1, client_account="00000001")
+    sample_org = Organization.objects.create(schema_name="BR2000", name="старое имя")
+    old = make_account(sample_org, 9, client_account="00000009")
+    Measure.objects.create(organization=sample_org, kind=Measure.Kind.CALL, status=Measure.Status.ASSIGNED, template_name="старое")
+    path = tmp_path / "Карточка ЛС BR2000.csv"
+    path.write_bytes(
+        "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;SCHEMA_NAME;SHORT_FIO;Наименование схемы\n"
+        "10;501;00000010;BR2000;Новый;Брест\n".encode("cp1251"),
+    )
+    call_command("reload_ais_sample", dir=str(tmp_path))
+    assert Account.objects.filter(pk=kept.pk).exists()
+    assert not Account.objects.filter(pk=old.pk).exists()
+    assert not Measure.objects.filter(template_name="старое").exists()
+    fresh = Account.objects.get(organization__schema_name="BR2000", account_id=10)
+    assert fresh.short_fio == "Новый"
+    assert fresh.organization.name == "Брест"
