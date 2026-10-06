@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from openpyxl import Workbook
 
-from apps.debts.models import Account, AccountService, Payment, Registration
+from apps.debts.models import Account, AccountService, Measure, Payment, Registration
 from apps.imports.field_maps import ENTITY_MAPS
 from apps.imports.models import ImportJob
 from apps.imports.parsing import bind_columns, convert, decode
@@ -177,6 +177,29 @@ def test_excel_import(api, admin_a, org_a, tmp_path):
     assert response.json()["unchanged"] == 1
     rejected = SimpleUploadedFile("notes.docx", b"PK\x03\x04", content_type="application/octet-stream")
     assert api(admin_a).post("/api/v1/imports/", {"entity": "account", "file": rejected}).status_code == 400
+
+
+@pytest.mark.django_db
+def test_reimport_updates_changed_fields_and_shows_measure(org_a):
+    account_csv = "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;BALANCE_OUT;SHORT_FIO\n10;501;00000010;100,00;Иванов\n"
+    created = AisImporter("account", org_a).run(account_csv.encode(), "a.csv")
+    assert created.created == 1
+    service_csv = "ACCOUNT_ID;SERVICE_LIST_ID;SERVICE_ID;BALANCE_OUT;DEBT_PERIOD;SERVICE_NAME\n10;77;5;100,00;4;Отопление\n"
+    services = AisImporter("service", org_a).run(service_csv.encode(), "s.csv")
+    assert services.created == 1
+    account = Account.objects.get(account_id=10)
+    assert account.debt_group == 3
+    measure = Measure.objects.get(accounts=account)
+    assert measure.status == Measure.Status.FAILED
+    assert "375" in measure.note
+
+    changed = "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;BALANCE_OUT;SHORT_FIO\n10;501;00000010;80,00;Петров\n"
+    again = AisImporter("account", org_a).run(changed.encode(), "a2.csv")
+    assert again.updated == 1
+    account.refresh_from_db()
+    assert account.balance_out == Decimal("80.00")
+    assert account.short_fio == "Петров"
+    assert Measure.objects.filter(accounts=account).count() == 1
 
 
 @needs_sample

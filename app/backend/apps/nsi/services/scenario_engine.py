@@ -9,7 +9,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from apps.debts.models import Account, AccountScenarioRun, Measure
+from apps.debts.models import Account, AccountScenarioRun, Measure, MeasureItem
 from apps.debts.services.measures import MeasureLaunchError, is_legal_entity, launch_measure, phone_for_call, rollup
 from apps.users.models import ServiceOrganization, User
 
@@ -26,6 +26,56 @@ ACTION_KIND = {
     "writ": ("collection", ""),
     "lawsuit": ("collection", ""),
 }
+
+
+def ensure_imported_runs(account_ids: list[int]) -> None:
+    """После выгрузки у счёта с группой долга есть запуск сценария и строка мероприятия."""
+    if not account_ids:
+        return
+    for account in Account.objects.filter(pk__in=account_ids).select_related("organization"):
+        ensure_imported_run(account)
+
+
+def ensure_imported_run(account: Account) -> None:
+    if account.inheritance_case or not account.effective_group:
+        return
+    run = AccountScenarioRun.objects.filter(account=account).select_related("scenario").first()
+    if run is None:
+        scenario = _scenario_for_import(account)
+        if scenario is None:
+            return
+        AccountScenarioRun.objects.create(
+            organization=account.organization, account=account, scenario=scenario, version=scenario.version,
+        )
+    elif run.paused:
+        return
+    advance_account(account)
+
+
+def _scenario_for_import(account: Account):
+    from apps.nsi.models import ScenarioDefinition
+    from apps.nsi.services.scenarios import ensure_standard_scenario
+
+    own = (
+        ScenarioDefinition.objects.filter(
+            organization_id=account.organization_id, status=ScenarioDefinition.Status.ACTIVE,
+        )
+        .order_by("id")
+        .first()
+    )
+    if own is not None:
+        return own
+    shared = (
+        ScenarioDefinition.objects.filter(
+            organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE,
+        )
+        .order_by("id")
+        .first()
+    )
+    if shared is not None:
+        return shared
+    ensure_standard_scenario()
+    return ScenarioDefinition.objects.filter(organization__isnull=True, name="Стандартное взыскание").first()
 
 
 def advance_after_measure(measure: Measure) -> None:
@@ -86,9 +136,12 @@ def _advance_once(account: Account) -> bool:
         try:
             measure = _launch(account, run, step)
         except MeasureLaunchError as exc:
-            run.last_skip = _skip_text(exc)[:300]
+            reason = _skip_text(exc)[:300]
+            run.last_skip = reason
             run.save(update_fields=["last_skip", "updated_at"])
+            _remember_blocked(account, run, step, reason)
             return False
+        _forget_blocked(account, run, step)
         run.last_skip = ""
         run.save(update_fields=["last_skip", "updated_at"])
         if step.get("auto_complete") and measure.kind == Measure.Kind.NOTICE:
@@ -231,6 +284,47 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
         "source_scenario", "source_version", "source_step", "source_action", "auto_complete", "updated_at",
     ])
     return measure
+
+
+def _remember_blocked(account: Account, run: AccountScenarioRun, step: dict, reason: str) -> None:
+    """Шаг не стартовал, но в реестре мероприятий строка есть: иначе счёт после загрузки не виден."""
+    action = step.get("action") or ""
+    kind, channel = ACTION_KIND.get(action, (Measure.Kind.SCENARIO, ""))
+    existing = (
+        Measure.objects.filter(
+            accounts=account, source_scenario=run.scenario, source_version=run.version,
+            source_step=step.get("order"), source_action=action, status=Measure.Status.FAILED,
+        )
+        .order_by("id")
+        .first()
+    )
+    if existing is not None:
+        if existing.note != reason:
+            existing.note = reason
+            existing.save(update_fields=["note", "updated_at"])
+            existing.items.filter(account=account).update(note=reason)
+        return
+    measure = Measure.objects.create(
+        organization=account.organization, kind=kind, channel=channel, status=Measure.Status.FAILED,
+        template_name=step_template_name(step, run.scenario.name) or run.scenario.name,
+        scenario_name=run.scenario.name, note=reason, started_on=timezone.localdate(), due_on=timezone.localdate(),
+        source_scenario=run.scenario, source_version=run.version, source_step=step.get("order"), source_action=action,
+    )
+    measure.accounts.add(account)
+    MeasureItem.objects.create(
+        organization=account.organization, measure=measure, account=account,
+        status=MeasureItem.Status.FAILED, note=reason,
+    )
+
+
+def _forget_blocked(account: Account, run: AccountScenarioRun, step: dict) -> None:
+    blocked = Measure.objects.filter(
+        accounts=account, source_scenario=run.scenario, source_version=run.version,
+        source_step=step.get("order"), status=Measure.Status.FAILED,
+    )
+    for measure in blocked:
+        measure.items.all().delete()
+        measure.delete()
 
 
 def _skip_text(exc: MeasureLaunchError) -> str:

@@ -1,7 +1,7 @@
 """Импорт выгрузок АИС «Расчет-ЖКУ»: идемпотентный upsert с журналом ImportJob.
 
-Повторная загрузка того же файла не создаёт дублей: записи ищутся по ключу
-(схема + ключ из field_maps), неизменённые строки не перезаписываются.
+Повторная загрузка того же ключа не создаёт дубль. Если в строке изменилось
+поле, запись обновляется. Совпавшая строка остаётся как была.
 """
 
 from __future__ import annotations
@@ -298,8 +298,11 @@ class AisImporter:
                 sync_supplier_organizations(accounts)
             if self.map.entity in {"account", "service", "registration", "payment"}:
                 from apps.debts.services.portfolio import PortfolioRefresher
+                from apps.nsi.services.scenario_engine import ensure_imported_runs
 
-                PortfolioRefresher().refresh(list(accounts.values_list("pk", flat=True)))
+                ids = list(accounts.values_list("pk", flat=True))
+                PortfolioRefresher().refresh(ids)
+                ensure_imported_runs(ids)
 
     def _sync_service_organizations(self, accounts) -> None:
         """Справочник обслуживающих организаций пополняется из выгрузки (ТЗ 4.2.8.6)."""
