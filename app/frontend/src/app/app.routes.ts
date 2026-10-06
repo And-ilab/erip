@@ -44,10 +44,7 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),
       },
-      {
-        path: 'templates',
-        loadComponent: () => import('./features/templates/templates.component').then((m) => m.TemplatesComponent),
-      },
+      { path: 'templates', redirectTo: 'scenarios', pathMatch: 'full' },
       {
         path: 'claims',
         loadComponent: () => import('./features/claims/claims-board.component').then((m) => m.ClaimsBoardComponent),

@@ -1,5 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -9,7 +10,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 import { ApiService, DebtGroupBand, PrintFormRow, ScenarioRow, ScenarioStep, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { DialSettings } from '../../core/models';
+import { DialSettings, MessageTemplate } from '../../core/models';
+import { TemplatesComponent } from '../templates/templates.component';
 
 const ACTIONS = [
   { id: 'call', label: 'Автообзвон' },
@@ -27,16 +29,22 @@ const ACTIONS = [
   selector: 'app-scenarios',
   standalone: true,
   imports: [
-    FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule,
+    FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    MatCheckboxModule, MatSnackBarModule, TemplatesComponent,
   ],
   template: `
     <div class="page">
       <p class="back"><a routerLink="/measures">Мероприятия</a></p>
       <header class="head">
         <div>
-          <h2>Конструктор сценариев</h2>
-          <p>Слева меры и срок, справа условия, действие и переход. Уже запущенный счёт остаётся на своей версии.</p>
+          <h2>Настройка</h2>
+          <p>Сценарий, тексты сообщений, печатные формы и методология. Уже запущенный счёт остаётся на своей версии сценария.</p>
+          <p class="jumps">
+            <a href="#scenario">Сценарий</a>
+            <a href="#messages">Шаблоны сообщений</a>
+            <a href="#forms">Печатные формы</a>
+            @if (auth.isSuperadmin()) { <a href="#methodology">Методология</a> }
+          </p>
           @if (current()) {
             <mat-form-field class="name"><mat-label>Название сценария</mat-label><input matInput [(ngModel)]="name" /></mat-form-field>
           }
@@ -51,7 +59,7 @@ const ACTIONS = [
           <button mat-stroked-button (click)="copy()">Копировать в схему</button>
         </div>
       </header>
-      <div class="picker list-pane">
+      <div class="picker list-pane" id="scenario">
         @for (row of scenarios(); track row.id) {
           <button type="button" [class.on]="current()?.id === row.id" (click)="select(row)">
             {{ row.name }}
@@ -139,7 +147,17 @@ const ACTIONS = [
                     @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
                   </mat-select>
                 </mat-form-field>
-                <mat-form-field><mat-label>Шаблон</mat-label><input matInput [(ngModel)]="step.template" /></mat-form-field>
+                <mat-form-field><mat-label>Шаблон сообщения</mat-label>
+                  <mat-select [(ngModel)]="step.template">
+                    <mat-option value="">Не выбран</mat-option>
+                    @for (item of messageTemplates(); track item.id) {
+                      <mat-option [value]="item.name">{{ item.name }} · {{ item.channel_display }}</mat-option>
+                    }
+                    @if (step.template && !knownTemplate(step.template)) {
+                      <mat-option [value]="step.template">{{ step.template }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
               </div>
               <mat-checkbox [(ngModel)]="step.approval">Нужно согласование</mat-checkbox>
               <mat-checkbox [(ngModel)]="step.auto_complete">Считать выполненным при успешной отправке</mat-checkbox>
@@ -186,7 +204,9 @@ const ACTIONS = [
         }
       }
 
-      <section class="forms">
+      <app-templates (changed)="loadMessageTemplates()" />
+
+      <section class="forms" id="forms">
         <h3>Печатные формы</h3>
         <p class="muted">Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{services}' }}, {{ '{last_payment}' }}, {{ '{organization}' }}, {{ '{due_days}' }}, {{ '{tariff}' }}. Документ запоминает версию шаблона.</p>
         <div class="picker list-pane">
@@ -277,7 +297,7 @@ const ACTIONS = [
       </section>
 
       @if (auth.isSuperadmin()) {
-        <section class="forms">
+        <section class="forms" id="methodology">
           <h3>Настройка методологии</h3>
           <p class="muted">Шкалу и рейтинг меняет суперадминистратор. Сохранение не переписывает уже записанную историю. Текущие буквы обновляются при следующем пересчёте, а с галкой — сразу.</p>
           <div class="list-pane">
@@ -316,7 +336,8 @@ const ACTIONS = [
     </div>
   `,
   styles: `
-    .back a { color: var(--erip-link); }
+    .back a, .jumps a { color: var(--erip-link); }
+    .jumps { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 0; }
     .head, .actions, .line, .assign { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .head { justify-content: space-between; }
     h2, h3, h4 { margin: 0; color: var(--erip-primary-dark); }
@@ -370,6 +391,7 @@ export class ScenariosComponent implements OnInit {
   protected readonly bands = signal<DebtGroupBand[]>([]);
   protected readonly printDocs = signal<{ id: number; account: number; version: number }[]>([]);
   protected readonly printBatch = signal('');
+  protected readonly messageTemplates = signal<MessageTemplate[]>([]);
 
   protected name = '';
   protected steps: ScenarioStep[] = [];
@@ -401,6 +423,7 @@ export class ScenariosComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
+    this.loadMessageTemplates();
     this.api.printForms().subscribe({
       next: (page) => this.forms.set(page.results),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
@@ -425,6 +448,17 @@ export class ScenariosComponent implements OnInit {
         error: () => undefined,
       });
     }
+  }
+
+  protected loadMessageTemplates(): void {
+    this.api.templates({ page_size: 200, is_active: true }).subscribe({
+      next: (page) => this.messageTemplates.set(page.results),
+      error: () => this.messageTemplates.set([]),
+    });
+  }
+
+  protected knownTemplate(name: string): boolean {
+    return this.messageTemplates().some((item) => item.name === name);
   }
 
   protected canEdit(): boolean {

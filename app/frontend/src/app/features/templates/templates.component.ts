@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, EventEmitter, OnInit, Output, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -40,7 +40,7 @@ export class TemplateDeleteDialog {
     MatButtonModule, MatSnackBarModule, MatDialogModule,
   ],
   template: `
-    <div class="page layout">
+    <div class="messages" id="messages">
       <mat-card class="list">
         <mat-card-header><mat-card-title>Шаблоны сообщений</mat-card-title></mat-card-header>
         <mat-card-content>
@@ -123,7 +123,8 @@ export class TemplateDeleteDialog {
     </div>
   `,
   styles: `
-    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; }
+    .messages { display: grid; grid-template-columns: 340px 1fr; gap: 16px; }
+    @media (max-width: 900px) { .messages { grid-template-columns: 1fr; } }
     .grow { flex: 1; }
     .actions { margin-top: 12px; }
     .selected { background: rgba(0, 90, 200, .08); }
@@ -150,6 +151,7 @@ export class TemplatesComponent implements OnInit {
   protected readonly archivedTemplates = computed(() => this.templates().filter((item) => !item.is_active));
   protected readonly current = signal<MessageTemplate | null>(null);
   protected readonly previewText = signal('');
+  @Output() readonly changed = new EventEmitter<void>();
   protected readonly form = inject(FormBuilder).nonNullable.group({
     code: ['', [Validators.required, Validators.pattern(/^[a-z0-9_-]+$/)]],
     name: ['', Validators.required],
@@ -180,6 +182,7 @@ export class TemplatesComponent implements OnInit {
         this.snack.open('Шаблон сохранён', 'OK', { duration: 3000 });
         this.current.set(saved);
         this.load();
+        this.changed.emit();
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
@@ -194,6 +197,7 @@ export class TemplatesComponent implements OnInit {
         next: () => {
           this.edit(null);
           this.load();
+          this.changed.emit();
         },
         error: (e) => this.snack.open(errorMessage(e), 'OK'),
       });
@@ -209,6 +213,7 @@ export class TemplatesComponent implements OnInit {
         this.form.patchValue({ body: saved.body, subject: saved.subject });
         this.snack.open(`Текст версии ${version} сохранён как v${saved.version}`, 'OK', { duration: 3000 });
         this.load();
+        this.changed.emit();
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
@@ -222,6 +227,7 @@ export class TemplatesComponent implements OnInit {
         this.current.set(saved);
         this.snack.open('Шаблон возвращён из архива', 'OK', { duration: 3000 });
         this.load();
+        this.changed.emit();
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });

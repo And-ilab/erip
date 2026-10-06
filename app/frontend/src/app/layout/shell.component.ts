@@ -113,9 +113,6 @@ export class ShellComponent {
       { link: '/password', label: 'Смена пароля', icon: 'lock' },
       { link: '/notifications', label: 'Оповещения', icon: 'notifications' },
     );
-    if (this.auth.canManageTemplates() || (this.auth.canWrite() && this.auth.me()?.contour !== 'supplier')) {
-      items.push({ link: '/templates', label: 'Шаблоны сообщений', icon: 'mail' });
-    }
     if (this.auth.isSuperadmin()) {
       items.push({ link: '/errors', label: 'Журнал ошибок', icon: 'error_outline' });
     }
