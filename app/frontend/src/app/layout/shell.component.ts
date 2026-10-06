@@ -70,7 +70,8 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
       display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%;
       background: rgba(255, 255, 255, .2); font-size: 13px; font-weight: 600; cursor: default;
     }
-    .container { flex: 1; }
+    .container { flex: 1; min-height: 0; }
+    mat-sidenav-content { display: flex; flex-direction: column; min-height: 0; }
     .menu {
       width: 260px; border-right: 0; border-radius: 0; background: var(--erip-primary);
       border-top: 1px solid rgba(255, 255, 255, .12);

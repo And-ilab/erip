@@ -91,10 +91,11 @@ const STAGES = [
     </div>
   `,
   styles: `
-    .search-wrap { position: relative; flex: 1; min-width: 0; }
+    :host { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; }
+    .search-wrap { position: relative; flex: 1; width: 100%; min-width: 0; }
     .search {
-      display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px;
-      background: #fff; border: 1px solid #d8dce0; border-radius: 4px;
+      display: flex; align-items: center; gap: 6px; width: 100%; height: 34px; padding: 0 8px;
+      background: #fff; border: 1px solid #d8dce0; border-radius: 4px; box-sizing: border-box;
     }
     .search input:not([type="month"]) {
       flex: 1; min-width: 80px; border: 0; outline: none; background: transparent;
@@ -107,9 +108,13 @@ const STAGES = [
     }
     .chevron { border: 0; background: transparent; color: var(--erip-muted); cursor: pointer; font-size: 12px; padding: 4px; }
     .search-panel {
-      position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
-      display: grid; grid-template-columns: 1.15fr .9fr; width: min(640px, 100%);
+      position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+      display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(200px, .8fr); width: 100%;
       background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+    }
+    @media (max-width: 720px) {
+      .search-panel { grid-template-columns: 1fr; }
+      .col + .col { border-left: 0; border-top: 1px solid var(--erip-border); }
     }
     .col { padding: 8px 0 12px; min-width: 0; }
     .col + .col { border-left: 1px solid var(--erip-border); }

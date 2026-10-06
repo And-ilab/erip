@@ -68,9 +68,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
           <p class="muted">За выбранные условия мероприятий нет.</p>
         }
         @if (groups().length) {
-          <section class="surface registry">
+          <section class="surface registry main">
             <div class="list-pane">
-            <table>
+            <table class="wide">
               <thead>
                 <tr>
                   <th>Мероприятие</th>
@@ -146,7 +146,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (view() === 'list') {
         @if (matrix(); as grid) {
-          <section class="surface registry" id="measure-matrix">
+          <section class="surface registry matrix-card" id="measure-matrix" [class.fill]="!groups().length">
             <h3><mat-icon>grid_on</mat-icon> Мероприятия по типам (представление «Матрица»)</h3>
             @if (grid.results.length < grid.total) {
               <div class="more">
@@ -290,26 +290,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
     </div>
   `,
   styles: `
-    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-    h2 { margin: 0; font-size: 18px; color: var(--erip-primary-dark); white-space: nowrap; }
-    .searchbar {
-      flex: 1; display: flex; align-items: center; gap: 8px; min-width: 280px; height: 40px; padding: 0 10px;
-      background: #fff; border: 1px solid var(--erip-border); border-radius: 8px;
-    }
-    .searchbar mat-icon { color: var(--erip-muted); font-size: 20px; width: 20px; height: 20px; }
-    .searchbar input:not([type="month"]) { flex: 1; border: 0; outline: 0; font: inherit; background: transparent; min-width: 80px; }
-    .period {
-      border: 0; background: var(--erip-primary-soft); color: var(--erip-primary); border-radius: 999px;
-      padding: 2px 8px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
-    }
-    .month { flex: 0 0 9.2rem; width: 9.2rem; max-width: 9.2rem; min-width: 0; border: 0; color: var(--erip-muted); background: transparent; }
+    :host { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+    .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex: 0 0 auto; }
+    h2 { margin: 0; font-size: 18px; color: var(--erip-primary-dark); white-space: nowrap; flex: 0 0 auto; }
     .icon {
       width: 36px; height: 36px; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
       color: var(--erip-muted); cursor: pointer; display: grid; place-items: center;
     }
     .icon.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
-    .board { display: flex; gap: 10px; overflow-x: auto; align-items: flex-start; margin-top: 12px; }
+    .board { display: flex; gap: 10px; overflow: auto; align-items: flex-start; margin-top: 12px; flex: 1; min-height: 0; }
+    app-calendar-board, app-analytics { display: block; flex: 1; min-height: 0; overflow: auto; }
     .column { width: 240px; flex: 0 0 240px; background: #f7f8fa; border-radius: 10px; padding: 0 8px 8px; }
     .column h3 { margin: 0 -8px 8px; padding: 8px 10px; border-radius: 10px 10px 0 0; color: #fff; font-size: 13px; display: flex; justify-content: space-between; background: var(--erip-primary); }
     .column[data-status="done"] h3 { background: var(--erip-success); }
@@ -321,18 +313,30 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .card small { color: var(--erip-muted); }
     .ready-title { margin: 0; color: var(--erip-muted); }
-    .guide { margin: 0 0 12px; color: var(--erip-muted); font-size: 13px; }
+    .guide { margin: 0 0 8px; color: var(--erip-muted); font-size: 13px; flex: 0 0 auto; }
     .guide button, .guide a { margin: 0 4px; }
     .guide button {
       border: 0; background: transparent; color: var(--erip-link); font: inherit; font-weight: 600; cursor: pointer; padding: 0;
     }
-    .registry { margin-top: 12px; overflow: hidden; }
+    .registry { margin-top: 0; overflow: hidden; }
+    .registry.main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .registry.main .list-pane { flex: 1; max-height: none; min-height: 0; }
+    .matrix-card { flex: 0 1 auto; max-height: 34%; min-height: 0; display: flex; flex-direction: column; margin-top: 8px; }
+    .matrix-card.fill { flex: 1; max-height: none; }
+    .matrix-card .list-pane { flex: 1; max-height: none; min-height: 0; }
+    table.wide td, table.wide th { overflow-wrap: break-word; }
     .band td { background: #f7f9fb; padding: 0; }
     .band button {
       display: flex; align-items: center; gap: 4px; width: 100%; border: 0; background: transparent;
       padding: 8px 8px; font: inherit; font-weight: 700; color: #1f2933; cursor: pointer; text-align: left;
     }
     table { border: 0; border-radius: 0; }
+    table.wide { width: 100%; table-layout: fixed; }
+    table.wide th:nth-child(1), table.wide td:nth-child(1) { width: 34%; }
+    table.wide th:nth-child(2), table.wide td:nth-child(2) { width: 28%; }
+    table.wide th:nth-child(3), table.wide td:nth-child(3) { width: 12%; }
+    table.wide th:nth-child(4), table.wide td:nth-child(4) { width: 14%; }
+    table.wide th:nth-child(5), table.wide td:nth-child(5) { width: 12%; }
     th { text-align: left; font-size: 12px; font-weight: 600; color: var(--erip-muted); padding: 8px 12px; background: #fff; }
     td { padding: 10px 12px; border-top: 1px solid var(--erip-border); vertical-align: middle; }
     .title { font-weight: 600; color: inherit; }
@@ -351,14 +355,14 @@ import { RegistryViewsComponent } from '../registry-views.component';
       display: flex; align-items: center; gap: 6px;
     }
     h3 mat-icon { font-size: 18px; width: 18px; height: 18px; color: var(--erip-muted); }
-    .group { margin-top: 12px; overflow: hidden; border-left: 4px solid #dc2626; }
+    .group { margin-top: 12px; overflow: auto; border-left: 4px solid #dc2626; flex: 1; min-height: 0; }
     .group-head {
       display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0;
       background: #fef2f2; font: inherit; font-weight: 700; color: #b91c1c;
     }
     .count { min-width: 22px; padding: 1px 8px; border-radius: 10px; background: #fff; font-size: 12px; font-weight: 700; }
     .matrix-wrap { overflow: auto; }
-    .matrix { min-width: 860px; }
+    .matrix { width: 100%; min-width: 720px; }
     .cell {
       display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 10px; font-size: 12px; font-weight: 700;
       background: #f3f4f6; color: var(--erip-muted);
