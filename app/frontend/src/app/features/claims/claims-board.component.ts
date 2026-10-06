@@ -6,6 +6,7 @@ import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, Ro
 import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
 import { ApiService, AssignedAccount, ClaimCase, Named, errorMessage } from '../../core/api.service';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
@@ -18,7 +19,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
-    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent,
+    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
   ],
   template: `
     <div class="page" [class.dim]="dialog()">
@@ -74,8 +75,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td>{{ street(row.account_address || '') || '—' }}</td>
                       <td>@if (row.effective_group) { <span class="group-badge g{{ row.effective_group }}">{{ row.effective_group }}</span> }</td>
                       <td>@if (row.rating_label) { <span class="rating-badge r{{ letter(row.rating_label) }}">{{ row.rating_label }}</span> }</td>
-                      <td>{{ money(row.debt_total) }}</td>
-                      <td [class.amount-danger]="+(row.mulct_total || 0) > 0">{{ money(row.mulct_total) }}</td>
+                      <td><app-money [value]="row.debt_total" [blank]="false" /></td>
+                      <td [class.amount-danger]="+(row.mulct_total || 0) > 0"><app-money [value]="row.mulct_total" [blank]="false" /></td>
                       <td>{{ stageLabel(row.funnel_stage) }}</td>
                       <td>{{ claimOf(row)?.stage_label || 'не открыто' }}</td>
                     </tr>
@@ -115,14 +116,14 @@ import { RegistryViewsComponent } from '../registry-views.component';
                     </div>
                   }
                   <div class="line">ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address || '') }} }</div>
-                  <div class="line">{{ stageName(card) }}</div>
+                  <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
                   @if (card.effective_group) {
                     <div class="group-line">
                       <span class="letter">{{ letter(card.rating_label) }}</span>
                       <span>Группа {{ card.effective_group }}</span>
                     </div>
                   }
-                  <div class="money">{{ moneyPlain(card.debt_total) }} р. <small>+ пени {{ moneyPlain(card.mulct_total) }} р.</small></div>
+                  <div class="money"><app-money [value]="card.debt_total" [blank]="false" /> <small>+ пени <app-money [value]="card.mulct_total" [blank]="false" /></small></div>
                   <div class="foot">
                     @if (mark(card); as note) {
                       <span class="when">
@@ -212,13 +213,16 @@ import { RegistryViewsComponent } from '../registry-views.component';
             </p>
 
             <h3>Суммы</h3>
-            <label>Основной долг <input [value]="money(picked()?.balance_out ?? editing()?.balance_out ?? null)" readonly /></label>
-            <label>Пеня <input [value]="money(picked()?.mulct_total ?? editing()?.penalty ?? null)" readonly /></label>
+            <label>Основной долг <span class="sum-box"><app-money [value]="picked()?.balance_out ?? editing()?.balance_out ?? null" /></span></label>
+            <label>Пеня <span class="sum-box"><app-money [value]="picked()?.mulct_total ?? editing()?.penalty ?? null" /></span></label>
             <label [class.miss]="sendTried() && !(Number(tariff) > 0)">Нотариальный тариф
-              <input [(ngModel)]="tariff" name="tariff" placeholder="считает АИС, пока можно внести" />
+              <span class="with-sign">
+                <input [(ngModel)]="tariff" name="tariff" placeholder="считает АИС, пока можно внести" />
+                <app-byn-sign />
+              </span>
             </label>
             <p class="aside-note">Рассчитывается в АИС и относится на должника. ПМ сумму начисления не меняет.</p>
-            <label class="total">Итого к взысканию <input [value]="grand()" readonly /></label>
+            <label class="total">Итого к взысканию <span class="sum-box"><app-money [value]="grand()" [blank]="false" /></span></label>
 
             <h3>Нотариус</h3>
             <label>Нотариальная контора
@@ -303,6 +307,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .stage-menu button.on, .stage-menu button:hover { background: #f3f6f8; }
     .k-card .line { margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; }
+    .k-card .stage {
+      display: inline-flex; align-self: flex-start; margin-top: 6px; padding: 2px 8px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; line-height: 1.4; background: #eef2f6; color: #334155;
+    }
+    .k-card .stage[data-stage="queue"] { background: #fff4e5; color: #9a3412; }
+    .k-card .stage[data-stage="prep"] { background: #e8f6ee; color: #166534; }
+    .k-card .stage[data-stage="notary"] { background: #f3e8ff; color: #6b21a8; }
+    .k-card .stage[data-stage="writ_done"], .k-card .stage[data-stage="recovered"] { background: #e5f6ea; color: #166534; }
+    .k-card .stage[data-stage="refused"], .k-card .stage[data-stage="impossible"] { background: #fdecec; color: #b42318; }
+    .k-card .stage[data-stage="lawsuit"], .k-card .stage[data-stage="court"] { background: #fff6db; color: #92400e; }
+    .k-card .stage[data-stage="opi"], .k-card .stage[data-stage="opi_measures"] { background: #ffedd5; color: #c2410c; }
+    .k-card .stage[data-stage="writeoff"] { background: #f3f4f6; color: #4b5563; }
     .k-card .group-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; }
     .k-card .letter {
       width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
@@ -349,7 +365,14 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .modal input { border: 1px solid var(--erip-border); border-radius: 6px; padding: 8px 10px; font: inherit; background: #fff; }
     .modal input[readonly], .modal input:disabled { background: #f7f8fa; color: #374151; }
     .modal label.miss input { border-color: var(--erip-danger); background: #fff6f6; }
-    .modal label.total input { font-weight: 700; }
+    .modal label.total .sum-box { font-weight: 700; }
+    .sum-box {
+      display: flex; align-items: center; min-height: 36px; box-sizing: border-box;
+      border: 1px solid var(--erip-border); border-radius: 6px; padding: 8px 10px; background: #f7f8fa; color: #374151;
+    }
+    .with-sign { display: flex; align-items: center; gap: 8px; }
+    .with-sign input { flex: 1; }
+    .with-sign app-byn-sign { font-size: 18px; }
     .picker { position: relative; }
     .picks {
       position: absolute; z-index: 2; left: 220px; right: 0; top: 100%; max-height: 240px; overflow: auto;
@@ -721,12 +744,6 @@ export class ClaimsBoardComponent implements OnInit {
     return (cut >= 0 ? address.slice(cut) : address).replace(/\s+/g, ' ').trim();
   }
 
-  protected moneyPlain(value: string | null): string {
-    const number = Number(value ?? 0);
-    if (Number.isNaN(number)) return '0,00';
-    return number.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
   protected mark(card: AccountRow): string {
     const stage = card.funnel_stage || 'new';
     if (stage === 'warning' && card.warning_handed_on) return `Вручено ${this.dayMonth(card.warning_handed_on)}`;
@@ -750,18 +767,11 @@ export class ClaimsBoardComponent implements OnInit {
     return palette[hash];
   }
 
-  protected money(value: string | null): string {
-    if (!value) return '—';
-    const number = Number(value);
-    if (Number.isNaN(number)) return value;
-    return `${number.toLocaleString('ru-BY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} р.`;
-  }
-
-  protected grand(): string {
+  protected grand(): number {
     const debt = Number(this.picked()?.balance_out || this.editing()?.balance_out || 0);
     const penalty = Number(this.picked()?.mulct_total || this.editing()?.penalty || 0);
     const tariff = Number(this.tariff || 0);
-    return this.money(String(debt + penalty + tariff));
+    return debt + penalty + tariff;
   }
 
   protected canDraft(): boolean {
