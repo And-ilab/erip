@@ -145,6 +145,7 @@ BACKEND_PUBLIC_URL = env("BACKEND_PUBLIC_URL", "http://backend:8000")
 
 # ---------- Импорт выгрузок АИС ----------
 AIS_SPEC_DIR = Path(env("AIS_SPEC_DIR", str(BASE_DIR.parent.parent / "Примеры данных")))
+AIS_SAMPLE_DIR = Path(env("AIS_SAMPLE_DIR", str(BASE_DIR / "fixtures" / "ais_sample")))
 
 SERVICE_NAME = "backend"
 

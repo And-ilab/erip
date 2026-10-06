@@ -4,14 +4,17 @@
 В спецификациях одно имя колонки может встречаться несколько раз (ACCOUNT_ID, ATTR_VALUE,
 FULL_NAME, CLIENT_ACCOUNT): такие колонки различаются по COMMENTS и порядку следования —
 k-е вхождение имени в файле данных соответствует k-й записи с этим именем ниже.
+Отчёт с русскими заголовками сопоставляется по header_aliases.py, а не по порядку колонок.
 Колонки, не вынесенные в поля (field=None или отсутствующие в карте), сохраняются в raw.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from apps.debts.models import Account, AccountService, Payment, Registration
+
+from .header_aliases import HEADER_ALIASES
 
 ACCOUNT_LOOKUP = "_account_id"  # служебное поле: ACCOUNT_ID родительского ЛС
 
@@ -23,10 +26,14 @@ class FieldSpec:
     kind: str = "str"  # str | int | dec | date | bool | months | payment_type
     comment: str = ""  # фрагмент COMMENTS — для колонок-дублей
     header: str | None = None  # имя колонки в файле данных, если COLUMN_NAME пуст
+    aliases: tuple[str, ...] = ()  # русские заголовки отчёта АИС, помимо COLUMN_NAME
 
     @property
     def file_header(self) -> str:
         return self.header or self.column
+
+    def lookup_names(self) -> tuple[str, ...]:
+        return tuple(name for name in (self.file_header, *self.aliases) if name and name.strip())
 
 
 @dataclass(frozen=True)
@@ -39,9 +46,13 @@ class EntityMap:
     parent: bool = field(default=True)
 
     def by_header(self) -> dict[str, list[FieldSpec]]:
+        """Имя колонки (COLUMN_NAME или русский заголовок) → спецификации в порядке карты."""
         result: dict[str, list[FieldSpec]] = {}
         for spec in self.specs:
-            result.setdefault(spec.file_header, []).append(spec)
+            for name in spec.lookup_names():
+                bucket = result.setdefault(norm_header(name), [])
+                if spec not in bucket:
+                    bucket.append(spec)
         return result
 
 
@@ -236,4 +247,23 @@ REGISTRATION_MAP = EntityMap(
     ),
 )
 
-ENTITY_MAPS: dict[str, EntityMap] = {m.entity: m for m in (ACCOUNT_MAP, SERVICE_MAP, PAYMENT_MAP, REGISTRATION_MAP)}
+def norm_header(value: str) -> str:
+    """Сравнение заголовков: регистр, ё/е, тире и лишние пробелы не различаются."""
+    text = value.strip().replace("\u00a0", " ").replace("ё", "е").replace("Ё", "Е")
+    for dash in ("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212"):
+        text = text.replace(dash, "-")
+    return " ".join(text.split()).casefold()
+
+
+def _with_aliases(entity_map: EntityMap) -> EntityMap:
+    aliases = HEADER_ALIASES.get(entity_map.entity, {})
+    specs = []
+    for spec in entity_map.specs:
+        extra = aliases.get(spec.field or "", ())
+        specs.append(replace(spec, aliases=extra) if extra else spec)
+    return replace(entity_map, specs=tuple(specs))
+
+
+ENTITY_MAPS: dict[str, EntityMap] = {
+    m.entity: _with_aliases(m) for m in (ACCOUNT_MAP, SERVICE_MAP, PAYMENT_MAP, REGISTRATION_MAP)
+}
