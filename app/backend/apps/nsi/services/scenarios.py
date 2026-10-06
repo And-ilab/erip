@@ -306,7 +306,15 @@ STANDARD_STEPS = [
     {"order": 3, "action": "call", "wait_days": 0, "template": "Голос группы 2", "groups": [2], "terminal": False},
     {
         "order": 4, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись",
-        "groups": [3, 4, 5, 6], "terminal": True,
+        "groups": [3], "terminal": False,
+    },
+    {
+        "order": 5, "action": "writ", "wait_days": 0, "template": "Взыскание через ОПИ",
+        "groups": [4, 5], "terminal": False,
+    },
+    {
+        "order": 6, "action": "writ", "wait_days": 0, "template": "Безнадёжная задолженность",
+        "groups": [6], "terminal": True,
     },
 ]
 

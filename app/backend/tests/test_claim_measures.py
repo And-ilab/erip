@@ -81,7 +81,7 @@ def test_debt_group_opens_its_own_measure(org_a, specialist_a):
     }
     row = Measure.objects.get(accounts=third)
     assert row.kind == Measure.Kind.COLLECTION
-    assert row.template_name == "Исполнительная надпись"
+    assert row.template_name == "Взыскание через ОПИ"
     assert row.status == Measure.Status.ASSIGNED
     assert row.assignee_id == specialist_a.id
 
@@ -117,7 +117,7 @@ def test_old_autodial_for_a_higher_group_is_replaced(org_a, specialist_a):
     ensure_imported_run(account)
     rows = list(Measure.objects.filter(accounts=account).values_list("kind", "template_name", "status"))
     assert (Measure.Kind.CALL, "Голос группы 1", Measure.Status.FAILED) not in rows
-    assert (Measure.Kind.COLLECTION, "Исполнительная надпись", Measure.Status.ASSIGNED) in rows
+    assert (Measure.Kind.COLLECTION, "Взыскание через ОПИ", Measure.Status.ASSIGNED) in rows
     assert Measure.objects.get(accounts=account, kind=Measure.Kind.COLLECTION).assignee_id == specialist_a.id
 
 
