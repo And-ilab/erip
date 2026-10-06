@@ -8,7 +8,12 @@ from apps.core.exceptions import ServiceError
 from apps.debts.models import AccountScenarioRun, DebtWorkItem, ScenarioPause
 from apps.debts.services.artifacts import _pdf_bytes
 from apps.nsi.models import (
-    CalculationSettings, PrintForm, PrintFormRevision, PrintedDocument, ScenarioDefinition, ScenarioRevision,
+    CalculationSettings,
+    PrintedDocument,
+    PrintForm,
+    PrintFormRevision,
+    ScenarioDefinition,
+    ScenarioRevision,
 )
 
 ACTIONS = {
@@ -290,13 +295,41 @@ def _work_kind(doc_kind: str) -> str:
     return DebtWorkItem.Kind.WARNING
 
 
+# Шкала 4.2.1.5: группа 1 — обзвон, группа 2 — предупреждение и обзвон реже,
+# группы 3–6 — исполнительная надпись. Отключение ждёт врученное предупреждение.
 STANDARD_STEPS = [
+    {"order": 1, "action": "call", "wait_days": 0, "template": "Голос группы 1", "groups": [1], "terminal": False},
+    {
+        "order": 2, "action": "warning", "wait_days": 0, "template": "Предупреждение",
+        "groups": [2], "blocks_next": False, "terminal": False,
+    },
+    {"order": 3, "action": "call", "wait_days": 0, "template": "Голос группы 2", "groups": [2], "terminal": False},
+    {
+        "order": 4, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись",
+        "groups": [3, 4, 5, 6], "terminal": True,
+    },
+]
+
+LEGACY_STANDARD_STEPS = [
     {"order": 1, "action": "call", "wait_days": 0, "template": "Голос группы 1", "terminal": False},
     {"order": 2, "action": "manual_call", "wait_days": 1, "template": "", "terminal": False},
     {"order": 3, "action": "warning", "wait_days": 5, "template": "Предупреждение", "terminal": False},
     {"order": 4, "action": "disconnect", "wait_days": 0, "approval": True, "terminal": False},
     {"order": 5, "action": "writ", "wait_days": 0, "branch_group": 3, "terminal": True},
 ]
+
+
+def upgrade_legacy_scenario(scenario: ScenarioDefinition | None) -> None:
+    """Неизменённый шаблон «всем автообзвон» заменяется раскладкой по группе. Правка администратора не трогается."""
+    if scenario is None:
+        return
+    if scenario.steps == LEGACY_STANDARD_STEPS:
+        scenario.steps = STANDARD_STEPS
+        scenario.save(update_fields=["steps", "updated_at"])
+    for revision in scenario.revisions.all():
+        if revision.steps == LEGACY_STANDARD_STEPS:
+            revision.steps = STANDARD_STEPS
+            revision.save(update_fields=["steps"])
 
 
 def ensure_standard_scenario() -> None:
@@ -306,5 +339,7 @@ def ensure_standard_scenario() -> None:
             organization=None, name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE,
             version=1, steps=STANDARD_STEPS,
         )
+    else:
+        upgrade_legacy_scenario(scenario)
     if not scenario.revisions.filter(version=scenario.version).exists():
         ScenarioRevision.objects.create(scenario=scenario, version=scenario.version, steps=scenario.steps)

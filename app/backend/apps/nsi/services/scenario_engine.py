@@ -40,6 +40,9 @@ def ensure_imported_runs(account_ids: list[int]) -> None:
 def ensure_imported_run(account: Account) -> None:
     if account.inheritance_case or not account.effective_group:
         return
+    from apps.nsi.services.scenarios import ensure_standard_scenario, upgrade_legacy_scenario
+
+    ensure_standard_scenario()
     run = AccountScenarioRun.objects.filter(account=account).select_related("scenario").first()
     if run is None:
         scenario = _scenario_for_import(account)
@@ -58,6 +61,7 @@ def ensure_imported_run(account: Account) -> None:
             return
     if run.paused:
         return
+    upgrade_legacy_scenario(run.scenario)
     advance_account(account)
 
 
@@ -72,19 +76,25 @@ def _scenario_for_import(account: Account):
         .order_by("id")
         .first()
     )
+    from apps.nsi.services.scenarios import upgrade_legacy_scenario
+
     if own is not None:
-        return own
-    shared = (
-        ScenarioDefinition.objects.filter(
-            organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE,
+        chosen = own
+    else:
+        shared = (
+            ScenarioDefinition.objects.filter(
+                organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE,
+            )
+            .order_by("id")
+            .first()
         )
-        .order_by("id")
-        .first()
-    )
-    if shared is not None:
-        return shared
-    ensure_standard_scenario()
-    return ScenarioDefinition.objects.filter(organization__isnull=True, name="Стандартное взыскание").first()
+        if shared is not None:
+            chosen = shared
+        else:
+            ensure_standard_scenario()
+            chosen = ScenarioDefinition.objects.filter(organization__isnull=True, name="Стандартное взыскание").first()
+    upgrade_legacy_scenario(chosen)
+    return chosen
 
 
 def advance_after_measure(measure: Measure) -> None:
@@ -106,6 +116,37 @@ def advance_account(account: Account) -> None:
         _advancing.discard(account.pk)
 
 
+def _step_for(steps: list[dict], measure: Measure) -> dict | None:
+    action = measure.source_action or ""
+    for step in steps:
+        if step.get("order") == measure.source_step and (step.get("action") or "") == action:
+            return step
+    return None
+
+
+def _outside_groups(step: dict, account: Account) -> bool:
+    groups = step.get("groups") or []
+    if not groups:
+        return False
+    return account.effective_group not in [int(item) for item in groups]
+
+
+def _release_other_groups(account: Account, steps: list[dict], measures: list[Measure]) -> list[Measure]:
+    """Открытый шаг чужой группы снимается, чтобы счёт остался на мероприятии своей группы."""
+    kept = []
+    for item in measures:
+        if item.status in {Measure.Status.DONE, Measure.Status.CANCELLED}:
+            kept.append(item)
+            continue
+        step = _step_for(steps, item)
+        if step is not None and not _outside_groups(step, account):
+            kept.append(item)
+            continue
+        item.items.all().delete()
+        item.delete()
+    return kept
+
+
 def _advance_once(account: Account) -> bool:
     run = AccountScenarioRun.objects.filter(account=account).select_related("scenario").first()
     if run is None or run.paused:
@@ -114,11 +155,11 @@ def _advance_once(account: Account) -> bool:
     steps = list((revision.steps if revision else run.scenario.steps) or [])
     if not steps:
         return False
-    measures = list(
+    measures = _release_other_groups(account, steps, list(
         Measure.objects.filter(
             source_scenario=run.scenario, source_version=run.version, accounts=account,
         )
-    )
+    ))
     skipped = set(run.skipped_orders or [])
     if any(item.status in OPEN and _blocks(steps, item) for item in measures):
         return False

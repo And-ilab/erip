@@ -180,7 +180,7 @@ def test_excel_import(api, admin_a, org_a, tmp_path):
 
 
 @pytest.mark.django_db
-def test_reimport_updates_changed_fields_and_shows_measure(org_a):
+def test_reimport_updates_changed_fields_and_shows_measure(org_a, specialist_a):
     account_csv = "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;BALANCE_OUT;SHORT_FIO\n10;501;00000010;100,00;Иванов\n"
     created = AisImporter("account", org_a).run(account_csv.encode(), "a.csv")
     assert created.created == 1
@@ -190,8 +190,10 @@ def test_reimport_updates_changed_fields_and_shows_measure(org_a):
     account = Account.objects.get(account_id=10)
     assert account.debt_group == 3
     measure = Measure.objects.get(accounts=account)
-    assert measure.status == Measure.Status.FAILED
-    assert "375" in measure.note
+    assert measure.kind == Measure.Kind.COLLECTION
+    assert measure.status == Measure.Status.ASSIGNED
+    assert measure.template_name == "Исполнительная надпись"
+    assert measure.assignee_id == specialist_a.id
 
     changed = "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;BALANCE_OUT;SHORT_FIO\n10;501;00000010;80,00;Петров\n"
     again = AisImporter("account", org_a).run(changed.encode(), "a2.csv")
