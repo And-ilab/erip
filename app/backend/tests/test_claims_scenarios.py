@@ -1,9 +1,11 @@
 """Показательный контур ТЗ 4.2.4 и 4.2.5: дело взыскания и конструктор сценария."""
 
+from datetime import date
+
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from apps.debts.models import AccountScenarioRun, Attachment, DebtWorkItem
+from apps.debts.models import AccountScenarioRun, Attachment, DebtWorkItem, Measure
 
 from .conftest import make_account
 
@@ -460,3 +462,38 @@ def test_print_package_keeps_the_pdf_of_its_version(api, admin_a, specialist_a, 
     api(admin_a).patch(f"/api/v1/nsi/print-forms/{form_id}/", {"body": "Новая {fio}"}, format="json")
     again = api(specialist_a).get(f"/api/v1/nsi/print-forms/{form_id}/documents/{document_id}/")
     assert b"".join(again.streaming_content) == payload
+
+
+@pytest.mark.django_db
+def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
+    on_writ = make_account(org_a, 4101, funnel_stage="enforcement")
+    on_measure = make_account(org_a, 4102, funnel_stage="warning")
+    party = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.COLLECTION, status=Measure.Status.ASSIGNED,
+        due_on=date(2026, 10, 15),
+    )
+    party.accounts.add(on_measure)
+    outsider = make_account(org_a, 4103, funnel_stage="new")
+
+    listed = api(specialist_a).get("/api/v1/accounts/", {"scope": "claims", "page_size": 50})
+    assert listed.status_code == 200, listed.content
+    ids = {row["id"] for row in listed.json()["results"]}
+    assert {on_writ.id, on_measure.id} <= ids
+    assert outsider.id not in ids
+
+    columns = api(specialist_a).get("/api/v1/accounts/kanban/", {"scope": "claims"}).json()
+    cards = {card["id"] for column in columns for card in column["cards"]}
+    assert {on_writ.id, on_measure.id} <= cards
+    assert outsider.id not in cards
+    by_stage = {column["stage"]: column["total"] for column in columns}
+    assert by_stage["enforcement"] >= 1
+    assert by_stage["warning"] >= 1
+
+    events = api(specialist_a).get("/api/v1/accounts/calendar/", {
+        "scope": "claims", "date_from": "2026-10-01", "date_to": "2026-10-31",
+    })
+    assert events.status_code == 200, events.content
+    assert "Взыскание" in {row["title"] for row in events.json()}
+
+    charts = api(specialist_a).get("/api/v1/accounts/charts/", {"scope": "claims"}).json()
+    assert charts["cases"] == 2

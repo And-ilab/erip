@@ -44,6 +44,7 @@ class AccountFilter(django_filters.FilterSet):
     account_id = django_filters.NumberFilter(field_name="account_id")
     inheritance_case = django_filters.BooleanFilter(field_name="inheritance_case")
     territory = django_filters.NumberFilter(method="filter_territory")
+    scope = django_filters.CharFilter(method="filter_scope")
 
     class Meta:
         model = Account
@@ -69,6 +70,13 @@ class AccountFilter(django_filters.FilterSet):
 
     def filter_territory(self, queryset, name, value):
         return queryset.filter(territory__ancestor_links__ancestor_id=value).distinct()
+
+    def filter_scope(self, queryset, name, value):
+        if value == "claims":
+            from apps.debts.services.claims import claims_population
+
+            return claims_population(queryset)
+        return queryset
 
 
 class ContractFilter(django_filters.FilterSet):

@@ -334,9 +334,9 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         if scope == "measures":
             accounts = accounts.filter(measures__isnull=False).distinct()
         elif scope == "claims":
-            accounts = accounts.filter(
-                Q(claim_case__isnull=False) | Q(funnel_stage__in=["enforcement", "court"]) | Q(measures__kind="collection"),
-            ).distinct()
+            from .services.claims import claims_population
+
+            accounts = claims_population(accounts)
         elif scope == "contracts":
             accounts = accounts.filter(services__isnull=False).distinct()
         payload = DebtCharts(accounts, _supplier_ids(request.user)).build()

@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 from apps.core.exceptions import ServiceError
@@ -12,6 +13,21 @@ from apps.users.models import User
 
 LAWSUIT_KINDS = {code for code, _label in ClaimCase.LawsuitKind.choices}
 EVICTION = {"notice", "lawsuit", "court", "enforced"}
+
+
+def claims_population(queryset: QuerySet) -> QuerySet:
+    """Должники претензионно-исковой работы.
+
+    Сюда попадает лицевой счёт этапа «Испол. надпись / иск» или «ОПИ»,
+    с мероприятием «взыскание», либо с уже открытым делом.
+    """
+    matched = queryset.model.objects.filter(
+        Q(pk=OuterRef("pk")),
+        Q(claim_case__isnull=False)
+        | Q(funnel_stage__in=["enforcement", "court"])
+        | Q(measures__kind="collection"),
+    )
+    return queryset.filter(Exists(matched))
 
 
 class ClaimBlocked(ServiceError):

@@ -228,6 +228,7 @@ export class AnalyticsComponent implements OnInit, OnChanges {
   /** Пусто — все лицевые счета контура. measures и claims сужают ту же сводку. */
   @Input() scope = '';
   @Input() scopeLabel = '';
+  @Input() query: Record<string, string | number> | null = null;
 
   protected readonly mode = signal<Mode>('bar');
   protected readonly loading = signal(true);
@@ -268,7 +269,9 @@ export class AnalyticsComponent implements OnInit, OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['scope'] && !changes['scope'].firstChange) this.reload();
+    const scopeChanged = changes['scope'] && !changes['scope'].firstChange;
+    const queryChanged = changes['query'] && !changes['query'].firstChange;
+    if (scopeChanged || queryChanged) this.reload();
   }
 
   private scopeTitle(): string {
@@ -277,7 +280,7 @@ export class AnalyticsComponent implements OnInit, OnChanges {
 
   private reload(): void {
     this.loading.set(true);
-    this.api.charts(this.scope).subscribe({
+    this.api.charts(this.scope, this.query || {}).subscribe({
       next: (payload) => {
         this.chart.set(parseCharts(payload));
         this.loading.set(false);

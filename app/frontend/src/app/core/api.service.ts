@@ -104,8 +104,8 @@ export class ApiService {
     return this.http.get<Page<AccountRow>>(`${this.base}/accounts/`, { params: toParams(params) });
   }
 
-  charts(scope = ''): Observable<DebtCharts> {
-    return this.http.get<DebtCharts>(`${this.base}/accounts/charts/`, { params: toParams({ scope }) });
+  charts(scope = '', extra: Params = {}): Observable<DebtCharts> {
+    return this.http.get<DebtCharts>(`${this.base}/accounts/charts/`, { params: toParams({ ...extra, scope }) });
   }
 
   account(id: number): Observable<AccountDetail> {

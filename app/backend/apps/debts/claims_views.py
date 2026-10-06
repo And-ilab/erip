@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from django.db.models import Q
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
@@ -19,6 +18,7 @@ from .services.claims import (
     add_act,
     apply_ais_receipt,
     case_payload,
+    claims_population,
     decide_writeoff,
     move_case,
     notary_result,
@@ -135,9 +135,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         visible = AccessScope(self.request.user).apply(
             Account.objects.all(), "organization", "provider_id", "services__provider_id",
         )
-        queued = visible.filter(
-            Q(funnel_stage__in=["enforcement", "court"]) | Q(measures__kind="collection"),
-        )
+        queued = claims_population(visible)
         if held:
             queued = queued.exclude(pk__in=held)
         queued = (

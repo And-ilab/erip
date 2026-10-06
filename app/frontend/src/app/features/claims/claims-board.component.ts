@@ -7,7 +7,7 @@ import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
 import { ApiService, AssignedAccount, ClaimCase, Named, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { AccountRow, CalendarEvent } from '../../core/models';
+import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent } from '../calendar/calendar-board.component';
 import { RegistryViewsComponent } from '../registry-views.component';
@@ -28,92 +28,136 @@ import { RegistryViewsComponent } from '../registry-views.component';
         }
         <app-registry-views [mode]="mode()" (modeChange)="showView($event)" />
       </div>
-      @if (mode() === 'list') {
-      <div class="layout">
-        <aside>
+      <div class="filters">
           <div class="chips">
-            <button type="button" [class.on]="lane() === 'all'" (click)="lane.set('all')">Все дела</button>
-            <button type="button" [class.on]="lane() === 'g3'" (click)="lane.set('g3')">Группа 3</button>
-            <button type="button" [class.on]="lane() === 'late'" (click)="lane.set('late')">Группы 4–6</button>
+            <button type="button" [class.on]="lane() === 'all'" (click)="setLane('all')">Все</button>
+            <button type="button" [class.on]="lane() === 'g3'" (click)="setLane('g3')">Группа 3</button>
+            <button type="button" [class.on]="lane() === 'late'" (click)="setLane('late')">Группы 4–6</button>
           </div>
-          <p class="hint">
-            Группа 2 остаётся в мероприятиях: предупреждение и приостановление услуг.
-            С группы 3 — надпись, иск и ОПИ. С группы 4 — ещё выселение и отчуждение.
-          </p>
-          @if (error()) { <p class="error">{{ error() }}</p> }
+          <label class="searchbar">
+            <input [formControl]="boardSearch" placeholder="Поиск по ФИО, номеру ЛС, адресу" />
+          </label>
+        </div>
+        <p class="hint">
+          Здесь должники, которые попали на взыскание: этап «Испол. надпись / иск» или «ОПИ»,
+          мероприятие «взыскание», либо уже открытое дело. Список, канбан, календарь и графики показывают их одних.
+        </p>
+      @if (error()) { <p class="error">{{ error() }}</p> }
+
+      @if (mode() === 'list') {
+      <div class="layout" [class.solo]="!caseOpen()">
+        @if (caseOpen()) {
+        <aside>
           <div class="list-pane">
-          <h3 class="queue-title">Назначено, дело не открыто</h3>
-          @if (!assignedVisible().length) {
-            <p class="hint">Счетов без открытого дела нет.</p>
-          } @else {
-            @for (row of assignedVisible(); track row.account) {
-              <button type="button" class="debtor queue" (click)="openAssigned(row)">
-                <span>
-                  <b>{{ row.short_fio || 'Без ФИО' }}</b>
-                  <small>ЛС {{ row.client_account }} · группа {{ row.debt_group || '—' }}</small>
-                </span>
-                <em>назначено</em>
-              </button>
-            }
-          }
-          @if (!visible().length && !assignedVisible().length && !error()) {
-            <p class="hint">Дел пока нет. Добавьте надпись по лицевому счёту группы 3 или старше.</p>
-          }
-          @for (card of visible(); track card.id) {
-            <a class="debtor" [routerLink]="['/claims', card.id]" routerLinkActive="on">
+          @for (row of debtors(); track row.id) {
+            <button type="button" class="debtor queue" [class.on]="claimOf(row)?.id === openCaseId()" (click)="openDebtor(row)">
               <span>
-                <b>{{ card.short_fio || 'Без ФИО' }}</b>
-                <small>ЛС {{ card.client_account }} · группа {{ card.debt_group || '—' }}</small>
+                <b>{{ row.short_fio || 'Без ФИО' }}</b>
+                <small>ЛС {{ row.client_account }} · {{ stageLabel(row.funnel_stage) }}</small>
               </span>
-              <em [attr.data-stage]="card.stage">{{ card.stage_label }}</em>
-            </a>
+              <em>{{ claimOf(row)?.stage_label || 'дело не открыто' }}</em>
+            </button>
+          }
+          @if (!debtors().length) {
+            <p class="hint">По этому отбору должников нет.</p>
           }
           </div>
         </aside>
-
+        }
         <section class="main">
           <router-outlet />
           @if (!caseOpen()) {
-            <div class="empty">
-              <h2>Претензионно-исковая работа</h2>
-              <p>Группа 3: пакет документов нотариусу или в суд, учёт решения, обмен с ОПИ, нотариальный тариф и госпошлина.</p>
-              <p>Группы 4–6: дополнительно выселение из государственного фонда (ст. 80), арендного жилья (ст. 86), общежития (ст. 87) или отчуждение (ст. 137).</p>
-              <p class="hint">Выберите должника слева или добавьте исполнительную надпись. Суммы долга и пени приходят из АИС и здесь не правятся.</p>
-            </div>
+            @if (!debtors().length) {
+              <div class="empty">
+                <h2>Претензионно-исковая работа</h2>
+                <p>Должников на взыскании пока нет. Они появляются, когда лицевой счёт переходит на этап надписи или ОПИ, по нему запускают мероприятие «взыскание» или открывают дело.</p>
+              </div>
+            } @else {
+              <div class="list-pane">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Должник</th>
+                    <th>ЛС</th>
+                    <th>Адрес</th>
+                    <th>Группа</th>
+                    <th>Рейтинг</th>
+                    <th>Долг</th>
+                    <th>Пеня</th>
+                    <th>Этап</th>
+                    <th>Дело</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of debtors(); track row.id) {
+                    <tr (click)="openDebtor(row)">
+                      <td>{{ row.short_fio || 'Без ФИО' }}</td>
+                      <td><b class="account-no">{{ row.client_account }}</b></td>
+                      <td>{{ street(row.account_address || '') || '—' }}</td>
+                      <td>@if (row.effective_group) { <span class="group-badge g{{ row.effective_group }}">{{ row.effective_group }}</span> }</td>
+                      <td>@if (row.rating_label) { <span class="rating-badge r{{ letter(row.rating_label) }}">{{ row.rating_label }}</span> }</td>
+                      <td>{{ money(row.debt_total) }}</td>
+                      <td [class.amount-danger]="+(row.mulct_total || 0) > 0">{{ money(row.mulct_total) }}</td>
+                      <td>{{ stageLabel(row.funnel_stage) }}</td>
+                      <td>{{ claimOf(row)?.stage_label || 'не открыто' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              </div>
+              @if (hiddenDebtors() > 0) {
+                <p class="hint">Показаны первые {{ debtors().length }} из {{ debtorTotal() }}.</p>
+              }
+            }
           }
         </section>
       </div>
       }
 
       @if (mode() === 'kanban') {
-        <div class="board">
-          @for (lane of lanes; track lane.id) {
-            <section class="column" [attr.data-lane]="lane.id">
-              <h3><span>{{ lane.label }}</span><b>{{ laneCards(lane.id).length }}</b></h3>
+        <div class="k-board">
+          @for (column of claimColumns(); track column.stage) {
+            <section class="k-col" [attr.data-stage]="column.stage">
+              <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
               <div class="list-pane cards">
-              @for (card of laneCards(lane.id); track card.id) {
-                <button type="button" class="card" (click)="openLaneCard(card)">
-                  <strong>{{ card.short_fio || 'Без ФИО' }}</strong>
-                  <span class="ls">ЛС {{ card.client_account }}</span>
-                  <span class="addr">{{ card.account_address || 'Адрес не указан' }}</span>
-                  <span class="meta"><em [attr.data-stage]="card.stage">{{ card.stage_label }}</em> · Гр. {{ card.debt_group || '—' }}</span>
-                  <span class="money">{{ money(card.balance_out) }} <small>+ пеня {{ money(card.penalty) }}</small></span>
-                </button>
+              @for (card of column.cards; track card.id) {
+                <article class="k-card g{{ card.effective_group ?? 0 }}" (click)="openDebtor(card)">
+                  <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
+                  <div class="line">ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address || '') }} }</div>
+                  @if (card.effective_group) {
+                    <div class="group-line">
+                      <span class="letter">{{ letter(card.rating_label) }}</span>
+                      <span>Группа {{ card.effective_group }}</span>
+                    </div>
+                  }
+                  <div class="money">{{ moneyPlain(card.debt_total) }} р. <small>+ пени {{ moneyPlain(card.mulct_total) }} р.</small></div>
+                  <div class="foot">
+                    @if (mark(card); as note) {
+                      <span class="when">{{ note }}</span>
+                    } @else { <span></span> }
+                    @if (initials(card.assigned_name); as who) {
+                      <span class="who" [style.background]="avatarColor(card.assigned_name)">{{ who }}</span>
+                    }
+                  </div>
+                </article>
               }
               </div>
             </section>
           }
         </div>
+        @if (!claimColumns().length) {
+          <p class="hint">По этому отбору должников нет.</p>
+        }
       }
 
       @if (mode() === 'calendar') {
         <app-calendar-board
-          [events]="claimEvents()" [from]="spanFrom" [to]="spanTo" [canCreate]="false"
+          [events]="events()" [from]="spanFrom" [to]="spanTo" [canCreate]="false"
           (spanChange)="setSpan($event)" (openEvent)="openClaimEvent($event)" />
       }
 
       @if (mode() === 'charts') {
-        <app-analytics scope="claims" scopeLabel="Лицевые счета претензионно-исковой работы" />
+        <app-analytics scope="claims" scopeLabel="Лицевые счета претензионно-исковой работы" [query]="chartQuery()" />
       }
 
       @if (dialog()) {
@@ -211,6 +255,64 @@ import { RegistryViewsComponent } from '../registry-views.component';
     </div>
   `,
   styles: `
+    .filters { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+    .searchbar { flex: 1; }
+    .searchbar input {
+      width: 100%; box-sizing: border-box; height: 34px; border: 1px solid var(--erip-border);
+      border-radius: 6px; padding: 0 10px; font: inherit;
+    }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--erip-border); font-size: 13px; }
+    th { color: var(--erip-muted); font-weight: 600; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: #f7f9fb; }
+    .account-no { color: var(--erip-link); }
+    .layout.solo { grid-template-columns: 1fr; }
+    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
+      font-size: 13px; font-weight: 600; color: #243140;
+    }
+    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
+    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
+    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-card {
+      position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
+      border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
+      box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
+    }
+    .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
+    .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
+    .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; color: #1f2933; }
+    .k-card .line { margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; }
+    .k-card .group-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; }
+    .k-card .letter {
+      width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
+      display: grid; place-items: center; background: #9ca3af;
+    }
+    .k-card.g1 .letter, .k-card.g1 .group-line { color: #1f9d55; } .k-card.g1 .letter { background: #1f9d55; color: #fff; }
+    .k-card.g2 .letter, .k-card.g2 .group-line { color: #a16207; } .k-card.g2 .letter { background: #c8962e; color: #fff; }
+    .k-card.g3 .letter, .k-card.g3 .group-line { color: #ef6c00; } .k-card.g3 .letter { background: #ef6c00; color: #fff; }
+    .k-card.g4 .letter, .k-card.g4 .group-line { color: #e53935; } .k-card.g4 .letter { background: #e53935; color: #fff; }
+    .k-card.g5 .letter, .k-card.g5 .group-line { color: #c62828; } .k-card.g5 .letter { background: #c62828; color: #fff; }
+    .k-card.g6 .letter, .k-card.g6 .group-line { color: #7f1d1d; } .k-card.g6 .letter { background: #7f1d1d; color: #fff; }
+    .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; color: #1f2933; }
+    .k-card .money small { font-weight: 400; color: #6b7280; }
+    .k-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 26px; }
+    .k-card .when { font-size: 12px; color: #6b7280; }
+    .k-card .who {
+      width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700;
+      display: grid; place-items: center; flex: 0 0 26px;
+    }
     .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
     .toolbar h2 { margin: 0; color: var(--erip-primary-dark); font-size: 20px; }
     .layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
@@ -243,26 +345,6 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .main { min-width: 0; }
     .empty { background: #fff; border: 1px solid var(--erip-border); border-radius: 10px; padding: 16px 18px; }
     .empty h2 { margin: 0 0 8px; color: var(--erip-primary-dark); font-size: 18px; }
-    .board { display: flex; gap: 10px; overflow-x: auto; align-items: flex-start; }
-    .column { width: 220px; flex: 0 0 220px; background: #f7f8fa; border-radius: 10px; padding: 0 8px 8px; }
-    .column h3 { margin: 0 -8px 8px; padding: 8px 10px; border-radius: 10px 10px 0 0; color: #fff; font-size: 13px; display: flex; justify-content: space-between; background: var(--erip-claim); }
-    .column[data-lane="pack"] h3 { background: #2e7d32; }
-    .column[data-lane="notary"] h3 { background: var(--erip-claim); }
-    .column[data-lane="court"] h3 { background: var(--erip-notice); }
-    .column[data-lane="opi"] h3 { background: var(--erip-cut); }
-    .column[data-lane="finish"] h3 { background: #6b7280; }
-    .card {
-      display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; font: inherit; cursor: pointer;
-      background: #fff; border: 0; border-radius: 8px; padding: 10px; margin-bottom: 8px; color: inherit;
-    }
-    .card em {
-      font-style: normal; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px;
-      background: #e8eef8; color: #2458a6;
-    }
-    .card em[data-stage="writ_done"], .card em[data-stage="recovered"] { background: #e5f6ea; color: #1b7a32; }
-    .card em[data-stage="refused"], .card em[data-stage="impossible"] { background: #fdecec; color: #b42318; }
-    .card em[data-stage="prep"] { background: #f3f4f6; color: #4b5563; }
-    .ls, .addr, .money small { color: var(--erip-muted); font-size: 12px; }
     .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(20, 40, 55, .45); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
     .modal {
       box-sizing: border-box; width: 720px; max-width: calc(100vw - 32px);
@@ -314,12 +396,26 @@ export class ClaimsBoardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
+  protected readonly funnel = [
+    { id: 'new', label: 'Новый должник' },
+    { id: 'prevention', label: 'Автообзвон/уведомления' },
+    { id: 'warning', label: 'Предупреждение вручено' },
+    { id: 'disconnect', label: 'Отключение услуг' },
+    { id: 'enforcement', label: 'Испол. надпись / иск' },
+    { id: 'court', label: 'ОПИ' },
+    { id: 'closed', label: 'Не должник' },
+  ];
   protected readonly stages = signal<Named[]>([]);
   protected readonly cards = signal<ClaimCase[]>([]);
+  protected readonly debtors = signal<AccountRow[]>([]);
+  protected readonly debtorTotal = signal(0);
+  protected readonly board = signal<KanbanColumn[]>([]);
+  protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly error = signal('');
   protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('list');
   protected readonly lane = signal<'all' | 'g3' | 'late'>('all');
-  protected readonly assigned = signal<AssignedAccount[]>([]);
+  protected readonly boardSearch = new FormControl('', { nonNullable: true });
+  protected readonly chartQuery = signal<Record<string, string | number>>({});
   protected readonly pickerOpen = signal(false);
   protected spanFrom = monthStart();
   protected spanTo = monthEnd();
@@ -342,6 +438,7 @@ export class ClaimsBoardComponent implements OnInit {
       if (params.get('writ') === '1') this.openFromRoute();
     });
     this.query.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe((value) => this.lookup(value));
+    this.boardSearch.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.refreshView());
     const account = this.route.snapshot.queryParamMap.get('account');
     if (account) {
       this.api.openClaim(Number(account)).subscribe({
@@ -356,38 +453,79 @@ export class ClaimsBoardComponent implements OnInit {
     return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
   }
 
-  protected visible(): ClaimCase[] {
-    return this.cards().filter((card) => this.inLane(card.debt_group));
+  protected hiddenDebtors(): number {
+    return Math.max(this.debtorTotal() - this.debtors().length, 0);
   }
 
-  protected assignedVisible(): AssignedAccount[] {
-    return this.assigned().filter((row) => this.inLane(row.debt_group));
+  protected openCaseId(): number | null {
+    const match = this.router.url.match(/\/claims\/(\d+)/);
+    return match ? Number(match[1]) : null;
   }
 
-  protected claimEvents(): CalendarEvent[] {
-    const events: CalendarEvent[] = [];
-    for (const card of this.visible()) {
-      this.pushEvent(events, card, card.warning_delivered_on, 'Предупреждение');
-      this.pushEvent(events, card, card.lawsuit_filed_on, 'Иск');
-      this.pushEvent(events, card, card.package_filed_on, 'Пакет');
-    }
-    return events;
+  protected claimOf(row: AccountRow): ClaimCase | undefined {
+    return this.cards().find((card) => card.account === row.id);
+  }
+
+  protected stageLabel(id: string): string {
+    return this.funnel.find((item) => item.id === (id || 'new'))?.label || 'Новый должник';
+  }
+
+  protected claimColumns(): KanbanColumn[] {
+    return this.board().filter((column) => column.total > 0 || column.stage === 'enforcement' || column.stage === 'court');
+  }
+
+  protected setLane(lane: 'all' | 'g3' | 'late'): void {
+    this.lane.set(lane);
+    this.refreshView();
   }
 
   protected showView(mode: string): void {
-    if (mode === 'list' || mode === 'kanban' || mode === 'calendar' || mode === 'charts') this.mode.set(mode);
+    if (mode !== 'list' && mode !== 'kanban' && mode !== 'calendar' && mode !== 'charts') return;
+    this.mode.set(mode);
+    this.refreshView();
   }
 
   protected setSpan(span: { from: string; to: string }): void {
     this.spanFrom = span.from;
     this.spanTo = span.to;
+    this.loadCalendar();
   }
 
   protected openClaimEvent(event: CalendarEvent): void {
-    const card = this.cards().find((row) => row.account === event.account_id);
-    if (!card) return;
-    this.mode.set('list');
-    this.router.navigate(['/claims', card.id]);
+    if (event.measure_id) {
+      this.router.navigate(['/measures', event.measure_id]);
+      return;
+    }
+    if (!event.account_id) return;
+    const row = this.debtors().find((item) => item.id === event.account_id);
+    if (row) {
+      this.openDebtor(row);
+      return;
+    }
+    const card = this.cards().find((item) => item.account === event.account_id);
+    if (card) {
+      this.mode.set('list');
+      this.router.navigate(['/claims', card.id]);
+      return;
+    }
+    this.router.navigate(['/accounts', event.account_id]);
+  }
+
+  protected openDebtor(row: AccountRow): void {
+    const claim = this.claimOf(row);
+    if (claim) {
+      this.mode.set('list');
+      setTimeout(() => this.router.navigate(['/claims', claim.id]));
+      return;
+    }
+    this.openAssigned({
+      account: row.id,
+      client_account: row.client_account,
+      short_fio: row.short_fio,
+      debt_group: row.effective_group,
+      account_address: row.account_address,
+      funnel_stage: row.funnel_stage,
+    });
   }
 
   protected openAssigned(row: AssignedAccount): void {
@@ -397,31 +535,11 @@ export class ClaimsBoardComponent implements OnInit {
     }
     this.api.openClaim(row.account).subscribe({
       next: (claim) => {
+        this.mode.set('list');
         this.reload();
         this.router.navigate(['/claims', claim.id]);
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
-  }
-
-  protected readonly lanes = [
-    { id: 'pack', label: 'Пакет', stages: ['prep', 'notary'] },
-    { id: 'notary', label: 'Ответ нотариуса', stages: ['writ_done', 'refused'] },
-    { id: 'court', label: 'Суд', stages: ['lawsuit', 'court'] },
-    { id: 'opi', label: 'ОПИ', stages: ['opi', 'opi_measures'] },
-    { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'] },
-  ];
-
-  protected openLaneCard(card: ClaimCase): void {
-    this.mode.set('list');
-    setTimeout(() => this.router.navigate(['/claims', card.id]));
-  }
-
-  protected laneCards(laneId: string): ClaimCase[] {
-    const known = new Set(this.lanes.flatMap((lane) => lane.stages));
-    return this.visible().filter((card) => {
-      const lane = this.lanes.find((item) => item.stages.includes(card.stage));
-      return lane ? lane.id === laneId : laneId === 'pack' && !known.has(card.stage);
     });
   }
 
@@ -447,6 +565,50 @@ export class ClaimsBoardComponent implements OnInit {
     const started = this.dotDate(row.debt_started_on);
     const months = row.months_debt ? `, ${row.months_debt} мес.` : '';
     return `с ${started}${months}`;
+  }
+
+  protected letter(label: string): string {
+    return (label || '—').slice(0, 1);
+  }
+
+  protected street(address: string): string {
+    const lower = address.toLowerCase();
+    const marks = ['ул.', 'ул ', 'пр-т', 'пр.', 'просп', 'пер.', 'б-р', 'тракт', 'пл.', 'ш.'];
+    let cut = -1;
+    for (const mark of marks) {
+      const index = lower.indexOf(mark);
+      if (index >= 0 && (cut < 0 || index < cut)) cut = index;
+    }
+    return (cut >= 0 ? address.slice(cut) : address).replace(/\s+/g, ' ').trim();
+  }
+
+  protected moneyPlain(value: string | null): string {
+    const number = Number(value ?? 0);
+    if (Number.isNaN(number)) return '0,00';
+    return number.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  protected mark(card: AccountRow): string {
+    const stage = card.funnel_stage || 'new';
+    if (stage === 'warning' && card.warning_handed_on) return `Вручено ${this.dayMonth(card.warning_handed_on)}`;
+    if (stage === 'disconnect' && card.order_on) return `Наряд от ${this.dayMonth(card.order_on)}`;
+    const filed = card.filed_on || card.package_on;
+    if (stage === 'enforcement' && filed) return `Подано ${this.dayMonth(filed)}`;
+    if (stage === 'court' && filed) return `Передано ${this.dayMonth(filed)}`;
+    const due = stage === 'enforcement' || stage === 'court' ? (card.claim_due || card.warning_due) : (card.warning_due || card.claim_due);
+    return due ? this.relative(due) : '';
+  }
+
+  protected initials(name: string): string {
+    const parts = (name || '').split(/\s+/).filter(Boolean);
+    return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
+  }
+
+  protected avatarColor(name: string): string {
+    const palette = ['#2e7d32', '#7c3aed', '#ea580c', '#c62828', '#1d4ed8', '#0f766e'];
+    let hash = 0;
+    for (const char of name) hash = (hash + char.charCodeAt(0)) % palette.length;
+    return palette[hash];
   }
 
   protected money(value: string | null): string {
@@ -587,22 +749,73 @@ export class ClaimsBoardComponent implements OnInit {
     });
   }
 
-  private inLane(group: number | null): boolean {
-    const lane = this.lane();
-    const value = group || 0;
-    if (lane === 'g3') return value === 3;
-    if (lane === 'late') return value >= 4;
-    return true;
+  private population(): Record<string, string | number> {
+    const params: Record<string, string | number> = { scope: 'claims' };
+    const text = this.boardSearch.value.trim();
+    if (text) params['q'] = text;
+    if (this.lane() === 'g3') params['debt_group'] = 3;
+    if (this.lane() === 'late') params['debt_group__in'] = '4,5,6';
+    return params;
   }
 
-  private pushEvent(events: CalendarEvent[], card: ClaimCase, date: string | null, kind: string): void {
-    if (!date) return;
-    events.push({
-      date: date.slice(0, 10),
-      kind,
-      title: `${card.short_fio || 'Без ФИО'} · ЛС ${card.client_account}`,
-      account_id: card.account,
+  private refreshView(): void {
+    this.chartQuery.set(this.population());
+    const mode = this.mode();
+    if (mode === 'list') this.loadDebtors();
+    else if (mode === 'kanban') this.loadBoard();
+    else if (mode === 'calendar') this.loadCalendar();
+  }
+
+  private loadDebtors(): void {
+    this.api.accounts({ ...this.population(), page_size: 200 }).subscribe({
+      next: (page) => {
+        this.debtors.set(page.results);
+        this.debtorTotal.set(page.count);
+      },
+      error: (err) => this.error.set(errorMessage(err)),
     });
+  }
+
+  private loadBoard(): void {
+    this.api.kanban(this.population()).subscribe({
+      next: (columns) => this.board.set(columns),
+      error: (err) => this.error.set(errorMessage(err)),
+    });
+  }
+
+  private loadCalendar(): void {
+    this.loadDebtors();
+    this.api.calendar({ date_from: this.spanFrom, date_to: this.spanTo }, this.population()).subscribe({
+      next: (rows) => this.events.set(rows),
+      error: (err) => this.error.set(errorMessage(err)),
+    });
+  }
+
+  private dayMonth(iso: string): string {
+    const parts = iso.slice(0, 10).split('-');
+    return parts.length === 3 ? `${parts[2]}.${parts[1]}` : iso;
+  }
+
+  private relative(iso: string): string {
+    const due = new Date(`${iso.slice(0, 10)}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
+    if (Number.isNaN(diff)) return '';
+    if (diff === 0) return 'Сегодня';
+    if (diff === 1) return 'Завтра';
+    if (diff === -1) return 'Вчера';
+    if (diff > 1) return `Через ${diff} ${this.dayWord(diff)}`;
+    const past = Math.abs(diff);
+    return `${past} ${this.dayWord(past)} назад`;
+  }
+
+  private dayWord(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'день';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дня';
+    return 'дней';
   }
 
   private trackCase(): void {
@@ -619,10 +832,11 @@ export class ClaimsBoardComponent implements OnInit {
       next: (page) => {
         this.stages.set(page.stages);
         this.cards.set(page.results);
-        this.assigned.set(page.assigned || []);
+        this.error.set('');
       },
       error: (err) => this.error.set(errorMessage(err)),
     });
+    this.refreshView();
   }
 }
 
