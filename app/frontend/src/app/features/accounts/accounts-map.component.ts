@@ -23,9 +23,14 @@ function belarusStyle(tileUrl: string, glyphs: string): StyleSpecification {
       { id: 'bg', type: 'background', paint: { 'background-color': '#f8f4f0' } },
       { id: 'earth', type: 'fill', source: 'belarus', 'source-layer': 'earth', paint: { 'fill-color': '#f8f4f0' } },
       {
+        id: 'farmland', type: 'fill', source: 'belarus', 'source-layer': 'landcover', maxzoom: 8,
+        filter: ['==', 'kind', 'farmland'],
+        paint: { 'fill-color': 'hsla(80, 45%, 84%, 0.55)' },
+      },
+      {
         id: 'wood', type: 'fill', source: 'belarus', 'source-layer': 'landcover',
         filter: ['in', 'kind', 'forest', 'wood'],
-        paint: { 'fill-color': 'hsla(98, 61%, 72%, 0.7)', 'fill-opacity': 0.55 },
+        paint: { 'fill-color': 'hsla(98, 61%, 72%, 0.7)', 'fill-opacity': 0.7 },
       },
       {
         id: 'wood-landuse', type: 'fill', source: 'belarus', 'source-layer': 'landuse',
@@ -57,39 +62,39 @@ function belarusStyle(tileUrl: string, glyphs: string): StyleSpecification {
         paint: { 'line-color': 'hsl(248, 1%, 41%)', 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1, 12, 2.4] },
       },
       {
-        id: 'road-minor-casing', type: 'line', source: 'belarus', 'source-layer': 'roads', minzoom: 12,
+        id: 'road-minor-casing', type: 'line', source: 'belarus', 'source-layer': 'roads', minzoom: 10,
         filter: ['==', 'kind', 'minor_road'],
-        paint: { 'line-color': '#cfcdca', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.6, 14, 4, 17, 14] },
+        paint: { 'line-color': '#cfcdca', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 12, 2.2, 14, 5, 17, 14] },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
         id: 'road-major-casing', type: 'line', source: 'belarus', 'source-layer': 'roads',
         filter: ['==', 'kind', 'major_road'],
-        paint: { 'line-color': '#e9ac77', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.8, 10, 3, 14, 8, 17, 16] },
+        paint: { 'line-color': '#e9ac77', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.4, 10, 3.2, 14, 8, 17, 16] },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
         id: 'road-highway-casing', type: 'line', source: 'belarus', 'source-layer': 'roads', minzoom: 5,
         filter: ['==', 'kind', 'highway'],
-        paint: { 'line-color': '#e9ac77', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.8, 8, 2.4, 14, 9, 17, 18] },
+        paint: { 'line-color': '#e9ac77', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.4, 8, 2.8, 14, 9, 17, 18] },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
-        id: 'road-minor', type: 'line', source: 'belarus', 'source-layer': 'roads', minzoom: 12,
+        id: 'road-minor', type: 'line', source: 'belarus', 'source-layer': 'roads', minzoom: 10,
         filter: ['==', 'kind', 'minor_road'],
-        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.2, 14, 2.4, 17, 11] },
+        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 12, 1.4, 14, 3.2, 17, 11] },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
         id: 'road-major', type: 'line', source: 'belarus', 'source-layer': 'roads',
         filter: ['==', 'kind', 'major_road'],
-        paint: { 'line-color': '#fea', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.4, 10, 1.6, 14, 5, 17, 12] },
+        paint: { 'line-color': '#fea', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.9, 10, 2.2, 14, 5.5, 17, 12] },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
         id: 'road-highway', type: 'line', source: 'belarus', 'source-layer': 'roads', minzoom: 5,
         filter: ['==', 'kind', 'highway'],
-        paint: { 'line-color': '#fc8', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.4, 8, 1.4, 14, 6, 17, 14] },
+        paint: { 'line-color': '#fc8', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.8, 8, 1.8, 14, 6, 17, 14] },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
@@ -101,7 +106,13 @@ function belarusStyle(tileUrl: string, glyphs: string): StyleSpecification {
         },
       },
       {
-        id: 'place-locality', type: 'symbol', source: 'belarus', 'source-layer': 'places', minzoom: 6,
+        id: 'place-neighbourhood', type: 'symbol', source: 'belarus', 'source-layer': 'places', minzoom: 12,
+        filter: ['in', 'kind', 'neighbourhood', 'macrohood'],
+        layout: { 'text-field': streetName, 'text-font': ['Noto Sans Regular'], 'text-size': 12 },
+        paint: { 'text-color': '#666', 'text-halo-color': '#fff', 'text-halo-width': 1.2 },
+      },
+      {
+        id: 'place-locality', type: 'symbol', source: 'belarus', 'source-layer': 'places', minzoom: 5,
         filter: ['==', 'kind', 'locality'],
         layout: { 'text-field': streetName, 'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 6, 11, 11, 16] },
         paint: { 'text-color': '#000', 'text-halo-color': '#fff', 'text-halo-width': 1.2 },
@@ -119,7 +130,7 @@ function belarusStyle(tileUrl: string, glyphs: string): StyleSpecification {
         paint: { 'text-color': '#333', 'text-halo-color': '#fff', 'text-halo-width': 1.4 },
       },
       {
-        id: 'road-label-minor', type: 'symbol', source: 'belarus', 'source-layer': 'roads', minzoom: 14,
+        id: 'road-label-minor', type: 'symbol', source: 'belarus', 'source-layer': 'roads', minzoom: 13,
         filter: ['all', ['==', 'kind', 'minor_road'], ['any', ['has', 'name'], ['has', 'pgf:name']]],
         layout: { 'symbol-placement': 'line', 'text-field': streetName, 'text-font': ['Noto Sans Regular'], 'text-size': 12 },
         paint: { 'text-color': '#555', 'text-halo-color': '#fff', 'text-halo-width': 1.2 },
