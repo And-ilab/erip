@@ -34,6 +34,17 @@ def _warning(api, user, account, delivered_on):
     return created.json()["id"]
 
 
+def test_phone_without_prefix_gets_375():
+    from apps.debts.services.measures import belarus_phone
+
+    assert belarus_phone("1111111") == "+3751111111"
+    assert belarus_phone("+375291112233") == "+375291112233"
+    assert belarus_phone("375291112233") == "+375291112233"
+    assert belarus_phone("80291112233") == "+375291112233"
+    assert belarus_phone("+491511234567") == ""
+    assert belarus_phone("") == ""
+
+
 @pytest.mark.django_db
 def test_call_keeps_only_accounts_with_belarus_phone(api, specialist_a, account_a, org_a):
     legal = make_account(org_a, 3001, client_account="00003001", payer_unp="100000001")

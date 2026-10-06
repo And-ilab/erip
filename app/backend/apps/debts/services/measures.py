@@ -55,12 +55,22 @@ class MeasureLaunchError(Exception):
 
 
 def belarus_phone(value: str) -> str:
-    digits = re.sub(r"\D", "", value or "")
-    if digits.startswith("375") and len(digits) == 12:
+    """Номер для обзвона. Уже с +375 остаётся как есть, иначе код дописывается в начало."""
+    compact = re.sub(r"[\s\-()]", "", (value or "").strip())
+    if not compact:
+        return ""
+    if compact.startswith("+375"):
+        return compact
+    if compact.startswith("+"):
+        return ""
+    digits = re.sub(r"\D", "", compact)
+    if not digits:
+        return ""
+    if digits.startswith("375"):
         return f"+{digits}"
     if digits.startswith("80") and len(digits) == 11:
         return f"+375{digits[2:]}"
-    return ""
+    return f"+375{digits}"
 
 
 def is_legal_entity(account: Account) -> bool:

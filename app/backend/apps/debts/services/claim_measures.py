@@ -94,11 +94,18 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
         .values_list("pk", flat=True)[:2000]
     )
     ids = list(bare)
-    if not ids:
+    retry = list(
+        accounts.filter(measures__kind=Measure.Kind.CALL, measures__status=Measure.Status.FAILED)
+        .order_by()
+        .values_list("pk", flat=True)
+        .distinct()[:2000]
+    )
+    ordered = list(dict.fromkeys([*ids, *retry]))
+    if not ordered:
         return
     from apps.nsi.services.scenario_engine import ensure_imported_runs
 
-    ensure_imported_runs(ids)
+    ensure_imported_runs(ordered)
 
 
 def backfill_account(account: Account) -> None:
