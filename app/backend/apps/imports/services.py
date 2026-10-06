@@ -297,12 +297,12 @@ class AisImporter:
 
                 sync_supplier_organizations(accounts)
             if self.map.entity in {"account", "service", "registration", "payment"}:
+                from apps.debts.services.claim_measures import backfill_visible_measures
                 from apps.debts.services.portfolio import PortfolioRefresher
-                from apps.nsi.services.scenario_engine import ensure_imported_runs
 
                 ids = list(accounts.values_list("pk", flat=True))
                 PortfolioRefresher().refresh(ids)
-                ensure_imported_runs(ids)
+                backfill_visible_measures(Account.objects.filter(pk__in=ids))
 
     def _sync_service_organizations(self, accounts) -> None:
         """Справочник обслуживающих организаций пополняется из выгрузки (ТЗ 4.2.8.6)."""

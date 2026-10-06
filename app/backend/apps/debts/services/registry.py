@@ -133,7 +133,7 @@ def measure_title(measure: Measure) -> str:
     elif measure.kind == Measure.Kind.DISCONNECT:
         title = "Отключение услуг"
     elif measure.kind == Measure.Kind.COLLECTION:
-        title = "Взыскание"
+        title = _with_detail("Взыскание", measure.template_name)
     else:
         title = measure.get_kind_display()
     owner = (getattr(measure, "owner_name", "") or "").strip()

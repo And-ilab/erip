@@ -303,7 +303,11 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True)
     def measures(self, request, pk=None):
-        return self._nested("", MeasureSerializer, _own_measures(request.user, self.get_object()))
+        from apps.debts.services.claim_measures import backfill_account
+
+        account = self.get_object()
+        backfill_account(account)
+        return self._nested("", MeasureSerializer, _own_measures(request.user, account))
 
     @action(detail=True, methods=["get", "post"], url_path="writ-checks")
     def writ_checks(self, request, pk=None):
@@ -935,6 +939,9 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=False)
     def registry(self, request):
         """Группы реестра по статусу. Порция — GROUP_LIMIT, продолжение — status и offset."""
+        from apps.debts.services.claim_measures import backfill_visible_measures
+
+        backfill_visible_measures(_visible_accounts(request.user))
         qs = self.filter_queryset(self.get_queryset())
         offset = _page_offset(request.query_params.get("offset"))
         only = (request.query_params.get("status") or "").strip()
@@ -962,6 +969,9 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=False)
     def matrix(self, request):
         """ЛС в строках, вид мероприятия в столбцах. Та же выборка, что у реестра."""
+        from apps.debts.services.claim_measures import backfill_visible_measures
+
+        backfill_visible_measures(_visible_accounts(request.user))
         visible = _visible_accounts(request.user)
         payload = build_matrix(
             self.filter_queryset(self.get_queryset()), visible,

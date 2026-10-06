@@ -59,6 +59,9 @@ def open_case(account, user) -> ClaimCase:
     )
     if created:
         _event(case, user, "", ClaimCase.Stage.PREP, "Дело открыто")
+    from apps.debts.services.claim_measures import sync_claim_measure
+
+    sync_claim_measure(case)
     return case
 
 
@@ -81,6 +84,9 @@ def update_case(case: ClaimCase, data: dict, user) -> ClaimCase:
         setattr(case, field, _coerce(field, value))
     case.save()
     _event(case, user, case.stage, case.stage, "Карточка дела изменена")
+    from apps.debts.services.claim_measures import sync_claim_measure
+
+    sync_claim_measure(case)
     return case
 
 
@@ -102,6 +108,9 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "") -> ClaimCase:
         )
     case.save()
     _event(case, user, old, stage, reason or "Переход по воронке")
+    from apps.debts.services.claim_measures import sync_claim_measure
+
+    sync_claim_measure(case)
     if case.account.assigned_to_id and stage == ClaimCase.Stage.WRITEOFF:
         _notify(case, case.account.assigned_to_id, "Сформирован акт о списании. В АИС уйдёт уведомление, когда появится файл статусов.")
     return case
