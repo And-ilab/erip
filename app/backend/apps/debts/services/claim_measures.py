@@ -81,11 +81,16 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
     for case in ClaimCase.objects.filter(account__in=accounts).select_related("account"):
         sync_claim_measure(case)
     claimed = ClaimCase.objects.filter(account__in=accounts).values("account_id")
+    # order_by() снимает сортировку модели. Иначе PostgreSQL отвергает GROUP BY по id
+    # вместе с ORDER BY client_account, и реестр отвечает 500.
     bare = (
         accounts.filter(Q(debt_group__isnull=False) | Q(debt_group_manual__isnull=False))
         .exclude(pk__in=claimed)
+        .order_by()
+        .values("pk")
         .annotate(measure_count=Count("measures"))
         .filter(measure_count=0)
+        .order_by("pk")
         .values_list("pk", flat=True)[:2000]
     )
     ids = list(bare)

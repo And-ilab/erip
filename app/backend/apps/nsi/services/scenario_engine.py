@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.debts.models import Account, AccountScenarioRun, Measure, MeasureItem
@@ -44,10 +45,18 @@ def ensure_imported_run(account: Account) -> None:
         scenario = _scenario_for_import(account)
         if scenario is None:
             return
-        AccountScenarioRun.objects.create(
-            organization=account.organization, account=account, scenario=scenario, version=scenario.version,
-        )
-    elif run.paused:
+        try:
+            run, _created = AccountScenarioRun.objects.get_or_create(
+                account=account,
+                defaults={
+                    "organization": account.organization, "scenario": scenario, "version": scenario.version,
+                },
+            )
+        except IntegrityError:
+            run = AccountScenarioRun.objects.filter(account=account).first()
+        if run is None:
+            return
+    if run.paused:
         return
     advance_account(account)
 

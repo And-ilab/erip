@@ -1,8 +1,9 @@
 """Лицевой счёт из дела взыскания и счёт с долгом видны в реестре мероприятий."""
 
 import pytest
+from django.db.models import Count, Q
 
-from apps.debts.models import ClaimCase, Measure
+from apps.debts.models import Account, ClaimCase, Measure
 
 from .conftest import make_account
 
@@ -54,3 +55,18 @@ def test_debt_account_without_a_claim_appears_in_measures(api, specialist_a, org
     listed = api(specialist_a).get("/api/v1/measures/registry/")
     assert listed.status_code == 200, listed.content
     assert account.client_account in _accounts(listed.json())
+
+
+@pytest.mark.django_db
+def test_accounts_without_measures_are_grouped_by_id():
+    query = (
+        Account.objects.filter(Q(debt_group__isnull=False) | Q(debt_group_manual__isnull=False))
+        .order_by()
+        .values("pk")
+        .annotate(measure_count=Count("measures"))
+        .filter(measure_count=0)
+        .order_by("pk")
+    )
+    sql = str(query.query).lower()
+    assert "group by" in sql
+    assert "client_account" not in sql.split("order by", 1)[-1]
