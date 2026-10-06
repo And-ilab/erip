@@ -22,19 +22,19 @@ function belarusStyle(tileUrl: string): StyleSpecification {
       { id: 'earth', type: 'fill', source: 'belarus', 'source-layer': 'earth', paint: { 'fill-color': '#f4f0e6' } },
       { id: 'landcover', type: 'fill', source: 'belarus', 'source-layer': 'landcover', paint: { 'fill-color': '#e4efd4', 'fill-opacity': 0.7 } },
       {
-        id: 'landuse-green', type: 'fill', source: 'belarus', 'source-layer': 'landuse',
+        id: 'landuse-green', type: 'fill', source: 'belarus', 'source-layer': 'landuse', minzoom: 10,
         filter: ['in', 'kind', 'park', 'forest', 'wood', 'grass', 'meadow', 'garden', 'national_park', 'nature_reserve'],
         paint: { 'fill-color': '#d5e8c0' },
       },
       {
-        id: 'landuse-residential', type: 'fill', source: 'belarus', 'source-layer': 'landuse',
+        id: 'landuse-residential', type: 'fill', source: 'belarus', 'source-layer': 'landuse', minzoom: 12,
         filter: ['==', 'kind', 'residential'],
         paint: { 'fill-color': '#efe8dc' },
       },
       { id: 'water', type: 'fill', source: 'belarus', 'source-layer': 'water', filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#b7d4e8' } },
       { id: 'water-line', type: 'line', source: 'belarus', 'source-layer': 'water', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#9ec4dc', 'line-width': 1 } },
       {
-        id: 'roads-minor', type: 'line', source: 'belarus', 'source-layer': 'roads',
+        id: 'roads-minor', type: 'line', source: 'belarus', 'source-layer': 'roads', minzoom: 13,
         filter: ['==', 'kind', 'minor_road'],
         paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 15, 2.2] },
       },
@@ -44,7 +44,7 @@ function belarusStyle(tileUrl: string): StyleSpecification {
         paint: { 'line-color': '#f0d48a', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 14, 3.2] },
       },
       {
-        id: 'buildings', type: 'fill', source: 'belarus', 'source-layer': 'buildings', minzoom: 13,
+        id: 'buildings', type: 'fill', source: 'belarus', 'source-layer': 'buildings', minzoom: 14,
         paint: { 'fill-color': '#e4d9c8', 'fill-opacity': 0.85 },
       },
     ],
@@ -166,7 +166,8 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
         style: belarusStyle(`${window.location.origin}/maps/belarus.pmtiles`),
         center: [27.95, 53.7],
         zoom: 6,
-        maxZoom: 18,
+        maxZoom: 16,
+        fadeDuration: 0,
       });
       this.map = map;
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -283,7 +284,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
       this.markers.push(marker);
     }
     if (placed.length === 1) {
-      map.flyTo({
+      map.jumpTo({
         center: [placed[0].longitude as number, placed[0].latitude as number],
         zoom: this.zoom(placed[0].kind),
       });
@@ -292,7 +293,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     if (placed.length > 1) {
       const bounds = new maplibregl.LngLatBounds();
       for (const child of placed) bounds.extend([child.longitude as number, child.latitude as number]);
-      map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 600 });
+      map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 0 });
     }
   }
 
