@@ -20,6 +20,8 @@ import {
   DebtorCategory,
   DisconnectCandidate,
   ErrorLogEntry,
+  ImportJob,
+  OrganizationOption,
   HistoryRow,
   KanbanColumn,
   MapLevel,
@@ -511,6 +513,26 @@ export class ApiService {
 
   printFile(formId: number, path: string): Observable<Blob> {
     return this.http.get(`${this.base}/nsi/print-forms/${formId}/${path}/`, { responseType: 'blob' });
+  }
+
+  organizations(): Observable<Page<OrganizationOption>> {
+    return this.http.get<Page<OrganizationOption>>(`${this.base}/organizations/`, { params: toParams({ page_size: 200 }) });
+  }
+
+  createOrganization(schemaName: string, name: string): Observable<OrganizationOption> {
+    return this.http.post<OrganizationOption>(`${this.base}/organizations/`, { schema_name: schemaName, name });
+  }
+
+  importJobs(): Observable<Page<ImportJob>> {
+    return this.http.get<Page<ImportJob>>(`${this.base}/imports/`, { params: toParams({ page_size: 20 }) });
+  }
+
+  uploadImport(entity: string, file: File, organization: number | null): Observable<ImportJob> {
+    const data = new FormData();
+    data.set('entity', entity);
+    data.set('file', file);
+    if (organization != null) data.set('organization', String(organization));
+    return this.http.post<ImportJob>(`${this.base}/imports/`, data);
   }
 }
 

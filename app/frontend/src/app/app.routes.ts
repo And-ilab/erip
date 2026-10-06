@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, superadminGuard } from './core/auth.guard';
+import { authGuard, importGuard, superadminGuard } from './core/auth.guard';
 import { ShellComponent } from './layout/shell.component';
 
 export const routes: Routes = [
@@ -58,6 +58,11 @@ export const routes: Routes = [
       {
         path: 'scenarios',
         loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
+      },
+      {
+        path: 'imports',
+        canActivate: [importGuard],
+        loadComponent: () => import('./features/imports/imports.component').then((m) => m.ImportsComponent),
       },
       {
         path: 'errors',

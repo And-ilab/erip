@@ -11,6 +11,32 @@ export interface ApiError {
 
 export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'observer';
 
+export interface OrganizationOption {
+  id: number;
+  schema_name: string;
+  name: string;
+}
+
+export interface ImportJob {
+  id: number;
+  organization: number;
+  entity: string;
+  entity_display: string;
+  file_name: string;
+  encoding: string;
+  status: string;
+  status_display: string;
+  total: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  rejected: number;
+  errors: { line: number; reason: string }[];
+  unknown_columns: string[];
+  created_at: string;
+  finished_at: string | null;
+}
+
 export interface Me {
   id: number;
   username: string;

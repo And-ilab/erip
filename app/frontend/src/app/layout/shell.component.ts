@@ -110,6 +110,9 @@ export class ShellComponent {
     if (this.auth.canWrite() && this.auth.me()?.contour !== 'supplier') {
       items.push({ link: '/scenarios', label: 'Настройка', icon: 'tune' });
     }
+    if (this.auth.canManageTemplates()) {
+      items.push({ link: '/imports', label: 'Загрузка АИС', icon: 'upload_file' });
+    }
     items.push(
       { link: '/password', label: 'Смена пароля', icon: 'lock' },
       { link: '/notifications', label: 'Оповещения', icon: 'notifications' },
