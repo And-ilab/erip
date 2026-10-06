@@ -48,6 +48,8 @@ export interface AccountRow {
   months_debt: number | null;
   subj_count: number | null;
   funnel_stage: string;
+  claim_id?: number | null;
+  claim_stage?: string;
   services_count: number;
   debt_total: string | null;
   mulct_total: string | null;

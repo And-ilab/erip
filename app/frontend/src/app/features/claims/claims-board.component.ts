@@ -36,8 +36,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
           (queryChange)="onFilter($event)" />
       </div>
       <p class="hint">
-        С группы 3: исполнительная надпись, иск и ОПИ.
-        Канбан, список, календарь и графики — как в реестре лицевых счетов, здесь только эти должники.
+        С группы 3: исполнительная надпись, иск и ОПИ. Канбан — этапы дела.
+        Карточку переносят левой кнопкой или значком в углу, как в реестре лицевых счетов.
       </p>
       @if (error()) { <p class="error">{{ error() }}</p> }
 
@@ -109,8 +109,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
                   }
                   @if (stageMenu() === card.id) {
                     <div class="stage-menu" (click)="$event.stopPropagation()">
-                      @for (item of funnel; track item.id) {
-                        <button type="button" [class.on]="(card.funnel_stage || 'new') === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
+                      @for (item of caseStages; track item.id) {
+                        <button type="button" [class.on]="(card.claim_stage || 'queue') === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
                       }
                     </div>
                   }
@@ -269,13 +269,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
       font-size: 13px; font-weight: 600; color: #243140;
     }
     .k-col h3 b { font-weight: 600; color: #8b95a1; }
-    .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
-    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
-    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
-    .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
-    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="queue"] h3 { border-bottom-color: #64748b; }
+    .k-col[data-stage="prep"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="notary"] h3 { border-bottom-color: #7c3aed; }
+    .k-col[data-stage="writ_done"] h3 { border-bottom-color: #1f9d55; }
+    .k-col[data-stage="refused"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="lawsuit"] h3 { border-bottom-color: #e0a106; }
     .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
-    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-col[data-stage="opi"] h3 { border-bottom-color: #f08c2e; }
+    .k-col[data-stage="opi_measures"] h3 { border-bottom-color: #b45309; }
+    .k-col[data-stage="recovered"] h3 { border-bottom-color: #0f766e; }
+    .k-col[data-stage="impossible"] h3 { border-bottom-color: #6b7280; }
+    .k-col[data-stage="writeoff"] h3 { border-bottom-color: #9ca3af; }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
       border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
@@ -389,6 +394,20 @@ export class ClaimsBoardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
+  protected readonly caseStages = [
+    { id: 'queue', label: 'К взысканию' },
+    { id: 'prep', label: 'Подготовка пакета' },
+    { id: 'notary', label: 'Направлено нотариусу' },
+    { id: 'writ_done', label: 'Надпись совершена' },
+    { id: 'refused', label: 'Отказ нотариуса' },
+    { id: 'lawsuit', label: 'Исковое заявление' },
+    { id: 'court', label: 'Судебное решение' },
+    { id: 'opi', label: 'Направлено в ОПИ' },
+    { id: 'opi_measures', label: 'Меры ОПИ' },
+    { id: 'recovered', label: 'Взыскано' },
+    { id: 'impossible', label: 'Невозможность взыскания' },
+    { id: 'writeoff', label: 'Списание' },
+  ];
   protected readonly funnel = [
     { id: 'new', label: 'Новый должник' },
     { id: 'prevention', label: 'Автообзвон/уведомления' },
@@ -521,17 +540,42 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   private moveIds(ids: number[], stage: string): void {
-    const pending = [...ids];
+    const pending = this.board().flatMap((column) => column.cards).filter((card) => ids.includes(card.id));
     const step = (): void => {
-      const id = pending.shift();
-      if (id == null) {
+      const card = pending.shift();
+      if (!card) {
         this.selected.set(new Set());
         this.loadBoard();
         return;
       }
-      this.api.updateAccount(id, { funnel_stage: stage }).subscribe({
-        next: () => step(),
-        error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      if ((card.claim_stage || 'queue') === stage) {
+        step();
+        return;
+      }
+      if (stage === 'queue') {
+        this.snack.open('Открытое дело в очередь не возвращается', 'OK');
+        this.loadBoard();
+        return;
+      }
+      const moved = (claimId: number): void => {
+        this.api.claimAction(claimId, 'move', { stage }).subscribe({
+          next: () => step(),
+          error: (err) => {
+            this.snack.open(errorMessage(err), 'OK');
+            this.loadBoard();
+          },
+        });
+      };
+      if (card.claim_id) {
+        moved(card.claim_id);
+        return;
+      }
+      this.api.openClaim(card.id).subscribe({
+        next: (claim) => (stage === 'prep' ? step() : moved(claim.id)),
+        error: (err) => {
+          this.snack.open(errorMessage(err), 'OK');
+          this.loadBoard();
+        },
       });
     };
     step();
