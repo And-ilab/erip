@@ -1,11 +1,5 @@
 import { Component, computed, input } from '@angular/core';
 
-/** Буква «Б» с чертой — графический знак белорусского рубля. В шрифтах его ещё нет. */
-export const BYN_SIGN_PATH =
-  'M14 2H42V14H26V30H40C58 30 66 42 66 54C66 68 52 70 40 70H14Z' +
-  'M2 30H14V42H2Z' +
-  'M26 42H34C50 42 52 48 52 54C52 62 46 58 34 58H26Z';
-
 const amountFormat = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const compactFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 
@@ -25,18 +19,25 @@ export function formatMoney(
   selector: 'app-byn-sign',
   standalone: true,
   template: `
-    <svg viewBox="0 0 68 72" role="img" aria-label="белорусский рубль" focusable="false">
-      <path [attr.d]="path" fill="currentColor" fill-rule="evenodd" />
-    </svg>
+    <span class="byn" role="img" aria-label="белорусский рубль">
+      <span class="bar" aria-hidden="true"></span>
+      <span class="letter" aria-hidden="true">Б</span>
+    </span>
   `,
   styles: `
-    :host { display: inline-flex; align-items: center; line-height: 0; vertical-align: -0.12em; }
-    svg { width: 0.82em; height: 1em; display: block; }
+    :host { display: inline-block; vertical-align: baseline; }
+    .byn {
+      position: relative; display: inline-block; padding-left: 0.2em;
+      font-weight: 700; font-family: Roboto, "Segoe UI", Arial, sans-serif; line-height: 1;
+    }
+    .letter { font-weight: 700; }
+    /* Нижняя перекладина печатной «Б», продолженная влево. */
+    .bar {
+      position: absolute; left: 0; top: 0.40em; width: 0.42em; height: 0.11em; background: currentColor;
+    }
   `,
 })
-export class BynSignComponent {
-  protected readonly path = BYN_SIGN_PATH;
-}
+export class BynSignComponent {}
 
 @Component({
   selector: 'app-money',

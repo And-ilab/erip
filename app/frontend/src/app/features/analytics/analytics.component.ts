@@ -2,7 +2,7 @@ import { Component, Input, OnChanges, OnInit, SimpleChanges, computed, inject, s
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { BYN_SIGN_PATH, MoneyComponent, formatMoney } from '../../core/money.component';
+import { BynSignComponent, MoneyComponent, formatMoney } from '../../core/money.component';
 import { DebtCharts } from '../../core/models';
 
 type Mode = 'bar' | 'line' | 'pie';
@@ -65,7 +65,7 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
 @Component({
   selector: 'app-analytics',
   standalone: true,
-  imports: [MoneyComponent],
+  imports: [MoneyComponent, BynSignComponent],
   template: `
     <div class="charts">
       <div class="toolbar">
@@ -101,9 +101,9 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
             <svg [attr.viewBox]="'0 0 ' + bar().width + ' ' + bar().height" role="img" [attr.aria-label]="heading()">
               <g class="axis-unit">
                 @if (bar().unitLabel) { <text class="axis-name" x="8" y="15">{{ bar().unitLabel }}</text> }
-                <svg [attr.x]="bar().unitLabel ? 34 : 8" y="2" width="14" height="16" viewBox="0 0 68 72" aria-hidden="true">
-                  <path [attr.d]="bynPath" fill="currentColor" fill-rule="evenodd" />
-                </svg>
+                <foreignObject [attr.x]="bar().unitLabel ? 34 : 8" y="0" width="20" height="18">
+                  <span class="chart-sign"><app-byn-sign /></span>
+                </foreignObject>
               </g>
               @for (tick of bar().ticks; track tick.y) {
                 <line [attr.x1]="bar().left" [attr.x2]="bar().width - 12" [attr.y1]="tick.y" [attr.y2]="tick.y" class="grid" />
@@ -147,9 +147,9 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
                   <text class="pie-total" x="160" y="328" text-anchor="middle">{{ data.cases }} дел</text>
                   <text class="pie-caption" x="460" y="312" text-anchor="middle">Сумма задолженности (с пеней)</text>
                   <text class="pie-total" x="460" y="328" text-anchor="middle">{{ pieMoney().text }}</text>
-                  <svg [attr.x]="pieMoney().signX" y="316" width="14" height="16" viewBox="0 0 68 72" aria-hidden="true">
-                    <path [attr.d]="bynPath" fill="currentColor" fill-rule="evenodd" />
-                  </svg>
+                  <foreignObject [attr.x]="pieMoney().signX" y="312" width="22" height="18">
+                    <span class="chart-sign"><app-byn-sign /></span>
+                  </foreignObject>
                 </svg>
                 <ul class="legend">
                   @for (slice of slices(); track slice.title) {
@@ -174,9 +174,9 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
             <svg [attr.viewBox]="'0 0 ' + line().width + ' ' + line().height" role="img" [attr.aria-label]="heading()">
               <g class="axis-unit">
                 @if (line().unitLabel) { <text class="axis-name" x="8" y="15">{{ line().unitLabel }}</text> }
-                <svg [attr.x]="line().unitLabel ? 34 : 8" y="2" width="14" height="16" viewBox="0 0 68 72" aria-hidden="true">
-                  <path [attr.d]="bynPath" fill="currentColor" fill-rule="evenodd" />
-                </svg>
+                <foreignObject [attr.x]="line().unitLabel ? 34 : 8" y="0" width="20" height="18">
+                  <span class="chart-sign"><app-byn-sign /></span>
+                </foreignObject>
               </g>
               @for (tick of line().ticks; track tick.y) {
                 <line [attr.x1]="line().left" [attr.x2]="line().width - 16" [attr.y1]="tick.y" [attr.y2]="tick.y" class="grid" />
@@ -220,8 +220,8 @@ const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'и�
     .grid { stroke: #e6edf2; stroke-width: 1; }
     .tick { font-size: 11px; fill: var(--erip-muted); }
     .axis-name { font-size: 11px; fill: var(--erip-muted); }
-    .axis-unit { color: var(--erip-muted); }
-    .pie-total + svg { color: var(--erip-muted); }
+    .axis-unit, .chart-sign { color: var(--erip-muted); }
+    .chart-sign { font-size: 14px; line-height: 1; }
     .bar-count { font-size: 11px; fill: #607d8b; }
     .bar-total { font-size: 13px; font-weight: 700; fill: #1f2933; }
     .bar-name { font-size: 11px; fill: #334e68; }
@@ -258,7 +258,6 @@ export class AnalyticsComponent implements OnInit, OnChanges {
   protected readonly error = signal('');
   protected readonly chart = signal<ParsedCharts | null>(null);
 
-  protected readonly bynPath = BYN_SIGN_PATH;
   protected readonly pieMoney = computed(() => {
     const text = formatMoney(this.totalAmount(), { blank: false, compact: true }) ?? '';
     return { text, signX: 460 + text.length * 3.2 + 4 };
