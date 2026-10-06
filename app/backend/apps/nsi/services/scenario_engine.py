@@ -354,11 +354,13 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
         card = (account.scenario_name or "").strip() or scenario_names().get(account.effective_group or 0, "")
         if card:
             data["template_name"] = card
-        assignee = User.objects.filter(
-            organization_id=account.organization_id, is_active=True,
-        ).exclude(role=User.Role.OBSERVER).order_by("id").first()
-        if assignee is not None:
-            data["assignee"] = assignee.pk
+        from apps.debts.services.measures import collection_executor
+
+        executor = collection_executor(account)
+        if executor is not None:
+            data["assignee"] = executor.pk
+        else:
+            data["allow_unassigned"] = True
     user = run.scenario.revisions.filter(version=run.version).values_list("author", flat=True).first()
     actor = User.objects.filter(pk=user).first() if user else None
     if actor is None:

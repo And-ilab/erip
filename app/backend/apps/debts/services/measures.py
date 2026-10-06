@@ -438,6 +438,34 @@ def _measure_owner(user, services: list[AccountService]) -> tuple[int | None, st
     return provider_id, name or ""
 
 
+def collection_executor(account: Account):
+    """Исполнитель взыскания: закреплённый специалист счёта, иначе специалист начисляющей организации.
+
+    Автообзвон исполнителя не требует. Поставщик и наблюдатель взыскание не ведут.
+    Ручной запуск по-прежнему требует выбрать человека в форме.
+    """
+    pinned = account.assigned_to
+    if pinned is not None and _leads_collection(pinned, account):
+        return pinned
+    return (
+        User.objects.filter(
+            organization_id=account.organization_id, is_active=True,
+            contour=User.Contour.BILLING, role=User.Role.SPECIALIST,
+        )
+        .order_by("id")
+        .first()
+    )
+
+
+def _leads_collection(user, account: Account) -> bool:
+    return bool(
+        user.is_active
+        and user.organization_id == account.organization_id
+        and user.contour == User.Contour.BILLING
+        and user.role == User.Role.SPECIALIST
+    )
+
+
 def launch_measure(user, accounts: list[Account], services: list[AccountService], data) -> dict:
     kind = data.get("kind")
     if kind not in Measure.Kind.values:
@@ -479,7 +507,7 @@ def launch_measure(user, accounts: list[Account], services: list[AccountService]
             raise MeasureLaunchError({"scenario_name": "Укажите сценарий"})
         if not data.get("started_on"):
             raise MeasureLaunchError({"started_on": "Укажите дату начала"})
-    if kind == Measure.Kind.COLLECTION and not data.get("assignee"):
+    if kind == Measure.Kind.COLLECTION and not data.get("assignee") and not data.get("allow_unassigned"):
         raise MeasureLaunchError({"assignee": "Назначьте исполнителя"})
     override = (data.get("override_reason") or "").strip()
     extras: dict[int, dict] = {}

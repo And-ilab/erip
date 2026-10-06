@@ -96,7 +96,10 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
     )
     ids = list(bare)
     retry = list(
-        accounts.filter(measures__kind=Measure.Kind.CALL, measures__status=Measure.Status.FAILED)
+        accounts.filter(
+            Q(measures__kind=Measure.Kind.CALL, measures__status=Measure.Status.FAILED)
+            | Q(measures__kind=Measure.Kind.COLLECTION, measures__status=Measure.Status.FAILED),
+        )
         .order_by()
         .values_list("pk", flat=True)
         .distinct()[:2000]

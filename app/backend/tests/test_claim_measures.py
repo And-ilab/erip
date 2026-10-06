@@ -193,3 +193,34 @@ def test_assigned_autodial_without_a_group_yields_to_the_card_scenario(api, spec
     assert card_titles == ["Взыскание через ОПИ"]
     account.refresh_from_db()
     assert account.scenario_name == card_titles[0]
+
+
+@pytest.mark.django_db
+def test_collection_executor_is_the_pinned_billing_specialist(org_a, specialist_a):
+    from apps.nsi.services.scenario_engine import ensure_imported_run
+    from apps.users.models import User
+
+    from .conftest import make_user
+
+    pinned = make_user("spec_pin", User.Role.SPECIALIST, org_a, first_name="Борис")
+    account = _with_group(org_a, 8301, 5, 14)
+    account.assigned_to = pinned
+    account.save(update_fields=["assigned_to"])
+    ensure_imported_run(account)
+    row = Measure.objects.get(accounts=account, kind=Measure.Kind.COLLECTION)
+    assert row.status == Measure.Status.ASSIGNED
+    assert row.assignee_id == pinned.id
+    assert row.assignee_id != specialist_a.id
+
+
+@pytest.mark.django_db
+def test_collection_without_a_specialist_is_assigned_not_failed(org_a):
+    from apps.nsi.services.scenario_engine import ensure_imported_run
+
+    account = _with_group(org_a, 8302, 5, 14)
+    ensure_imported_run(account)
+    row = Measure.objects.get(accounts=account)
+    assert row.kind == Measure.Kind.COLLECTION
+    assert row.status == Measure.Status.ASSIGNED
+    assert row.assignee_id is None
+    assert "исполнител" not in (row.note or "").casefold()
