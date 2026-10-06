@@ -74,7 +74,6 @@ services:
         condition: service_healthy
     volumes:
       - media:/var/media:ro
-      - ./maps:/usr/share/nginx/html/maps:ro
     ports:
       - "8080:80"
     restart: unless-stopped
