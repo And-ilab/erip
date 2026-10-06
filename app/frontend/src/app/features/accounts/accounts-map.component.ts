@@ -260,6 +260,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
         maxZoom: 17,
         maxPitch: 0,
         fadeDuration: 0,
+        transformRequest: (url, kind) => kind === 'Glyphs' ? { url: encodeURI(url) } : { url },
       });
       this.map = map;
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -270,8 +271,13 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
         const level = this.level();
         if (level) this.draw(level);
       });
-      map.on('error', () => {
-        if (!this.mapLoaded) this.mapFailed.set('Файл карты на сервере не открылся. Пузыри сверху всё равно открывают дерево.');
+      map.on('error', (event) => {
+        if (this.mapLoaded) return;
+        const detail = event.error as { message?: string; url?: string };
+        const where = `${detail?.url ?? ''} ${detail?.message ?? ''}`;
+        if (where.includes('/maps/') || where.includes('pmtiles')) {
+          this.mapFailed.set('Файл карты на сервере не открылся. Пузыри сверху всё равно открывают дерево.');
+        }
       });
     } catch {
       this.mapFailed.set('Карта не открылась. Пузыри сверху всё равно открывают дерево.');
