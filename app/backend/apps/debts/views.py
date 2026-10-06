@@ -363,9 +363,23 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         page = max(int(request.query_params.get("page") or 1), 1)
         base = AccountRepository.with_board_marks(self.filter_queryset(self.get_queryset()))
         start = (page - 1) * page_size
+        scope = (request.query_params.get("scope") or "").strip()
+        if scope == "claims":
+            from apps.debts.models import ClaimCase
+
+            stages = [("queue", "К взысканию"), *list(ClaimCase.Stage.choices)]
+        else:
+            stages = FUNNEL_STAGES
         columns = []
-        for code, title in FUNNEL_STAGES:
-            stage_qs = base.filter(funnel_stage=code) if code != "new" else base.filter(funnel_stage__in=["", "new"])
+        for code, title in stages:
+            if scope == "claims" and code == "queue":
+                stage_qs = base.filter(claim_case__isnull=True)
+            elif scope == "claims":
+                stage_qs = base.filter(claim_case__stage=code)
+            elif code != "new":
+                stage_qs = base.filter(funnel_stage=code)
+            else:
+                stage_qs = base.filter(funnel_stage__in=["", "new"])
             total = stage_qs.count()
             cards = AccountListSerializer(stage_qs[start:start + page_size], many=True).data
             columns.append({"stage": code, "title": title, "total": total, "cards": cards})
@@ -967,6 +981,7 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         data = self.get_serializer(measure).data
         data["skipped"] = result["skipped"]
         data["skipped_inheritance"] = result["skipped_inheritance"]
+        data["dropped_services"] = result["dropped_services"]
         data["service_ids"] = result["service_ids"]
         return Response(data, status=status.HTTP_201_CREATED)
 

@@ -577,6 +577,7 @@ export interface ScenarioStep {
   action: string;
   wait_days?: number;
   template?: string;
+  template_id?: number | null;
   approval?: boolean;
   branch_group?: number | null;
   groups?: number[];
@@ -645,6 +646,8 @@ export interface PrintFormRow {
   body: string;
   font_size?: number;
   indent_mm?: number;
+  outdent_mm?: number;
+  block_order?: string[];
   logo_text?: string;
   requisites?: string;
   signatory?: string;

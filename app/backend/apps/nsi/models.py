@@ -151,6 +151,13 @@ class PrintForm(TimeStampedModel, SoftDeleteModel):
     body = models.TextField("Текст")
     font_size = models.PositiveSmallIntegerField("Размер шрифта", default=12)
     indent_mm = models.PositiveSmallIntegerField("Отступ, мм", default=0)
+    outdent_mm = models.PositiveSmallIntegerField("Выступ, мм", default=0)
+    block_order = models.JSONField(
+        "Порядок блоков",
+        default=list,
+        blank=True,
+        help_text="logo, requisites, body, signatory",
+    )
     logo_text = models.CharField("Логотип", max_length=250, blank=True)
     requisites = models.TextField("Реквизиты", blank=True)
     signatory = models.CharField("Подпись уполномоченного", max_length=250, blank=True)

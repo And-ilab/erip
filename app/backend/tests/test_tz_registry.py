@@ -173,7 +173,11 @@ def test_group_comes_from_unpaid_periods_and_reentry_raises_subrating(org_a, acc
     periods = list(ServiceDebtPeriod.objects.filter(service=service).order_by("period"))
     assert len(periods) == 7
     assert periods[0].started_on == date(2026, 4, 26)
+    assert periods[0].principal == service.balance_out
+    assert periods[1].principal == 0
     assert sum(row.principal for row in periods) == service.balance_out
+    account_a.refresh_from_db()
+    assert account_a.ais_updated_at is None
     account_a.refresh_from_db()
     assert account_a.rating_repeat == 1
     service.balance_out = Decimal("0")

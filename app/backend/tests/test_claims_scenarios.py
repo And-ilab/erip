@@ -6,6 +6,8 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from apps.debts.models import AccountScenarioRun, Attachment, DebtWorkItem, Measure
+from apps.nsi.services.scenario_engine import step_template_name
+from apps.notifications.models import MessageTemplate
 
 from .conftest import make_account
 
@@ -83,7 +85,7 @@ def test_writeoff_needs_three_acts_and_every_approval(api, specialist_a, admin_a
 
 @pytest.mark.django_db
 def test_one_refusal_blocks_writeoff(api, specialist_a, admin_a, org_a):
-    account = make_account(org_a, 4101)
+    account = make_account(org_a, 4101, debt_group=3)
     case_id = _ready(api, specialist_a, account)
     for index in range(3):
         api(specialist_a).post(f"/api/v1/claims/{case_id}/acts/", {"title": f"Акт {index}"}, format="json")
@@ -201,6 +203,15 @@ def test_notary_refusal_needs_a_note_or_a_file(api, specialist_a, account_a):
         f"/api/v1/claims/{case_id}/notary-result/", {"result": "refused", "note": ""}, format="json",
     )
     assert empty.status_code == 400
+
+    Attachment.objects.create(
+        organization=account_a.organization, account=account_a, doc_type="договор",
+        original_name="dogovor.pdf", file=SimpleUploadedFile("dogovor.pdf", b"%PDF"),
+    )
+    other = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/notary-result/", {"result": "refused", "note": ""}, format="json",
+    )
+    assert other.status_code == 400
 
     Attachment.objects.create(
         organization=account_a.organization, account=account_a, doc_type="постановление об отказе",
@@ -474,20 +485,21 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
     )
     party.accounts.add(on_measure)
     outsider = make_account(org_a, 4103, funnel_stage="new")
+    from_group = make_account(org_a, 4104, funnel_stage="disconnect", debt_group=3)
 
     listed = api(specialist_a).get("/api/v1/accounts/", {"scope": "claims", "page_size": 50})
     assert listed.status_code == 200, listed.content
     ids = {row["id"] for row in listed.json()["results"]}
-    assert {on_writ.id, on_measure.id} <= ids
+    assert {on_writ.id, on_measure.id, from_group.id} <= ids
     assert outsider.id not in ids
 
     columns = api(specialist_a).get("/api/v1/accounts/kanban/", {"scope": "claims"}).json()
     cards = {card["id"] for column in columns for card in column["cards"]}
-    assert {on_writ.id, on_measure.id} <= cards
+    assert {on_writ.id, on_measure.id, from_group.id} <= cards
     assert outsider.id not in cards
     by_stage = {column["stage"]: column["total"] for column in columns}
-    assert by_stage["enforcement"] >= 1
-    assert by_stage["warning"] >= 1
+    assert by_stage["queue"] >= 3
+    assert by_stage["prep"] == 0
 
     events = api(specialist_a).get("/api/v1/accounts/calendar/", {
         "scope": "claims", "date_from": "2026-10-01", "date_to": "2026-10-31",
@@ -496,4 +508,16 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
     assert "Взыскание" in {row["title"] for row in events.json()}
 
     charts = api(specialist_a).get("/api/v1/accounts/charts/", {"scope": "claims"}).json()
-    assert charts["cases"] == 2
+    assert charts["cases"] == 3
+
+
+@pytest.mark.django_db
+def test_scenario_step_keeps_the_template_after_rename(org_a):
+    template = MessageTemplate.objects.create(
+        organization=org_a, code="remind", name="Старое имя", channel="sms", body="Текст",
+    )
+    assert step_template_name({"template_id": template.id, "template": "Старое имя"}, "Сценарий") == "Старое имя"
+    template.name = "Новое имя"
+    template.save(update_fields=["name"])
+    assert step_template_name({"template_id": template.id, "template": "Старое имя"}, "Сценарий") == "Новое имя"
+    assert step_template_name({"template": "Как записано"}, "Сценарий") == "Как записано"

@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { FormControl, FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -9,41 +9,32 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Router, RouterLink } from '@angular/router';
-import { debounceTime, distinctUntilChanged } from 'rxjs';
-
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent } from '../calendar/calendar-board.component';
+import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
 import { RegistryViewsComponent } from '../registry-views.component';
-
-const MONTHS = [
-  'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
-  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
-];
 
 @Component({
   selector: 'app-measures-list',
   standalone: true,
   imports: [
-    DatePipe, FormsModule, ReactiveFormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
+    DatePipe, FormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
     MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
-    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent,
+    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent,
   ],
   template: `
     <div class="page">
       <div class="toolbar">
         <h2>Реестр мероприятий</h2>
-        @if (view() === 'list' || view() === 'kanban') {
-          <label class="searchbar">
-            <mat-icon>search</mat-icon>
-            @if (period.value) {
-              <button type="button" class="period" (click)="period.setValue('')">Период: {{ periodLabel(period.value) }} ×</button>
-            }
-            <input [formControl]="search" placeholder="Поиск по ЛС, должнику, типу мероприятия..." />
-            <input class="month" type="month" [formControl]="period" aria-label="Период" />
-          </label>
+        @if (view() !== 'ready') {
+          <app-registry-filter
+            target="measures"
+            placeholder="Поиск по ЛС, должнику, типу мероприятия..."
+            [showMonth]="true"
+            (queryChange)="onFilter($event)" />
         } @else if (view() === 'ready') {
           <p class="ready-title">Срок предупреждения истёк — можно приостанавливать услуги</p>
         }
@@ -82,7 +73,6 @@ const MONTHS = [
             <table>
               <thead>
                 <tr>
-                  <th class="tick"></th>
                   <th>Мероприятие</th>
                   <th>Должник</th>
                   <th>Исполнитель</th>
@@ -93,7 +83,7 @@ const MONTHS = [
               <tbody>
                 @for (group of groups(); track group.status) {
                   <tr class="band">
-                    <td colspan="6">
+                    <td colspan="5">
                       <button type="button" (click)="toggle(group.status)">
                         <mat-icon>{{ collapsed().has(group.status) ? 'chevron_right' : 'expand_more' }}</mat-icon>
                         {{ group.label }} ({{ group.total }})
@@ -103,9 +93,6 @@ const MONTHS = [
                   @if (!collapsed().has(group.status)) {
                     @for (row of group.results; track row.id) {
                       <tr>
-                        <td class="tick">
-                          <mat-checkbox [checked]="marked().has(row.id)" (change)="mark(row.id)" />
-                        </td>
                         <td>
                           <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
                           @if (row.progress && row.progress.total > 1) {
@@ -142,7 +129,7 @@ const MONTHS = [
                     }
                     @if (group.results.length < group.total) {
                       <tr class="more-row">
-                        <td colspan="6">
+                        <td colspan="5">
                           <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
                           <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
                         </td>
@@ -390,13 +377,11 @@ export class MeasuresListComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
-  protected readonly search = new FormControl('', { nonNullable: true });
-  protected readonly period = new FormControl('', { nonNullable: true });
   protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('list');
+  private filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
   protected readonly events = signal<CalendarEvent[]>([]);
   protected spanFrom = '';
   protected spanTo = '';
-  protected readonly marked = signal<Set<number>>(new Set());
   protected readonly waitDays = signal(5);
   protected readonly groups = signal<MeasureGroup[]>([]);
   protected readonly matrix = signal<MeasureMatrix | null>(null);
@@ -414,8 +399,6 @@ export class MeasuresListComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.load());
-    this.period.valueChanges.subscribe(() => this.load());
     this.api.dialSettings().subscribe({
       next: (settings) => this.waitDays.set(settings.warning_wait_days || 5),
     });
@@ -445,19 +428,10 @@ export class MeasuresListComponent implements OnInit {
     else if (event.account_id) this.router.navigate(['/accounts', event.account_id]);
   }
 
-  protected mark(id: number): void {
-    const next = new Set(this.marked());
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    this.marked.set(next);
-  }
-
   protected download(): void {
     const lines = ['Мероприятие;Должник;ЛС;Исполнитель;Следующее действие;Статус'];
-    const chosen = this.marked();
     for (const group of this.groups()) {
       for (const row of group.results) {
-        if (chosen.size && !chosen.has(row.id)) continue;
         lines.push([row.title, row.debtor_name, row.debtor_account, row.assignee_name, row.next_action, row.status_display]
           .map((value) => `"${String(value || '').replaceAll('"', '""')}"`)
           .join(';'));
@@ -528,10 +502,9 @@ export class MeasuresListComponent implements OnInit {
     this.collapsed.set(next);
   }
 
-  protected periodLabel(value: string): string {
-    const [year, month] = value.split('-');
-    const name = MONTHS[Number(month) - 1] ?? value;
-    return `${name} ${year}`;
+  protected onFilter(query: RegistryFilterQuery): void {
+    this.filter = query;
+    this.load();
   }
 
   protected initials(name: string): string {
@@ -584,7 +557,15 @@ export class MeasuresListComponent implements OnInit {
   }
 
   private params(extra: Record<string, string | number> = {}): Record<string, string | number> {
-    return { search: this.search.value.trim(), period: this.period.value, ...extra };
+    const query: Record<string, string | number> = {
+      search: this.filter.q,
+      period: this.filter.period,
+      ...extra,
+    };
+    if (this.filter.groups.length) query['debt_group__in'] = this.filter.groups.join(',');
+    if (this.filter.ratings.length) query['rating__in'] = this.filter.ratings.join(',');
+    if (this.filter.stage) query['funnel_stage'] = this.filter.stage;
+    return query;
   }
 
   private loadCalendar(): void {

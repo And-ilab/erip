@@ -148,13 +148,13 @@ const ACTIONS = [
                   </mat-select>
                 </mat-form-field>
                 <mat-form-field><mat-label>Шаблон сообщения</mat-label>
-                  <mat-select [(ngModel)]="step.template">
+                  <mat-select [ngModel]="templateValue(step)" (ngModelChange)="setTemplate(step, $event)">
                     <mat-option value="">Не выбран</mat-option>
                     @for (item of messageTemplates(); track item.id) {
-                      <mat-option [value]="item.name">{{ item.name }} · {{ item.channel_display }}</mat-option>
+                      <mat-option [value]="'' + item.id">{{ item.name }} · {{ item.channel_display }}</mat-option>
                     }
-                    @if (step.template && !knownTemplate(step.template)) {
-                      <mat-option [value]="step.template">{{ step.template }}</mat-option>
+                    @if (orphanTemplate(step); as name) {
+                      <mat-option [value]="'name:' + name">{{ name }}</mat-option>
                     }
                   </mat-select>
                 </mat-form-field>
@@ -208,7 +208,7 @@ const ACTIONS = [
 
       <section class="forms" id="forms">
         <h3>Печатные формы</h3>
-        <p class="muted">Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{services}' }}, {{ '{last_payment}' }}, {{ '{organization}' }}, {{ '{due_days}' }}, {{ '{tariff}' }}. Документ запоминает версию шаблона.</p>
+        <p class="muted">Макет — страница из блоков. Порядок, шрифт, отступ и выступ видны сразу. Документ запоминает версию шаблона.</p>
         <div class="picker list-pane">
           @for (form of forms(); track form.id) {
             <button type="button" [class.on]="print()?.id === form.id" (click)="selectForm(form)">{{ form.name }} <small>v{{ form.version }}</small></button>
@@ -239,11 +239,32 @@ const ACTIONS = [
         <div class="line">
           <mat-form-field><mat-label>Шрифт, пт</mat-label><input matInput type="number" [(ngModel)]="formFont" /></mat-form-field>
           <mat-form-field><mat-label>Отступ, мм</mat-label><input matInput type="number" [(ngModel)]="formIndent" /></mat-form-field>
-          <mat-form-field class="grow"><mat-label>Логотип</mat-label><input matInput [(ngModel)]="formLogo" /></mat-form-field>
+          <mat-form-field><mat-label>Выступ, мм</mat-label><input matInput type="number" [(ngModel)]="formOutdent" /></mat-form-field>
         </div>
-        <mat-form-field class="wide"><mat-label>Реквизиты</mat-label><textarea matInput rows="2" [(ngModel)]="formRequisites"></textarea></mat-form-field>
-        <mat-form-field class="wide"><mat-label>Подпись уполномоченного</mat-label><input matInput [(ngModel)]="formSignatory" /></mat-form-field>
-        <mat-form-field class="wide"><mat-label>Текст</mat-label><textarea matInput rows="4" [(ngModel)]="formBody"></textarea></mat-form-field>
+        <div class="tokens">
+          @for (token of printTokens; track token) {
+            <button type="button" (click)="insertToken(token)">{{ '{' + token + '}' }}</button>
+          }
+        </div>
+        <div class="sheet" [style.font-size.pt]="formFont || 12" [style.padding-left.mm]="formIndent || 0">
+          @for (block of formBlocks; track block; let i = $index) {
+            <article class="block">
+              <header>
+                <span>{{ blockTitle(block) }}</span>
+                <button type="button" (click)="moveBlock(i, -1)" [disabled]="i === 0">Выше</button>
+                <button type="button" (click)="moveBlock(i, 1)" [disabled]="i === formBlocks.length - 1">Ниже</button>
+              </header>
+              @switch (block) {
+                @case ('logo') { <input [(ngModel)]="formLogo" placeholder="Логотип" /> }
+                @case ('requisites') { <textarea rows="2" [(ngModel)]="formRequisites" placeholder="Реквизиты"></textarea> }
+                @case ('signatory') { <input [(ngModel)]="formSignatory" placeholder="Подпись уполномоченного" /> }
+                @case ('body') {
+                  <textarea rows="5" [(ngModel)]="formBody" [style.text-indent.mm]="-(formOutdent || 0)" placeholder="Текст с переменными"></textarea>
+                }
+              }
+            </article>
+          }
+        </div>
         <div class="actions">
           <button mat-flat-button color="primary" (click)="saveForm()">Сохранить макет</button>
           <mat-form-field class="grow"><mat-label>ID счетов через запятую</mat-label><input matInput [(ngModel)]="renderAccounts" /></mat-form-field>
@@ -364,6 +385,13 @@ const ACTIONS = [
     .forms { display: flex; flex-direction: column; gap: 8px; }
     .wide, .grow { width: 100%; flex: 1; }
     pre { white-space: pre-wrap; background: var(--erip-bg); padding: 12px; border-radius: 8px; }
+    .tokens { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .tokens button { border: 1px solid var(--erip-border); background: #fff; border-radius: 999px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 12px; }
+    .sheet { max-width: 520px; background: #fff; border: 1px solid var(--erip-border); padding: 16px; }
+    .block { border: 1px dashed var(--erip-border); padding: 8px; margin-bottom: 8px; }
+    .block header { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; color: var(--erip-muted); }
+    .block header button { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; }
+    .block input, .block textarea { width: 100%; box-sizing: border-box; border: 0; font: inherit; background: transparent; }
     @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
   `,
 })
@@ -403,6 +431,9 @@ export class ScenariosComponent implements OnInit {
   protected formAddressee = 'debtor';
   protected formFont = 12;
   protected formIndent = 0;
+  protected formOutdent = 0;
+  protected formBlocks = ['logo', 'requisites', 'body', 'signatory'];
+  protected readonly printTokens = ['fio', 'account', 'amount', 'address', 'services', 'last_payment', 'organization', 'due_days', 'tariff'];
   protected formLogo = '';
   protected formRequisites = '';
   protected formSignatory = '';
@@ -452,13 +483,65 @@ export class ScenariosComponent implements OnInit {
 
   protected loadMessageTemplates(): void {
     this.api.templates({ page_size: 200, is_active: true }).subscribe({
-      next: (page) => this.messageTemplates.set(page.results),
+      next: (page) => {
+        this.messageTemplates.set(page.results);
+        this.bindTemplateIds();
+      },
       error: () => this.messageTemplates.set([]),
     });
   }
 
-  protected knownTemplate(name: string): boolean {
-    return this.messageTemplates().some((item) => item.name === name);
+  protected templateValue(step: ScenarioStep): string {
+    if (step.template_id) return String(step.template_id);
+    const found = this.messageTemplates().find((item) => item.name === step.template);
+    if (found) return String(found.id);
+    return step.template ? `name:${step.template}` : '';
+  }
+
+  protected orphanTemplate(step: ScenarioStep): string {
+    const value = this.templateValue(step);
+    return value.startsWith('name:') ? value.slice(5) : '';
+  }
+
+  protected setTemplate(step: ScenarioStep, value: string): void {
+    if (!value) {
+      step.template_id = null;
+      step.template = '';
+      return;
+    }
+    if (value.startsWith('name:')) {
+      step.template_id = null;
+      step.template = value.slice(5);
+      return;
+    }
+    const found = this.messageTemplates().find((item) => String(item.id) === value);
+    step.template_id = found ? found.id : Number(value);
+    step.template = found?.name || step.template || '';
+  }
+
+  protected blockTitle(kind: string): string {
+    return { logo: 'Логотип', requisites: 'Реквизиты', body: 'Текст', signatory: 'Подпись' }[kind] || kind;
+  }
+
+  protected moveBlock(index: number, delta: number): void {
+    const next = index + delta;
+    if (next < 0 || next >= this.formBlocks.length) return;
+    const order = [...this.formBlocks];
+    const [item] = order.splice(index, 1);
+    order.splice(next, 0, item);
+    this.formBlocks = order;
+  }
+
+  protected insertToken(token: string): void {
+    this.formBody = `${this.formBody}{${token}}`;
+  }
+
+  private bindTemplateIds(): void {
+    for (const step of this.steps) {
+      if (step.template_id) continue;
+      const found = this.messageTemplates().find((item) => item.name === step.template);
+      if (found) step.template_id = found.id;
+    }
   }
 
   protected canEdit(): boolean {
@@ -486,6 +569,7 @@ export class ScenariosComponent implements OnInit {
       require_status: step.require_status || '',
       blocks_next: step.blocks_next !== false,
     }));
+    this.bindTemplateIds();
     this.scenarioCall = row.call_legal == null ? 'inherit' : row.call_legal ? 'yes' : 'no';
     this.scenarioDialDay = row.dial_mobile_from_day ?? null;
     this.scenarioWeekdays = [...(row.dial_mobile_weekdays || [])];
@@ -606,6 +690,8 @@ export class ScenariosComponent implements OnInit {
     this.formAddressee = form.addressee || 'debtor';
     this.formFont = form.font_size || 12;
     this.formIndent = form.indent_mm || 0;
+    this.formOutdent = form.outdent_mm || 0;
+    this.formBlocks = form.block_order?.length ? [...form.block_order] : ['logo', 'requisites', 'body', 'signatory'];
     this.formLogo = form.logo_text || '';
     this.formRequisites = form.requisites || '';
     this.formSignatory = form.signatory || '';
@@ -625,7 +711,9 @@ export class ScenariosComponent implements OnInit {
     const current = this.print();
     const body = {
       id: current?.id, code: this.formCode, name: this.formName, doc_kind: this.formKind,
-      addressee: this.formAddressee, font_size: Number(this.formFont) || 12, indent_mm: Number(this.formIndent) || 0,
+      addressee: this.formAddressee, font_size: Number(this.formFont) || 12,
+      indent_mm: Number(this.formIndent) || 0, outdent_mm: Number(this.formOutdent) || 0,
+      block_order: this.formBlocks,
       logo_text: this.formLogo, requisites: this.formRequisites, signatory: this.formSignatory, body: this.formBody,
     };
     this.api.savePrintForm(body).subscribe({
@@ -669,6 +757,7 @@ export class ScenariosComponent implements OnInit {
       action: step.action,
       wait_days: Number(step.wait_days || 0),
       template: step.template || '',
+      template_id: step.template_id || null,
       approval: Boolean(step.approval),
       branch_group: step.branch_group ? Number(step.branch_group) : null,
       groups: (step.groups || []).map((group) => Number(group)),

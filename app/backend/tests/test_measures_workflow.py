@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 
-from apps.debts.models import Measure, MeasureItem
+from apps.debts.models import AccountService, Measure, MeasureItem
 from apps.notifications.models import Notification
 from apps.nsi.models import CalculationSettings
 from apps.users.models import User
@@ -250,3 +250,26 @@ def test_unpaid_service_that_cannot_be_disconnected_is_rejected(api, specialist_
         format="json",
     )
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_disconnect_skips_the_younger_service(api, specialist_a, account_a):
+    gas = account_a.services.get()
+    water = AccountService.objects.create(
+        organization=account_a.organization, account=account_a, service_list_id=2, service_id=11,
+        service_name="Вода", balance_out=Decimal("20"), debt_period=1,
+    )
+    today = timezone.localdate()
+    _warning(api, specialist_a, account_a, (today - timedelta(days=6)).isoformat())
+    created = api(specialist_a).post(
+        "/api/v1/measures/",
+        {
+            "kind": "disconnect",
+            "account_ids": [account_a.id],
+            "service_ids": [gas.id, water.id],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    assert created.json()["service_ids"] == [gas.id]
+    assert created.json()["dropped_services"][0]["id"] == water.id

@@ -35,6 +35,8 @@ AUTO_KINDS = {
     Measure.Kind.DISCONNECT,
     Measure.Kind.SCENARIO,
 }
+# Надпись и приостановление включаются с группы 3 и только по услуге этой группы.
+SERVICE_MEASURE_GROUP = 3
 ITEM_OPEN = [MeasureItem.Status.ASSIGNED, MeasureItem.Status.RUNNING]
 PARTY_OPEN = [Measure.Status.ASSIGNED, Measure.Status.RUNNING, Measure.Status.PAUSED]
 NOTICE_CHANNELS = {"email", "sms"}
@@ -189,6 +191,7 @@ def _select(kind: str, accounts: list[Account], data, started: date) -> tuple[li
             skipped.append(_skip(account, "Открыто наследственное дело"))
             continue
         if kind == Measure.Kind.CALL:
+            # Звонок один на лицевой счёт: частота идёт по старшей группе счёта.
             group = account.effective_group
             if group_from and group_to and (group is None or not group_from <= group <= group_to):
                 skipped.append(_skip(account, "Группа задолженности вне отобранного диапазона"))
@@ -263,7 +266,10 @@ def disconnect_candidates(accounts) -> list[dict]:
             continue
         linked = [service for service in item.measure.services.all() if service.account_id == item.account_id]
         pool = linked or list(item.account.services.all())
-        services = _unpaid([service for service in pool if is_disconnectable(service)], settings.close_threshold)
+        services = _unpaid([
+            service for service in pool
+            if is_disconnectable(service) and _service_group(service) >= SERVICE_MEASURE_GROUP
+        ], settings.close_threshold)
         if not services:
             continue
         busy = MeasureItem.objects.filter(
@@ -284,6 +290,37 @@ def disconnect_candidates(accounts) -> list[dict]:
             "services": [{"id": service.id, "name": service.service_name} for service in services],
         })
     return rows
+
+
+def _service_group(service: AccountService) -> int:
+    """Показанная группа услуги. Если пересчёт ещё не записал её — по числу месяцев долга."""
+    shown = service.effective_group
+    if shown is not None:
+        return shown
+    from apps.debts.services.grouping import DebtGroupCalculator
+
+    months = service.debt_period if service.debt_period is not None else 0
+    return DebtGroupCalculator().group_for_months(months) or 0
+
+
+def _split_by_service_group(
+    services: list[AccountService],
+) -> tuple[list[AccountService], list[dict]]:
+    kept: list[AccountService] = []
+    dropped: list[dict] = []
+    for service in services:
+        group = _service_group(service)
+        if group >= SERVICE_MEASURE_GROUP:
+            kept.append(service)
+            continue
+        dropped.append({
+            "id": service.id,
+            "account_id": service.account_id,
+            "name": service.service_name,
+            "group": group,
+            "reason": "Группа услуги ниже 3, мера по младшей услуге не запускается",
+        })
+    return kept, dropped
 
 
 def _guard_disconnect(accounts: list[Account], services: list[AccountService], override: str) -> tuple[list[Account], list[dict], dict]:
@@ -437,13 +474,25 @@ def launch_measure(user, accounts: list[Account], services: list[AccountService]
     override = (data.get("override_reason") or "").strip()
     extras: dict[int, dict] = {}
     skipped: list[dict] = []
+    dropped: list[dict] = []
+    if kind in {Measure.Kind.DISCONNECT, Measure.Kind.COLLECTION}:
+        services, dropped = _split_by_service_group(services)
+        kept_accounts = {service.account_id for service in services}
+        for account in accounts:
+            if account.id not in kept_accounts:
+                skipped.append(_skip(account, "Группа услуги ниже 3, мера по младшей услуге не запускается"))
+        accounts = [account for account in accounts if account.id in kept_accounts]
     if kind == Measure.Kind.DISCONNECT:
-        accounts, skipped, extras = _guard_disconnect(accounts, services, override)
+        if accounts:
+            admitted, guard_skipped, extras = _guard_disconnect(accounts, services, override)
+            accounts = admitted
+            skipped.extend(guard_skipped)
     elif kind in {Measure.Kind.CALL, Measure.Kind.NOTICE, Measure.Kind.WARNING}:
-        accounts, skipped, extras = _select(kind, accounts, data, started)
+        accounts, selected_skipped, extras = _select(kind, accounts, data, started)
+        skipped.extend(selected_skipped)
     else:
         inheritance = [account for account in accounts if kind in AUTO_KINDS and account.inheritance_case]
-        skipped = [_skip(account, "Открыто наследственное дело") for account in inheritance]
+        skipped.extend(_skip(account, "Открыто наследственное дело") for account in inheritance)
         accounts = [account for account in accounts if account not in inheritance]
     if not accounts:
         if skipped and all(row["reason"] == "Открыто наследственное дело" for row in skipped):
@@ -530,6 +579,7 @@ def launch_measure(user, accounts: list[Account], services: list[AccountService]
         "measure": measure,
         "skipped": skipped,
         "skipped_inheritance": inheritance_ids,
+        "dropped_services": dropped,
         "service_ids": [service.id for service in services],
     }
 

@@ -15,17 +15,29 @@ LAWSUIT_KINDS = {code for code, _label in ClaimCase.LawsuitKind.choices}
 EVICTION = {"notice", "lawsuit", "court", "enforced"}
 
 
+def _claim_ready(account) -> bool:
+    if (account.effective_group or 0) >= 3:
+        return True
+    if account.measures.filter(kind="collection").exists():
+        return True
+    from apps.debts.services.measures import _service_group
+
+    return any(_service_group(service) >= 3 for service in account.services.all())
+
+
 def claims_population(queryset: QuerySet) -> QuerySet:
     """Должники претензионно-исковой работы.
 
-    Сюда попадает лицевой счёт этапа «Испол. надпись / иск» или «ОПИ»,
-    с мероприятием «взыскание», либо с уже открытым делом.
+    Модуль включается с группы 3. Сюда же попадает уже открытое дело,
+    этап «Испол. надпись / иск» или «ОПИ» и мероприятие «взыскание».
     """
+    shown_group = Q(debt_group_manual__gte=3) | Q(debt_group_manual__isnull=True, debt_group__gte=3)
     matched = queryset.model.objects.filter(
         Q(pk=OuterRef("pk")),
         Q(claim_case__isnull=False)
         | Q(funnel_stage__in=["enforcement", "court"])
-        | Q(measures__kind="collection"),
+        | Q(measures__kind="collection")
+        | shown_group,
     )
     return queryset.filter(Exists(matched))
 
@@ -36,6 +48,11 @@ class ClaimBlocked(ServiceError):
 
 
 def open_case(account, user) -> ClaimCase:
+    existing = ClaimCase.objects.filter(account=account).first()
+    if existing is not None:
+        return existing
+    if not _claim_ready(account):
+        raise ClaimBlocked("Исполнительная надпись и иск включаются с группы 3")
     case, created = ClaimCase.objects.get_or_create(
         account=account,
         defaults={"organization": account.organization, "defendant_name": account.short_fio},
@@ -108,8 +125,8 @@ def notary_result(case: ClaimCase, result: str, user, note: str = "", attachment
     if case.stage != ClaimCase.Stage.NOTARY:
         raise ClaimBlocked("Результат нотариуса фиксируется со статуса «Направлено нотариусу»")
     file_name = _refusal_file(case, attachment_id) if result == "refused" else ""
-    if result == "refused" and not note.strip() and not file_name and not case.account.attachments.exists():
-        raise ClaimBlocked("Отказ нотариуса записывается с комментарием или файлом с карточки счёта")
+    if result == "refused" and not note.strip() and not file_name:
+        raise ClaimBlocked("Отказ нотариуса записывается с комментарием или постановлением об отказе")
     case.notary_note = note
     case.save(update_fields=["notary_note", "updated_at"])
     if result == "done":
@@ -124,12 +141,18 @@ def notary_result(case: ClaimCase, result: str, user, note: str = "", attachment
 
 
 def _refusal_file(case: ClaimCase, attachment_id) -> str:
-    if not attachment_id:
-        return ""
-    found = Attachment.objects.filter(pk=attachment_id, account_id=case.account_id).first()
-    if found is None:
-        raise ClaimBlocked("Файл не с этого лицевого счёта")
-    return found.original_name
+    rows = list(Attachment.objects.filter(account_id=case.account_id))
+    if attachment_id:
+        found = next((item for item in rows if item.pk == int(attachment_id)), None)
+        if found is None:
+            raise ClaimBlocked("Файл не с этого лицевого счёта")
+        if _file_role(found.doc_type, found.original_name) != "scan":
+            raise ClaimBlocked("Нужно постановление об отказе, а не другой файл счёта")
+        return found.original_name
+    for item in rows:
+        if _file_role(item.doc_type, item.original_name) == "scan":
+            return item.original_name
+    return ""
 
 
 def add_act(case: ClaimCase, title: str, user) -> ClaimAct:

@@ -133,11 +133,25 @@ def assign_run(account, scenario: ScenarioDefinition, user, *, upgrade: bool = F
     return run
 
 
+PRINT_BLOCKS = ("logo", "requisites", "body", "signatory")
+
+
+def block_order_of(form: PrintForm) -> list[str]:
+    raw = list(form.block_order or [])
+    order = [item for item in raw if item in PRINT_BLOCKS]
+    for item in PRINT_BLOCKS:
+        if item not in order:
+            order.append(item)
+    return order
+
+
 def layout_of(form: PrintForm) -> dict:
     return {
         "addressee": form.addressee,
         "font_size": form.font_size,
         "indent_mm": form.indent_mm,
+        "outdent_mm": form.outdent_mm,
+        "block_order": block_order_of(form),
         "logo_text": form.logo_text,
         "requisites": form.requisites,
         "signatory": form.signatory,
@@ -165,7 +179,9 @@ def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") ->
     for key, value in values.items():
         text = text.replace("{" + key + "}", value)
     lines = _document_lines(form, text)
-    payload = _pdf_bytes(lines, font_size=form.font_size or 12, indent_mm=form.indent_mm or 0)
+    payload = _pdf_bytes(
+        lines, font_size=form.font_size or 12, indent_mm=form.indent_mm or 0, outdent_mm=form.outdent_mm or 0,
+    )
     document = PrintedDocument(
         form=form, version=form.version, account=account, addressee=form.addressee or "debtor",
         body=text, batch=batch,
@@ -182,31 +198,51 @@ def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") ->
 
 def package_pdf(form: PrintForm, batch: str) -> bytes:
     documents = form.documents.filter(batch=batch).select_related("account").order_by("id")
-    lines = [form.logo_text, form.requisites, ""]
-    for document in documents:
-        lines.append(f"ЛС {document.account.client_account} · версия макета {document.version}")
-        lines.extend(document.body.splitlines() or [""])
-        lines.append("")
-    if form.signatory:
-        lines.append(form.signatory)
-    return _pdf_bytes(lines, font_size=form.font_size or 12, indent_mm=form.indent_mm or 0)
+    lines: list[str] = []
+    for kind in block_order_of(form):
+        if kind == "body":
+            chunk = []
+            for document in documents:
+                chunk.append(f"ЛС {document.account.client_account} · версия макета {document.version}")
+                chunk.extend(document.body.splitlines() or [""])
+                chunk.append("")
+        else:
+            chunk = _block_lines(form, kind, "")
+        if not chunk:
+            continue
+        if lines:
+            lines.append("")
+        lines.extend(chunk)
+    return _pdf_bytes(
+        lines, font_size=form.font_size or 12, indent_mm=form.indent_mm or 0, outdent_mm=form.outdent_mm or 0,
+    )
 
 
 def new_batch() -> str:
     return uuid.uuid4().hex
 
 
+def _block_lines(form: PrintForm, kind: str, text: str) -> list[str]:
+    if kind == "logo" and form.logo_text:
+        return [form.logo_text]
+    if kind == "requisites" and form.requisites:
+        return form.requisites.splitlines()
+    if kind == "body":
+        return text.splitlines() or [""]
+    if kind == "signatory" and form.signatory:
+        return [form.signatory]
+    return []
+
+
 def _document_lines(form: PrintForm, text: str) -> list[str]:
-    lines = []
-    if form.logo_text:
-        lines.append(form.logo_text)
-    if form.requisites:
-        lines.extend(form.requisites.splitlines())
-    if lines:
-        lines.append("")
-    lines.extend(text.splitlines() or [""])
-    if form.signatory:
-        lines.extend(["", form.signatory])
+    lines: list[str] = []
+    for kind in block_order_of(form):
+        chunk = _block_lines(form, kind, text)
+        if not chunk:
+            continue
+        if lines:
+            lines.append("")
+        lines.extend(chunk)
     return lines
 
 
@@ -219,10 +255,14 @@ def restore_print(form: PrintForm, version: int) -> PrintForm:
     previous_layout = layout_of(form)
     form.body = revision.body
     for key, value in (revision.layout or {}).items():
-        if key in {"addressee", "font_size", "indent_mm", "logo_text", "requisites", "signatory"}:
+        if key in {
+            "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
+            "logo_text", "requisites", "signatory",
+        }:
             setattr(form, key, value)
     form.save(update_fields=[
-        "body", "addressee", "font_size", "indent_mm", "logo_text", "requisites", "signatory", "updated_at",
+        "body", "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
+        "logo_text", "requisites", "signatory", "updated_at",
     ])
     remember_print_version(form, previous, previous_layout)
     return form

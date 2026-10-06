@@ -396,7 +396,7 @@ export interface SavedFilter {
   id: number;
   name: string;
   target: string;
-  query: Record<string, string | number | boolean | null>;
+  query: Record<string, string | number | boolean | null | number[] | string[]>;
 }
 
 export interface CalendarEvent {

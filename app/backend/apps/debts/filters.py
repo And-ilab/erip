@@ -117,6 +117,11 @@ class ContractFilter(django_filters.FilterSet):
 class MeasureFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search")
     period = django_filters.CharFilter(method="filter_period")
+    debt_group = django_filters.NumberFilter(method="filter_group")
+    debt_group__in = django_filters.BaseInFilter(method="filter_groups")
+    rating = django_filters.CharFilter(method="filter_rating")
+    rating__in = django_filters.BaseInFilter(method="filter_ratings")
+    funnel_stage = django_filters.CharFilter(method="filter_stage")
 
     class Meta:
         model = Measure
@@ -141,6 +146,28 @@ class MeasureFilter(django_filters.FilterSet):
         if kinds:
             condition |= Q(kind__in=kinds)
         return queryset.filter(condition).distinct()
+
+    @staticmethod
+    def _shown_group(value):
+        return Q(accounts__debt_group_manual=value) | Q(accounts__debt_group_manual__isnull=True, accounts__debt_group=value)
+
+    def filter_group(self, queryset, name, value):
+        return queryset.filter(self._shown_group(value)).distinct()
+
+    def filter_groups(self, queryset, name, value):
+        condition = Q()
+        for item in value:
+            condition |= self._shown_group(item)
+        return queryset.filter(condition).distinct()
+
+    def filter_rating(self, queryset, name, value):
+        return queryset.filter(accounts__rating=value).distinct()
+
+    def filter_ratings(self, queryset, name, value):
+        return queryset.filter(accounts__rating__in=value).distinct()
+
+    def filter_stage(self, queryset, name, value):
+        return queryset.filter(accounts__funnel_stage=value).distinct()
 
     def filter_period(self, queryset, name, value):
         parsed = parse_month(value)

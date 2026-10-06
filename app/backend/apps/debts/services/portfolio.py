@@ -186,9 +186,6 @@ class PortfolioRefresher:
         RefreshRequest.objects.filter(account=account, status=RefreshRequest.Status.PENDING).update(
             status=RefreshRequest.Status.DONE, updated_at=timezone.now(),
         )
-        if account.ais_updated_at is None or True:
-            account.ais_updated_at = timezone.now()
-            account.save(update_fields=["ais_updated_at", "updated_at"])
 
     def _operational_date(self, account: Account) -> date | None:
         dates = [d for d in account.registrations.values_list("oper_date", flat=True) if d]

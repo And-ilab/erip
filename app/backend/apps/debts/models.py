@@ -968,6 +968,8 @@ class SavedFilter(TimeStampedModel):
     class Target(models.TextChoices):
         ACCOUNTS = "accounts", "Реестр ЛС"
         CONTRACTS = "contracts", "Реестр договоров"
+        MEASURES = "measures", "Реестр мероприятий"
+        CLAIMS = "claims", "Претензионно-исковая работа"
 
     user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="saved_filters", verbose_name="Пользователь")
     name = models.CharField("Название", max_length=150)

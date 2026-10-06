@@ -78,7 +78,7 @@ class PrintFormSerializer(serializers.ModelSerializer):
         model = PrintForm
         fields = [
             "id", "organization", "code", "name", "doc_kind", "addressee", "body", "font_size", "indent_mm",
-            "logo_text", "requisites", "signatory", "version", "is_active", "revisions",
+            "outdent_mm", "block_order", "logo_text", "requisites", "signatory", "version", "is_active", "revisions",
         ]
         read_only_fields = ["is_active", "version", "organization", "revisions"]
 

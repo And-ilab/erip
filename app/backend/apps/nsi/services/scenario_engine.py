@@ -163,6 +163,19 @@ def _matches(step: dict, account: Account, previous: Measure | None) -> bool:
     return True
 
 
+def step_template_name(step: dict, fallback: str) -> str:
+    """Имя шаблона по идентификатору. Старые шаги без id остаются на сохранённой строке."""
+    template_id = step.get("template_id")
+    if template_id:
+        from apps.notifications.models import MessageTemplate
+
+        found = MessageTemplate.objects.filter(pk=template_id).only("name").first()
+        if found is not None and found.name:
+            return found.name
+    name = (step.get("template") or "").strip()
+    return name or fallback
+
+
 def resolve_call_legal(account: Account, scenario) -> bool:
     if scenario is not None and scenario.call_legal is not None:
         return bool(scenario.call_legal)
@@ -176,7 +189,7 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
     data = {
         "kind": kind,
         "channel": channel,
-        "template_name": step.get("template") or scenario.name,
+        "template_name": step_template_name(step, scenario.name),
         "scenario_name": scenario.name,
         "note": f"Сценарий «{scenario.name}» v{run.version}, шаг {step.get('order')}",
         "started_on": timezone.localdate().isoformat(),

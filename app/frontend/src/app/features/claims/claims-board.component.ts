@@ -10,6 +10,7 @@ import { AuthService } from '../../core/auth.service';
 import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
+import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -17,7 +18,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
-    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent,
+    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent,
   ],
   template: `
     <div class="page" [class.dim]="dialog()">
@@ -29,19 +30,15 @@ import { RegistryViewsComponent } from '../registry-views.component';
         <app-registry-views [mode]="mode()" (modeChange)="showView($event)" />
       </div>
       <div class="filters">
-          <div class="chips">
-            <button type="button" [class.on]="lane() === 'all'" (click)="setLane('all')">Все</button>
-            <button type="button" [class.on]="lane() === 'g3'" (click)="setLane('g3')">Группа 3</button>
-            <button type="button" [class.on]="lane() === 'late'" (click)="setLane('late')">Группы 4–6</button>
-          </div>
-          <label class="searchbar">
-            <input [formControl]="boardSearch" placeholder="Поиск по ФИО, номеру ЛС, адресу" />
-          </label>
-        </div>
-        <p class="hint">
-          Здесь должники, которые попали на взыскание: этап «Испол. надпись / иск» или «ОПИ»,
-          мероприятие «взыскание», либо уже открытое дело. Список, канбан, календарь и графики показывают их одних.
-        </p>
+        <app-registry-filter
+          target="claims"
+          placeholder="Поиск по ФИО, номеру ЛС, адресу"
+          (queryChange)="onFilter($event)" />
+      </div>
+      <p class="hint">
+        С группы 3: исполнительная надпись, иск и ОПИ. Канбан — этапы дела.
+        Список, календарь и графики показывают тех же должников.
+      </p>
       @if (error()) { <p class="error">{{ error() }}</p> }
 
       @if (mode() === 'list') {
@@ -51,7 +48,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             @if (!debtors().length) {
               <div class="empty">
                 <h2>Претензионно-исковая работа</h2>
-                <p>Должников на взыскании пока нет. Они появляются, когда лицевой счёт переходит на этап надписи или ОПИ, по нему запускают мероприятие «взыскание» или открывают дело.</p>
+                <p>Должников на взыскании пока нет. Они появляются с группы 3, по мероприятию «взыскание» или когда дело уже открыто.</p>
               </div>
             } @else {
               <div class="list-pane">
@@ -374,8 +371,7 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly error = signal('');
   protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('list');
-  protected readonly lane = signal<'all' | 'g3' | 'late'>('all');
-  protected readonly boardSearch = new FormControl('', { nonNullable: true });
+  private filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
   protected readonly chartQuery = signal<Record<string, string | number>>({});
   protected readonly pickerOpen = signal(false);
   protected spanFrom = monthStart();
@@ -400,7 +396,6 @@ export class ClaimsBoardComponent implements OnInit {
       if (params.get('writ') === '1') this.openFromRoute();
     });
     this.query.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe((value) => this.lookup(value));
-    this.boardSearch.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.refreshView());
     const account = this.route.snapshot.queryParamMap.get('account');
     if (account) {
       this.api.openClaim(Number(account)).subscribe({
@@ -428,11 +423,11 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected claimColumns(): KanbanColumn[] {
-    return this.board().filter((column) => column.total > 0 || column.stage === 'enforcement' || column.stage === 'court');
+    return this.board().filter((column) => column.total > 0 || column.stage === 'queue' || column.stage === 'prep');
   }
 
-  protected setLane(lane: 'all' | 'g3' | 'late'): void {
-    this.lane.set(lane);
+  protected onFilter(query: RegistryFilterQuery): void {
+    this.filter = query;
     this.refreshView();
   }
 
@@ -708,10 +703,12 @@ export class ClaimsBoardComponent implements OnInit {
 
   private population(): Record<string, string | number> {
     const params: Record<string, string | number> = { scope: 'claims' };
-    const text = this.boardSearch.value.trim();
-    if (text) params['q'] = text;
-    if (this.lane() === 'g3') params['debt_group'] = 3;
-    if (this.lane() === 'late') params['debt_group__in'] = '4,5,6';
+    if (this.filter.q) params['q'] = this.filter.q;
+    if (this.filter.groups.length === 1) params['debt_group'] = this.filter.groups[0];
+    else if (this.filter.groups.length) params['debt_group__in'] = this.filter.groups.join(',');
+    if (this.filter.ratings.length === 1) params['rating'] = this.filter.ratings[0];
+    else if (this.filter.ratings.length) params['rating__in'] = this.filter.ratings.join(',');
+    if (this.filter.stage) params['funnel_stage'] = this.filter.stage;
     return params;
   }
 
