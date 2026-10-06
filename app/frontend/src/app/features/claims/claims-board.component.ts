@@ -36,8 +36,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
           (queryChange)="onFilter($event)" />
       </div>
       <p class="hint">
-        С группы 3: исполнительная надпись, иск и ОПИ. Канбан — этапы дела.
-        Карточку переносят левой кнопкой или значком в углу, как в реестре лицевых счетов.
+        С группы 3: исполнительная надпись, иск и ОПИ.
+        Канбан собран в пять колонок по 2–3 этапа. Карточку переносят левой кнопкой или выбирают точный этап значком.
       </p>
       @if (error()) { <p class="error">{{ error() }}</p> }
 
@@ -93,12 +93,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (mode() === 'kanban') {
         <div class="k-board">
-          @for (column of board(); track column.stage) {
-            <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
-                     (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
-              <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
+          @for (lane of lanes; track lane.id) {
+            <section class="k-col" [class.drop]="dropStage() === lane.id" [attr.data-lane]="lane.id"
+                     (dragover)="allowDrop($event, lane.id)" (dragleave)="clearDrop(lane.id)" (drop)="dropOnLane($event, lane)">
+              <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane) }}</b></h3>
               <div class="list-pane cards">
-              @for (card of column.cards; track card.id) {
+              @for (card of laneCards(lane); track card.id) {
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                          [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                   <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
@@ -115,6 +115,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                     </div>
                   }
                   <div class="line">ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address || '') }} }</div>
+                  <div class="line">{{ stageName(card) }}</div>
                   @if (card.effective_group) {
                     <div class="group-line">
                       <span class="letter">{{ letter(card.rating_label) }}</span>
@@ -269,18 +270,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
       font-size: 13px; font-weight: 600; color: #243140;
     }
     .k-col h3 b { font-weight: 600; color: #8b95a1; }
-    .k-col[data-stage="queue"] h3 { border-bottom-color: #64748b; }
-    .k-col[data-stage="prep"] h3 { border-bottom-color: #2563eb; }
-    .k-col[data-stage="notary"] h3 { border-bottom-color: #7c3aed; }
-    .k-col[data-stage="writ_done"] h3 { border-bottom-color: #1f9d55; }
-    .k-col[data-stage="refused"] h3 { border-bottom-color: #e53935; }
-    .k-col[data-stage="lawsuit"] h3 { border-bottom-color: #e0a106; }
-    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
-    .k-col[data-stage="opi"] h3 { border-bottom-color: #f08c2e; }
-    .k-col[data-stage="opi_measures"] h3 { border-bottom-color: #b45309; }
-    .k-col[data-stage="recovered"] h3 { border-bottom-color: #0f766e; }
-    .k-col[data-stage="impossible"] h3 { border-bottom-color: #6b7280; }
-    .k-col[data-stage="writeoff"] h3 { border-bottom-color: #9ca3af; }
+    .k-col[data-lane="pack"] h3 { border-bottom-color: #2e7d32; }
+    .k-col[data-lane="notary"] h3 { border-bottom-color: #7c3aed; }
+    .k-col[data-lane="court"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-lane="opi"] h3 { border-bottom-color: #f08c2e; }
+    .k-col[data-lane="finish"] h3 { border-bottom-color: #6b7280; }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
       border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
@@ -394,6 +388,13 @@ export class ClaimsBoardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
+  protected readonly lanes = [
+    { id: 'pack', label: 'Пакет', stages: ['queue', 'prep', 'notary'], entry: 'prep' },
+    { id: 'notary', label: 'Ответ нотариуса', stages: ['writ_done', 'refused'], entry: 'writ_done' },
+    { id: 'court', label: 'Суд', stages: ['lawsuit', 'court'], entry: 'lawsuit' },
+    { id: 'opi', label: 'ОПИ', stages: ['opi', 'opi_measures'], entry: 'opi' },
+    { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'], entry: 'recovered' },
+  ];
   protected readonly caseStages = [
     { id: 'queue', label: 'К взысканию' },
     { id: 'prep', label: 'Подготовка пакета' },
@@ -503,13 +504,32 @@ export class ClaimsBoardComponent implements OnInit {
     if (this.dropStage() === stage) this.dropStage.set(null);
   }
 
-  protected dropOnStage(event: DragEvent, stage: string): void {
+  protected dropOnLane(event: DragEvent, lane: { stages: string[]; entry: string }): void {
     event.preventDefault();
     this.dropStage.set(null);
     if (!this.canMove()) return;
     const raw = event.dataTransfer?.getData('text/plain') || '';
     const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
-    if (ids.length) this.moveIds(ids, stage);
+    const known = this.board().flatMap((column) => column.cards);
+    const moving = ids.filter((id) => {
+      const card = known.find((item) => item.id === id);
+      return !!card && !lane.stages.includes(card.claim_stage || 'queue');
+    });
+    if (moving.length) this.moveIds(moving, lane.entry);
+  }
+
+  protected laneCards(lane: { stages: string[] }): AccountRow[] {
+    const wanted = new Set(lane.stages);
+    return this.board().filter((column) => wanted.has(column.stage)).flatMap((column) => column.cards);
+  }
+
+  protected laneTotal(lane: { stages: string[] }): number {
+    const wanted = new Set(lane.stages);
+    return this.board().filter((column) => wanted.has(column.stage)).reduce((sum, column) => sum + column.total, 0);
+  }
+
+  protected stageName(card: AccountRow): string {
+    return this.caseStages.find((item) => item.id === (card.claim_stage || 'queue'))?.label || '';
   }
 
   protected openCard(event: MouseEvent, card: AccountRow): void {
