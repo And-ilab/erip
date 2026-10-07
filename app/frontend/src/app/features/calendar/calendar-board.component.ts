@@ -114,6 +114,9 @@ interface DayCell {
         @for (day of coveredDays(); track day) {
           <section class="day">
             <h3>{{ long(day) }}</h3>
+            @if (canCreate) {
+              <button type="button" class="add" (click)="begin(day)">Создать</button>
+            }
             @for (event of named(day); track track(event)) {
               <button type="button" class="ev" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" [class.done]="event.urgency === 'done'" [title]="event.title" (click)="openEvent.emit(event)">
                 {{ event.title }}
@@ -129,12 +132,13 @@ interface DayCell {
           <div class="week">
             @for (day of week; track day) {
               <section [class.dim]="!inSpan(day)">
-                <button type="button" class="num" (click)="begin(day)">{{ long(day) }}</button>
-                @for (event of named(day).slice(0, 3); track track(event)) {
-                  <button type="button" class="ev" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" [class.done]="event.urgency === 'done'" [title]="event.title" (click)="openEvent.emit(event)">{{ event.title }}</button>
-                }
-                @if (named(day).length > 3) {
-                  <button type="button" class="more" (click)="focusDay(day)">ещё {{ named(day).length - 3 }}</button>
+                <button type="button" class="num" (click)="focusDay(day)">{{ long(day) }}</button>
+                @if (brief(day); as card) {
+                  <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day)">
+                    <b>{{ card.total }}</b> {{ eventsWord(card.total) }}
+                    @if (card.overdue) { <span>просрочено {{ card.overdue }}</span> }
+                    @else if (card.soon) { <span>в ближайшие дни {{ card.soon }}</span> }
+                  </button>
                 }
               </section>
             }
@@ -156,12 +160,13 @@ interface DayCell {
                   <tr>
                     @for (day of week; track day.iso) {
                       <td [class.out]="!day.inMonth" [class.dim]="day.inMonth && !inSpan(day.iso)" [class.mark]="marked(day.iso)" [class.today]="day.iso === today">
-                        <button type="button" class="num" (click)="begin(day.iso)">{{ day.day }}</button>
-                        @for (event of named(day.iso).slice(0, 2); track track(event)) {
-                          <button type="button" class="ev" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" [class.done]="event.urgency === 'done'" [title]="event.title" (click)="openEvent.emit(event)">{{ event.title }}</button>
-                        }
-                        @if (named(day.iso).length > 2) {
-                          <button type="button" class="more" (click)="focusDay(day.iso)">ещё {{ named(day.iso).length - 2 }}</button>
+                        <button type="button" class="num" (click)="focusDay(day.iso)">{{ day.day }}</button>
+                        @if (brief(day.iso); as card) {
+                          <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day.iso)">
+                            <b>{{ card.total }}</b> {{ eventsWord(card.total) }}
+                            @if (card.overdue) { <span>просрочено {{ card.overdue }}</span> }
+                            @else if (card.soon) { <span>в ближайшие дни {{ card.soon }}</span> }
+                          </button>
                         }
                       </td>
                     }
@@ -266,7 +271,7 @@ interface DayCell {
         </section>
         <section>
           <h3>Сроки</h3>
-          <p class="hint">Запись — крайний срок действия по конкретному лицевому счёту или договору: что сделать и по какому счёту. Если дата прошла, а действие не выполнено, запись остаётся и подсвечивается красным. До срока один или два дня — жёлтым. Кнопки, которая прячет события и оставляет пустую подпись, нет.</p>
+          <p class="hint">В месяце и неделе в клетке только число сроков, чтобы сетка не растягивалась. Щелчок по этому числу открывает день: там каждый срок — действие по лицевому счёту. Красным отмечен просроченный невыполненный срок, жёлтым — срок через один или два дня.</p>
         </section>
       </aside>
     }
@@ -277,10 +282,10 @@ interface DayCell {
     .swatch { width: 12px; height: 12px; border-radius: 3px; background: #e7f2f4; }
     .swatch.soon { background: #fff4d6; }
     .swatch.overdue { background: #fde8e8; }
-    .bar button, .draft button, .draft select, .draft input, .drawer button:not(.cell), .drawer select {
+    .bar button, .draft button, .draft select, .draft input, .drawer button:not(.cell), .drawer select, .day .add {
       height: 32px; border: 1px solid #d5dde5; border-radius: 6px; background: #fff; color: #1f2933; font: inherit; cursor: pointer;
     }
-    .bar button, .draft button, .drawer header button { padding: 0 10px; }
+    .bar button, .draft button, .day .add { padding: 0 10px; }
     .bar button.on, .bar .add, .modes button.on { background: #0f6e78; color: #fff; border-color: #0f6e78; }
     .draft { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 12px; padding: 10px; background: #fff; border: 1px solid #d5dde5; border-radius: 8px; }
     .draft p { flex: 1 1 100%; margin: 0; font-size: 13px; }
@@ -292,17 +297,26 @@ interface DayCell {
     .week { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; }
     .week section.dim { background: #f8fafb; }
     .month, .year table, .matrix { width: 100%; border-collapse: collapse; background: #fff; }
-    .month td { vertical-align: top; height: 88px; border: 1px solid #e6ebf0; padding: 4px; }
+    .month td { vertical-align: top; height: 64px; border: 1px solid #e6ebf0; padding: 4px; }
     .month td.out, .month td.dim { background: #f8fafb; }
     .month td.mark { background: #e7f2f4; }
     .month td.today { box-shadow: inset 0 0 0 1px #0f6e78; }
     .month-block h3, .day h3 { margin: 0 0 8px; font-size: 15px; }
+    .day .add { margin: 0 0 8px; }
     .num, .ev, .more, .dot { display: block; width: 100%; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
     .num { font-weight: 700; color: #1f2933; }
     .ev { margin-top: 2px; padding: 2px 4px; border-radius: 4px; background: #e7f2f4; color: #0f4c54; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ev.soon { background: #fff4d6; color: #8a5a00; }
     .ev.overdue { background: #fde8e8; color: #9b1c1c; }
     .ev.done { background: #f4f6f8; color: #52606d; }
+    .sum {
+      display: block; width: 100%; margin-top: 4px; padding: 4px 6px; border: 0; border-radius: 4px;
+      background: #e7f2f4; color: #0f4c54; text-align: left; font: inherit; font-size: 12px; line-height: 1.25; cursor: pointer;
+    }
+    .sum b { font-size: 13px; }
+    .sum span { display: block; }
+    .sum.soon { background: #fff4d6; color: #8a5a00; }
+    .sum.overdue { background: #fde8e8; color: #9b1c1c; }
     .more { font-size: 11px; color: #6b7280; }
     .year { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
     .year + .year { margin-top: 12px; }
@@ -441,6 +455,23 @@ export class CalendarBoardComponent implements OnChanges {
 
   protected named(date: string): CalendarEvent[] {
     return this.on(date).filter((event) => (event.title || '').trim().length > 0);
+  }
+
+  protected brief(date: string): { total: number; overdue: number; soon: number; tone: string } | null {
+    const events = this.named(date);
+    if (!events.length) return null;
+    const overdue = events.filter((event) => event.urgency === 'overdue').length;
+    const soon = events.filter((event) => event.urgency === 'soon').length;
+    const tone = overdue ? 'overdue' : soon ? 'soon' : 'planned';
+    return { total: events.length, overdue, soon, tone };
+  }
+
+  protected eventsWord(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'событие';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'события';
+    return 'событий';
   }
 
   protected tone(date: string): string {
