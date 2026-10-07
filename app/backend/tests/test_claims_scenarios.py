@@ -508,7 +508,7 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
         "scope": "claims", "date_from": "2026-10-01", "date_to": "2026-10-31",
     })
     assert events.status_code == 200, events.content
-    assert "Взыскание" in {row["title"] for row in events.json()}
+    assert any("Взыскание" in row["title"] and "00004102" in row["title"] for row in events.json())
 
     charts = api(specialist_a).get("/api/v1/accounts/charts/", {"scope": "claims"}).json()
     assert charts["cases"] == 3

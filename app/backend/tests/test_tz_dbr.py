@@ -1,10 +1,11 @@
 """ТЗ 4.2.2: реестр договоров поставщика, наследство на всех ЛС, свои услуги."""
 
-from datetime import date, time
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 import pytest
 from django.core.management import call_command
+from django.utils import timezone
 
 from apps.debts.models import (
     AccountService, ClaimCase, Contact, DebtShare, DebtWorkItem, Measure, MeasureItem, StatusHistory,
@@ -417,6 +418,9 @@ def test_calendar_filters_one_day_or_a_range(api, specialist_a, account_a):
     one = client.get("/api/v1/accounts/calendar/", {"date_from": "2026-10-03", "date_to": "2026-10-03"})
     assert one.status_code == 200
     assert {row["date"] for row in one.json()} == {"2026-10-03"}
+    assert one.json()[0]["title"].startswith("ЛС 00001001")
+    assert "предупреждения" in one.json()[0]["title"]
+    assert one.json()[0]["title"] != "Предупреждение"
     span = client.get("/api/v1/accounts/calendar/", {"date_from": "2026-10-20", "date_to": "2026-10-03"})
     assert {row["date"] for row in span.json()} == {"2026-10-03", "2026-10-20"}
     month = client.get("/api/v1/accounts/calendar/", {"month": "2026-11"})
@@ -424,6 +428,70 @@ def test_calendar_filters_one_day_or_a_range(api, specialist_a, account_a):
     assert month.json() == []
     bad = client.get("/api/v1/accounts/calendar/", {"date_from": "03.10.2026"})
     assert bad.status_code == 400
+
+
+def test_open_deadline_stays_red_and_names_the_account(api, specialist_a, account_a):
+    today = timezone.localdate()
+    past = today - timedelta(days=12)
+    soon = today + timedelta(days=1)
+    account_a.warning_due = past
+    account_a.claim_due = soon
+    account_a.save(update_fields=["warning_due", "claim_due"])
+    rows = api(specialist_a).get("/api/v1/accounts/calendar/", {
+        "date_from": today.isoformat(), "date_to": soon.isoformat(),
+    }).json()
+    warning = next(row for row in rows if "предупреждения" in row["title"])
+    claim = next(row for row in rows if "иска" in row["title"])
+    assert warning["date"] == today.isoformat()
+    assert warning["urgency"] == "overdue"
+    assert warning["due"] == past.isoformat()
+    assert "00001001" in warning["title"]
+    assert claim["urgency"] == "soon"
+    assert claim["date"] == soon.isoformat()
+
+    measure = Measure.objects.create(
+        organization=account_a.organization, kind=Measure.Kind.DISCONNECT, due_on=today,
+    )
+    measure.accounts.add(account_a)
+    MeasureItem.objects.create(
+        organization=account_a.organization, measure=measure, account=account_a,
+    )
+    after = api(specialist_a).get("/api/v1/accounts/calendar/", {
+        "date_from": today.isoformat(), "date_to": soon.isoformat(),
+    }).json()
+    assert not any("предупреждения" in row["title"] for row in after)
+    disconnect = next(row for row in after if row.get("measure_id") == measure.id)
+    assert "00001001" in disconnect["title"]
+    assert "Отключение" in disconnect["title"]
+
+    done = Measure.objects.create(
+        organization=account_a.organization, kind=Measure.Kind.WARNING,
+        status=Measure.Status.DONE, due_on=past,
+    )
+    done.accounts.add(account_a)
+    MeasureItem.objects.create(
+        organization=account_a.organization, measure=done, account=account_a,
+        status=MeasureItem.Status.DONE,
+    )
+    today_rows = api(specialist_a).get("/api/v1/accounts/calendar/", {
+        "date_from": today.isoformat(), "date_to": today.isoformat(),
+    }).json()
+    assert all(row.get("measure_id") != done.id for row in today_rows)
+    on_day = api(specialist_a).get("/api/v1/accounts/calendar/", {
+        "date_from": past.isoformat(), "date_to": past.isoformat(),
+    }).json()
+    finished = next(row for row in on_day if row.get("measure_id") == done.id)
+    assert finished["urgency"] == "done"
+    assert finished["date"] == past.isoformat()
+
+    ClaimCase.objects.create(
+        organization=account_a.organization, account=account_a,
+        stage=ClaimCase.Stage.LAWSUIT, lawsuit_filed_on=today,
+    )
+    filed = api(specialist_a).get("/api/v1/accounts/calendar/", {
+        "date_from": today.isoformat(), "date_to": soon.isoformat(),
+    }).json()
+    assert not any("иска" in row["title"] for row in filed)
 
 
 def test_account_kanban_exposes_card_marks(api, specialist_a, account_a):

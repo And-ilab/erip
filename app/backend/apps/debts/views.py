@@ -1,11 +1,9 @@
 import csv
-from datetime import date
 
 from django.db.models import Count, Max, Min, Q, Sum
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, parsers, status, viewsets
 from rest_framework.decorators import action
@@ -515,25 +513,10 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def calendar(self, request):
-        from .services.calendar import due_lookup, present_deadline, resolve_span
+        from .services.calendar import account_calendar, resolve_span
 
         start, end = resolve_span(request.query_params)
-        accounts = self.filter_queryset(self.get_queryset())
-        events = []
-        for field, kind in (("warning_due", "Предупреждение"), ("claim_due", "Иск")):
-            for account in accounts.exclude(**{field: None}).filter(due_lookup(field, start, end)):
-                events.append(present_deadline(
-                    getattr(account, field), start=start, end=end, kind=kind,
-                    title=f"ЛС {account.client_account}", account_id=account.id,
-                ))
-        measures = Measure.objects.filter(accounts__in=accounts).filter(due_lookup("due_on", start, end)).distinct()
-        for measure in measures:
-            events.append(present_deadline(
-                measure.due_on, start=start, end=end, kind=measure.get_kind_display(),
-                title=f"{measure.get_kind_display()} · партия {measure.id}",
-                account_id=None, measure_id=measure.id,
-            ))
-        return Response(events)
+        return Response(account_calendar(self.filter_queryset(self.get_queryset()), start, end))
 
     @action(detail=False)
     def export(self, request):
@@ -740,29 +723,10 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
 
     @action(detail=False)
     def calendar(self, request):
-        from .services.calendar import due_lookup, present_deadline, resolve_span
+        from .services.calendar import contract_calendar, resolve_span
 
         start, end = resolve_span(request.query_params)
-        services = self._visible().select_related("account")
-        events = []
-        for field, kind in (("repayment_due_on", "Срок погашения"), ("debt_started_on", "Возникновение")):
-            for service in services.exclude(**{field: None}).filter(due_lookup(field, start, end)):
-                events.append(present_deadline(
-                    getattr(service, field), start=start, end=end, kind=kind,
-                    title=f"{service.service_name} · ЛС {service.account.client_account}",
-                    account_id=service.account_id, contract_id=service.id,
-                ))
-        account_ids = services.values("account_id")
-        measures = Measure.objects.filter(due_lookup("due_on", start, end)).filter(
-            Q(services__in=services) | Q(accounts__in=account_ids, services__isnull=True)
-        ).distinct()
-        for measure in measures:
-            events.append(present_deadline(
-                measure.due_on, start=start, end=end, kind=measure.get_kind_display(),
-                title=f"{measure.get_kind_display()} · партия {measure.id}",
-                account_id=None, measure_id=measure.id,
-            ))
-        return Response(events)
+        return Response(contract_calendar(self._visible().select_related("account"), start, end))
 
     @action(detail=False, methods=["post"])
     def events(self, request):

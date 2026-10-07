@@ -472,7 +472,7 @@ export interface CalendarEvent {
   account_id: number | null;
   measure_id?: number | null;
   contract_id?: number | null;
-  urgency?: 'overdue' | 'soon' | 'planned';
+  urgency?: 'overdue' | 'soon' | 'planned' | 'done';
   due?: string;
 }
 
