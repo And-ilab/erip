@@ -48,6 +48,8 @@ class AccountFilter(django_filters.FilterSet):
     period_from = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="gte")
     period_to = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="lte")
     debtor_category = django_filters.NumberFilter(field_name="debtor_category")
+    payer_identifier = django_filters.CharFilter(field_name="payer_identifier")
+    payer_unp = django_filters.CharFilter(field_name="payer_unp")
     account_id = django_filters.NumberFilter(field_name="account_id")
     inheritance_case = django_filters.BooleanFilter(field_name="inheritance_case")
     territory = django_filters.NumberFilter(method="filter_territory")

@@ -15,6 +15,41 @@ export interface OrganizationOption {
   id: number;
   schema_name: string;
   name: string;
+  unp?: string;
+  call_legal?: boolean;
+  is_active?: boolean;
+  user_count?: number;
+  account_count?: number;
+  local_admin_name?: string;
+}
+
+export interface DirectoryUser {
+  id: number;
+  username: string;
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  display_name: string;
+  registry_name: string;
+  email: string;
+  phone: string;
+  position: string;
+  role: Role;
+  contour: 'billing' | 'supplier';
+  organization: number | null;
+  service_organizations: number[];
+  is_active: boolean;
+  last_login: string | null;
+}
+
+export interface ServiceOrganizationOption {
+  id: number;
+  organization: number;
+  provider_id: number;
+  short_name: string;
+  full_name: string;
+  is_supplier: boolean;
+  is_active: boolean;
 }
 
 export interface ImportJob {
@@ -524,6 +559,7 @@ export interface CalendarEvent {
   contract_id?: number | null;
   urgency?: 'overdue' | 'soon' | 'planned' | 'done';
   due?: string;
+  debt_group?: number | null;
 }
 
 export interface KanbanColumn {
@@ -560,6 +596,11 @@ export interface Registration {
   is_close_relative: boolean;
   subj_legal_entity: boolean;
   personal_num: string;
+  sex_name: string;
+  maindoc_type_name: string;
+  maindoc_snum: string;
+  maindoc_date: string | null;
+  subj_is_check_out: boolean;
   idler_val: boolean;
   social_category: string;
   unfit_for_work: boolean;

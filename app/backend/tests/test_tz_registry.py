@@ -11,12 +11,24 @@ from apps.debts.services.portfolio import PortfolioRefresher
 from apps.nsi.models import DebtorCategory
 from apps.users.models import ServiceOrganization, User
 
-from .conftest import make_user
+from .conftest import make_account, make_user
 
 
 @pytest.fixture
 def ready(org_a):
     call_command("loaddata", "debt_group_scale", verbosity=0)
+
+
+def test_accounts_of_one_payer_stay_together(api, specialist_a, org_a, account_a):
+    account_a.payer_identifier = "7010180A001PB2"
+    account_a.save(update_fields=["payer_identifier"])
+    other = make_account(org_a, 1008, client_account="00001008", payer_identifier="7010180A001PB2")
+    stranger = make_account(org_a, 1009, client_account="00001009", payer_identifier="OTHER")
+    listed = api(specialist_a).get("/api/v1/accounts/", {"payer_identifier": "7010180A001PB2"}).json()
+    ids = {row["id"] for row in listed["results"]}
+    assert account_a.id in ids
+    assert other.id in ids
+    assert stranger.id not in ids
 
 
 def test_manual_group_is_what_the_registry_filters(api, specialist_a, account_a, ready):
