@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
@@ -13,7 +13,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix, MeasureRow } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
-import { CalendarBoardComponent, CalendarMode, measureKindBucket } from '../calendar/calendar-board.component';
+import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryChoice, RegistryFilterQuery } from '../registry-filter.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
@@ -218,37 +218,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
       }
 
       @if (view() === 'calendar') {
-        <div class="cal-layout">
-          <app-calendar-board
-            [events]="calendarEvents()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="false"
-            chrome="inline" [showEvents]="true" captionTail="мероприятия по делам"
-            (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendar($event)" />
-          <aside class="cal-side">
-            <section class="side-card">
-              <h4>Группы задолженности</h4>
-              @for (item of groupLegend; track item.group) {
-                <button type="button" class="legend" [class.on]="filter.groups.includes(item.group)" (click)="toggleLegend(item.group)">
-                  <i class="dot g{{ item.group }}"></i>
-                  <span>{{ item.label }}</span>
-                  <b>{{ groupCount(item.group) }}</b>
-                </button>
-              }
-            </section>
-            <section class="side-card">
-              <h4>Тип мероприятия</h4>
-              @for (item of kindBoxes; track item.id) {
-                <label class="kind-line">
-                  <input type="checkbox" [checked]="kindEnabled(item.id)" (change)="toggleKindBox(item.id)" />
-                  <span>{{ item.label }}</span>
-                </label>
-              }
-            </section>
-            <section class="side-card">
-              <h4>Подсказка</h4>
-              <p>Мероприятия и дедлайны, жёстко определённые законодательством, отображаются в календаре по датам. Цвет соответствует группе задолженности дела.</p>
-            </section>
-          </aside>
-        </div>
+        <app-calendar-board
+          [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="false"
+          captionTail="мероприятия по делам" [selectedGroups]="filter.groups"
+          (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendar($event)"
+          (groupsChange)="applyCalendarGroups($event)" />
       }
 
       @if (view() === 'charts') {
@@ -376,31 +350,6 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     app-calendar-board, app-analytics { display: block; flex: 1; min-height: 0; overflow: auto; }
     .ready-title { margin: 0; color: var(--erip-muted); flex: 1; }
-    .cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; min-height: 72vh; padding: 12px 16px 0; align-items: start; }
-    .cal-layout app-calendar-board { height: auto; min-height: 0; overflow: visible; }
-    .cal-side { display: flex; flex-direction: column; gap: 12px; align-self: start; }
-    .side-card { background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; padding: 14px 14px 12px; box-shadow: 0 1px 2px rgba(16, 42, 67, .04); }
-    .side-card h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #8b95a1; font-weight: 700; }
-    .side-card p { margin: 0; color: #6b7280; font-size: 12px; line-height: 1.45; }
-    .legend, .kind-line {
-      display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 8px; padding: 0;
-      border: 0; background: transparent; font: inherit; font-size: 13px; color: #1f2933; text-align: left;
-    }
-    .legend:last-child, .kind-line:last-child { margin-bottom: 0; }
-    .legend { cursor: pointer; }
-    .legend span { flex: 1; min-width: 0; }
-    .legend b { margin-left: auto; color: #8b95a1; font-weight: 600; }
-    .legend.on span { color: var(--erip-primary); font-weight: 700; }
-    .dot { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
-    .dot.g1 { background: #22a35a; }
-    .dot.g2 { background: #3b78e0; }
-    .dot.g3 { background: #e09a2b; }
-    .dot.g4 { background: #e15b5b; }
-    .dot.g5 { background: #f97316; }
-    .dot.g6 { background: #7f1d1d; }
-    .kind-line { cursor: pointer; }
-    input[type="checkbox"] { accent-color: #2563eb; width: 15px; height: 15px; }
-    @media (max-width: 960px) { .cal-layout { grid-template-columns: 1fr; } }
     .registry { margin: 12px 16px 0; overflow: visible; background: #fff; }
     .registry.main { display: block; }
     .registry.main .list-pane, .matrix-card .list-pane { max-height: none; overflow: visible; }
@@ -488,24 +437,8 @@ export class MeasuresListComponent implements OnInit {
     { id: 'kind', label: 'Вид мероприятия' },
     { id: 'assignee', label: 'Исполнитель' },
   ];
-  protected groupLegend: { group: number; label: string }[] = [
-    { group: 1, label: 'Группа 1 · до 2 месяцев' },
-    { group: 2, label: 'Группа 2 · 2–3 месяца' },
-    { group: 3, label: 'Группа 3 · 3–6 месяцев' },
-    { group: 4, label: 'Группа 4 · 6–12 месяцев' },
-    { group: 5, label: 'Группа 5 · 1–3 года' },
-    { group: 6, label: 'Группа 6 · свыше 3 лет' },
-  ];
-  protected readonly kindBoxes = [
-    { id: 'call', label: 'Автообзвон' },
-    { id: 'notice', label: 'Уведомления (e-mail)' },
-    { id: 'warning', label: 'Предупреждения' },
-    { id: 'disconnect', label: 'Отключение услуг' },
-    { id: 'collection', label: 'Испол. надпись / иск / ОПИ' },
-  ];
   protected filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '', kind: '', groupBy: 'status' };
   protected calendarMode: CalendarMode = 'month';
-  protected readonly kindsOn = signal<Set<string>>(new Set(this.kindBoxes.map((item) => item.id)));
   protected readonly pickedRows = signal<Set<number>>(new Set());
   protected readonly events = signal<CalendarEvent[]>([]);
   protected spanFrom = '';
@@ -536,17 +469,6 @@ export class MeasuresListComponent implements OnInit {
   ngOnInit(): void {
     this.api.dialSettings().subscribe({
       next: (settings) => this.waitDays.set(settings.warning_wait_days || 5),
-    });
-    this.api.debtGroups().subscribe({
-      next: (page) => {
-        const rows = [...page.results].sort((left, right) => left.group - right.group);
-        if (!rows.length) return;
-        this.groupLegend = rows.map((row) => ({
-          group: row.group,
-          label: `Группа ${row.group} · ${row.name}`,
-        }));
-      },
-      error: () => undefined,
     });
     this.load();
   }
@@ -717,34 +639,8 @@ export class MeasuresListComponent implements OnInit {
     this.pickedRows.set(next);
   }
 
-  protected kindEnabled(id: string): boolean {
-    return this.kindsOn().has(id);
-  }
-
-  protected toggleKindBox(id: string): void {
-    const next = new Set(this.kindsOn());
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    this.kindsOn.set(next);
-  }
-
-  protected readonly calendarEvents = computed(() => {
-    const enabled = this.kindsOn();
-    return this.events().filter((event) => {
-      const bucket = measureKindBucket(event);
-      return bucket === 'other' || enabled.has(bucket);
-    });
-  });
-
-  protected groupCount(group: number): number {
-    return this.calendarEvents().filter((event) => event.debt_group === group).length;
-  }
-
-  protected toggleLegend(group: number): void {
-    const next = this.filter.groups.includes(group)
-      ? this.filter.groups.filter((item) => item !== group)
-      : [...this.filter.groups, group].sort((left, right) => left - right);
-    this.filters?.setGroups(next);
+  protected applyCalendarGroups(groups: number[]): void {
+    this.filters?.setGroups(groups);
   }
 
   protected initials(name: string): string {
@@ -900,25 +796,29 @@ export class MeasuresListComponent implements OnInit {
       return;
     }
     this.loaded.set(false);
+    const paintMatrix = () => {
+      this.api.measureMatrix(params).subscribe({
+        next: (payload) => {
+          if (current === this.request) this.matrix.set(payload);
+        },
+        error: (err) => {
+          if (current === this.request) this.error.set(errorMessage(err));
+        },
+      });
+    };
     this.api.measureRegistry(params).subscribe({
       next: (payload) => {
         if (current !== this.request) return;
         this.groups.set(payload.groups);
         this.pickedRows.set(new Set());
         this.loaded.set(true);
+        paintMatrix();
       },
       error: (err) => {
         if (current !== this.request) return;
         this.loaded.set(true);
         this.error.set(errorMessage(err));
-      },
-    });
-    this.api.measureMatrix(params).subscribe({
-      next: (payload) => {
-        if (current === this.request) this.matrix.set(payload);
-      },
-      error: (err) => {
-        if (current === this.request) this.error.set(errorMessage(err));
+        paintMatrix();
       },
     });
   }

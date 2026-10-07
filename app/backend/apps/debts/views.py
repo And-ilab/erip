@@ -1205,10 +1205,11 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def matrix(self, request):
-        """ЛС в строках, вид мероприятия в столбцах. Та же выборка, что у реестра."""
-        from apps.debts.services.claim_measures import backfill_visible_measures
+        """ЛС в строках, вид мероприятия в столбцах. Та же выборка, что у реестра.
 
-        backfill_visible_measures(_visible_accounts(request.user))
+        Недостающие строки добирает открытие реестра. Повторный прогон сценария здесь
+        удваивает время страницы: список и матрица запрашиваются вместе.
+        """
         visible = _visible_accounts(request.user)
         payload = build_matrix(
             self.filter_queryset(self.get_queryset()), visible,

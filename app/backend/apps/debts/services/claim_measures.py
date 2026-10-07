@@ -84,38 +84,42 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
     claimed = ClaimCase.objects.filter(account__in=accounts).values("account_id")
     # order_by() снимает сортировку модели. Иначе PostgreSQL отвергает GROUP BY по id
     # вместе с ORDER BY client_account, и реестр отвечает 500.
-    bare = (
+    owing = (
         accounts.filter(Q(debt_group__isnull=False) | Q(debt_group_manual__isnull=False))
         .exclude(pk__in=claimed)
         .order_by()
-        .values("pk")
+    )
+    bare = (
+        owing.values("pk")
         .annotate(measure_count=Count("measures"))
         .filter(measure_count=0)
         .order_by("pk")
         .values_list("pk", flat=True)[:2000]
     )
     ids = list(bare)
-    retry = list(
-        accounts.filter(
-            Q(measures__kind=Measure.Kind.CALL, measures__status=Measure.Status.FAILED)
-            | Q(measures__kind=Measure.Kind.COLLECTION, measures__status=Measure.Status.FAILED),
-        )
-        .order_by()
-        .values_list("pk", flat=True)
-        .distinct()[:2000]
+    # Повторный заход в реестр не гоняет сценарий заново. Иначе каждый должник группы 2
+    # с уже верным обзвоном и каждый недозвон «нет номера» пересчитываются при открытии страницы.
+    covered = Q(
+        measures__kind__in=[Measure.Kind.WARNING, Measure.Kind.DISCONNECT, Measure.Kind.COLLECTION],
+        measures__status__in=[
+            Measure.Status.ASSIGNED, Measure.Status.RUNNING, Measure.Status.PAUSED, Measure.Status.DONE,
+        ],
     )
-    # Уже назначенный автообзвон не прячет шаг старшей группы: карточка и реестр читают одно мероприятие.
+    senior = owing.annotate(shown_group=Coalesce("debt_group_manual", "debt_group")).filter(shown_group__gte=2)
     open_call = [Measure.Status.ASSIGNED, Measure.Status.RUNNING, Measure.Status.PAUSED]
     stale = list(dict.fromkeys(
-        accounts.filter(Q(debt_group__isnull=False) | Q(debt_group_manual__isnull=False))
-        .exclude(pk__in=claimed)
-        .filter(measures__kind=Measure.Kind.CALL, measures__status__in=open_call)
-        .order_by()
-        .annotate(shown_group=Coalesce("debt_group_manual", "debt_group"))
-        .filter(shown_group__gte=2)
+        senior.filter(measures__kind=Measure.Kind.CALL, measures__status__in=open_call)
+        .exclude(covered)
         .order_by("-shown_group", "pk")
         .values_list("pk", flat=True)[:2000]
     ))
+    retry = list(
+        senior.filter(measures__kind=Measure.Kind.CALL, measures__status=Measure.Status.FAILED)
+        .exclude(covered)
+        .order_by("-shown_group", "pk")
+        .values_list("pk", flat=True)
+        .distinct()[:2000]
+    )
     ordered = list(dict.fromkeys([*stale, *ids, *retry]))[:2000]
     if not ordered:
         return
