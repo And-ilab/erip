@@ -8,10 +8,12 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from apps.debts.models import Account, AccountService
-from apps.debts.services.portfolio import rating_letter
+from apps.debts.services.portfolio import PortfolioRefresher, rating_letter
 from apps.debts.services.territory import TerritoryIndex
+from apps.nsi.services.scenario_engine import ensure_imported_run
 from apps.users.models import Organization, ServiceOrganization, User
 
 PASSWORD = "Passw0rd!x"
@@ -48,6 +50,13 @@ USERS = (
     ("power", "Свет", "Поставщик", 2),
 )
 
+# ЛС Юркевича: вода — первый месяц, электричество — пять лет. Повтор сида это обновляет.
+SPLIT_OFFSET = 6
+SPLIT_SERVICES = {
+    "Вода": (1, Decimal("18.40"), Decimal("1.20")),
+    "Электричество": (60, Decimal("860.00"), Decimal("210.00")),
+}
+
 
 class Command(BaseCommand):
     help = "Добавить две демо-схемы, ЖЭС, поставщиков воды, газа и электричества и лицевые счета с разными услугами"
@@ -63,6 +72,7 @@ class Command(BaseCommand):
             billing = [self._service_org(organization, code, name, False) for code, name in BILLING]
             suppliers = [self._service_org(organization, code, name, True) for code, name, *_rest in SUPPLIERS]
             created_accounts += self._accounts(organization, schema_name, billing, suppliers)
+            self._split_long_power(organization, schema_name)
             created_users += self._users(organization, schema_name, suppliers)
         linked = TerritoryIndex().assign_queryset(
             Account.objects.filter(organization__schema_name__in=[item[0] for item in SCHEMAS]),
@@ -78,6 +88,10 @@ class Command(BaseCommand):
                 f"{schema_name}: demo_spec_{suffix} (вся схема); "
                 f"demo_water_{suffix}, demo_gas_{suffix}, demo_power_{suffix} (своя услуга)"
             )
+        self.stdout.write(
+            "ЛС 91000006 Юркевич Н.А.: вода — 1 месяц, группа 1; электричество — 60 месяцев, группа 6. "
+            "Вход: demo_water_minsk и demo_power_minsk."
+        )
 
     def _service_org(self, organization, provider_id, short_name, is_supplier):
         org, _created = ServiceOrganization.objects.get_or_create(
@@ -138,6 +152,33 @@ class Command(BaseCommand):
                     },
                 )
         return created
+
+    def _split_long_power(self, organization, schema_name):
+        """Юркевич: вода — первый неоплаченный месяц, электричество — 60 месяцев."""
+        base = 91_000_000 if schema_name == "demo_minsk" else 92_000_000
+        account = Account.objects.filter(organization=organization, account_id=base + SPLIT_OFFSET).first()
+        if account is None:
+            return
+        account.operational_date = timezone.localdate().replace(day=1)
+        account.scenario_locked = False
+        account.funnel_locked = False
+        account.balance_out = sum((row[1] for row in SPLIT_SERVICES.values()), Decimal("0"))
+        account.save(update_fields=[
+            "operational_date", "scenario_locked", "funnel_locked", "balance_out", "updated_at",
+        ])
+        for name, (months, principal, penalty) in SPLIT_SERVICES.items():
+            service = account.services.filter(service_name=name).first()
+            if service is None:
+                continue
+            service.debt_period = months
+            service.balance_out = principal
+            service.balance_mulct_out = penalty
+            service.scenario_locked = False
+            service.save(update_fields=[
+                "debt_period", "balance_out", "balance_mulct_out", "scenario_locked", "updated_at",
+            ])
+        PortfolioRefresher().refresh_account(account)
+        ensure_imported_run(account)
 
     def _users(self, organization, schema_name, suppliers):
         suffix = schema_name.removeprefix("demo_")
