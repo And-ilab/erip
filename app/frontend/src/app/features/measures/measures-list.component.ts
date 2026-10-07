@@ -11,7 +11,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix } from '../../core/models';
+import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix, MeasureRow } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
@@ -197,15 +197,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
       @if (view() === 'kanban') {
         <div class="k-board">
           @for (lane of lanes; track lane.status) {
-            <section class="k-col" [attr.data-status]="lane.status">
+            <section class="k-col" [class.drop]="dropStatus() === lane.status" [attr.data-status]="lane.status"
+                     (dragover)="allowDrop($event, lane.status)" (dragleave)="clearDrop(lane.status)" (drop)="dropOnStatus($event, lane.status)">
               <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane.status) }}</b></h3>
               <div class="list-pane cards">
                 @for (row of laneRows(lane.status); track row.id) {
-                  <a class="k-card {{ row.kind }}" [routerLink]="['/measures', row.id]">
+                  <article class="k-card {{ row.kind }}" [draggable]="canMove()"
+                           (dragstart)="startCard($event, row)" (click)="openCard($event, row)">
                     <div class="name">{{ row.title }}</div>
                     <div class="line">{{ row.debtor_name || 'ЛС' }} · ЛС {{ row.debtor_account }}</div>
                     <div class="foot"><span class="when">{{ row.next_action }}</span></div>
-                  </a>
+                  </article>
                 }
                 @if (laneGroup(lane.status); as group) {
                   @if (group.results.length < group.total) {
@@ -328,6 +330,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
       text-decoration: none; color: inherit; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card[draggable="true"] { cursor: grab; }
+    .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .k-card.call { border-left-color: #2563eb; }
     .k-card.notice { border-left-color: #0f766e; }
     .k-card.warning { border-left-color: #e0a106; }
@@ -432,7 +436,14 @@ export class MeasuresListComponent implements OnInit {
   protected readonly error = signal('');
   protected readonly loaded = signal(false);
   protected readonly busy = signal(false);
+  protected readonly dropStatus = signal<string | null>(null);
   private request = 0;
+  private cardDragged = false;
+
+  protected canMove(): boolean {
+    const me = this.auth.me();
+    return !!me && me.role !== 'observer' && me.contour !== 'supplier';
+  }
 
   protected canOrderDisconnect(): boolean {
     return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
@@ -560,6 +571,50 @@ export class MeasuresListComponent implements OnInit {
   protected share(row: { progress?: { total: number; done: number } }): number {
     const total = row.progress?.total ?? 0;
     return total ? Math.round(((row.progress?.done ?? 0) / total) * 100) : 0;
+  }
+
+  protected startCard(event: DragEvent, row: MeasureRow): void {
+    if (!this.canMove()) {
+      event.preventDefault();
+      return;
+    }
+    this.cardDragged = true;
+    event.dataTransfer?.setData('text/plain', String(row.id));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    event.stopPropagation();
+  }
+
+  protected allowDrop(event: DragEvent, status: string): void {
+    if (!this.canMove()) return;
+    event.preventDefault();
+    this.dropStatus.set(status);
+  }
+
+  protected clearDrop(status: string): void {
+    if (this.dropStatus() === status) this.dropStatus.set(null);
+  }
+
+  protected dropOnStatus(event: DragEvent, status: string): void {
+    event.preventDefault();
+    this.dropStatus.set(null);
+    if (!this.canMove()) return;
+    const id = Number(event.dataTransfer?.getData('text/plain') || '');
+    if (!id) return;
+    const current = this.groups().flatMap((group) => group.results).find((row) => row.id === id);
+    if (!current || current.status === status) return;
+    this.api.measureStatus(id, status).subscribe({
+      next: () => this.load(),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected openCard(event: MouseEvent, row: MeasureRow): void {
+    if (this.cardDragged) {
+      this.cardDragged = false;
+      event.preventDefault();
+      return;
+    }
+    this.router.navigate(['/measures', row.id]);
   }
 
   protected laneGroup(status: string): MeasureGroup | undefined {

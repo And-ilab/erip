@@ -286,6 +286,10 @@ export class ApiService {
     return this.http.get<MeasureDetail>(`${this.base}/measures/${id}/`);
   }
 
+  measureStatus(id: number, status: string): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/status/`, { status });
+  }
+
   /** Результат по одному ЛС: обзвон передаёт call_result, остальные виды — status. */
   recordMeasureItem(id: number, body: Record<string, unknown>): Observable<MeasureDetail> {
     return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/result/`, body);

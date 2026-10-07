@@ -140,6 +140,40 @@ def log_event(measure: Measure, item: MeasureItem | None, user, old: str, new: s
     )
 
 
+_KANBAN_ITEM = {
+    Measure.Status.ASSIGNED: MeasureItem.Status.ASSIGNED,
+    Measure.Status.RUNNING: MeasureItem.Status.RUNNING,
+    Measure.Status.DONE: MeasureItem.Status.DONE,
+    Measure.Status.FAILED: MeasureItem.Status.FAILED,
+    Measure.Status.CANCELLED: MeasureItem.Status.CANCELLED,
+}
+
+
+def move_status(measure: Measure, status: str, user) -> Measure:
+    """Ручной перенос карточки канбана. Следующий шаг сценария сам не стартует."""
+    if getattr(user, "role", "") == "observer" or getattr(user, "contour", "") == "supplier":
+        raise MeasureLaunchError({"status": "Наблюдатель и поставщик статус партии не меняют"})
+    if status not in Measure.Status.values:
+        raise MeasureLaunchError({"status": "Неизвестный статус"})
+    if measure.status == status:
+        return measure
+    old = measure.status
+    reason = "Перенос в канбане"
+    item_status = _KANBAN_ITEM.get(status)
+    if item_status is not None:
+        for item in measure.items.all():
+            previous = item.status
+            item.status = item_status
+            if status == Measure.Status.CANCELLED and not item.note:
+                item.note = reason
+            item.save(update_fields=["status", "note", "updated_at"])
+            log_event(measure, item, user, previous, item_status, reason)
+    measure.status = status
+    measure.save(update_fields=["status", "updated_at"])
+    log_event(measure, None, user, old, status, reason)
+    return measure
+
+
 def rollup(measure: Measure, *, respect_pause: bool = True) -> None:
     """Статус партии — по частным. Пауза наследства не снимается пересчётом."""
     if respect_pause and measure.status == Measure.Status.PAUSED:

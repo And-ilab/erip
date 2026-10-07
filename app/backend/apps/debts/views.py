@@ -913,7 +913,7 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     audit_list = True
 
     def get_serializer_class(self):
-        if self.action in {"retrieve", "create", "confirm", "accept", "cancel", "approve", "reject", "deliver", "send", "result"}:
+        if self.action in {"retrieve", "create", "confirm", "accept", "cancel", "approve", "reject", "deliver", "send", "result", "move"}:
             return MeasureDetailSerializer
         return MeasureSerializer
 
@@ -1038,6 +1038,20 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         from .services.measures import disconnect_candidates
 
         return Response({"results": disconnect_candidates(_visible_accounts(request.user))})
+
+    @action(detail=True, methods=["post"], url_path="status")
+    def move(self, request, pk=None):
+        measure = self.get_object()
+
+        def runner():
+            from .services.measures import move_status
+
+            move_status(measure, (request.data.get("status") or "").strip(), request.user)
+
+        record_action(
+            request, AuditLog.Action.UPDATE, measure, after={"status": request.data.get("status")},
+        )
+        return self._act(request, measure, runner)
 
     @action(detail=True, methods=["post"], url_path="result")
     def result(self, request, pk=None):

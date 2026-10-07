@@ -7,6 +7,7 @@ import pytest
 from django.utils import timezone
 
 from apps.debts.models import AccountService, Measure, MeasureItem
+from apps.debts.services.measures import MeasureLaunchError, move_status
 from apps.notifications.models import Notification
 from apps.nsi.models import CalculationSettings
 from apps.users.models import User
@@ -284,3 +285,34 @@ def test_disconnect_skips_the_younger_service(api, specialist_a, account_a):
     assert created.status_code == 201, created.content
     assert created.json()["service_ids"] == [gas.id]
     assert created.json()["dropped_services"][0]["id"] == water.id
+
+
+@pytest.mark.django_db
+def test_kanban_drop_sets_party_status(api, specialist_a, observer_a, account_a, org_a):
+    account_a.debt_group = 1
+    account_a.save(update_fields=["debt_group"])
+    created = api(specialist_a).post(
+        "/api/v1/measures/",
+        {
+            "kind": "call", "account_ids": [account_a.id], "template_name": "Напоминание",
+            "time_from": "09:00", "time_to": "18:00",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    measure_id = created.json()["id"]
+    moved = api(specialist_a).post(f"/api/v1/measures/{measure_id}/status/", {"status": "running"}, format="json")
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["status"] == "running"
+    item = MeasureItem.objects.get(measure_id=measure_id)
+    assert item.status == MeasureItem.Status.RUNNING
+    paused = api(specialist_a).post(f"/api/v1/measures/{measure_id}/status/", {"status": "paused"}, format="json")
+    assert paused.status_code == 200, paused.content
+    item.refresh_from_db()
+    assert paused.json()["status"] == "paused"
+    assert item.status == MeasureItem.Status.RUNNING
+    supplier = make_user("water", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    with pytest.raises(MeasureLaunchError):
+        move_status(Measure.objects.get(pk=measure_id), "done", supplier)
+    blocked = api(observer_a).post(f"/api/v1/measures/{measure_id}/status/", {"status": "done"}, format="json")
+    assert blocked.status_code == 403
