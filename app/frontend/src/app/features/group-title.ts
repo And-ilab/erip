@@ -25,3 +25,12 @@ export function groupSectionTitle(field: string, value: string, fieldLabel: stri
 export function bucketParam(value: string): string {
   return value || BLANK_BUCKET;
 }
+
+/** В реестре длинный перечень не нужен. Больше двух слов — первое. Полный состав на карточке. */
+export function briefText(text: string): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean || clean === '—') return clean || '—';
+  const words = clean.split(' ').filter(Boolean);
+  if (words.length <= 2) return clean;
+  return words[0].replace(/[;,]+$/g, '') || '—';
+}

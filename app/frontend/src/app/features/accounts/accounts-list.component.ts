@@ -18,7 +18,7 @@ import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, 
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
-import { bucketParam, groupSectionTitle } from '../group-title';
+import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -333,7 +333,7 @@ interface GroupSection {
                     @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
                     @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
                     @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
-                    @case ('scenario_brief') { {{ r.scenario_brief || '—' }} }
+                    @case ('scenario_brief') { {{ short(r.scenario_brief) }} }
                     @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
                     @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
                     @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" /> }
@@ -392,7 +392,7 @@ interface GroupSection {
                               @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
                               @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
                               @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
-                              @case ('scenario_brief') { {{ r.scenario_brief || '—' }} }
+                              @case ('scenario_brief') { {{ short(r.scenario_brief) }} }
                               @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
                               @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
                               @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" /> }
@@ -442,20 +442,20 @@ interface GroupSection {
                     @if (canMove()) {
                       <button type="button" class="stage-btn" (click)="openStage($event, card)">Сменить этап воронки</button>
                     }
-                    <div class="line">Номер ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address) }} }</div>
+                    <div class="line">Номер ЛС {{ card.client_account }}@if (card.account_address) { · {{ short(street(card.account_address)) }} }</div>
                     <div class="group-line">
                       @if (card.rating_label) {
                         <span class="rating-badge r{{ card.rating_label[0] }}" title="Рейтинг должника">{{ card.rating_label }}</span>
                       }
                       @if (card.effective_group) { <span>Группа задолженности {{ card.effective_group }}</span> }
                     </div>
-                    <div class="line one-line">{{ card.scenario_brief || 'Сценарий не назначен' }}</div>
-                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
+                    <div class="line one-line">{{ short(card.scenario_brief) === '—' ? 'Сценарий не назначен' : short(card.scenario_brief) }}</div>
+                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ short(card.assigned_name) }}</div> }
                     @if (card.ownership_type_name || card.acc_category_full) {
                       <div class="line">
-                        @if (card.ownership_type_name) { Тип собственности: {{ card.ownership_type_name }} }
+                        @if (card.ownership_type_name) { Тип собственности: {{ short(card.ownership_type_name) }} }
                         @if (card.ownership_type_name && card.acc_category_full) { · }
-                        @if (card.acc_category_full) { Тип объекта жилфонда: {{ card.acc_category_full }} }
+                        @if (card.acc_category_full) { Тип объекта жилфонда: {{ short(card.acc_category_full) }} }
                       </div>
                     }
                     <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
@@ -943,11 +943,15 @@ export class AccountsListComponent implements OnInit {
     return value == null ? '' : String(value);
   }
 
+  protected short(text: string | null | undefined): string {
+    return briefText(text || '');
+  }
+
   boardCell(row: AccountRow, name: string): string {
     const lines = row.service_lines || [];
     const join = (pick: (line: NonNullable<AccountRow['service_lines']>[number]) => string) => {
       const text = lines.map(pick).filter(Boolean).join('; ');
-      return text || '—';
+      return briefText(text);
     };
     if (name === 'services_debt_count') return String(row.services_debt_count ?? 0);
     if (name === 'contract_number') return join((line) => line.service_name ? `${line.service_list_id} (${line.service_name})` : String(line.service_list_id));
@@ -962,7 +966,11 @@ export class AccountsListComponent implements OnInit {
         `${line.service_name || line.service_list_id} ${period.period}: долг ${period.principal || 0}, пеня ${period.penalty || 0}`,
       ).join('; '));
     }
-    return this.cell(row, name);
+    const raw = this.cell(row, name);
+    if (['account_address', 'ownership_type_name', 'acc_category_full', 'assigned_name', 'provider_short_name', 'schema_label'].includes(name)) {
+      return briefText(raw);
+    }
+    return raw;
   }
 
   togglePanel(event: Event): void {

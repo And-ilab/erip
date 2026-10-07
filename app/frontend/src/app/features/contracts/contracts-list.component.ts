@@ -13,7 +13,7 @@ import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
-import { bucketParam, groupSectionTitle } from '../group-title';
+import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -312,9 +312,9 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Суммарный долг по всем услугам ЛС</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.debt_group }}</td></ng-container>
-            <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ r.assigned_name }}</td></ng-container>
-            <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ r.ownership_type_name }}</td></ng-container>
-            <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ r.housing_object }}</td></ng-container>
+            <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ short(r.assigned_name) }}</td></ng-container>
+            <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ short(r.ownership_type_name) }}</td></ng-container>
+            <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ short(r.housing_object) }}</td></ng-container>
             <ng-container matColumnDef="months_debt"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let r">{{ r.months_debt }}</td></ng-container>
             <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
             <ng-container matColumnDef="registered_count"><th mat-header-cell *matHeaderCellDef>Кол-во зарегистрированных</th><td mat-cell *matCellDef="let r">{{ r.registered_count }}</td></ng-container>
@@ -350,10 +350,10 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="account_number"><th mat-header-cell *matHeaderCellDef>Номер ЛС</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/accounts', r.account]" (click)="$event.stopPropagation()">{{ r.account_number }}</a></td></ng-container>
             <ng-container matColumnDef="rating_label"><th mat-header-cell *matHeaderCellDef>Рейтинг должника</th><td mat-cell *matCellDef="let r">@if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> }</td></ng-container>
             <ng-container matColumnDef="funnel_stage"><th mat-header-cell *matHeaderCellDef>Этап воронки взыскания</th><td mat-cell *matCellDef="let r">{{ stageLabel(r.funnel_stage) }}</td></ng-container>
-            <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
+            <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ short(r.service_name) }}</td></ng-container>
             <ng-container matColumnDef="service_list_id"><th mat-header-cell *matHeaderCellDef>Номер договора</th><td mat-cell *matCellDef="let r">{{ r.service_list_id }}</td></ng-container>
             <ng-container matColumnDef="start_date"><th mat-header-cell *matHeaderCellDef>Дата договора</th><td mat-cell *matCellDef="let r">{{ r.start_date }}</td></ng-container>
-            <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
+            <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ short(r.shot_name) }}</td></ng-container>
             <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
             <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Наименование схемы</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
             <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Остаток задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
@@ -366,10 +366,10 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения по договору</th><td mat-cell *matCellDef="let r">{{ r.repayment_due_on }}</td></ng-container>
             <ng-container matColumnDef="last_payment_date"><th mat-header-cell *matHeaderCellDef>Дата последней оплаты</th><td mat-cell *matCellDef="let r">{{ r.last_payment_date }}</td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
-            <ng-container matColumnDef="scenario_brief"><th mat-header-cell *matHeaderCellDef>Сценарий</th><td mat-cell *matCellDef="let r" class="one-line">{{ r.scenario_brief }}</td></ng-container>
-            <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ r.assigned_name }}</td></ng-container>
-            <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ r.ownership_type_name }}</td></ng-container>
-            <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ r.housing_object }}</td></ng-container>
+            <ng-container matColumnDef="scenario_brief"><th mat-header-cell *matHeaderCellDef>Сценарий</th><td mat-cell *matCellDef="let r" class="one-line">{{ short(r.scenario_brief) }}</td></ng-container>
+            <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ short(r.assigned_name) }}</td></ng-container>
+            <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ short(r.ownership_type_name) }}</td></ng-container>
+            <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ short(r.housing_object) }}</td></ng-container>
             <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let r">{{ r.debt_period }}</td></ng-container>
             <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
             <ng-container matColumnDef="registered_count"><th mat-header-cell *matHeaderCellDef>Кол-во зарегистрированных</th><td mat-cell *matCellDef="let r">{{ r.registered_count }}</td></ng-container>
@@ -396,7 +396,7 @@ const COLUMN_LABELS: Record<string, string> = {
                     }
                     <div class="line">{{ personId(card) }} · {{ card.ls_count }} ЛС · {{ card.services_debt_count ?? card.service_count || 0 }} усл.</div>
                     @if (card.service_name) {
-                      <div class="line">{{ card.service_name }}</div>
+                      <div class="line">{{ short(card.service_name) }}</div>
                     }
                     @if (card.address) {
                       <div class="line">{{ street(card.address) }}</div>
@@ -410,9 +410,9 @@ const COLUMN_LABELS: Record<string, string> = {
                     @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
                     @if (card.ownership_type_name || card.housing_object) {
                       <div class="line">
-                        @if (card.ownership_type_name) { Тип собственности: {{ card.ownership_type_name }} }
+                        @if (card.ownership_type_name) { Тип собственности: {{ short(card.ownership_type_name) }} }
                         @if (card.ownership_type_name && card.housing_object) { · }
-                        @if (card.housing_object) { Тип объекта жилфонда: {{ card.housing_object }} }
+                        @if (card.housing_object) { Тип объекта жилфонда: {{ short(card.housing_object) }} }
                       </div>
                     }
                     <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
@@ -1295,7 +1295,11 @@ export class ContractsListComponent implements OnInit {
     if (name === 'funnel_stage') return this.stageLabel(row.funnel_stage || '');
     if (name === 'effective_group') return row.debt_group ? String(row.debt_group) : '—';
     const value = row[name as keyof ContractPerson];
-    return value == null || value === '' ? '—' : String(value);
+    const text = value == null || value === '' ? '—' : String(value);
+    if (['address', 'assigned_name', 'ownership_type_name', 'housing_object', 'category', 'scenario_brief'].includes(name)) {
+      return briefText(text);
+    }
+    return text;
   }
 
   protected moreSection(section: GroupSection): void {
@@ -1411,7 +1415,7 @@ export class ContractsListComponent implements OnInit {
     const lines = row.service_lines || [];
     const join = (pick: (line: NonNullable<ContractPerson['service_lines']>[number]) => string) => {
       const text = lines.map(pick).filter(Boolean).join('; ');
-      return text || '—';
+      return briefText(text);
     };
     if (name === 'contract_number') return join((line) => line.service_name ? `${line.service_list_id} (${line.service_name})` : String(line.service_list_id));
     if (name === 'contract_date') return join((line) => line.start_date || '');
@@ -1428,10 +1432,14 @@ export class ContractsListComponent implements OnInit {
     return '—';
   }
 
+  protected short(text: string | null | undefined): string {
+    return briefText(text || '');
+  }
+
   protected periodText(row: AccountService): string {
     const periods = row.periods || [];
     if (!periods.length) return '—';
-    return periods.map((period) => `${period.period}: долг ${period.principal || 0}, пеня ${period.penalty || 0}`).join('; ');
+    return briefText(periods.map((period) => `${period.period}: долг ${period.principal || 0}, пеня ${period.penalty || 0}`).join('; '));
   }
 
   protected personId(card: ContractPerson): string {
