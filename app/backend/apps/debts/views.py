@@ -329,6 +329,14 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 supplier_months=Max("services__debt_period", filter=debt_filter),
                 supplier_started=Min("services__debt_started_on", filter=debt_filter),
             )
+        if "bucket" in self.request.query_params:
+            from apps.debts.services.group_buckets import restrict_account_bucket
+
+            qs = restrict_account_bucket(
+                qs,
+                self.request.query_params.get("group_by") or "",
+                self.request.query_params.get("bucket") or "",
+            )
         return qs
 
     def get_serializer_class(self):
@@ -779,6 +787,18 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     ordering_fields = ["debt_group", "balance_out", "debt_started_on", "service_name"]
     audit_view = True
     audit_list = True
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if "bucket" in self.request.query_params:
+            from apps.debts.services.group_buckets import restrict_service_bucket
+
+            qs = restrict_service_bucket(
+                qs,
+                self.request.query_params.get("group_by") or "",
+                self.request.query_params.get("bucket") or "",
+            )
+        return qs
 
     def _visible(self):
         return self.filter_queryset(self.get_queryset())

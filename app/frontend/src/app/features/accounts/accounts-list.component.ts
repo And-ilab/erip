@@ -9,7 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
 import { Router } from '@angular/router';
-import { debounceTime, distinctUntilChanged } from 'rxjs';
+import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
@@ -18,6 +18,7 @@ import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, 
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
+import { bucketParam, groupSectionTitle } from '../group-title';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -66,6 +67,21 @@ const BASE_COLUMNS = [
 ];
 
 type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
+
+const GROUP_PAGE = 40;
+
+interface GroupSection {
+  value: string;
+  accounts: number;
+  services: number;
+  debt: string | null;
+  penalty: string | null;
+  rows: AccountRow[];
+  rowTotal: number;
+  page: number;
+  open: boolean;
+  loading: boolean;
+}
 
 @Component({
   selector: 'app-accounts-list',
@@ -335,16 +351,80 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
         }
 
         @if (view() === 'grouped') {
-          <div class="list-pane">
-          <table mat-table [dataSource]="groupedRows()">
-            <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value || '—' }}</td></ng-container>
-            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="services"><th mat-header-cell *matHeaderCellDef>Количество услуг с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.services }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
-            <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
-            <tr mat-row *matRowDef="let row; columns: groupColumns"></tr>
-          </table>
+          <div class="list-pane groups">
+          @if (sectionsLoading()) {
+            <p class="hint">Загрузка групп…</p>
+          } @else if (!sections().length && !error()) {
+            <p class="hint">По этому отбору лицевых счетов нет.</p>
+          }
+          @if (sections().length) {
+            <table class="grouped-board">
+              <thead>
+                <tr>
+                  @for (name of shownColumns(); track name) {
+                    <th>{{ name === 'select' ? '' : label(name) }}</th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (section of sections(); track section.value) {
+                  <tr [class]="'group-band g' + (section.value || '0')">
+                    <td [attr.colspan]="shownColumns().length">
+                      <button type="button" class="band" (click)="toggleSection(section.value)">
+                        <span class="chev">{{ section.open ? '▾' : '▸' }}</span>
+                        <span class="title">{{ sectionTitle(section.value) }}</span>
+                        <span class="count">{{ section.accounts }} ЛС</span>
+                        <b class="sum"><app-money [value]="sectionObligation(section)" [blank]="false" /></b>
+                      </button>
+                    </td>
+                  </tr>
+                  @if (section.open) {
+                    @for (r of section.rows; track r.id) {
+                      <tr class="clickable-row" [class.picked]="isSelected(r.id)" (click)="openRow($event, r)">
+                        @for (name of shownColumns(); track name) {
+                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)">
+                            @switch (name) {
+                              @case ('select') {
+                                <input type="checkbox" [attr.aria-label]="'Выбрать ЛС ' + r.client_account" [checked]="isSelected(r.id)" (click)="$event.stopPropagation()" (change)="toggleRow(r, $event)" />
+                              }
+                              @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
+                              @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
+                              @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
+                              @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
+                              @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
+                              @case ('scenario_brief') { {{ r.scenario_brief || '—' }} }
+                              @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
+                              @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
+                              @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" /> }
+                              @default { {{ boardCell(r, name) }} }
+                            }
+                          </td>
+                        }
+                      </tr>
+                    }
+                    @if (section.loading) {
+                      <tr class="more"><td [attr.colspan]="shownColumns().length">Загрузка…</td></tr>
+                    } @else if (section.rows.length < section.rowTotal) {
+                      <tr class="more">
+                        <td [attr.colspan]="shownColumns().length">
+                          <button type="button" (click)="moreSection(section)">Показать ещё {{ section.rowTotal - section.rows.length }}</button>
+                        </td>
+                      </tr>
+                    }
+                  }
+                }
+                <tr class="group-foot">
+                  <td [attr.colspan]="shownColumns().length">
+                    <div class="foot">Итого {{ groupedTotals().accounts }} ЛС · услуг с задолженностью {{ groupedTotals().services }}
+                    · основной долг <app-money [value]="groupedTotals().debt" [blank]="false" />
+                    · пеня <app-money [value]="groupedTotals().penalty" [blank]="false" />
+                    · задолженность <app-money [value]="groupedTotals().obligation" [blank]="false" />
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          }
           </div>
         }
 
@@ -708,8 +788,9 @@ export class AccountsListComponent implements OnInit {
   protected readonly specialists = signal<{ name: string }[]>([]);
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly serviceChoices = signal<ServiceChoice[]>([]);
-  protected readonly groupColumns = ['value', 'accounts', 'services', 'debt', 'penalty'];
-  protected readonly groupedRows = signal<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]>([]);
+  protected readonly sections = signal<GroupSection[]>([]);
+  protected readonly sectionsLoading = signal(false);
+  private groupTicket = 0;
   protected readonly selected = signal<Set<number>>(new Set());
   protected readonly dropStage = signal<string | null>(null);
   protected readonly search = new FormControl('', { nonNullable: true });
@@ -1477,11 +1558,111 @@ export class AccountsListComponent implements OnInit {
     });
   }
 
+  protected penaltyMarked(name: string, row: AccountRow): boolean {
+    return name === 'mulct_total' && Number(row.mulct_total) > 0;
+  }
+
+  protected sectionTitle(value: string): string {
+    return groupSectionTitle(this.groupBy.value, value, this.groupByLabel(this.groupBy.value));
+  }
+
+  protected sectionObligation(section: GroupSection): number {
+    return Number(section.debt ?? 0) + Number(section.penalty ?? 0);
+  }
+
+  protected groupedTotals(): { accounts: number; services: number; debt: string; penalty: string; obligation: string } {
+    const rows = this.sections();
+    const debt = rows.reduce((sum, row) => sum + Number(row.debt || 0), 0);
+    const penalty = rows.reduce((sum, row) => sum + Number(row.penalty || 0), 0);
+    return {
+      accounts: rows.reduce((sum, row) => sum + row.accounts, 0),
+      services: rows.reduce((sum, row) => sum + row.services, 0),
+      debt: debt.toFixed(2),
+      penalty: penalty.toFixed(2),
+      obligation: (debt + penalty).toFixed(2),
+    };
+  }
+
+  protected toggleSection(value: string): void {
+    this.sections.update((list) => list.map((item) => item.value === value ? { ...item, open: !item.open } : item));
+  }
+
+  protected moreSection(section: GroupSection): void {
+    if (section.loading || section.rows.length >= section.rowTotal) return;
+    const ticket = this.groupTicket;
+    this.sections.update((list) => list.map((item) => item.value === section.value ? { ...item, loading: true } : item));
+    this.api.accounts({
+      ...this.query(),
+      bucket: bucketParam(section.value),
+      page: section.page + 1,
+      page_size: GROUP_PAGE,
+    }).subscribe({
+      next: (result) => {
+        if (ticket !== this.groupTicket) return;
+        this.sections.update((list) => list.map((item) => item.value === section.value ? {
+          ...item,
+          rows: [...item.rows, ...result.results],
+          rowTotal: result.count,
+          page: section.page + 1,
+          loading: false,
+        } : item));
+      },
+      error: (e) => {
+        if (ticket !== this.groupTicket) return;
+        this.sections.update((list) => list.map((item) => item.value === section.value ? { ...item, loading: false } : item));
+        this.error.set(errorMessage(e));
+      },
+    });
+  }
+
   private showGrouped(): void {
     this.view.set('grouped');
+    this.sectionsLoading.set(true);
+    const ticket = ++this.groupTicket;
     this.api.grouped(this.query()).subscribe({
-      next: (rows) => this.groupedRows.set(rows),
-      error: (e) => this.error.set(errorMessage(e)),
+      next: (rows) => {
+        if (ticket !== this.groupTicket) return;
+        if (!rows.length) {
+          this.sections.set([]);
+          this.sectionsLoading.set(false);
+          this.error.set('');
+          return;
+        }
+        forkJoin(rows.map((row) => this.api.accounts({
+          ...this.query(),
+          bucket: bucketParam(row.value),
+          page: 1,
+          page_size: GROUP_PAGE,
+        }))).subscribe({
+          next: (pages) => {
+            if (ticket !== this.groupTicket) return;
+            this.sections.set(rows.map((row, index) => ({
+              value: row.value,
+              accounts: row.accounts,
+              services: row.services,
+              debt: row.debt,
+              penalty: row.penalty,
+              rows: pages[index].results,
+              rowTotal: pages[index].count,
+              page: 1,
+              open: true,
+              loading: false,
+            })));
+            this.sectionsLoading.set(false);
+            this.error.set('');
+          },
+          error: (e) => {
+            if (ticket !== this.groupTicket) return;
+            this.sectionsLoading.set(false);
+            this.error.set(errorMessage(e));
+          },
+        });
+      },
+      error: (e) => {
+        if (ticket !== this.groupTicket) return;
+        this.sectionsLoading.set(false);
+        this.error.set(errorMessage(e));
+      },
     });
   }
 

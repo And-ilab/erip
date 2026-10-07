@@ -8,11 +8,12 @@ import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { Router, RouterLink } from '@angular/router';
-import { debounceTime, distinctUntilChanged } from 'rxjs';
+import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
+import { bucketParam, groupSectionTitle } from '../group-title';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -29,6 +30,21 @@ import {
 } from '../../core/models';
 
 type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
+
+const GROUP_PAGE = 40;
+
+interface GroupSection {
+  value: string;
+  accounts: number;
+  services: number;
+  debt: string | null;
+  penalty: string | null;
+  rows: ContractPerson[];
+  rowTotal: number;
+  page: number;
+  open: boolean;
+  loading: boolean;
+}
 
 const PERSON_FIELDS = [
   'payer', 'payer_identifier', 'payer_unp', 'rating_label', 'funnel_stage', 'ls_count',
@@ -423,16 +439,75 @@ const COLUMN_LABELS: Record<string, string> = {
             (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)" />
         }
         @if (view() === 'grouped') {
-          <div class="list-pane">
-          <table mat-table [dataSource]="groupsRows()">
-            <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
-            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="services"><th mat-header-cell *matHeaderCellDef>Количество услуг с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.services }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
-            <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
-            <tr mat-row *matRowDef="let row; columns: groupColumns"></tr>
-          </table>
+          <div class="list-pane groups">
+          @if (sectionsLoading()) {
+            <p class="hint">Загрузка групп…</p>
+          } @else if (!sections().length && !error()) {
+            <p class="hint">По этому отбору договоров нет.</p>
+          }
+          @if (sections().length) {
+            <table class="grouped-board">
+              <thead>
+                <tr>
+                  @for (name of shownPersons(); track name) {
+                    <th>{{ name === 'select' ? '' : columnLabel(name) }}</th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (section of sections(); track section.value) {
+                  <tr [class]="'group-band g' + (section.value || '0')">
+                    <td [attr.colspan]="shownPersons().length">
+                      <button type="button" class="band" (click)="toggleSection(section.value)">
+                        <span class="chev">{{ section.open ? '▾' : '▸' }}</span>
+                        <span class="title">{{ sectionTitle(section.value) }}</span>
+                        <span class="count">{{ section.accounts }} ЛС</span>
+                        <b class="sum"><app-money [value]="obligation(section.debt, section.penalty)" [blank]="false" /></b>
+                      </button>
+                    </td>
+                  </tr>
+                  @if (section.open) {
+                    @for (r of section.rows; track r.sample_id) {
+                      <tr class="clickable-row" [class.picked]="isSelected(r.sample_id)" (click)="open(r.sample_id)">
+                        @for (name of shownPersons(); track name) {
+                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(r, name)">
+                            @switch (name) {
+                              @case ('select') {
+                                <input type="checkbox" [checked]="isSelected(r.sample_id)" (click)="$event.stopPropagation()" (change)="togglePerson(r)" />
+                              }
+                              @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
+                              @case ('principal') { <app-money [value]="r.principal" [blank]="false" /> }
+                              @case ('penalty') { <app-money [value]="r.penalty" [blank]="false" /> }
+                              @case ('obligation') { <app-money [value]="obligation(r.principal, r.penalty)" [blank]="false" /> }
+                              @default { {{ personCell(r, name) }} }
+                            }
+                          </td>
+                        }
+                      </tr>
+                    }
+                    @if (section.loading) {
+                      <tr class="more"><td [attr.colspan]="shownPersons().length">Загрузка…</td></tr>
+                    } @else if (section.rows.length < section.rowTotal) {
+                      <tr class="more">
+                        <td [attr.colspan]="shownPersons().length">
+                          <button type="button" (click)="moreSection(section)">Показать ещё {{ section.rowTotal - section.rows.length }}</button>
+                        </td>
+                      </tr>
+                    }
+                  }
+                }
+                <tr class="group-foot">
+                  <td [attr.colspan]="shownPersons().length">
+                    <div class="foot">Итого {{ groupedTotals().accounts }} ЛС · услуг с задолженностью {{ groupedTotals().services }}
+                    · основной долг <app-money [value]="groupedTotals().debt" [blank]="false" />
+                    · пеня <app-money [value]="groupedTotals().penalty" [blank]="false" />
+                    · задолженность <app-money [value]="groupedTotals().obligation" [blank]="false" />
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          }
           </div>
         }
       </div>
@@ -695,7 +770,9 @@ export class ContractsListComponent implements OnInit {
   protected readonly serviceCatalog = signal<string[]>([]);
   protected readonly columnsOpen = signal(false);
   protected readonly groupChoices = this.contractGroupChoices();
-  protected readonly groupColumns = ['value', 'accounts', 'services', 'debt', 'penalty'];
+  protected readonly sections = signal<GroupSection[]>([]);
+  protected readonly sectionsLoading = signal(false);
+  private groupTicket = 0;
   protected readonly supplierColumns = ['name', 'ls_count', 'principal', 'penalty', 'obligation', 'measures', 'claims'];
   protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('suppliers');
   protected readonly panelOpen = signal(false);
@@ -704,7 +781,6 @@ export class ContractsListComponent implements OnInit {
   protected readonly rows = signal<AccountService[]>([]);
   protected readonly kanban = signal<{ stage: string; title: string; total: number; cards: ContractPerson[] }[]>([]);
   protected readonly events = signal<CalendarEvent[]>([]);
-  protected readonly groupsRows = signal<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]>([]);
   protected readonly summary = signal<ContractSummary | null>(null);
   protected readonly dial = signal<{ dial_mobile_from_day: number; dial_mobile_from_hour: number | null; dial_mobile_to_hour: number | null } | null>(null);
   protected readonly categories = signal<DebtorCategory[]>([]);
@@ -1177,11 +1253,120 @@ export class ContractsListComponent implements OnInit {
     });
   }
 
+  protected penaltyMarked(row: ContractPerson, name: string): boolean {
+    return name === 'penalty' && Number(row.penalty || 0) > 0;
+  }
+
+  protected sectionTitle(value: string): string {
+    return groupSectionTitle(this.groupBy.value, value, this.groupByLabel(this.groupBy.value));
+  }
+
+  protected groupedTotals(): { accounts: number; services: number; debt: string; penalty: string; obligation: string } {
+    const rows = this.sections();
+    const debt = rows.reduce((sum, row) => sum + Number(row.debt || 0), 0);
+    const penalty = rows.reduce((sum, row) => sum + Number(row.penalty || 0), 0);
+    return {
+      accounts: rows.reduce((sum, row) => sum + row.accounts, 0),
+      services: rows.reduce((sum, row) => sum + row.services, 0),
+      debt: debt.toFixed(2),
+      penalty: penalty.toFixed(2),
+      obligation: (debt + penalty).toFixed(2),
+    };
+  }
+
+  protected toggleSection(value: string): void {
+    this.sections.update((list) => list.map((item) => item.value === value ? { ...item, open: !item.open } : item));
+  }
+
+  protected personCell(row: ContractPerson, name: string): string {
+    if ([
+      'contract_number', 'contract_date', 'service_provider', 'initial_principal', 'initial_penalty',
+      'period_balances', 'repayment_due_on', 'last_payment_date',
+    ].includes(name)) {
+      return this.personLines(row, name);
+    }
+    if (name === 'funnel_stage') return this.stageLabel(row.funnel_stage || '');
+    if (name === 'effective_group') return row.debt_group ? String(row.debt_group) : '—';
+    const value = row[name as keyof ContractPerson];
+    return value == null || value === '' ? '—' : String(value);
+  }
+
+  protected moreSection(section: GroupSection): void {
+    if (section.loading || section.rows.length >= section.rowTotal) return;
+    const ticket = this.groupTicket;
+    this.sections.update((list) => list.map((item) => item.value === section.value ? { ...item, loading: true } : item));
+    this.api.contractPersons({
+      ...this.query(),
+      bucket: bucketParam(section.value),
+      page: section.page + 1,
+      page_size: GROUP_PAGE,
+    }).subscribe({
+      next: (result) => {
+        if (ticket !== this.groupTicket) return;
+        this.sections.update((list) => list.map((item) => item.value === section.value ? {
+          ...item,
+          rows: [...item.rows, ...result.results],
+          rowTotal: result.count,
+          page: section.page + 1,
+          loading: false,
+        } : item));
+      },
+      error: (e) => {
+        if (ticket !== this.groupTicket) return;
+        this.sections.update((list) => list.map((item) => item.value === section.value ? { ...item, loading: false } : item));
+        this.error.set(errorMessage(e));
+      },
+    });
+  }
+
   showGrouped(): void {
     this.view.set('grouped');
-    this.api.contractGrouped({ ...this.query(), group_by: this.groupBy.value }).subscribe({
-      next: (rows) => this.groupsRows.set(rows),
-      error: (e) => this.error.set(errorMessage(e)),
+    this.sectionsLoading.set(true);
+    const ticket = ++this.groupTicket;
+    this.api.contractGrouped(this.query()).subscribe({
+      next: (rows) => {
+        if (ticket !== this.groupTicket) return;
+        if (!rows.length) {
+          this.sections.set([]);
+          this.sectionsLoading.set(false);
+          this.error.set('');
+          return;
+        }
+        forkJoin(rows.map((row) => this.api.contractPersons({
+          ...this.query(),
+          bucket: bucketParam(row.value),
+          page: 1,
+          page_size: GROUP_PAGE,
+        }))).subscribe({
+          next: (pages) => {
+            if (ticket !== this.groupTicket) return;
+            this.sections.set(rows.map((row, index) => ({
+              value: row.value,
+              accounts: row.accounts,
+              services: row.services,
+              debt: row.debt,
+              penalty: row.penalty,
+              rows: pages[index].results,
+              rowTotal: pages[index].count,
+              page: 1,
+              open: true,
+              loading: false,
+            })));
+            this.sectionsLoading.set(false);
+            this.error.set('');
+          },
+          error: (e) => {
+            if (ticket !== this.groupTicket) return;
+            this.sectionsLoading.set(false);
+            this.error.set(errorMessage(e));
+          },
+        });
+      },
+      error: (e) => {
+        if (ticket !== this.groupTicket) return;
+        this.sectionsLoading.set(false);
+        this.error.set(errorMessage(e));
+      },
     });
   }
 
@@ -1378,6 +1563,7 @@ export class ContractsListComponent implements OnInit {
       period_from: this.periodFrom.value,
       period_to: this.periodTo.value,
       provider_id: this.provider.value || null,
+      group_by: this.groupBy.value,
     };
   }
 }

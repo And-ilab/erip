@@ -381,6 +381,35 @@ def test_account_board_lists_contract_fields(api, specialist_a, account_a):
     assert Decimal(row["penalty"]) == Decimal("5")
 
 
+def test_group_bucket_opens_the_same_accounts(api, specialist_a, account_a):
+    account_a.debt_group = 3
+    account_a.assigned_to = specialist_a
+    account_a.save(update_fields=["debt_group", "assigned_to"])
+    empty = make_account(account_a.organization, 1002, client_account="00001002")
+    grouped = api(specialist_a).get("/api/v1/accounts/grouped/", {"group_by": "debt_group"}).json()
+    listed = api(specialist_a).get("/api/v1/accounts/", {"group_by": "debt_group", "bucket": "3"}).json()
+    filled = next(row for row in grouped if row["value"] == "3")
+    assert listed["count"] == filled["accounts"]
+    assert {row["id"] for row in listed["results"]} == {account_a.id}
+    blank = api(specialist_a).get("/api/v1/accounts/", {"group_by": "debt_group", "bucket": "__blank__"}).json()
+    assert empty.id in {row["id"] for row in blank["results"]}
+    assert account_a.id not in {row["id"] for row in blank["results"]}
+    by_name = api(specialist_a).get("/api/v1/accounts/grouped/", {"group_by": "specialist"}).json()
+    name = next(row["value"] for row in by_name if row["value"])
+    named = api(specialist_a).get("/api/v1/accounts/", {"group_by": "specialist", "bucket": name}).json()
+    assert account_a.id in {row["id"] for row in named["results"]}
+    assert api(specialist_a).get("/api/v1/accounts/", {"group_by": "unknown", "bucket": "3"}).status_code == 400
+    service = account_a.services.get()
+    service.debt_group = 2
+    service.save(update_fields=["debt_group"])
+    persons = api(specialist_a).get("/api/v1/contracts/persons/", {"group_by": "debt_group", "bucket": "2"}).json()
+    assert persons["count"] == 1
+    assert persons["results"][0]["sample_id"] == service.id
+    assert api(specialist_a).get(
+        "/api/v1/contracts/persons/", {"group_by": "debt_group", "bucket": "6"},
+    ).json()["count"] == 0
+
+
 def test_supplier_kanban_follows_his_service_group(api, org_a, account_a):
     supplier, water = _supplier(org_a, account_a)
     account_a.funnel_stage = "enforcement"
