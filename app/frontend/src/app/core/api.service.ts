@@ -332,6 +332,10 @@ export class ApiService {
     return this.http.get<{ results: DisconnectCandidate[] }>(`${this.base}/measures/ready-to-disconnect/`);
   }
 
+  specialists(): Observable<{ id: number; name: string }[]> {
+    return this.http.get<{ id: number; name: string }[]>(`${this.base}/accounts/specialists/`);
+  }
+
   grouped(params: Params): Observable<{ value: string; accounts: number; debt: string | null }[]> {
     return this.http.get<{ value: string; accounts: number; debt: string | null }[]>(`${this.base}/accounts/grouped/`, { params: toParams(params) });
   }

@@ -80,7 +80,7 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
               <button type="button" class="fchip" (click)="clearStage($event)">Этап: {{ stageLabel(stage.value) }} ×</button>
             }
             @if (specialist.value) {
-              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialist.value }} ×</button>
+              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialistName() }} ×</button>
             }
             @if (ownership.value) {
               <button type="button" class="fchip" (click)="clearText(ownership, $event)">Собственность: {{ ownership.value }} ×</button>
@@ -131,9 +131,12 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
                   <button type="button" class="menu-item" [class.on]="stage.value === item.id" (click)="setStage(item.id)">{{ item.label }}</button>
                 }
                 <div class="sub">Закреплённый специалист</div>
-                <div class="save-row">
-                  <input [formControl]="specialist" placeholder="ФИО специалиста" (click)="$event.stopPropagation()" />
-                </div>
+                @for (item of specialists(); track item.id) {
+                  <button type="button" class="menu-item" [class.on]="specialist.value === '' + item.id" (click)="setSpecialist(item.id)">{{ item.name }}</button>
+                }
+                @if (!specialists().length) {
+                  <p class="empty">Закреплённых специалистов пока нет</p>
+                }
                 <div class="sub">Тип собственности</div>
                 <div class="save-row">
                   <input [formControl]="ownership" placeholder="Например, частная" (click)="$event.stopPropagation()" />
@@ -419,7 +422,16 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
                   <mat-option value="residents">Кол-во проживающих</mat-option>
                 </mat-select>
               </mat-form-field>
-              @if (customField.value === 'specialist' || customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
+              @if (customField.value === 'specialist') {
+                <mat-form-field>
+                  <mat-label>Значение</mat-label>
+                  <mat-select [formControl]="customValue">
+                    @for (item of specialists(); track item.id) {
+                      <mat-option [value]="'' + item.id">{{ item.name }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              } @else if (customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
                 <mat-form-field>
                   <mat-label>Значение</mat-label>
                   <input matInput [formControl]="customValue" />
@@ -679,6 +691,7 @@ export class AccountsListComponent implements OnInit {
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly filters = signal<SavedFilter[]>([]);
+  protected readonly specialists = signal<{ id: number; name: string }[]>([]);
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly serviceChoices = signal<ServiceChoice[]>([]);
   protected readonly groupedRows = signal<{ value: string; accounts: number; debt: string | null }[]>([]);
@@ -773,6 +786,10 @@ export class AccountsListComponent implements OnInit {
       if (names.length) this.columns.set(names);
     });
     this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results));
+    this.api.specialists().subscribe({
+      next: (rows) => this.specialists.set(rows),
+      error: () => this.specialists.set([]),
+    });
     this.api.templates({ is_active: true, page_size: 200 }).subscribe({
       next: (page) => this.templates.set(page.results),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
@@ -791,6 +808,16 @@ export class AccountsListComponent implements OnInit {
 
   stageLabel(id: string): string {
     return this.stages.find((item) => item.id === id)?.label ?? id;
+  }
+
+  specialistName(): string {
+    const id = this.specialist.value;
+    return this.specialists().find((item) => String(item.id) === id)?.name ?? id;
+  }
+
+  setSpecialist(id: number): void {
+    const value = String(id);
+    this.specialist.setValue(this.specialist.value === value ? '' : value);
   }
 
   groupByLabel(id: string): string {
@@ -1319,7 +1346,7 @@ export class AccountsListComponent implements OnInit {
     this.groupsSelected.setValue(this.parseGroups(item.query['debt_group__in']), { emitEvent: false });
     this.rating.setValue(this.parseRatings(item.query['rating__in'] ?? item.query['rating']), { emitEvent: false });
     this.stage.setValue(String(item.query['funnel_stage'] ?? ''), { emitEvent: false });
-    this.specialist.setValue(String(item.query['assigned_name'] ?? ''), { emitEvent: false });
+    this.specialist.setValue(String(item.query['assigned_to'] ?? ''), { emitEvent: false });
     this.ownership.setValue(String(item.query['ownership'] ?? ''), { emitEvent: false });
     this.housing.setValue(String(item.query['housing'] ?? ''), { emitEvent: false });
     this.monthsDebt.setValue(String(item.query['months_debt'] ?? ''), { emitEvent: false });
@@ -1438,7 +1465,7 @@ export class AccountsListComponent implements OnInit {
       debt_group__in: selected.length ? selected.join(',') : null,
       rating__in: this.rating.value.length ? this.rating.value.join(',') : null,
       funnel_stage: this.stage.value,
-      assigned_name: this.specialist.value,
+      assigned_to: this.specialist.value || null,
       ownership: this.ownership.value,
       housing: this.housing.value,
       months_debt: this.monthsDebt.value || null,

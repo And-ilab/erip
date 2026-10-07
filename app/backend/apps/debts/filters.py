@@ -103,6 +103,7 @@ class ContractFilter(django_filters.FilterSet):
     debtor_category = django_filters.NumberFilter(field_name="account__debtor_category")
     billing_provider = django_filters.CharFilter(method="filter_billing")
     funnel_stage = django_filters.CharFilter(field_name="account__funnel_stage")
+    assigned_to = django_filters.NumberFilter(field_name="account__assigned_to")
     assigned_name = django_filters.CharFilter(method="filter_assigned_name")
     ownership = django_filters.CharFilter(field_name="account__ownership_type_name", lookup_expr="icontains")
     housing = django_filters.CharFilter(field_name="account__acc_category_full", lookup_expr="icontains")

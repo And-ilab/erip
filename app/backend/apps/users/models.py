@@ -85,6 +85,12 @@ class User(AbstractUser):
         parts = [p for p in (self.first_name, self.middle_name) if p]
         return " ".join(parts) or self.get_full_name() or self.username
 
+    @property
+    def registry_name(self) -> str:
+        """Фамилия, имя и отчество в реестре и в группировке."""
+        parts = [p for p in (self.last_name, self.first_name, self.middle_name) if p]
+        return " ".join(parts) or self.username
+
     def save(self, *args, **kwargs):
         if self.is_superuser:
             self.role = self.Role.SUPERADMIN

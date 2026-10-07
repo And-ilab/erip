@@ -5,9 +5,10 @@
 """
 
 from django.db.models import Case, CharField, Count, IntegerField, Max, Min, Q, Sum, Value, When
-from django.db.models.functions import Cast, Coalesce, Concat, NullIf
+from django.db.models.functions import Cast, Coalesce, NullIf
 from rest_framework.exceptions import ValidationError
 
+from apps.debts.services.assignees import specialist_label
 from apps.debts.services.portfolio import debtor_peers
 from apps.users.scoping import AccessScope
 
@@ -135,12 +136,7 @@ def _person_groups(qs):
         payer_unp=Max(NullIf("account__payer_unp", Value(""))),
         rating=Max(NullIf("account__rating", Value(""))),
         rating_repeat=Max("account__rating_repeat"),
-        assigned_name=Max(Concat(
-            Coalesce("account__assigned_to__first_name", Value("")),
-            Value(" "),
-            Coalesce("account__assigned_to__middle_name", Value("")),
-            output_field=CharField(),
-        )),
+        assigned_name=Max(specialist_label("account__")),
         ownership_type_name=Max("account__ownership_type_name"),
         housing_object=Max("account__acc_category_full"),
         months_debt=Max("account__months_debt"),

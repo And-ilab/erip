@@ -100,7 +100,7 @@ const COLUMN_LABELS: Record<string, string> = {
               <button type="button" class="fchip" (click)="clearBilling($event)">Организация: {{ billing.value }} ×</button>
             }
             @if (specialist.value) {
-              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialist.value }} ×</button>
+              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialistName() }} ×</button>
             }
             @if (ownership.value) {
               <button type="button" class="fchip" (click)="clearText(ownership, $event)">Собственность: {{ ownership.value }} ×</button>
@@ -155,9 +155,12 @@ const COLUMN_LABELS: Record<string, string> = {
                   </div>
                 }
                 <div class="sub">Закреплённый специалист</div>
-                <div class="save-row">
-                  <input [formControl]="specialist" placeholder="ФИО специалиста" (click)="$event.stopPropagation()" />
-                </div>
+                @for (item of specialists(); track item.id) {
+                  <button type="button" class="menu-item" [class.on]="specialist.value === '' + item.id" (click)="setSpecialist(item.id)">{{ item.name }}</button>
+                }
+                @if (!specialists().length) {
+                  <p class="empty">Закреплённых специалистов пока нет</p>
+                }
                 <div class="sub">Тип собственности</div>
                 <div class="save-row">
                   <input [formControl]="ownership" placeholder="Например, частная" (click)="$event.stopPropagation()" />
@@ -437,7 +440,16 @@ const COLUMN_LABELS: Record<string, string> = {
                   }
                 </mat-select>
               </mat-form-field>
-              @if (customField.value === 'billing' || customField.value === 'specialist' || customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
+              @if (customField.value === 'specialist') {
+                <mat-form-field>
+                  <mat-label>Значение</mat-label>
+                  <mat-select [formControl]="customValue">
+                    @for (item of specialists(); track item.id) {
+                      <mat-option [value]="'' + item.id">{{ item.name }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              } @else if (customField.value === 'billing' || customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
                 <mat-form-field>
                   <mat-label>Значение</mat-label>
                   <input matInput [formControl]="customValue" />
@@ -672,6 +684,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly dial = signal<{ dial_mobile_from_day: number; dial_mobile_from_hour: number | null; dial_mobile_to_hour: number | null } | null>(null);
   protected readonly categories = signal<DebtorCategory[]>([]);
   protected readonly saved = signal<SavedFilter[]>([]);
+  protected readonly specialists = signal<{ id: number; name: string }[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
   protected readonly stageMenu = signal<number | null>(null);
@@ -741,6 +754,10 @@ export class ContractsListComponent implements OnInit {
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
     this.api.categories().subscribe((page) => this.categories.set(page.results));
     this.api.savedFilters('contracts').subscribe((page) => this.saved.set(page.results));
+    this.api.specialists().subscribe({
+      next: (rows) => this.specialists.set(rows),
+      error: () => this.specialists.set([]),
+    });
     this.reload();
   }
 
@@ -829,6 +846,16 @@ export class ContractsListComponent implements OnInit {
 
   categoryLabel(id: string): string {
     return this.categories().find((item) => String(item.id) === id)?.name ?? id;
+  }
+
+  specialistName(): string {
+    const id = this.specialist.value;
+    return this.specialists().find((item) => String(item.id) === id)?.name ?? id;
+  }
+
+  setSpecialist(id: number): void {
+    const value = String(id);
+    this.specialist.setValue(this.specialist.value === value ? '' : value);
   }
 
   groupByLabel(id: string): string {
@@ -1203,7 +1230,7 @@ export class ContractsListComponent implements OnInit {
     this.category.setValue(String(query['debtor_category'] ?? ''), { emitEvent: false });
     this.stage.setValue(String(query['funnel_stage'] ?? ''), { emitEvent: false });
     this.billing.setValue(String(query['billing_provider'] ?? ''), { emitEvent: false });
-    this.specialist.setValue(String(query['assigned_name'] ?? ''), { emitEvent: false });
+    this.specialist.setValue(String(query['assigned_to'] ?? ''), { emitEvent: false });
     this.ownership.setValue(String(query['ownership'] ?? ''), { emitEvent: false });
     this.housing.setValue(String(query['housing'] ?? ''), { emitEvent: false });
     this.monthsDebt.setValue(String(query['months_debt'] ?? ''), { emitEvent: false });
@@ -1286,7 +1313,7 @@ export class ContractsListComponent implements OnInit {
       debtor_category: this.category.value,
       funnel_stage: this.stage.value,
       billing_provider: this.billing.value,
-      assigned_name: this.specialist.value,
+      assigned_to: this.specialist.value || null,
       ownership: this.ownership.value,
       housing: this.housing.value,
       months_debt: this.monthsDebt.value || null,

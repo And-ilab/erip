@@ -488,13 +488,22 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 {"value": row["bucket"].isoformat() if row["bucket"] else "", "accounts": row["accounts"], "debt": row["debt"]}
                 for row in rows
             ])
+        if key == "specialist":
+            from apps.debts.services.assignees import specialist_label
+
+            qs = qs.annotate(specialist_name=specialist_label())
+            field = "specialist_name"
+            rows = qs.values(field).annotate(accounts=Count("id", distinct=True), debt=debt).order_by(field)
+            return Response([
+                {"value": (row[field] or "").strip(), "accounts": row["accounts"], "debt": row["debt"]}
+                for row in rows
+            ])
         fields = {
             "debt_group": "sort_group",
             "rating": "rating",
             "provider": "provider_short_name",
             "schema": "organization__name",
             "category": "debtor_category__name",
-            "specialist": "assigned_to__last_name",
             "ownership": "ownership_type_name",
             "housing": "acc_category_full",
             "months": "months_debt",
@@ -510,6 +519,12 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             {"value": "" if row[field] is None else str(row[field]), "accounts": row["accounts"], "debt": row["debt"]}
             for row in rows
         ])
+
+    @action(detail=False)
+    def specialists(self, request):
+        from apps.debts.services.assignees import specialist_choices
+
+        return Response(specialist_choices(self.get_queryset()))
 
     @action(detail=False)
     def calendar(self, request):
@@ -774,7 +789,12 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
                 }
                 for row in rows
             ])
-        if key == "debt_group":
+        if key == "specialist":
+            from apps.debts.services.assignees import specialist_label
+
+            field = "specialist_name"
+            qs = qs.annotate(specialist_name=specialist_label("account__"))
+        elif key == "debt_group":
             qs = qs.annotate(sort_group=Coalesce("debt_group_manual", "debt_group"))
             field = "sort_group"
         else:
@@ -782,7 +802,6 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
                 "provider": "shot_name",
                 "category": "account__debtor_category__name",
                 "billing": "account__provider_short_name",
-                "specialist": "account__assigned_to__last_name",
                 "ownership": "account__ownership_type_name",
                 "housing": "account__acc_category_full",
                 "months": "debt_period",
