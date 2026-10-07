@@ -36,6 +36,17 @@ const KINDS = [
   { id: 'scenario', label: 'Смена сценария' },
 ];
 
+/** Цвет плашки календаря мероприятий: вид, а не срочность. */
+export function measureKindBucket(event: CalendarEvent): string {
+  const kind = `${event.kind || ''} ${event.title || ''}`.toLowerCase();
+  if (kind.includes('обзвон') || kind.includes('голос')) return 'call';
+  if (kind.includes('уведом') || kind.includes('e-mail') || kind.includes('email') || kind.includes('sms') || kind.includes('письм')) return 'notice';
+  if (kind.includes('предупреж')) return 'warning';
+  if (kind.includes('отключ') || kind.includes('приостан')) return 'disconnect';
+  if (kind.includes('взыск') || kind.includes('надпис') || kind.includes('нотариус') || kind.includes('иска')) return 'collection';
+  return 'other';
+}
+
 interface DayCell {
   iso: string;
   day: number;
@@ -46,7 +57,25 @@ interface DayCell {
   selector: 'app-calendar-board',
   standalone: true,
   imports: [ReactiveFormsModule],
+  host: { '[class.events]': 'showEvents' },
   template: `
+    @if (chrome === 'inline') {
+      <div class="inline-bar">
+        <div class="nav">
+          <button type="button" class="step" (click)="shift(-1)" aria-label="Назад">‹</button>
+          <button type="button" class="step" (click)="shift(1)" aria-label="Вперёд">›</button>
+          <button type="button" class="today" (click)="goToday()">Сегодня</button>
+        </div>
+        <strong>{{ caption() }}@if (captionTail) { — {{ captionTail }} }</strong>
+        <div class="modes">
+          @for (item of modes; track item.id) {
+            @if (item.id !== 'year') {
+              <button type="button" [class.on]="mode === item.id" (click)="switchMode(item.id)">{{ item.label }}</button>
+            }
+          }
+        </div>
+      </div>
+    } @else {
     <div class="bar">
       <strong>{{ caption() }}</strong>
       <span class="legend"><i class="swatch"></i> срок впереди</span>
@@ -54,6 +83,7 @@ interface DayCell {
       <span class="legend"><i class="swatch overdue"></i> срок прошёл, действие не сделано</span>
       <button type="button" [class.on]="drawer" [attr.aria-expanded]="drawer" (click)="drawer = true">Календарь</button>
     </div>
+    }
 
     @if (draft) {
       <form class="draft" (submit)="$event.preventDefault(); save()">
@@ -118,8 +148,9 @@ interface DayCell {
               <button type="button" class="add" (click)="begin(day)">Создать</button>
             }
             @for (event of named(day); track track(event)) {
-              <button type="button" class="ev" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" [class.done]="event.urgency === 'done'" [title]="event.title" (click)="openEvent.emit(event)">
-                {{ event.title }}
+              <button type="button" class="ev {{ chipClass(event) }}" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" [class.done]="event.urgency === 'done'" [title]="event.title" (click)="openEvent.emit(event)">
+                <span class="label">{{ showEvents ? pill(event) : event.title }}</span>
+                @if (showEvents && event.urgency !== 'done') { <i class="mark" aria-hidden="true"></i> }
               </button>
             } @empty {
               <p class="muted">В этот день сроков нет.</p>
@@ -133,10 +164,22 @@ interface DayCell {
             @for (day of week; track day) {
               <section [class.dim]="!inSpan(day)">
                 <button type="button" class="num" (click)="focusDay(day)">{{ long(day) }}</button>
-                @if (brief(day); as card) {
-                  <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day)">
-                    <b>{{ card.total }}</b> {{ eventsWord(card.total) }}{{ tail(card) }}
-                  </button>
+                @if (showEvents) {
+                  @for (event of preview(day); track track(event)) {
+                    <button type="button" class="ev {{ chipClass(event) }}" [class.overdue]="event.urgency === 'overdue'" [class.done]="event.urgency === 'done'" [title]="event.title" (click)="openEvent.emit(event)">
+                      <span class="label">{{ pill(event) }}</span>
+                      @if (event.urgency !== 'done') { <i class="mark" aria-hidden="true"></i> }
+                    </button>
+                  }
+                  @if (extra(day); as more) {
+                    <button type="button" class="more" (click)="focusDay(day)">ещё {{ more }}</button>
+                  }
+                } @else {
+                  @if (brief(day); as card) {
+                    <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day)">
+                      <b>{{ card.total }}</b> {{ eventsWord(card.total) }}{{ tail(card) }}
+                    </button>
+                  }
                 }
               </section>
             }
@@ -160,10 +203,22 @@ interface DayCell {
                       <td [class.out]="!day.inMonth" [class.dim]="day.inMonth && !inSpan(day.iso)" [class.mark]="marked(day.iso)" [class.today]="day.iso === today">
                         <div class="slot">
                           <button type="button" class="num" (click)="focusDay(day.iso)">{{ day.day }}</button>
-                          @if (brief(day.iso); as card) {
-                            <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day.iso)">
-                              <b>{{ card.total }}</b> {{ eventsWord(card.total) }}{{ tail(card) }}
-                            </button>
+                          @if (showEvents) {
+                            @for (event of preview(day.iso); track track(event)) {
+                              <button type="button" class="ev {{ chipClass(event) }}" [class.overdue]="event.urgency === 'overdue'" [class.done]="event.urgency === 'done'" [title]="event.title" (click)="$event.stopPropagation(); openEvent.emit(event)">
+                                <span class="label">{{ pill(event) }}</span>
+                                @if (event.urgency !== 'done') { <i class="mark" aria-hidden="true"></i> }
+                              </button>
+                            }
+                            @if (extra(day.iso); as more) {
+                              <button type="button" class="more" (click)="focusDay(day.iso)">ещё {{ more }}</button>
+                            }
+                          } @else {
+                            @if (brief(day.iso); as card) {
+                              <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day.iso)">
+                                <b>{{ card.total }}</b> {{ eventsWord(card.total) }}{{ tail(card) }}
+                              </button>
+                            }
                           }
                         </div>
                       </td>
@@ -280,10 +335,10 @@ interface DayCell {
     .swatch { width: 12px; height: 12px; border-radius: 3px; background: #e7f2f4; }
     .swatch.soon { background: #fff4d6; }
     .swatch.overdue { background: #fde8e8; }
-    .bar button, .draft button, .draft select, .draft input, .drawer button:not(.cell), .drawer select, .day .add {
+    .bar button, .inline-bar button, .draft button, .draft select, .draft input, .drawer button:not(.cell), .drawer select, .day .add {
       height: 32px; border: 1px solid #d5dde5; border-radius: 6px; background: #fff; color: #1f2933; font: inherit; cursor: pointer;
     }
-    .bar button, .draft button, .day .add { padding: 0 10px; }
+    .bar button, .inline-bar > button, .draft button, .day .add { padding: 0 10px; }
     .bar button.on, .bar .add, .modes button.on { background: #0f6e78; color: #fff; border-color: #0f6e78; }
     .draft { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 12px; padding: 10px; background: #fff; border: 1px solid #d5dde5; border-radius: 8px; }
     .draft p { flex: 1 1 100%; margin: 0; font-size: 13px; }
@@ -309,6 +364,75 @@ interface DayCell {
     .ev.soon { background: #fff4d6; color: #8a5a00; }
     .ev.overdue { background: #fde8e8; color: #9b1c1c; }
     .ev.done { background: #f4f6f8; color: #52606d; }
+    .ev.k-call { background: #e7f6ea; color: #1b7a3a; }
+    .ev.k-notice { background: #e7f1fb; color: #1d4f8a; }
+    .ev.k-warning { background: #fff6d8; color: #8a6a12; }
+    .ev.k-disconnect { background: #fde8e8; color: #9b1c1c; }
+    .ev.k-collection { background: #fff1e0; color: #b45309; }
+    .ev.k-other { background: #eef2f5; color: #3d4a57; }
+    .ev .label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ev.overdue { box-shadow: inset 3px 0 0 #c62828; }
+    :host.events { display: flex; flex-direction: column; min-height: 0; }
+    :host.events .month-block {
+      flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0;
+      background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; overflow: hidden;
+    }
+    :host.events .month { height: 100%; border: 0; }
+    :host.events .month th {
+      text-align: left; text-transform: uppercase; letter-spacing: .05em; color: #9aa3ad;
+      font-size: 11px; font-weight: 600; padding: 10px 8px 8px; background: #fff; border-bottom: 1px solid #e8edf2;
+    }
+    :host.events .month td { height: auto; background: #fff; border-color: #eef2f5; }
+    :host.events .month .slot {
+      height: 100%; min-height: 104px; padding: 4px 6px 6px; display: flex; flex-direction: column;
+      gap: 3px; align-items: stretch;
+    }
+    :host.events .month td.out,
+    :host.events .month td.dim,
+    :host.events .month td.mark,
+    :host.events .month td.today { background: #fff; box-shadow: none; }
+    :host.events .month .num {
+      width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+      padding: 0; font-weight: 500; font-size: 12px; color: #6b7280; border-radius: 11px;
+    }
+    :host.events .week .num { width: auto; font-weight: 600; font-size: 12px; color: #374151; }
+    :host.events .month td.out .num,
+    :host.events .month td.dim .num { color: #c5ced6; }
+    :host.events .month td.today .num { background: #1d4f63; color: #fff; font-weight: 700; }
+    :host.events .ev {
+      display: flex; align-items: center; gap: 4px; width: 100%; margin: 0; padding: 1px 4px 1px 6px;
+      border: 0; border-left: 3px solid transparent; border-radius: 3px; font-size: 11px; line-height: 16px;
+    }
+    :host.events .ev .label { flex: 1; min-width: 0; }
+    :host.events .mark { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: 0 0 6px; display: block; }
+    :host.events .ev.overdue,
+    :host.events .ev.soon,
+    :host.events .ev.done { box-shadow: none; }
+    :host.events .ev.g1 { background: #e7f6ec; color: #157a3a; border-left-color: #22a35a; }
+    :host.events .ev.g2 { background: #e7f0fc; color: #1d4e89; border-left-color: #3b78e0; }
+    :host.events .ev.g3 { background: #fff4e0; color: #9a6208; border-left-color: #e09a2b; }
+    :host.events .ev.g4 { background: #fdecec; color: #b42318; border-left-color: #e15b5b; }
+    :host.events .ev.g5 { background: #ffedd5; color: #c2410c; border-left-color: #f97316; }
+    :host.events .ev.g6 { background: #f8e8e8; color: #7f1d1d; border-left-color: #7f1d1d; }
+    :host.events .ev.g0 { background: #f3f4f6; color: #4b5563; border-left-color: #9ca3af; }
+    :host.events .week { gap: 0; background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; overflow: hidden; }
+    :host.events .week section {
+      height: auto; min-height: 148px; border: 0; border-radius: 0; border-left: 1px solid #eef2f5;
+    }
+    :host.events .week section:first-child { border-left: 0; }
+    .inline-bar {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 0 0 10px;
+    }
+    .inline-bar .nav { display: flex; align-items: center; gap: 6px; }
+    .inline-bar .step { width: 32px; padding: 0; font-size: 18px; line-height: 1; }
+    .inline-bar .today { padding: 0 12px; font-size: 13px; }
+    .inline-bar strong { text-align: center; font-size: 18px; font-weight: 600; color: #243140; }
+    .inline-bar .modes { margin: 0; display: flex; }
+    .inline-bar .modes button { flex: none; height: 32px; padding: 0 14px; border-radius: 0; background: #fff; font-size: 13px; }
+    .inline-bar .modes button + button { margin-left: -1px; }
+    .inline-bar .modes button:first-child { border-radius: 6px 0 0 6px; }
+    .inline-bar .modes button:last-child { border-radius: 0 6px 6px 0; }
+    .inline-bar .modes button.on { position: relative; z-index: 1; background: #1d6f8c; color: #fff; border-color: #1d6f8c; font-weight: 600; }
     .sum {
       display: block; width: 100%; margin-top: 4px; padding: 4px 6px; border: 0; border-radius: 4px;
       background: #e7f2f4; color: #0f4c54; text-align: left; font: inherit; font-size: 12px; line-height: 1.25; cursor: pointer;
@@ -363,6 +487,11 @@ export class CalendarBoardComponent implements OnChanges {
   @Input() supplier = false;
   @Input() templates: MessageTemplate[] = [];
   @Input() serviceChoices: ServiceChoice[] = [];
+  /** drawer — правая панель реестров ЛС и договоров. inline — шапка календаря мероприятий. */
+  @Input() chrome: 'drawer' | 'inline' = 'drawer';
+  /** В клетке месяца и недели — плашки мероприятий, а не сводка «N событий». */
+  @Input() showEvents = false;
+  @Input() captionTail = '';
   @Output() readonly modeChange = new EventEmitter<CalendarMode>();
   @Output() readonly spanChange = new EventEmitter<{ from: string; to: string }>();
   @Output() readonly openEvent = new EventEmitter<CalendarEvent>();
@@ -455,6 +584,31 @@ export class CalendarBoardComponent implements OnChanges {
 
   protected named(date: string): CalendarEvent[] {
     return this.on(date).filter((event) => (event.title || '').trim().length > 0);
+  }
+
+  protected preview(date: string): CalendarEvent[] {
+    return this.named(date).slice(0, 3);
+  }
+
+  protected extra(date: string): number {
+    return Math.max(this.named(date).length - 3, 0);
+  }
+
+  protected chipClass(event: CalendarEvent): string {
+    if (!this.showEvents) return `k-${measureKindBucket(event)}`;
+    return `g${event.debt_group || 0}`;
+  }
+
+  protected pill(event: CalendarEvent): string {
+    const title = event.title || '';
+    const match = title.match(/^ЛС\s+\S+,\s*(.+?):\s*/);
+    const name = match?.[1]?.trim();
+    const kind = (event.kind || '').trim();
+    if (name && kind) {
+      const short = name.split(/\s+/).slice(0, 2).join(' ');
+      return `${kind} — ${short}`;
+    }
+    return title;
   }
 
   protected brief(date: string): { total: number; overdue: number; soon: number; tone: string } | null {

@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
@@ -13,8 +13,8 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix, MeasureRow } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
-import { CalendarBoardComponent } from '../calendar/calendar-board.component';
-import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
+import { CalendarBoardComponent, CalendarMode, measureKindBucket } from '../calendar/calendar-board.component';
+import { RegistryFilterComponent, RegistryChoice, RegistryFilterQuery } from '../registry-filter.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -27,15 +27,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
   ],
   template: `
     <div class="page">
-      <div class="toolbar">
+      <div class="control">
         <h2>Реестр мероприятий</h2>
         @if (view() !== 'ready') {
           <app-registry-filter
             target="measures"
             placeholder="Поиск по ЛС, должнику, типу мероприятия..."
             [showMonth]="true"
+            [showKind]="true"
+            [groupChoices]="groupChoices"
             (queryChange)="onFilter($event)" />
-        } @else if (view() === 'ready') {
+        } @else {
           <p class="ready-title">Срок предупреждения истёк — можно приостанавливать услуги</p>
         }
         <button type="button" class="icon" matTooltip="Скачать видимый список" (click)="download()">
@@ -49,19 +51,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
         <app-registry-views [mode]="view() === 'ready' ? 'list' : view()" (modeChange)="showRegistry($event)" />
       </div>
 
-      @if (view() === 'list') {
-        <p class="guide">
-          Группа 2: предупреждение, затем {{ waitDays() }} календарных дней на оплату (постановление № 465).
-          Если долг остался — приостановление выбранных услуг.
-          @if (canOrderDisconnect()) {
-            <button type="button" (click)="show('ready')">К отключению</button>
-          }
-          Группы 3–6 в этом реестре — то же мероприятие, что сценарий на карточке лицевого счёта.
-          Дело ведётся во вкладке
-          <a routerLink="/claims">претензионно-исковая работа</a>.
-        </p>
-      }
-
+      <div class="body">
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
 
       @if (view() === 'list') {
@@ -74,17 +64,20 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <table class="wide">
               <thead>
                 <tr>
+                  <th class="tick">
+                    <input type="checkbox" aria-label="Выбрать видимые" [checked]="allVisible()" (change)="toggleVisible()" />
+                  </th>
                   <th>Мероприятие</th>
                   <th>Должник</th>
-                  <th>Исполнитель</th>
+                  <th class="who">Исполнитель</th>
                   <th>Следующее действие</th>
                   <th>Статус</th>
                 </tr>
               </thead>
               <tbody>
-                @for (group of groups(); track group.status) {
+                @for (group of bands(); track group.status) {
                   <tr class="band">
-                    <td colspan="5">
+                    <td colspan="6">
                       <button type="button" (click)="toggle(group.status)">
                         <mat-icon>{{ collapsed().has(group.status) ? 'chevron_right' : 'expand_more' }}</mat-icon>
                         {{ group.label }} ({{ group.total }})
@@ -93,7 +86,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
                   </tr>
                   @if (!collapsed().has(group.status)) {
                     @for (row of group.results; track row.id) {
-                      <tr>
+                      <tr [class.picked]="pickedRows().has(row.id)">
+                        <td class="tick">
+                          <input type="checkbox" [attr.aria-label]="'Выбрать ' + row.title" [checked]="pickedRows().has(row.id)" (change)="toggleRow(row.id)" />
+                        </td>
                         <td>
                           <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
                           @if (row.progress && row.progress.total > 1) {
@@ -102,7 +98,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                               <span class="muted">{{ row.progress.done }} / {{ row.progress.total }} ЛС</span>
                             </div>
                           }
-                          @if (row.artifact) { <a [href]="row.artifact">Файл</a> }
+                          @if (row.artifact) { <div><a [href]="row.artifact">Файл</a></div> }
                         </td>
                         <td>
                           @if (row.debtor_id) {
@@ -125,12 +121,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
                           }
                         </td>
                         <td><span class="action-dot {{ row.status }}"></span>{{ row.next_action }}</td>
-                        <td><span class="status-pill {{ row.status }}">{{ row.status_display }}</span></td>
+                        <td><span class="status-pill {{ row.status }}" [title]="row.status_display">{{ statusText(row) }}</span></td>
                       </tr>
                     }
-                    @if (group.results.length < group.total) {
+                    @if (groupedByStatus() && group.results.length < group.total) {
                       <tr class="more-row">
-                        <td colspan="5">
+                        <td colspan="6">
                           <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
                           <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
                         </td>
@@ -141,6 +137,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
               </tbody>
             </table>
             </div>
+            @if (!groupedByStatus() && hasMore()) {
+              <div class="more">
+                <span class="muted">Группировка по уже загруженным строкам.</span>
+                <button mat-stroked-button type="button" (click)="moreAny()">Показать ещё</button>
+              </div>
+            }
           </section>
         }
       }
@@ -176,9 +178,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                         @for (kind of grid.kinds; track kind.code) {
                           <td>
                             @if (row.cells[kind.code]; as cell) {
-                              <a class="cell {{ cell.tone }}" [routerLink]="['/measures', cell.measure_id]">
-                                <span class="action-dot {{ cell.status }}"></span>{{ cell.label }}
-                              </a>
+                              <a class="cell {{ cell.tone }}" [routerLink]="['/measures', cell.measure_id]">{{ cell.label }}</a>
                             } @else {
                               <span class="muted">—</span>
                             }
@@ -221,9 +221,37 @@ import { RegistryViewsComponent } from '../registry-views.component';
       }
 
       @if (view() === 'calendar') {
-        <app-calendar-board
-          [events]="events()" [from]="spanFrom" [to]="spanTo" [canCreate]="false"
-          (spanChange)="setSpan($event)" (openEvent)="openCalendar($event)" />
+        <div class="cal-layout">
+          <app-calendar-board
+            [events]="calendarEvents()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="false"
+            chrome="inline" [showEvents]="true" captionTail="мероприятия по делам"
+            (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendar($event)" />
+          <aside class="cal-side">
+            <section class="side-card">
+              <h4>Группы задолженности</h4>
+              @for (item of groupLegend; track item.group) {
+                <button type="button" class="legend" [class.on]="filter.groups.includes(item.group)" (click)="toggleLegend(item.group)">
+                  <i class="dot g{{ item.group }}"></i>
+                  <span>{{ item.label }}</span>
+                  <b>{{ groupCount(item.group) }}</b>
+                </button>
+              }
+            </section>
+            <section class="side-card">
+              <h4>Тип мероприятия</h4>
+              @for (item of kindBoxes; track item.id) {
+                <label class="kind-line">
+                  <input type="checkbox" [checked]="kindEnabled(item.id)" (change)="toggleKindBox(item.id)" />
+                  <span>{{ item.label }}</span>
+                </label>
+              }
+            </section>
+            <section class="side-card">
+              <h4>Подсказка</h4>
+              <p>Мероприятия и дедлайны, жёстко определённые законодательством, отображаются в календаре по датам. Цвет соответствует группе задолженности дела.</p>
+            </section>
+          </aside>
+        </div>
       }
 
       @if (view() === 'charts') {
@@ -237,8 +265,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <span class="count">{{ candidates().length }}</span>
           </div>
           <p class="muted pad">
-            Лицевые счета, где предупреждение вручено, срок оплаты прошёл, долг не погашен и услугу можно
-            отключать за неоплату. Отметьте услуги и сформируйте задание поставщику.
+            Предупреждение вручено, прошло {{ waitDays() }} календарных дней на оплату, долг не погашен.
+            Отметьте услуги и сформируйте задание поставщику. Группы 3–6 ведутся в
+            <a routerLink="/claims">претензионно-исковой работе</a>.
           </p>
           @if (!candidates().length) {
             <p class="muted pad">Счетов, готовых к отключению, сейчас нет.</p>
@@ -295,13 +324,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
           }
         </section>
       }
+      </div>
     </div>
   `,
   styles: `
     :host { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-    .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
-    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex: 0 0 auto; }
-    h2 { margin: 0; font-size: 18px; color: var(--erip-primary-dark); white-space: nowrap; flex: 0 0 auto; }
+    .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; background: var(--erip-bg); }
+    .control {
+      display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; flex: 0 0 auto;
+      background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
+    }
+    .body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px 16px; overflow: hidden; }
+    h2 { margin: 0; font-size: 15px; font-weight: 600; color: #243140; white-space: nowrap; flex: 0 0 auto; }
     .icon {
       width: 36px; height: 36px; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
       color: var(--erip-muted); cursor: pointer; display: grid; place-items: center;
@@ -317,7 +351,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .k-col h3 b { font-weight: 600; color: #8b95a1; }
     .k-col[data-status="assigned"] h3 { border-bottom-color: #2563eb; }
-    .k-col[data-status="running"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-status="running"] h3 { border-bottom-color: #7c3aed; }
     .k-col[data-status="done"] h3 { border-bottom-color: #1f9d55; }
     .k-col[data-status="failed"] h3 { border-bottom-color: #e53935; }
     .k-col[data-status="paused"] h3 { border-bottom-color: #c8962e; }
@@ -344,12 +378,32 @@ import { RegistryViewsComponent } from '../registry-views.component';
       cursor: pointer; padding: 4px 2px 8px;
     }
     app-calendar-board, app-analytics { display: block; flex: 1; min-height: 0; overflow: auto; }
-    .ready-title { margin: 0; color: var(--erip-muted); }
-    .guide { margin: 0 0 8px; color: var(--erip-muted); font-size: 13px; flex: 0 0 auto; }
-    .guide button, .guide a { margin: 0 4px; }
-    .guide button {
-      border: 0; background: transparent; color: var(--erip-link); font: inherit; font-weight: 600; cursor: pointer; padding: 0;
+    .ready-title { margin: 0; color: var(--erip-muted); flex: 1; }
+    .cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; flex: 1; min-height: 0; overflow: auto; align-items: stretch; }
+    .cal-layout app-calendar-board { height: auto; min-height: 0; overflow: visible; }
+    .cal-side { display: flex; flex-direction: column; gap: 12px; align-self: start; }
+    .side-card { background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; padding: 14px 14px 12px; box-shadow: 0 1px 2px rgba(16, 42, 67, .04); }
+    .side-card h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #8b95a1; font-weight: 700; }
+    .side-card p { margin: 0; color: #6b7280; font-size: 12px; line-height: 1.45; }
+    .legend, .kind-line {
+      display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 8px; padding: 0;
+      border: 0; background: transparent; font: inherit; font-size: 13px; color: #1f2933; text-align: left;
     }
+    .legend:last-child, .kind-line:last-child { margin-bottom: 0; }
+    .legend { cursor: pointer; }
+    .legend span { flex: 1; min-width: 0; }
+    .legend b { margin-left: auto; color: #8b95a1; font-weight: 600; }
+    .legend.on span { color: var(--erip-primary); font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+    .dot.g1 { background: #22a35a; }
+    .dot.g2 { background: #3b78e0; }
+    .dot.g3 { background: #e09a2b; }
+    .dot.g4 { background: #e15b5b; }
+    .dot.g5 { background: #f97316; }
+    .dot.g6 { background: #7f1d1d; }
+    .kind-line { cursor: pointer; }
+    input[type="checkbox"] { accent-color: #2563eb; width: 15px; height: 15px; }
+    @media (max-width: 960px) { .cal-layout { grid-template-columns: 1fr; } }
     .registry { margin-top: 0; overflow: hidden; }
     .registry.main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .registry.main .list-pane { flex: 1; max-height: none; min-height: 0; }
@@ -364,11 +418,13 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     table { border: 0; border-radius: 0; }
     table.wide { width: 100%; table-layout: fixed; }
-    table.wide th:nth-child(1), table.wide td:nth-child(1) { width: 34%; }
-    table.wide th:nth-child(2), table.wide td:nth-child(2) { width: 28%; }
-    table.wide th:nth-child(3), table.wide td:nth-child(3) { width: 12%; }
-    table.wide th:nth-child(4), table.wide td:nth-child(4) { width: 14%; }
-    table.wide th:nth-child(5), table.wide td:nth-child(5) { width: 12%; }
+    table.wide th:nth-child(1), table.wide td:nth-child(1) { width: 36px; }
+    table.wide th:nth-child(2), table.wide td:nth-child(2) { width: 32%; }
+    table.wide th:nth-child(3), table.wide td:nth-child(3) { width: 26%; }
+    table.wide th:nth-child(4), table.wide td:nth-child(4) { width: 120px; text-align: center; white-space: nowrap; }
+    table.wide th:nth-child(5), table.wide td:nth-child(5) { width: 18%; }
+    table.wide th:nth-child(6), table.wide td:nth-child(6) { width: 120px; }
+    tr.picked td { background: #f3f8fb; }
     th { text-align: left; font-size: 12px; font-weight: 600; color: var(--erip-muted); padding: 8px 12px; background: #fff; }
     td { padding: 10px 12px; border-top: 1px solid var(--erip-border); vertical-align: middle; }
     .title { font-weight: 600; color: inherit; }
@@ -396,7 +452,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .matrix-wrap { overflow: auto; }
     .matrix { width: 100%; min-width: 720px; }
     .cell {
-      display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 10px; font-size: 12px; font-weight: 700;
+      display: inline-flex; align-items: center; justify-content: center; min-width: 52px; padding: 3px 8px;
+      border-radius: 10px; font-size: 12px; font-weight: 700; text-decoration: none;
       background: #f3f4f6; color: var(--erip-muted);
     }
     .cell.pending { background: #dbeafe; color: #1d4ed8; }
@@ -412,6 +469,7 @@ export class MeasuresListComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
+  @ViewChild(RegistryFilterComponent) private filters?: RegistryFilterComponent;
 
   protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('list');
   protected readonly lanes = [
@@ -422,7 +480,30 @@ export class MeasuresListComponent implements OnInit {
     { status: 'paused', label: 'Приостановлено' },
     { status: 'cancelled', label: 'Прервано' },
   ];
-  private filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
+  protected readonly groupChoices: RegistryChoice[] = [
+    { id: 'status', label: 'Статус' },
+    { id: 'kind', label: 'Вид мероприятия' },
+    { id: 'assignee', label: 'Исполнитель' },
+  ];
+  protected groupLegend: { group: number; label: string }[] = [
+    { group: 1, label: 'Группа 1 · до 2 месяцев' },
+    { group: 2, label: 'Группа 2 · 2–3 месяца' },
+    { group: 3, label: 'Группа 3 · 3–6 месяцев' },
+    { group: 4, label: 'Группа 4 · 6–12 месяцев' },
+    { group: 5, label: 'Группа 5 · 1–3 года' },
+    { group: 6, label: 'Группа 6 · свыше 3 лет' },
+  ];
+  protected readonly kindBoxes = [
+    { id: 'call', label: 'Автообзвон' },
+    { id: 'notice', label: 'Уведомления (e-mail)' },
+    { id: 'warning', label: 'Предупреждения' },
+    { id: 'disconnect', label: 'Отключение услуг' },
+    { id: 'collection', label: 'Испол. надпись / иск / ОПИ' },
+  ];
+  protected filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '', kind: '', groupBy: 'status' };
+  protected calendarMode: CalendarMode = 'month';
+  protected readonly kindsOn = signal<Set<string>>(new Set(this.kindBoxes.map((item) => item.id)));
+  protected readonly pickedRows = signal<Set<number>>(new Set());
   protected readonly events = signal<CalendarEvent[]>([]);
   protected spanFrom = '';
   protected spanTo = '';
@@ -453,6 +534,17 @@ export class MeasuresListComponent implements OnInit {
     this.api.dialSettings().subscribe({
       next: (settings) => this.waitDays.set(settings.warning_wait_days || 5),
     });
+    this.api.debtGroups().subscribe({
+      next: (page) => {
+        const rows = [...page.results].sort((left, right) => left.group - right.group);
+        if (!rows.length) return;
+        this.groupLegend = rows.map((row) => ({
+          group: row.group,
+          label: `Группа ${row.group} · ${row.name}`,
+        }));
+      },
+      error: () => undefined,
+    });
     this.load();
   }
 
@@ -481,8 +573,10 @@ export class MeasuresListComponent implements OnInit {
 
   protected download(): void {
     const lines = ['Мероприятие;Должник;Лицевой счёт (Номер ЛС);Исполнитель;Следующее действие;Статус'];
-    for (const group of this.groups()) {
+    const picked = this.pickedRows();
+    for (const group of this.bands()) {
       for (const row of group.results) {
+        if (picked.size && !picked.has(row.id)) continue;
         lines.push([row.title, row.debtor_name, row.debtor_account, row.assignee_name, row.next_action, row.status_display]
           .map((value) => `"${String(value || '').replaceAll('"', '""')}"`)
           .join(';'));
@@ -554,8 +648,100 @@ export class MeasuresListComponent implements OnInit {
   }
 
   protected onFilter(query: RegistryFilterQuery): void {
-    this.filter = query;
-    this.load();
+    this.filter = { ...query, groupBy: query.groupBy || 'status' };
+    if (this.view() === 'calendar') this.loadCalendar();
+    else if (this.view() !== 'charts') this.load();
+  }
+
+  protected groupedByStatus(): boolean {
+    return (this.filter.groupBy || 'status') === 'status';
+  }
+
+  protected bands(): MeasureGroup[] {
+    const mode = this.filter.groupBy || 'status';
+    if (mode !== 'kind' && mode !== 'assignee') return this.groups();
+    const rows = this.groups().flatMap((group) => group.results);
+    const order: string[] = [];
+    const buckets = new Map<string, MeasureRow[]>();
+    for (const row of rows) {
+      const key = mode === 'kind' ? (row.kind_display || row.kind) : (row.assignee_name || 'Без исполнителя');
+      if (!buckets.has(key)) {
+        order.push(key);
+        buckets.set(key, []);
+      }
+      buckets.get(key)?.push(row);
+    }
+    return order.map((key) => {
+      const results = buckets.get(key) ?? [];
+      return { status: key, label: key, total: results.length, shown: results.length, results };
+    });
+  }
+
+  protected hasMore(): boolean {
+    return this.groups().some((group) => group.results.length < group.total);
+  }
+
+  protected moreAny(): void {
+    const group = this.groups().find((item) => item.results.length < item.total);
+    if (group) this.more(group);
+  }
+
+  protected statusText(row: MeasureRow): string {
+    return row.status === 'failed' ? 'Ошибка' : row.status_display;
+  }
+
+  protected visibleIds(): number[] {
+    return this.bands().flatMap((group) => this.collapsed().has(group.status) ? [] : group.results.map((row) => row.id));
+  }
+
+  protected allVisible(): boolean {
+    const ids = this.visibleIds();
+    return ids.length > 0 && ids.every((id) => this.pickedRows().has(id));
+  }
+
+  protected toggleVisible(): void {
+    const ids = this.visibleIds();
+    const next = new Set(this.pickedRows());
+    if (this.allVisible()) ids.forEach((id) => next.delete(id));
+    else ids.forEach((id) => next.add(id));
+    this.pickedRows.set(next);
+  }
+
+  protected toggleRow(id: number): void {
+    const next = new Set(this.pickedRows());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.pickedRows.set(next);
+  }
+
+  protected kindEnabled(id: string): boolean {
+    return this.kindsOn().has(id);
+  }
+
+  protected toggleKindBox(id: string): void {
+    const next = new Set(this.kindsOn());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.kindsOn.set(next);
+  }
+
+  protected readonly calendarEvents = computed(() => {
+    const enabled = this.kindsOn();
+    return this.events().filter((event) => {
+      const bucket = measureKindBucket(event);
+      return bucket === 'other' || enabled.has(bucket);
+    });
+  });
+
+  protected groupCount(group: number): number {
+    return this.calendarEvents().filter((event) => event.debt_group === group).length;
+  }
+
+  protected toggleLegend(group: number): void {
+    const next = this.filter.groups.includes(group)
+      ? this.filter.groups.filter((item) => item !== group)
+      : [...this.filter.groups, group].sort((left, right) => left - right);
+    this.filters?.setGroups(next);
   }
 
   protected initials(name: string): string {
@@ -672,6 +858,7 @@ export class MeasuresListComponent implements OnInit {
     if (this.filter.groups.length) query['debt_group__in'] = this.filter.groups.join(',');
     if (this.filter.ratings.length) query['rating__in'] = this.filter.ratings.join(',');
     if (this.filter.stage) query['funnel_stage'] = this.filter.stage;
+    if (this.filter.kind) query['kind'] = this.filter.kind;
     return query;
   }
 
@@ -683,7 +870,9 @@ export class MeasuresListComponent implements OnInit {
       this.spanFrom = `${now.getFullYear()}-${month}-01`;
       this.spanTo = `${now.getFullYear()}-${month}-${String(last).padStart(2, '0')}`;
     }
-    this.api.calendar({ date_from: this.spanFrom, date_to: this.spanTo }, {}).subscribe({
+    const query = this.params();
+    delete query['period'];
+    this.api.calendar({ date_from: this.spanFrom, date_to: this.spanTo }, query).subscribe({
       next: (events) => this.events.set(events.filter((event) => event.measure_id)),
       error: (err) => this.error.set(errorMessage(err)),
     });
@@ -712,6 +901,7 @@ export class MeasuresListComponent implements OnInit {
       next: (payload) => {
         if (current !== this.request) return;
         this.groups.set(payload.groups);
+        this.pickedRows.set(new Set());
         this.loaded.set(true);
       },
       error: (err) => {
