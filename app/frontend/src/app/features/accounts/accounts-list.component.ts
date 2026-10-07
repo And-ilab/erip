@@ -326,7 +326,7 @@ interface GroupSection {
               <ng-container [matColumnDef]="name">
                 <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)"
                     draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)">{{ label(name) }}</th>
-                <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0">
+                <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'">
                   @switch (name) {
                     @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
                     @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
@@ -382,7 +382,7 @@ interface GroupSection {
                     @for (r of section.rows; track r.id) {
                       <tr class="clickable-row" [class.picked]="isSelected(r.id)" (click)="openRow($event, r)">
                         @for (name of shownColumns(); track name) {
-                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)">
+                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)" [class.one-line]="name === 'scenario_brief'">
                             @switch (name) {
                               @case ('select') {
                                 <input type="checkbox" [attr.aria-label]="'Выбрать ЛС ' + r.client_account" [checked]="isSelected(r.id)" (click)="$event.stopPropagation()" (change)="toggleRow(r, $event)" />
@@ -449,7 +449,7 @@ interface GroupSection {
                       }
                       @if (card.effective_group) { <span>Группа задолженности {{ card.effective_group }}</span> }
                     </div>
-                    <div class="line">{{ card.scenario_brief || 'Сценарий не назначен' }}</div>
+                    <div class="line one-line">{{ card.scenario_brief || 'Сценарий не назначен' }}</div>
                     @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
                     @if (card.ownership_type_name || card.acc_category_full) {
                       <div class="line">
@@ -696,6 +696,8 @@ interface GroupSection {
     }
     .stage-menu button.on, .stage-menu button:hover { background: #f3f6f8; }
     .k-card .line { margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; }
+    .one-line { white-space: nowrap; }
+    .k-card .line.one-line { overflow: hidden; text-overflow: ellipsis; }
     .k-card .group-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; }
     .k-card .letter {
       width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;

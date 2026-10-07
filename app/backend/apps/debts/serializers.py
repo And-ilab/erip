@@ -46,18 +46,6 @@ def _rating_label(rating: str, repeat: int | None) -> str:
     return f"{rating}/{repeat}"
 
 
-STEP_TITLES = {
-    "call": "Автообзвон",
-    "manual_call": "Ручной звонок",
-    "notice": "Уведомление",
-    "warning": "Предупреждение",
-    "disconnect": "Отключение",
-    "writ": "Исполнительная надпись",
-    "collection": "Взыскание",
-    "claim": "Иск",
-}
-
-
 def _money(value) -> Decimal:
     if value in (None, ""):
         return Decimal("0.00")
@@ -68,19 +56,10 @@ def _add_money(left, right) -> str:
     return f"{(_money(left) + _money(right)):.2f}"
 
 
-def _step_list(steps) -> str:
-    titles = []
-    for step in steps or []:
-        title = STEP_TITLES.get(step.get("action") or "", "")
-        if title and title not in titles:
-            titles.append(title)
-    return ", ".join(titles)
-
-
 def scenario_brief(account, published: dict | None = None) -> str:
-    """Название назначенного сценария и краткий перечень его мероприятий.
+    """Название назначенного сценария, без перечня шагов.
 
-    Имя правила по группе («Письменное предупреждение») — это текущий шаг, его показывает этап воронки.
+    Текущий шаг показывает этап воронки. Имя правила по группе в эту строку не входит.
     """
     run = None
     try:
@@ -92,10 +71,7 @@ def scenario_brief(account, published: dict | None = None) -> str:
         scenario = published.get(account.organization_id)
     if scenario is None:
         return ""
-    steps = _step_list(scenario.steps)
-    if not steps:
-        return scenario.name
-    return f"{scenario.name}: {steps}"
+    return scenario.name
 
 
 def published_scenario(organization_id, cache: dict):

@@ -4,7 +4,9 @@ from decimal import Decimal
 import pytest
 from django.core.management import call_command
 
-from apps.debts.models import AccountService, Contact, Measure, Registration, StatusHistory
+from apps.debts.models import AccountScenarioRun, AccountService, Contact, Measure, Registration, StatusHistory
+from apps.debts.serializers import scenario_brief
+from apps.nsi.models import ScenarioDefinition
 from apps.debts.services.contacts import choose_phone
 from apps.debts.services.grouping import DebtGroupCalculator
 from apps.debts.services.portfolio import PortfolioRefresher
@@ -40,6 +42,23 @@ def test_manual_group_is_what_the_registry_filters(api, specialist_a, account_a,
     listed = api(specialist_a).get("/api/v1/accounts/?debt_group=5").json()
     assert listed["count"] == 1
     assert api(specialist_a).get("/api/v1/accounts/?debt_group=2").json()["count"] == 0
+
+
+def test_registry_scenario_column_is_the_name(org_a, account_a):
+    scenario = ScenarioDefinition.objects.create(
+        name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE, version=1,
+        steps=[
+            {"order": 1, "action": "call"},
+            {"order": 2, "action": "manual_call"},
+            {"order": 3, "action": "warning"},
+            {"order": 4, "action": "disconnect"},
+            {"order": 5, "action": "writ"},
+        ],
+    )
+    AccountScenarioRun.objects.create(
+        organization=org_a, account=account_a, scenario=scenario, version=1,
+    )
+    assert scenario_brief(account_a) == "Стандартное взыскание"
 
 
 def test_rating_and_debt_start_follow_the_rules(org_a, account_a, ready):

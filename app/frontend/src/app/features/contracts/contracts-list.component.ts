@@ -366,7 +366,7 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения по договору</th><td mat-cell *matCellDef="let r">{{ r.repayment_due_on }}</td></ng-container>
             <ng-container matColumnDef="last_payment_date"><th mat-header-cell *matHeaderCellDef>Дата последней оплаты</th><td mat-cell *matCellDef="let r">{{ r.last_payment_date }}</td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
-            <ng-container matColumnDef="scenario_brief"><th mat-header-cell *matHeaderCellDef>Сценарий</th><td mat-cell *matCellDef="let r">{{ r.scenario_brief }}</td></ng-container>
+            <ng-container matColumnDef="scenario_brief"><th mat-header-cell *matHeaderCellDef>Сценарий</th><td mat-cell *matCellDef="let r" class="one-line">{{ r.scenario_brief }}</td></ng-container>
             <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ r.assigned_name }}</td></ng-container>
             <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ r.ownership_type_name }}</td></ng-container>
             <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ r.housing_object }}</td></ng-container>
@@ -597,6 +597,7 @@ const COLUMN_LABELS: Record<string, string> = {
   `,
   styles: `
     :host { display: block; }
+    .one-line { white-space: nowrap; }
     .control {
       display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px;
       background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
