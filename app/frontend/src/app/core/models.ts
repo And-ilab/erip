@@ -52,6 +52,27 @@ export interface Me {
   show_service_org: boolean;
 }
 
+export interface ServicePeriodLine {
+  period: string | null;
+  principal: string | null;
+  penalty: string | null;
+}
+
+export interface ServiceLine {
+  service_list_id: number;
+  service_name: string;
+  start_date: string | null;
+  shot_name: string;
+  initial_principal: string | null;
+  initial_penalty: string | null;
+  balance_out: string | null;
+  balance_mulct_out: string | null;
+  repayment_due_on: string | null;
+  last_payment_date: string | null;
+  debt_started_on: string | null;
+  periods: ServicePeriodLine[];
+}
+
 export interface AccountRow {
   id: number;
   account_id: number;
@@ -94,6 +115,8 @@ export interface AccountRow {
   ais_updated_at: string | null;
   operational_date: string | null;
   inheritance_case: boolean;
+  service_lines?: ServiceLine[];
+  services_debt_count?: number;
 }
 
 export interface DebtShare {
@@ -179,6 +202,8 @@ export interface AccountService {
   account_months?: number | null;
   scenario_brief?: string;
   obligation_total?: string | null;
+  registered_count?: number | null;
+  periods?: ServicePeriodLine[];
 }
 
 export interface ContractPerson {
@@ -205,6 +230,9 @@ export interface ContractPerson {
   months_debt?: number | null;
   subj_count?: number | null;
   obligation?: string | null;
+  registered_count?: number | null;
+  services_debt_count?: number;
+  service_lines?: ServiceLine[];
 }
 
 export interface ContractAction {
