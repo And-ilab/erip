@@ -207,11 +207,29 @@ export interface ContractPerson {
   obligation?: string | null;
 }
 
+export interface ContractAction {
+  kind: string;
+  label: string;
+  total: number;
+}
+
+export interface ContractSupplier {
+  provider_id: number | null;
+  name: string;
+  ls_count: number;
+  principal: string | null;
+  penalty: string | null;
+  measures: ContractAction[];
+  claims: ContractAction[];
+}
+
 export interface ContractSummary {
   ls_count: number;
   principal: string | null;
   penalty: string | null;
-  measures: { kind: string; total: number }[];
+  measures: ContractAction[];
+  claims: ContractAction[];
+  suppliers: ContractSupplier[];
 }
 
 export interface ContractPeriod {

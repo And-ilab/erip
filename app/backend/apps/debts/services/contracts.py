@@ -4,7 +4,7 @@
 отделить от реестра лицевых счетов, не перенося HTTP-слой.
 """
 
-from django.db.models import Case, CharField, Count, IntegerField, Max, Min, Sum, Value, When
+from django.db.models import Case, CharField, Count, IntegerField, Max, Min, Q, Sum, Value, When
 from django.db.models.functions import Cast, Coalesce, Concat, NullIf
 from rest_framework.exceptions import ValidationError
 
@@ -224,6 +224,169 @@ def _account_ids(qs, keys: list) -> dict:
     for key, account_id in rows:
         found.setdefault(key, set()).add(account_id)
     return {key: sorted(ids) for key, ids in found.items()}
+
+
+CLAIM_DOCUMENT_KINDS = ("writ", "claim", "impossibility", "closure", "enforcement_payment")
+
+
+def _supplier_name(value: str | None) -> str:
+    text = (value or "").strip()
+    return text or "Поставщик не указан"
+
+
+def _actions(rows, kind_key: str, choices) -> list[dict]:
+    labels = dict(choices)
+    result = []
+    for row in rows:
+        code = row[kind_key] or ""
+        if not code:
+            continue
+        result.append({"kind": code, "label": labels.get(code, code), "total": row["total"]})
+    return result
+
+
+def _count_pairs(rows, provider_key: str, kind_key: str, id_key: str, choices) -> dict:
+    """Считает действия по поставщику услуги, не подмешивая чужие услуги того же счёта."""
+    labels = dict(choices)
+    buckets: dict = {}
+    for row in rows:
+        kind = row[kind_key] or ""
+        if not kind:
+            continue
+        buckets.setdefault(row[provider_key], {}).setdefault(kind, set()).add(row[id_key])
+    return {
+        provider_id: [
+            {"kind": kind, "label": labels.get(kind, kind), "total": len(ids)}
+            for kind, ids in kinds.items()
+        ]
+        for provider_id, kinds in buckets.items()
+    }
+
+
+def _merge_actions(*buckets: list[dict]) -> list[dict]:
+    found: dict[str, dict] = {}
+    for bucket in buckets:
+        for item in bucket:
+            slot = found.setdefault(item["kind"], {"kind": item["kind"], "label": item["label"], "total": 0})
+            slot["total"] += item["total"]
+    return sorted(found.values(), key=lambda item: item["label"])
+
+
+def _loose_claim_documents(debt) -> tuple[list[dict], dict]:
+    """Документ без услуги относится к лицевому счёту и виден каждому поставщику этого счёта."""
+    from apps.debts.models import DebtWorkItem
+
+    labels = dict(DebtWorkItem.Kind.choices)
+    account_providers: dict = {}
+    for account_id, provider_id in debt.values_list("account_id", "provider_id").distinct():
+        account_providers.setdefault(account_id, set()).add(provider_id)
+    per_provider: dict = {}
+    totals: dict[str, set] = {}
+    rows = DebtWorkItem.objects.filter(
+        service__isnull=True,
+        account_id__in=debt.values("account_id"),
+        kind__in=CLAIM_DOCUMENT_KINDS,
+    ).values_list("id", "kind", "account_id")
+    for item_id, kind, account_id in rows:
+        totals.setdefault(kind, set()).add(item_id)
+        for provider_id in account_providers.get(account_id, ()):
+            per_provider.setdefault(provider_id, {}).setdefault(kind, set()).add(item_id)
+    total_actions = [
+        {"kind": kind, "label": labels.get(kind, kind), "total": len(ids)}
+        for kind, ids in totals.items()
+    ]
+    by_provider = {
+        provider_id: [
+            {"kind": kind, "label": labels.get(kind, kind), "total": len(ids)}
+            for kind, ids in kinds.items()
+        ]
+        for provider_id, kinds in per_provider.items()
+    }
+    return total_actions, by_provider
+
+
+def supplier_portfolio(qs) -> dict:
+    """Срез реестра договоров: одна строка на поставщика, не на лицевой счёт.
+
+    Число счетов, основной долг и пеня считаются по услугам с остатком.
+    Мероприятие чужой услуги и документ по чужой услуге в строку не входят.
+    Дело взыскания видно поставщику, у которого на этом счёте есть долг.
+    """
+    from apps.debts.models import ClaimCase, DebtWorkItem, Measure
+
+    debt = qs.filter(Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0))
+    sums = debt.aggregate(
+        ls_count=Count("account", distinct=True),
+        principal=Sum("balance_out"),
+        penalty=Sum("balance_mulct_out"),
+    )
+    groups = debt.order_by().values("provider_id").annotate(
+        name=Max("shot_name"),
+        ls_count=Count("account", distinct=True),
+        principal=Sum("balance_out"),
+        penalty=Sum("balance_mulct_out"),
+    )
+    measures_by_provider = _count_pairs(
+        qs.order_by().filter(measures__isnull=False).values("provider_id", "measures__kind", "measures__id").distinct(),
+        "provider_id", "measures__kind", "measures__id", Measure.Kind.choices,
+    )
+    cases_by_provider = _count_pairs(
+        debt.order_by().filter(account__claim_case__isnull=False).values(
+            "provider_id", "account__claim_case__stage", "account__claim_case__id",
+        ).distinct(),
+        "provider_id", "account__claim_case__stage", "account__claim_case__id", ClaimCase.Stage.choices,
+    )
+    documents_by_provider = _count_pairs(
+        qs.order_by().filter(work_items__kind__in=CLAIM_DOCUMENT_KINDS).values(
+            "provider_id", "work_items__kind", "work_items__id",
+        ).distinct(),
+        "provider_id", "work_items__kind", "work_items__id", DebtWorkItem.Kind.choices,
+    )
+    loose_total, loose_by_provider = _loose_claim_documents(debt)
+    measure_total = _actions(
+        Measure.objects.filter(services__in=qs).order_by().values("kind").annotate(total=Count("id", distinct=True)),
+        "kind",
+        Measure.Kind.choices,
+    )
+    case_total = _actions(
+        ClaimCase.objects.filter(account_id__in=debt.values("account_id")).order_by().values("stage").annotate(
+            total=Count("id", distinct=True),
+        ),
+        "stage",
+        ClaimCase.Stage.choices,
+    )
+    document_total = _actions(
+        DebtWorkItem.objects.filter(service__in=qs, kind__in=CLAIM_DOCUMENT_KINDS).order_by().values("kind").annotate(
+            total=Count("id", distinct=True),
+        ),
+        "kind",
+        DebtWorkItem.Kind.choices,
+    )
+    suppliers = []
+    for row in groups:
+        provider_id = row["provider_id"]
+        suppliers.append({
+            "provider_id": provider_id,
+            "name": _supplier_name(row["name"]),
+            "ls_count": row["ls_count"],
+            "principal": row["principal"] or 0,
+            "penalty": row["penalty"] or 0,
+            "measures": _merge_actions(measures_by_provider.get(provider_id, [])),
+            "claims": _merge_actions(
+                cases_by_provider.get(provider_id, []),
+                documents_by_provider.get(provider_id, []),
+                loose_by_provider.get(provider_id, []),
+            ),
+        })
+    suppliers.sort(key=lambda item: item["name"])
+    return {
+        "ls_count": sums["ls_count"] or 0,
+        "principal": sums["principal"] or 0,
+        "penalty": sums["penalty"] or 0,
+        "measures": _merge_actions(measure_total),
+        "claims": _merge_actions(case_total, document_total, loose_total),
+        "suppliers": suppliers,
+    }
 
 
 def move_stage(user, accounts, stage: str, reason: str = "") -> None:

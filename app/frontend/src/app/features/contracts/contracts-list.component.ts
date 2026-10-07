@@ -18,8 +18,10 @@ import { AuthService } from '../../core/auth.service';
 import {
   AccountService,
   CalendarEvent,
+  ContractAction,
   ContractPerson,
   ContractSummary,
+  ContractSupplier,
   DebtorCategory,
   MessageTemplate,
   SavedFilter,
@@ -111,6 +113,9 @@ const COLUMN_LABELS: Record<string, string> = {
             }
             @if (residents.value) {
               <button type="button" class="fchip" (click)="clearText(residents, $event)">Проживающих: {{ residents.value }} ×</button>
+            }
+            @if (provider.value) {
+              <button type="button" class="fchip" (click)="clearProvider($event)">Поставщик: {{ providerLabel() }} ×</button>
             }
             @if (periodFrom.value || periodTo.value) {
               <button type="button" class="fchip" (click)="clearPeriod($event)">Период: {{ periodFrom.value || '…' }} — {{ periodTo.value || '…' }} ×</button>
@@ -214,7 +219,8 @@ const COLUMN_LABELS: Record<string, string> = {
           </div>
         }
         <div class="views">
-          @if (view() === 'persons' || view() === 'services' || view() === 'grouped') {
+          @if (view() === 'suppliers' || view() === 'persons' || view() === 'services' || view() === 'grouped') {
+            <button type="button" class="view-btn wide" [class.on]="view() === 'suppliers'" (click)="showSuppliers()">Поставщики</button>
             <button type="button" class="view-btn wide" [class.on]="view() === 'persons'" (click)="showPersons()">Лица</button>
             <button type="button" class="view-btn wide" [class.on]="view() === 'services'" (click)="showServices()">Услуги</button>
           }
@@ -224,14 +230,38 @@ const COLUMN_LABELS: Record<string, string> = {
 
       <div class="body">
         @if (summary(); as s) {
-          <p class="hint">
-            Сводка для поставщика услуг. Лицевых счетов с задолженностью: <b>{{ s.ls_count }}</b>.
-            Сумма основного долга <app-money [value]="s.principal" [blank]="false" />,
-            сумма пени <app-money [value]="s.penalty" [blank]="false" />,
-            сумма задолженности <app-money [value]="obligation(s.principal, s.penalty)" [blank]="false" />.
-            Мероприятия по этим счетам:
-            @for (item of s.measures; track item.kind) { {{ item.kind }} {{ item.total }}; }
-          </p>
+          @if (view() === 'suppliers') {
+            <p class="hint">
+              Реестр по поставщику услуги: сколько лицевых счетов с задолженностью, общий долг и пеня,
+              какие мероприятия и претензионно-исковые действия уже применялись к этим счетам.
+            </p>
+          } @else {
+            <p class="hint">
+              По видимым услугам поставщиков: лицевых счетов с задолженностью <b>{{ s.ls_count }}</b>,
+              сумма основного долга <app-money [value]="s.principal" [blank]="false" />,
+              сумма пени <app-money [value]="s.penalty" [blank]="false" />.
+              Мероприятия: {{ actionLine(s.measures) }}.
+              Претензионно-исковые действия: {{ actionLine(s.claims) }}.
+            </p>
+          }
+        }
+        @if (view() === 'suppliers') {
+          <div class="list-pane">
+          <table mat-table [dataSource]="summary()?.suppliers ?? []">
+            <ng-container matColumnDef="name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.name }}</td></ng-container>
+            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Лицевых счетов с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
+            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="obligation(r.principal, r.penalty)" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="measures"><th mat-header-cell *matHeaderCellDef>Мероприятия</th><td mat-cell *matCellDef="let r" class="actions">{{ actionLine(r.measures) }}</td></ng-container>
+            <ng-container matColumnDef="claims"><th mat-header-cell *matHeaderCellDef>Претензионно-исковые действия</th><td mat-cell *matCellDef="let r" class="actions">{{ actionLine(r.claims) }}</td></ng-container>
+            <tr mat-header-row *matHeaderRowDef="supplierColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: supplierColumns" class="clickable-row" (click)="openSupplier(row)"></tr>
+          </table>
+          </div>
+          @if (summary() && !(summary()?.suppliers.length)) {
+            <p class="hint">Нет лицевых счетов с задолженностью по видимым услугам.</p>
+          }
         }
         @if (error()) { <p class="status-failed">{{ error() }}</p> }
         @if (view() === 'persons') {
@@ -525,6 +555,7 @@ const COLUMN_LABELS: Record<string, string> = {
     .view-btn.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
     .views { display: flex; gap: 4px; }
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
+    .actions { white-space: normal; max-width: 280px; }
     .body { padding: 16px 24px; }
     .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
     .k-col { width: 268px; flex: 0 0 268px; }
@@ -626,7 +657,8 @@ export class ContractsListComponent implements OnInit {
   protected readonly columnsOpen = signal(false);
   protected readonly groupChoices = this.contractGroupChoices();
   protected readonly groupColumns = ['value', 'accounts', 'debt', 'penalty'];
-  protected readonly view = signal<'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('persons');
+  protected readonly supplierColumns = ['name', 'ls_count', 'principal', 'penalty', 'obligation', 'measures', 'claims'];
+  protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('suppliers');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
   protected readonly persons = signal<ContractPerson[]>([]);
@@ -658,6 +690,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly housing = new FormControl('', { nonNullable: true });
   protected readonly monthsDebt = new FormControl('', { nonNullable: true });
   protected readonly residents = new FormControl('', { nonNullable: true });
+  protected readonly provider = new FormControl('', { nonNullable: true });
   protected readonly periodFrom = new FormControl('', { nonNullable: true });
   protected readonly periodTo = new FormControl('', { nonNullable: true });
   protected readonly filterName = new FormControl('', { nonNullable: true });
@@ -701,7 +734,7 @@ export class ContractsListComponent implements OnInit {
     this.periodTo.valueChanges.subscribe(() => this.reload());
     this.groupBy.valueChanges.subscribe((value) => {
       if (value) this.showGrouped();
-      else if (this.view() === 'grouped') this.showPersons();
+      else if (this.view() === 'grouped') this.showSuppliers();
     });
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
     this.api.categories().subscribe((page) => this.categories.set(page.results));
@@ -1005,21 +1038,50 @@ export class ContractsListComponent implements OnInit {
     this.selected.set(next);
   }
 
+  protected actionLine(items: ContractAction[] | null | undefined): string {
+    if (!items?.length) return 'нет';
+    return items.map((item) => `${item.label} ${item.total}`).join(', ');
+  }
+
+  protected providerLabel(): string {
+    const id = Number(this.provider.value);
+    const row = this.summary()?.suppliers.find((item) => item.provider_id === id);
+    return row?.name || this.provider.value;
+  }
+
+  protected openSupplier(row: ContractSupplier): void {
+    if (row.provider_id == null) return;
+    this.provider.setValue(String(row.provider_id), { emitEvent: false });
+    this.showServices();
+  }
+
+  protected clearProvider(event: Event): void {
+    event.stopPropagation();
+    this.provider.setValue('');
+    this.showSuppliers();
+  }
+
   protected obligation(principal: string | null, penalty: string | null): number {
     return Number(principal ?? 0) + Number(penalty ?? 0);
   }
 
   registryMode(): string {
     const current = this.view();
-    if (current === 'persons' || current === 'services' || current === 'grouped') return 'list';
+    if (current === 'suppliers' || current === 'persons' || current === 'services' || current === 'grouped') return 'list';
     return current;
   }
 
   showRegistry(mode: string): void {
-    if (mode === 'list') this.showPersons();
+    if (mode === 'list') this.showSuppliers();
     else if (mode === 'kanban') this.showKanban();
     else if (mode === 'calendar') this.showCalendar();
     else if (mode === 'charts') this.view.set('charts');
+  }
+
+  showSuppliers(): void {
+    this.dropGrouping();
+    this.view.set('suppliers');
+    this.reload();
   }
 
   showPersons(): void {
@@ -1146,6 +1208,7 @@ export class ContractsListComponent implements OnInit {
     this.residents.setValue(String(query['subj_count'] ?? ''), { emitEvent: false });
     this.periodFrom.setValue(String(query['period_from'] ?? ''), { emitEvent: false });
     this.periodTo.setValue(String(query['period_to'] ?? ''), { emitEvent: false });
+    this.provider.setValue(String(query['provider_id'] ?? ''), { emitEvent: false });
     const raw = String(query['debt_group__in'] ?? '');
     this.groups.setValue(raw ? raw.split(',').map(Number).filter((item) => item > 0) : [], { emitEvent: false });
     this.groupBy.setValue(String(query['group_by'] ?? ''), { emitEvent: false });
@@ -1188,6 +1251,10 @@ export class ContractsListComponent implements OnInit {
       this.showGrouped();
       return;
     }
+    if (this.view() === 'suppliers') {
+      this.error.set('');
+      return;
+    }
     if (this.view() === 'persons') {
       this.api.contractPersons(params).subscribe({
         next: (result) => {
@@ -1224,6 +1291,7 @@ export class ContractsListComponent implements OnInit {
       subj_count: this.residents.value || null,
       period_from: this.periodFrom.value,
       period_to: this.periodTo.value,
+      provider_id: this.provider.value || null,
     };
   }
 }

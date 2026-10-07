@@ -6,7 +6,9 @@ from decimal import Decimal
 import pytest
 from django.core.management import call_command
 
-from apps.debts.models import AccountService, Contact, DebtShare, DebtWorkItem, Measure, MeasureItem, StatusHistory
+from apps.debts.models import (
+    AccountService, ClaimCase, Contact, DebtShare, DebtWorkItem, Measure, MeasureItem, StatusHistory,
+)
 from apps.debts.services.contacts import choose_phone
 from apps.debts.services.grouping import DebtGroupCalculator
 from apps.debts.services.portfolio import PortfolioRefresher
@@ -111,6 +113,45 @@ def test_supplier_summary_hides_foreign_service_and_balance(api, org_a, account_
     )
     titles = [row["title"] for row in client.get(f"/api/v1/accounts/{account_a.id}/work-items/").json()["results"]]
     assert "Чужое" not in titles
+
+
+def test_supplier_portfolio_counts_his_measures_and_claims(api, specialist_a, org_a, account_a):
+    supplier, water = _supplier(org_a, account_a)
+    gas = account_a.services.exclude(pk=water.pk).get()
+    gas.shot_name = "Газ"
+    gas.save(update_fields=["shot_name"])
+    warning = Measure.objects.create(organization=org_a, kind=Measure.Kind.WARNING)
+    warning.accounts.add(account_a)
+    warning.services.add(water)
+    disconnect = Measure.objects.create(organization=org_a, kind=Measure.Kind.DISCONNECT)
+    disconnect.accounts.add(account_a)
+    disconnect.services.add(gas)
+    DebtWorkItem.objects.create(
+        organization=org_a, account=account_a, service=water, kind=DebtWorkItem.Kind.WRIT, title="Надпись",
+    )
+    DebtWorkItem.objects.create(
+        organization=org_a, account=account_a, service=gas, kind=DebtWorkItem.Kind.CLAIM, title="Чужой иск",
+    )
+    ClaimCase.objects.create(organization=org_a, account=account_a, stage=ClaimCase.Stage.OPI)
+
+    own = api(supplier).get("/api/v1/contracts/summary/").json()
+    assert [row["name"] for row in own["suppliers"]] == ["Водоканал"]
+    assert own["suppliers"][0]["ls_count"] == 1
+    assert Decimal(own["suppliers"][0]["principal"]) == Decimal("50")
+    assert {item["label"] for item in own["measures"]} == {"Предупреждение"}
+    claim_labels = {item["label"] for item in own["claims"]}
+    assert "Исполнительная надпись" in claim_labels
+    assert "Направлено в ОПИ" in claim_labels
+    assert "Исковое заявление" not in claim_labels
+    assert claim_labels == {item["label"] for item in own["suppliers"][0]["claims"]}
+
+    both = api(specialist_a).get("/api/v1/contracts/summary/").json()
+    names = {row["name"] for row in both["suppliers"]}
+    assert {"Водоканал", "Газ"} <= names
+    gas_row = next(row for row in both["suppliers"] if row["name"] == "Газ")
+    assert {item["label"] for item in gas_row["measures"]} == {"Отключение"}
+    assert "Исковое заявление" in {item["label"] for item in gas_row["claims"]}
+    assert "Исполнительная надпись" not in {item["label"] for item in gas_row["claims"]}
 
 
 def test_dossier_shows_periods_contacts_and_journal(api, specialist_a, org_a, account_a, ready):

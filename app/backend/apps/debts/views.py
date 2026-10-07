@@ -697,24 +697,9 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
 
     @action(detail=False)
     def summary(self, request):
-        debt = self._visible().filter(
-            Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0)
-        )
-        sums = debt.aggregate(
-            ls_count=Count("account", distinct=True),
-            principal=Sum("balance_out"),
-            penalty=Sum("balance_mulct_out"),
-        )
-        measures = list(
-            Measure.objects.filter(services__in=self._visible())
-            .values("kind").annotate(total=Count("id", distinct=True)).order_by("kind")
-        )
-        return Response({
-            "ls_count": sums["ls_count"] or 0,
-            "principal": sums["principal"] or 0,
-            "penalty": sums["penalty"] or 0,
-            "measures": measures,
-        })
+        from .services.contracts import supplier_portfolio
+
+        return Response(supplier_portfolio(self._visible()))
 
     @action(detail=False)
     def persons(self, request):
