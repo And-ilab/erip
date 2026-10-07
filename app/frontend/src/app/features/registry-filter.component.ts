@@ -192,7 +192,10 @@ const STAGES = [
       flex: 1; min-width: 80px; border: 0; outline: none; background: transparent;
       font: inherit; font-size: 13px; color: #1f2933;
     }
-    .month { border: 0; background: transparent; font: inherit; font-size: 12px; color: #52606d; }
+    .month {
+      width: 22px; border: 0; background: transparent; color: transparent; cursor: pointer; padding: 0;
+    }
+    .month::-webkit-datetime-edit, .month::-webkit-datetime-edit-fields-wrapper { display: none; }
     .fchip {
       border: 0; background: var(--erip-primary-soft); color: var(--erip-primary);
       border-radius: 3px; font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap;

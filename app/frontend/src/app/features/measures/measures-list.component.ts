@@ -48,7 +48,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <mat-icon>power_off</mat-icon>
           </button>
         }
-        <app-registry-views [mode]="view() === 'ready' ? 'list' : view()" (modeChange)="showRegistry($event)" />
+        <app-registry-views [mockup]="true" [mode]="view() === 'ready' ? 'list' : view()" (modeChange)="showRegistry($event)" />
       </div>
 
       <div class="body">
@@ -78,10 +78,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                 @for (group of bands(); track group.status) {
                   <tr class="band">
                     <td colspan="6">
-                      <button type="button" (click)="toggle(group.status)">
-                        <mat-icon>{{ collapsed().has(group.status) ? 'chevron_right' : 'expand_more' }}</mat-icon>
-                        {{ group.label }} ({{ group.total }})
-                      </button>
+                      <button type="button" (click)="toggle(group.status)">{{ group.label }} ({{ group.total }})</button>
                     </td>
                   </tr>
                   @if (!collapsed().has(group.status)) {
@@ -329,12 +326,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
   `,
   styles: `
     :host { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-    .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; background: var(--erip-bg); }
+    .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; background: #f3f6f8; }
     .control {
       display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; flex: 0 0 auto;
       background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
     }
-    .body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px 16px; overflow: hidden; }
+    .body { flex: 1; min-height: 0; overflow: auto; padding: 0 0 28px; }
     h2 { margin: 0; font-size: 15px; font-weight: 600; color: #243140; white-space: nowrap; flex: 0 0 auto; }
     .icon {
       width: 36px; height: 36px; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
@@ -342,7 +339,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .icon.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: stretch; flex: 1; min-height: 0; padding-bottom: 12px; }
+    .k-board { display: flex; gap: 14px; overflow: auto; align-items: stretch; min-height: 70vh; padding: 12px 16px 12px; }
     .k-col { width: 268px; flex: 0 0 268px; display: flex; flex-direction: column; min-height: 0; }
     .k-col h3 {
       display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
@@ -379,7 +376,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     app-calendar-board, app-analytics { display: block; flex: 1; min-height: 0; overflow: auto; }
     .ready-title { margin: 0; color: var(--erip-muted); flex: 1; }
-    .cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; flex: 1; min-height: 0; overflow: auto; align-items: stretch; }
+    .cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; min-height: 72vh; padding: 12px 16px 0; align-items: start; }
     .cal-layout app-calendar-board { height: auto; min-height: 0; overflow: visible; }
     .cal-side { display: flex; flex-direction: column; gap: 12px; align-self: start; }
     .side-card { background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; padding: 14px 14px 12px; box-shadow: 0 1px 2px rgba(16, 42, 67, .04); }
@@ -404,17 +401,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .kind-line { cursor: pointer; }
     input[type="checkbox"] { accent-color: #2563eb; width: 15px; height: 15px; }
     @media (max-width: 960px) { .cal-layout { grid-template-columns: 1fr; } }
-    .registry { margin-top: 0; overflow: hidden; }
-    .registry.main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .registry.main .list-pane { flex: 1; max-height: none; min-height: 0; }
-    .matrix-card { flex: 0 1 auto; max-height: 34%; min-height: 0; display: flex; flex-direction: column; margin-top: 8px; }
+    .registry { margin: 12px 16px 0; overflow: visible; background: #fff; }
+    .registry.main { display: block; }
+    .registry.main .list-pane, .matrix-card .list-pane { max-height: none; overflow: visible; }
+    .matrix-card { display: block; max-height: none; margin: 16px 16px 0; }
     .matrix-card.fill { flex: 1; max-height: none; }
     .matrix-card .list-pane { flex: 1; max-height: none; min-height: 0; }
     table.wide td, table.wide th { overflow-wrap: break-word; }
     .band td { background: #f7f9fb; padding: 0; }
     .band button {
-      display: flex; align-items: center; gap: 4px; width: 100%; border: 0; background: transparent;
-      padding: 8px 8px; font: inherit; font-weight: 700; color: #1f2933; cursor: pointer; text-align: left;
+      display: block; width: 100%; border: 0; background: transparent;
+      padding: 10px 12px; font: inherit; font-size: 13px; font-weight: 700; color: #1f2933; cursor: pointer; text-align: left;
     }
     table { border: 0; border-radius: 0; }
     table.wide { width: 100%; table-layout: fixed; }
@@ -456,11 +453,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
       border-radius: 10px; font-size: 12px; font-weight: 700; text-decoration: none;
       background: #f3f4f6; color: var(--erip-muted);
     }
-    .cell.pending { background: #dbeafe; color: #1d4ed8; }
-    .cell.run { background: #fef3c7; color: #b45309; }
-    .cell.done { background: #dcfce7; color: #15803d; }
-    .cell.error { background: #fee2e2; color: #b91c1c; }
-    .cell.wait { background: #fde68a; color: #92400e; }
+    .cell.pending, .cell.done { background: #e5f6ea; color: #1e8a45; }
+    .cell.run, .cell.wait { background: #fff1df; color: #c56a12; }
+    .cell.error { background: #fde8e8; color: #d23b3b; }
+    .status-pill.assigned { background: #e7f0fb; color: #3d6fbe; }
+    .status-pill.running { background: #f3e9fb; color: #7b4bb8; }
+    .status-pill.done { background: #e5f6ea; color: #1e8a45; }
+    .status-pill.failed { background: #fde8e8; color: #d23b3b; }
+    .action-dot.assigned { background: #e0a106; }
+    .action-dot.running { background: #7b4bb8; }
+    .action-dot.done { background: #1e8a45; }
+    .action-dot.failed { background: #d23b3b; }
     .cell.muted { background: #f3f4f6; color: #6b7280; }
   `,
 })
