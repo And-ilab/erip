@@ -72,6 +72,13 @@ a:not(.mat-mdc-button-base):not(.mat-mdc-list-item) { color: var(--erip-link); t
   overflow: auto;
 }
 .list-pane.cards { --list-row: 136px; max-height: min(calc(10 * var(--list-row)), calc(100vh - 260px)); }
+.list-pane.lines {
+  --list-row: 26px;
+  max-height: min(calc(10 * var(--list-row)), calc(100vh - 220px));
+  border: 1px solid var(--erip-border); border-radius: 8px; background: #fff;
+  padding: 4px 12px; margin: 0 0 16px;
+  p { margin: 4px 0; }
+}
 .list-pane .mat-mdc-header-row,
 .list-pane thead th {
   position: sticky; top: 0; z-index: 2; background: #f7f9fb;

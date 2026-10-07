@@ -79,24 +79,32 @@ import {
         </div>
 
         <h3>{{ auth.showSupplier() ? 'Услуги этого поставщика' : 'Услуги должника' }}</h3>
-        @for (service of services(); track service.id) {
-          <p>
-            <a [routerLink]="['/contracts', service.id]">{{ service.service_name }}</a>
-            · ЛС {{ service.account_number }}
-            · долг <app-money [value]="service.balance_out" [blank]="false" />
-            · пеня <app-money [value]="service.balance_mulct_out" [blank]="false" />
-            · группа {{ service.effective_group }}
-          </p>
+        @if (services().length) {
+          <div class="list-pane lines">
+            @for (service of services(); track service.id) {
+              <p>
+                <a [routerLink]="['/contracts', service.id]">{{ service.service_name }}</a>
+                · ЛС {{ service.account_number }}
+                · долг <app-money [value]="service.balance_out" [blank]="false" />
+                · пеня <app-money [value]="service.balance_mulct_out" [blank]="false" />
+                · группа {{ service.effective_group }}
+              </p>
+            }
+          </div>
         }
 
         <h3>Остатки по периодам</h3>
-        @for (period of periods(); track period.service_id + period.period) {
-          <p>
-            {{ period.service_name }} · {{ period.period }}
-            · долг <app-money [value]="period.principal" [blank]="false" />
-            · пеня <app-money [value]="period.penalty" [blank]="false" />
-            · срок {{ period.due_on }}
-          </p>
+        @if (periods().length) {
+          <div class="list-pane lines">
+            @for (period of periods(); track period.service_id + period.period) {
+              <p>
+                {{ period.service_name }} · {{ period.period }}
+                · долг <app-money [value]="period.principal" [blank]="false" />
+                · пеня <app-money [value]="period.penalty" [blank]="false" />
+                · срок {{ period.due_on }}
+              </p>
+            }
+          </div>
         }
 
         @if (canEditGroup()) {
@@ -115,6 +123,8 @@ import {
         }
 
         <h3>Зарегистрированные лица</h3>
+        @if (people().length) {
+        <div class="list-pane lines">
         @for (person of people(); track person.id) {
           <p>
             {{ person.full_name }}
@@ -144,6 +154,8 @@ import {
             <button mat-stroked-button (click)="savePerson(person)">Сохранить лицо</button>
           </div>
           }
+        }
+        </div>
         }
 
         <h3>Контакты</h3>
@@ -178,6 +190,8 @@ import {
           <button mat-stroked-button (click)="addContact()">Добавить</button>
         </div>
         }
+        @if (contacts().length) {
+        <div class="list-pane lines">
         @for (contact of contacts(); track contact.id) {
           <p>
             {{ contact.person_name || 'счёт' }} · {{ contact.kind }} · {{ contact.value }} · приоритет {{ contact.priority }}
@@ -188,6 +202,8 @@ import {
               <button mat-button (click)="removeContact(contact)">Удалить</button>
             }
           </p>
+        }
+        </div>
         }
 
         <h3>Категория, проживание, наследство</h3>
@@ -223,6 +239,8 @@ import {
 
         <h3>Мероприятия по услугам поставщика</h3>
         <p><a routerLink="/measures">Реестр мероприятий</a></p>
+        @if (measures().length) {
+        <div class="list-pane lines">
         @for (measure of measures(); track measure.id) {
           <p>
             <a [routerLink]="['/measures', measure.id]">{{ measure.kind_display }}</a>
@@ -237,10 +255,16 @@ import {
             @if (measure.resumed_on) { · возобновлено {{ measure.resumed_on }} ({{ measure.resume_source }}) }
           </p>
         }
+        </div>
+        }
 
         <h3>История изменений</h3>
+        @if (journal().length) {
+        <div class="list-pane lines">
         @for (row of journal(); track row.id) {
           <p>{{ row.created_at | date: 'dd.MM.yyyy HH:mm' }} · {{ row.author_name || 'система' }} · {{ row.kind }} · {{ row.old_value }} → {{ row.new_value }} · {{ row.reason }}</p>
+        }
+        </div>
         }
       }
     </div>
