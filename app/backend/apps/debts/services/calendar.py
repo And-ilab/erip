@@ -43,6 +43,13 @@ def due_lookup(field: str, start: date, end: date, today: date | None = None):
     return visible
 
 
+def account_mark(account) -> dict:
+    """Группа задолженности счёта для легенды календаря мероприятий."""
+    manual = getattr(account, "debt_group_manual", None)
+    group = manual if manual is not None else getattr(account, "debt_group", None)
+    return {"debt_group": group}
+
+
 def present_deadline(day: date, *, start: date, end: date, kind: str, title: str, today: date | None = None,
                      pending: bool = True, **extra) -> dict:
     """Невыполненный просроченный срок — красным, ближайшие два дня — жёлтым.
@@ -109,6 +116,7 @@ def contract_calendar(services, start: date, end: date) -> list[dict]:
             kind="Срок погашения",
             title=_service_caption(service, "срок погашения"),
             account_id=service.account_id, contract_id=service.id,
+            **account_mark(service.account),
         ))
     accounts = Account.objects.filter(pk__in=services.values("account_id"))
     events.extend(_measure_deadlines(accounts, start, end, services=services))
@@ -136,6 +144,7 @@ def _warning_deadlines(accounts, start: date, end: date) -> list[dict]:
             kind="Истечение срока предупреждения",
             title=_caption(account, "истечение срока предупреждения"),
             account_id=account.id,
+            **account_mark(account),
         ))
     return events
 
@@ -155,6 +164,7 @@ def _claim_deadlines(accounts, start: date, end: date) -> list[dict]:
             kind="Дедлайн подачи иска",
             title=_caption(account, "дедлайн подачи иска"),
             account_id=account.id,
+            **account_mark(account),
         )
         for account in claimed
         if account.id not in filed
@@ -174,6 +184,7 @@ def _measure_deadlines(accounts, start: date, end: date, services=None) -> list[
             item.measure.due_on, start=start, end=end, pending=True,
             kind=action, title=_caption(item.account, action),
             account_id=item.account_id, measure_id=item.measure_id,
+            **account_mark(item.account),
         ))
     for item in _items(accounts, start, end, services, pending=False):
         key = (item.measure_id, item.account_id)
@@ -185,6 +196,7 @@ def _measure_deadlines(accounts, start: date, end: date, services=None) -> list[
             item.measure.due_on, start=start, end=end, pending=False,
             kind=action, title=_caption(item.account, action),
             account_id=item.account_id, measure_id=item.measure_id,
+            **account_mark(item.account),
         ))
     events.extend(_bare_measures(accounts, start, end, services, seen))
     return events
@@ -233,6 +245,7 @@ def _bare_measures(accounts, start: date, end: date, services, seen: set) -> lis
                 measure.due_on, start=start, end=end, pending=pending,
                 kind=action, title=_caption(account, action),
                 account_id=account.id, measure_id=measure.id,
+                **account_mark(account),
             ))
     return events
 

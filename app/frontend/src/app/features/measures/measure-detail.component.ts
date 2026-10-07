@@ -382,6 +382,9 @@ const DELIVERY_METHODS = [
     </div>
   `,
   styles: `
+    .page-header {
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px 12px;
+    }
     .kind-call .page-header { border-bottom: 3px solid var(--erip-call); }
     .kind-notice .page-header { border-bottom: 3px solid var(--erip-notice); }
     .kind-warning .page-header { border-bottom: 3px solid var(--erip-warn-kind); }

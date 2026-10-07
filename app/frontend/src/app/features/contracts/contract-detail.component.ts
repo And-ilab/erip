@@ -241,21 +241,38 @@ import {
         <h3>Мероприятия по услугам поставщика</h3>
         <p><a routerLink="/measures">Реестр мероприятий</a></p>
         @if (measures().length) {
-        <div class="list-pane lines">
-        @for (measure of measures(); track measure.id) {
-          <p>
-            <a [routerLink]="['/measures', measure.id]">{{ measure.kind_display }}</a>
-            · {{ measure.status_display }} · срок {{ measure.due_on || '—' }}
-            @if (measure.kind === 'disconnect' && canConfirmSuspension()) {
-              <button mat-button (click)="confirm(measure, 'suspend', 'pm')">Факт приостановления, ПМ</button>
-              <button mat-button (click)="confirm(measure, 'suspend', 'ais')">По данным АИС</button>
-              <button mat-button (click)="confirm(measure, 'resume', 'pm')">Возобновление, ПМ</button>
-              <button mat-button (click)="confirm(measure, 'resume', 'ais')">Возобновление по АИС</button>
-            }
-            @if (measure.suspension_confirmed_on) { · приостановлено {{ measure.suspension_confirmed_on }} ({{ measure.suspension_source }}) }
-            @if (measure.resumed_on) { · возобновлено {{ measure.resumed_on }} ({{ measure.resume_source }}) }
-          </p>
-        }
+        <div class="list-pane">
+          <table>
+            <thead>
+              <tr>
+                <th>Мероприятие</th>
+                <th>Следующее действие</th>
+                <th>Статус</th>
+                <th>Срок</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (measure of measures(); track measure.id) {
+                <tr>
+                  <td><a [routerLink]="['/measures', measure.id]">{{ measure.title || measure.kind_display }}</a></td>
+                  <td><span class="action-dot {{ measure.status }}"></span>{{ measure.next_action || '—' }}</td>
+                  <td><span class="status-pill {{ measure.status }}">{{ measure.status === 'failed' ? 'Ошибка' : measure.status_display }}</span></td>
+                  <td>{{ measure.due_on || '—' }}</td>
+                  <td>
+                    @if (measure.kind === 'disconnect' && canConfirmSuspension()) {
+                      <button mat-button (click)="confirm(measure, 'suspend', 'pm')">Факт приостановления, ПМ</button>
+                      <button mat-button (click)="confirm(measure, 'suspend', 'ais')">По данным АИС</button>
+                      <button mat-button (click)="confirm(measure, 'resume', 'pm')">Возобновление, ПМ</button>
+                      <button mat-button (click)="confirm(measure, 'resume', 'ais')">Возобновление по АИС</button>
+                    }
+                    @if (measure.suspension_confirmed_on) { <div class="muted">приостановлено {{ measure.suspension_confirmed_on }} ({{ measure.suspension_source }})</div> }
+                    @if (measure.resumed_on) { <div class="muted">возобновлено {{ measure.resumed_on }} ({{ measure.resume_source }})</div> }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
         </div>
         }
 
