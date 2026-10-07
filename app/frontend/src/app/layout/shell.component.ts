@@ -108,7 +108,7 @@ export class ShellComponent {
       { link: '/claims', label: 'Претензионно-исковая работа', icon: 'gavel' },
     ];
     if (this.auth.canWrite() && this.auth.me()?.contour !== 'supplier') {
-      items.push({ link: '/scenarios', label: 'Настройка', icon: 'tune' });
+      items.push({ link: '/settings', label: 'Настройка', icon: 'tune' });
     }
     if (this.auth.canManageTemplates()) {
       items.push({ link: '/imports', label: 'Загрузка АИС', icon: 'upload_file' });

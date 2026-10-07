@@ -96,6 +96,40 @@ def test_local_admin_creates_user_in_own_schema(api, admin_a, org_a, org_b):
     assert response.json()["organization"] == org_a.id
 
 
+def test_directory_counts_and_block_reassigns_open_work(api, admin_a, specialist_a, org_a, account_a):
+    from apps.debts.models import Measure, MeasureTask
+
+    account_a.assigned_to = specialist_a
+    account_a.save(update_fields=["assigned_to"])
+    open_measure = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.CALL, assignee=specialist_a, status=Measure.Status.ASSIGNED,
+    )
+    done = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.CALL, assignee=specialist_a, status=Measure.Status.DONE,
+    )
+    task = MeasureTask.objects.create(
+        organization=org_a, measure=open_measure, assignee=specialist_a, title="Позвонить",
+    )
+    listed = api(admin_a).get("/api/v1/organizations/")
+    assert listed.status_code == 200
+    row = listed.json()["results"][0]
+    assert row["id"] == org_a.id
+    assert row["user_count"] == 2
+    assert row["account_count"] == 1
+    assert row["local_admin_name"] == "admin_a"
+    blocked = api(admin_a).patch(f"/api/v1/users/{specialist_a.id}/", {"is_active": False}, format="json")
+    assert blocked.status_code == 200, blocked.json()
+    assert blocked.json()["registry_name"] == "Анна Петровна"
+    account_a.refresh_from_db()
+    open_measure.refresh_from_db()
+    done.refresh_from_db()
+    task.refresh_from_db()
+    assert account_a.assigned_to_id == admin_a.id
+    assert open_measure.assignee_id == admin_a.id
+    assert task.assignee_id == admin_a.id
+    assert done.assignee_id == specialist_a.id
+
+
 def test_unauthenticated_is_rejected(client, account_a):
     response = client.get("/api/v1/accounts/")
     assert response.status_code == 401

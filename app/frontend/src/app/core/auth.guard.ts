@@ -19,6 +19,12 @@ export const superadminGuard: CanActivateFn = () => {
   return auth.isSuperadmin() || router.createUrlTree(['/accounts']);
 };
 
+export const settingsAdminGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  return auth.canManageTemplates() || router.createUrlTree(['/settings/rules']);
+};
+
 export const importGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);

@@ -1,6 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -8,7 +7,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
-import { ApiService, DebtGroupBand, PrintFormRow, ScenarioRow, ScenarioStep, errorMessage } from '../../core/api.service';
+import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DialSettings, MessageTemplate } from '../../core/models';
 import { TemplatesComponent } from '../templates/templates.component';
@@ -29,21 +28,19 @@ const ACTIONS = [
   selector: 'app-scenarios',
   standalone: true,
   imports: [
-    FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatCheckboxModule, MatSnackBarModule, TemplatesComponent,
   ],
   template: `
-    <div class="page">
-      <p class="back"><a routerLink="/measures">Мероприятия</a></p>
+    <div>
       <header class="head">
         <div>
-          <h2>Настройка</h2>
-          <p>Сценарий, тексты сообщений, печатные формы и методология. Уже запущенный счёт остаётся на своей версии сценария.</p>
+          <h2>Сценарии и шаблоны</h2>
+          <p>Сценарий, тексты сообщений, печатные формы и обзвон. Уже запущенный счёт остаётся на своей версии сценария.</p>
           <p class="jumps">
             <a href="#scenario">Сценарий</a>
             <a href="#messages">Шаблоны сообщений</a>
             <a href="#forms">Печатные формы</a>
-            @if (auth.isSuperadmin()) { <a href="#methodology">Методология</a> }
           </p>
           @if (current()) {
             <mat-form-field class="name"><mat-label>Название сценария</mat-label><input matInput [(ngModel)]="name" /></mat-form-field>
@@ -297,6 +294,18 @@ const ACTIONS = [
           <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
           <button mat-stroked-button (click)="saveCalling()">Сохранить признак схемы</button>
         }
+        @if (auth.isSuperadmin()) {
+          <h4>Общее правило номера</h4>
+          <div class="line">
+            <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="dialDay" /></mat-form-field>
+          </div>
+          <div class="line">
+            @for (day of weekDays; track day.id) {
+              <mat-checkbox [checked]="dialWeekdays.includes(day.id)" (change)="toggleDialDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
+            }
+          </div>
+          <button mat-stroked-button (click)="saveGlobalDial()">Сохранить общее правило</button>
+        }
         @if (current()) {
           <div class="line">
             <mat-form-field><mat-label>ЮЛ в этом сценарии</mat-label>
@@ -317,43 +326,6 @@ const ACTIONS = [
         }
       </section>
 
-      @if (auth.isSuperadmin()) {
-        <section class="forms" id="methodology">
-          <h3>Настройка методологии</h3>
-          <p class="muted">Шкалу и рейтинг меняет суперадминистратор. Сохранение не переписывает уже записанную историю. Текущие буквы обновляются при следующем пересчёте, а с галкой — сразу.</p>
-          <div class="list-pane">
-            <table>
-              <thead><tr><th>Группа</th><th>Название</th><th>Месяцев от</th><th>Месяцев до</th></tr></thead>
-              <tbody>
-                @for (band of bands(); track band.group) {
-                  <tr>
-                    <td>{{ band.group }}</td>
-                    <td><input [(ngModel)]="band.name" /></td>
-                    <td><input type="number" [(ngModel)]="band.months_from" /></td>
-                    <td><input type="number" [(ngModel)]="band.months_to" /></td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-          <div class="line">
-            <mat-form-field><mat-label>B с группы</mat-label><input matInput type="number" [(ngModel)]="ratingB" /></mat-form-field>
-            <mat-form-field><mat-label>C с группы</mat-label><input matInput type="number" [(ngModel)]="ratingCFrom" /></mat-form-field>
-            <mat-form-field><mat-label>C по группу</mat-label><input matInput type="number" [(ngModel)]="ratingCTo" /></mat-form-field>
-            <mat-form-field><mat-label>E с группы</mat-label><input matInput type="number" [(ngModel)]="ratingE" /></mat-form-field>
-            <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="dialDay" /></mat-form-field>
-          </div>
-          <div class="line">
-            @for (day of weekDays; track day.id) {
-              <mat-checkbox [checked]="dialWeekdays.includes(day.id)" (change)="toggleDialDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
-            }
-          </div>
-          <mat-checkbox [(ngModel)]="applyRecorded">Применить к уже рассчитанным текущим значениям</mat-checkbox>
-          <div class="actions">
-            <button mat-flat-button color="primary" (click)="saveMethodology()">Сохранить методологию</button>
-          </div>
-        </section>
-      }
     </div>
   `,
   styles: `
@@ -416,7 +388,6 @@ export class ScenariosComponent implements OnInit {
   protected readonly rendered = signal('');
   protected readonly pauses = signal<{ paused: boolean; reason: string; at: string; actor: string }[]>([]);
   protected readonly categories = signal<{ id: number; name: string }[]>([]);
-  protected readonly bands = signal<DebtGroupBand[]>([]);
   protected readonly printDocs = signal<{ id: number; account: number; version: number }[]>([]);
   protected readonly printBatch = signal('');
   protected readonly messageTemplates = signal<MessageTemplate[]>([]);
@@ -444,13 +415,8 @@ export class ScenariosComponent implements OnInit {
   protected scenarioCall = 'inherit';
   protected scenarioDialDay: number | null = null;
   protected scenarioWeekdays: number[] = [];
-  protected ratingB = 3;
-  protected ratingCFrom = 4;
-  protected ratingCTo = 5;
-  protected ratingE = 6;
   protected dialDay = 25;
   protected dialWeekdays: number[] = [5, 6];
-  protected applyRecorded = false;
 
   ngOnInit(): void {
     this.reload();
@@ -470,10 +436,6 @@ export class ScenariosComponent implements OnInit {
       });
     }
     if (this.auth.isSuperadmin()) {
-      this.api.debtGroups().subscribe({
-        next: (page) => this.bands.set(page.results.map((band) => ({ ...band }))),
-        error: (err) => this.snack.open(errorMessage(err), 'OK'),
-      });
       this.api.dialSettings().subscribe({
         next: (row) => this.readDial(row),
         error: () => undefined,
@@ -801,29 +763,14 @@ export class ScenariosComponent implements OnInit {
       : this.dialWeekdays.filter((item) => item !== day);
   }
 
-  protected saveMethodology(): void {
-    const bands = this.bands().map((band) => ({
-      ...band,
-      months_from: Number(band.months_from),
-      months_to: band.months_to === null || band.months_to === undefined || String(band.months_to) === ''
-        ? null
-        : Number(band.months_to),
-    }));
-    this.api.saveDebtGroups(bands).subscribe({
-      next: (saved) => {
-        this.bands.set(saved.map((band) => ({ ...band })));
-        this.api.saveDialSettings({
-          dial_mobile_from_day: Number(this.dialDay),
-          dial_mobile_weekdays: [...this.dialWeekdays],
-          rating_b_group: Number(this.ratingB),
-          rating_c_from: Number(this.ratingCFrom),
-          rating_c_to: Number(this.ratingCTo),
-          rating_e_from: Number(this.ratingE),
-          apply_recorded: this.applyRecorded,
-        } as Partial<DialSettings>).subscribe({
-          next: () => this.snack.open('Методология сохранена', 'OK', { duration: 2500 }),
-          error: (err) => this.snack.open(errorMessage(err), 'OK'),
-        });
+  protected saveGlobalDial(): void {
+    this.api.saveDialSettings({
+      dial_mobile_from_day: Number(this.dialDay),
+      dial_mobile_weekdays: [...this.dialWeekdays],
+    }).subscribe({
+      next: (row) => {
+        this.readDial(row);
+        this.snack.open('Общее правило обзвона сохранено', 'OK', { duration: 2000 });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -832,10 +779,6 @@ export class ScenariosComponent implements OnInit {
   private readDial(row: DialSettings): void {
     this.dialDay = row.dial_mobile_from_day;
     this.dialWeekdays = [...(row.dial_mobile_weekdays || [5, 6])];
-    this.ratingB = row.rating_b_group ?? 3;
-    this.ratingCFrom = row.rating_c_from ?? 4;
-    this.ratingCTo = row.rating_c_to ?? 5;
-    this.ratingE = row.rating_e_from ?? 6;
   }
 
   private saveBlob(source: { subscribe: Function }, filename: string): void {

@@ -13,10 +13,29 @@ ROLE_RANK = {
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
+    user_count = serializers.SerializerMethodField()
+    account_count = serializers.SerializerMethodField()
+    local_admin_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Organization
-        fields = ["id", "schema_name", "name", "unp", "call_legal", "is_active", "created_at", "updated_at"]
-        read_only_fields = ["is_active", "created_at", "updated_at"]
+        fields = [
+            "id", "schema_name", "name", "unp", "call_legal", "is_active", "created_at", "updated_at",
+            "user_count", "account_count", "local_admin_name",
+        ]
+        read_only_fields = ["is_active", "created_at", "updated_at", "user_count", "account_count", "local_admin_name"]
+
+    def get_user_count(self, obj) -> int:
+        return obj.users.count()
+
+    def get_account_count(self, obj) -> int:
+        from apps.debts.models import Account
+
+        return Account.objects.filter(organization_id=obj.pk).count()
+
+    def get_local_admin_name(self, obj) -> str:
+        admin = obj.users.filter(role=User.Role.LOCAL_ADMIN, is_active=True).order_by("id").first()
+        return admin.registry_name if admin else ""
 
 
 class ServiceOrganizationSerializer(serializers.ModelSerializer):
@@ -29,12 +48,14 @@ class ServiceOrganizationSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, validators=[validate_password])
     display_name = serializers.CharField(read_only=True)
+    registry_name = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
         fields = [
-            "id", "username", "password", "first_name", "middle_name", "last_name", "display_name", "email",
-            "phone", "position", "role", "contour", "organization", "service_organizations", "is_active", "last_login",
+            "id", "username", "password", "first_name", "middle_name", "last_name", "display_name", "registry_name",
+            "email", "phone", "position", "role", "contour", "organization", "service_organizations", "is_active",
+            "last_login",
         ]
         read_only_fields = ["last_login"]
 
@@ -50,6 +71,8 @@ class UserSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Нельзя изменять пользователя с такой же или более высокой ролью")
             if self.instance is not None and self.instance.pk == actor.pk and target_role != self.instance.role:
                 raise serializers.ValidationError({"role": "Нельзя менять собственную роль"})
+        if self.instance is not None and self.instance.pk == actor.pk and attrs.get("is_active") is False:
+            raise serializers.ValidationError({"is_active": "Нельзя заблокировать свою учётную запись"})
         organization = attrs.get("organization") or getattr(self.instance, "organization", None)
         for so in attrs.get("service_organizations", []):
             if organization is None or so.organization_id != organization.pk:
@@ -70,10 +93,15 @@ class UserSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
+        was_active = instance.is_active
         instance = super().update(instance, validated_data)
         if password:
             instance.set_password(password)
             instance.save(update_fields=["password"])
+        if was_active and not instance.is_active:
+            from apps.users.reassign import reassign_work
+
+            reassign_work(instance)
         return instance
 
 

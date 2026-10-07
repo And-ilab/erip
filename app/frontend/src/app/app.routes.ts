@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, importGuard, superadminGuard } from './core/auth.guard';
+import { authGuard, importGuard, settingsAdminGuard, superadminGuard } from './core/auth.guard';
 import { ShellComponent } from './layout/shell.component';
 
 export const routes: Routes = [
@@ -44,7 +44,8 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),
       },
-      { path: 'templates', redirectTo: 'scenarios', pathMatch: 'full' },
+      { path: 'templates', redirectTo: 'settings/work', pathMatch: 'full' },
+      { path: 'scenarios', redirectTo: 'settings/work', pathMatch: 'full' },
       {
         path: 'claims',
         loadComponent: () => import('./features/claims/claims-board.component').then((m) => m.ClaimsBoardComponent),
@@ -56,8 +57,24 @@ export const routes: Routes = [
         ],
       },
       {
-        path: 'scenarios',
-        loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
+        path: 'settings',
+        loadComponent: () => import('./features/settings/settings-shell.component').then((m) => m.SettingsShellComponent),
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'rules' },
+          {
+            path: 'rules',
+            loadComponent: () => import('./features/settings/rating-rules.component').then((m) => m.RatingRulesComponent),
+          },
+          {
+            path: 'directory',
+            canActivate: [settingsAdminGuard],
+            loadComponent: () => import('./features/settings/org-directory.component').then((m) => m.OrgDirectoryComponent),
+          },
+          {
+            path: 'work',
+            loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
+          },
+        ],
       },
       {
         path: 'imports',

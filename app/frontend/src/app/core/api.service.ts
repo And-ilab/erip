@@ -22,6 +22,8 @@ import {
   ErrorLogEntry,
   ImportJob,
   OrganizationOption,
+  DirectoryUser,
+  ServiceOrganizationOption,
   HistoryRow,
   KanbanColumn,
   MapLevel,
@@ -504,6 +506,34 @@ export class ApiService {
     return this.http.put<DebtGroupBand[]>(`${this.base}/nsi/debt-groups/replace/`, bands);
   }
 
+  scenarioRules(): Observable<Page<ScenarioRuleRow>> {
+    return this.http.get<Page<ScenarioRuleRow>>(`${this.base}/nsi/scenario-rules/`, { params: toParams({ page_size: 100 }) });
+  }
+
+  saveScenarioRule(row: Partial<ScenarioRuleRow>): Observable<ScenarioRuleRow> {
+    return row.id
+      ? this.http.patch<ScenarioRuleRow>(`${this.base}/nsi/scenario-rules/${row.id}/`, { name: row.name })
+      : this.http.post<ScenarioRuleRow>(`${this.base}/nsi/scenario-rules/`, {
+        group: row.group, name: row.name, category: null,
+      });
+  }
+
+  directoryUsers(params: { organization?: number; search?: string } = {}): Observable<Page<DirectoryUser>> {
+    return this.http.get<Page<DirectoryUser>>(`${this.base}/users/`, { params: toParams({ page_size: 500, ...params }) });
+  }
+
+  saveUser(row: Partial<DirectoryUser> & { password?: string }): Observable<DirectoryUser> {
+    return row.id
+      ? this.http.patch<DirectoryUser>(`${this.base}/users/${row.id}/`, row)
+      : this.http.post<DirectoryUser>(`${this.base}/users/`, row);
+  }
+
+  serviceOrganizations(organization: number): Observable<Page<ServiceOrganizationOption>> {
+    return this.http.get<Page<ServiceOrganizationOption>>(`${this.base}/service-organizations/`, {
+      params: toParams({ organization, page_size: 200 }),
+    });
+  }
+
   debtorCategories(): Observable<Page<{ id: number; name: string }>> {
     return this.http.get<Page<{ id: number; name: string }>>(`${this.base}/nsi/debtor-categories/`, { params: { page_size: 100 } });
   }
@@ -638,6 +668,13 @@ export interface ScenarioAssign {
   paused: boolean;
   last_skip?: string;
   pauses?: { paused: boolean; reason: string; at: string; actor: string }[];
+}
+
+export interface ScenarioRuleRow {
+  id?: number;
+  group: number;
+  name: string;
+  category?: number | null;
 }
 
 export interface DebtGroupBand {
