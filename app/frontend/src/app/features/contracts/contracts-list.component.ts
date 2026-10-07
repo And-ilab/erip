@@ -378,7 +378,10 @@ const COLUMN_LABELS: Record<string, string> = {
                     @if (canMove()) {
                       <button type="button" class="stage-btn" (click)="openStage($event, card)">Сменить этап воронки</button>
                     }
-                    <div class="line">{{ personId(card) }} · количество ЛС с задолженностью {{ card.ls_count }} · услуг {{ card.services_debt_count ?? card.service_count || 0 }}</div>
+                    <div class="line">{{ personId(card) }} · {{ card.ls_count }} ЛС · {{ card.services_debt_count ?? card.service_count || 0 }} усл.</div>
+                    @if (card.service_name) {
+                      <div class="line">{{ card.service_name }}</div>
+                    }
                     @if (card.address) {
                       <div class="line">{{ street(card.address) }}</div>
                     }
@@ -388,26 +391,19 @@ const COLUMN_LABELS: Record<string, string> = {
                       }
                       <span>Группа задолженности {{ card.debt_group || '—' }}@if (card.category) { · {{ card.category }} }</span>
                     </div>
-                    <div class="line">Закреплённый специалист: {{ card.assigned_name || '—' }}</div>
-                    <div class="line">Тип собственности: {{ card.ownership_type_name || '—' }}</div>
-                    <div class="line">Тип объекта жилфонда: {{ card.housing_object || '—' }}</div>
-                    <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
-                    <div class="line">Наиболее ранний период возникновения долга: {{ card.earliest || '—' }}</div>
-                    <div class="money">
-                      <div>Суммарный долг по всем услугам ЛС <app-money [value]="card.obligation" [blank]="false" /></div>
-                      <small>Сумма основного долга <app-money [value]="card.principal" [blank]="false" /> · Сумма пени <app-money [value]="card.penalty" [blank]="false" /></small>
-                    </div>
-                    @for (line of card.service_lines || []; track line.service_list_id) {
-                      <div class="svc">
-                        <div>Номер договора {{ line.service_list_id }}@if (line.service_name) { · {{ line.service_name }} }</div>
-                        <div>Дата договора {{ line.start_date || '—' }} · Поставщик услуги: {{ line.shot_name || '—' }}</div>
-                        <div>Первоначальная сумма задолженности <app-money [value]="line.initial_principal" /> · пеня <app-money [value]="line.initial_penalty" /></div>
-                        <div>Срок погашения по договору {{ line.repayment_due_on || '—' }} · Дата последней оплаты {{ line.last_payment_date || '—' }}</div>
-                        @for (period of line.periods; track period.period) {
-                          <div>Остаток {{ period.period }}: задолженность <app-money [value]="period.principal" [blank]="false" /> · пеня <app-money [value]="period.penalty" [blank]="false" /></div>
-                        }
+                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
+                    @if (card.ownership_type_name || card.housing_object) {
+                      <div class="line">
+                        @if (card.ownership_type_name) { Тип собственности: {{ card.ownership_type_name }} }
+                        @if (card.ownership_type_name && card.housing_object) { · }
+                        @if (card.housing_object) { Тип объекта жилфонда: {{ card.housing_object }} }
                       </div>
                     }
+                    <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
+                    <div class="money">
+                      <div>Сумма задолженности <app-money [value]="card.obligation" [blank]="false" /></div>
+                      <small>Сумма основного долга <app-money [value]="card.principal" [blank]="false" /> · Сумма пени <app-money [value]="card.penalty" [blank]="false" /></small>
+                    </div>
                     <div class="foot"><span class="when">{{ cardMark(card) }}</span></div>
                   </article>
                 }
@@ -628,7 +624,6 @@ const COLUMN_LABELS: Record<string, string> = {
       color: var(--erip-primary); border-radius: 4px; font-size: 11px; line-height: 1.2;
       padding: 3px 6px; cursor: pointer;
     }
-    .k-card .svc { margin-top: 6px; padding-top: 6px; border-top: 1px solid #e6ebf0; font-size: 12px; color: #33414d; }
     .stage-menu {
       position: absolute; z-index: 5; top: 28px; right: 8px; min-width: 180px; padding: 4px;
       background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
