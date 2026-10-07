@@ -220,8 +220,8 @@ export class ApiService {
     return this.http.get<CalendarEvent[]>(`${this.base}/contracts/calendar/`, { params: toParams({ ...params, ...span }) });
   }
 
-  contractGrouped(params: Params): Observable<{ value: string; accounts: number; debt: string | null; penalty: string | null }[]> {
-    return this.http.get<{ value: string; accounts: number; debt: string | null; penalty: string | null }[]>(
+  contractGrouped(params: Params): Observable<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]> {
+    return this.http.get<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]>(
       `${this.base}/contracts/grouped/`, { params: toParams(params) },
     );
   }
@@ -332,12 +332,12 @@ export class ApiService {
     return this.http.get<{ results: DisconnectCandidate[] }>(`${this.base}/measures/ready-to-disconnect/`);
   }
 
-  specialists(): Observable<{ id: number; name: string }[]> {
-    return this.http.get<{ id: number; name: string }[]>(`${this.base}/accounts/specialists/`);
+  specialists(): Observable<{ name: string }[]> {
+    return this.http.get<{ name: string }[]>(`${this.base}/accounts/specialists/`);
   }
 
-  grouped(params: Params): Observable<{ value: string; accounts: number; debt: string | null }[]> {
-    return this.http.get<{ value: string; accounts: number; debt: string | null }[]>(`${this.base}/accounts/grouped/`, { params: toParams(params) });
+  grouped(params: Params): Observable<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]> {
+    return this.http.get<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]>(`${this.base}/accounts/grouped/`, { params: toParams(params) });
   }
 
   accountMeasures(id: number): Observable<Page<MeasureRow>> {

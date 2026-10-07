@@ -23,27 +23,17 @@ def specialist_label(prefix: str = ""):
 
 
 def specialist_choices(accounts) -> list[dict]:
-    """Специалисты, за которыми в этой выборке закреплён хотя бы один лицевой счёт."""
+    """Одно полное имя на всех схемах контура.
+
+    На каждую схему заводится свой пользователь с тем же ФИО. В фильтре это один пункт:
+    выборка идёт по имени, а не по идентификатору одной схемы.
+    """
     rows = (
         accounts.exclude(assigned_to_id=None)
+        .annotate(specialist_name=specialist_label())
         .order_by()
-        .values(
-            "assigned_to_id",
-            "assigned_to__last_name",
-            "assigned_to__first_name",
-            "assigned_to__middle_name",
-        )
+        .values_list("specialist_name", flat=True)
         .distinct()
     )
-    people = []
-    for row in rows:
-        name = " ".join(
-            part for part in (
-                row["assigned_to__last_name"],
-                row["assigned_to__first_name"],
-                row["assigned_to__middle_name"],
-            ) if part
-        )
-        people.append({"id": row["assigned_to_id"], "name": name or str(row["assigned_to_id"])})
-    people.sort(key=lambda item: item["name"])
-    return people
+    names = sorted({name.strip() for name in rows if name and name.strip()})
+    return [{"name": name} for name in names]

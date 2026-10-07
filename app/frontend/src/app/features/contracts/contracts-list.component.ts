@@ -33,7 +33,9 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | '
 const PERSON_FIELDS = [
   'payer', 'payer_identifier', 'payer_unp', 'rating_label', 'funnel_stage', 'ls_count',
   'principal', 'penalty', 'obligation', 'effective_group', 'assigned_name', 'ownership_type_name',
-  'housing_object', 'months_debt', 'subj_count', 'earliest', 'category',
+  'housing_object', 'months_debt', 'subj_count', 'registered_count', 'services_debt_count', 'earliest',
+  'contract_number', 'contract_date', 'service_provider', 'initial_principal', 'initial_penalty',
+  'period_balances', 'repayment_due_on', 'last_payment_date', 'category',
 ];
 
 const COLUMN_LABELS: Record<string, string> = {
@@ -42,17 +44,23 @@ const COLUMN_LABELS: Record<string, string> = {
   payer_unp: 'Учётный номер плательщика (УНП)',
   rating_label: 'Рейтинг должника',
   funnel_stage: 'Этап воронки взыскания',
-  ls_count: 'Номер ЛС с долгом',
+  ls_count: 'Количество ЛС с задолженностью',
   principal: 'Сумма основного долга',
   penalty: 'Сумма пени',
-  obligation: 'Сумма задолженности',
+  obligation: 'Суммарный долг по всем услугам ЛС',
+  registered_count: 'Кол-во зарегистрированных',
+  services_debt_count: 'Количество услуг с задолженностью',
+  contract_number: 'Номер договора',
+  contract_date: 'Дата договора',
+  service_provider: 'Поставщик услуги',
+  period_balances: 'Остатки задолженности и пени по периодам',
   effective_group: 'Группа задолженности',
   assigned_name: 'Закреплённый специалист',
   ownership_type_name: 'Тип собственности',
   housing_object: 'Тип объекта жилфонда',
   months_debt: 'Кол-во месяцев долга',
   subj_count: 'Кол-во проживающих',
-  earliest: 'Наиболее ранний период',
+  earliest: 'Наиболее ранний период возникновения долга',
   category: 'Категория должника',
   account_number: 'Номер ЛС',
   service_name: 'Наименование услуги',
@@ -61,13 +69,13 @@ const COLUMN_LABELS: Record<string, string> = {
   shot_name: 'Поставщик услуги',
   billing_provider: 'Обслуживающая организация',
   schema_label: 'Наименование схемы',
-  balance_out: 'Сумма основного долга',
-  balance_mulct_out: 'Сумма пени',
-  obligation_total: 'Сумма задолженности',
-  initial_principal: 'Первоначальная сумма долга',
+  balance_out: 'Остаток задолженности',
+  balance_mulct_out: 'Остаток пени',
+  obligation_total: 'Суммарный долг по услуге',
+  initial_principal: 'Первоначальная сумма задолженности',
   initial_penalty: 'Первоначальная сумма пени',
-  debt_started_on: 'Наиболее ранний период',
-  repayment_due_on: 'Срок погашения',
+  debt_started_on: 'Наиболее ранний период возникновения долга',
+  repayment_due_on: 'Срок погашения по договору',
   last_payment_date: 'Дата последней оплаты',
   scenario_brief: 'Сценарий',
   debt_period: 'Кол-во месяцев долга',
@@ -100,7 +108,7 @@ const COLUMN_LABELS: Record<string, string> = {
               <button type="button" class="fchip" (click)="clearBilling($event)">Организация: {{ billing.value }} ×</button>
             }
             @if (specialist.value) {
-              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialistName() }} ×</button>
+              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialist.value }} ×</button>
             }
             @if (ownership.value) {
               <button type="button" class="fchip" (click)="clearText(ownership, $event)">Собственность: {{ ownership.value }} ×</button>
@@ -149,14 +157,14 @@ const COLUMN_LABELS: Record<string, string> = {
                   <button type="button" class="menu-item" [class.on]="stage.value === item.id" (click)="setStage(item.id)">{{ item.label }}</button>
                 }
                 @if (auth.showServiceOrg()) {
-                  <div class="sub">Краткое наименование поставщика или обслуживающей организации</div>
+                  <div class="sub">Обслуживающая организация</div>
                   <div class="save-row">
                     <input [formControl]="billing" placeholder="Название или код" (click)="$event.stopPropagation()" />
                   </div>
                 }
                 <div class="sub">Закреплённый специалист</div>
-                @for (item of specialists(); track item.id) {
-                  <button type="button" class="menu-item" [class.on]="specialist.value === '' + item.id" (click)="setSpecialist(item.id)">{{ item.name }}</button>
+                @for (item of specialists(); track item.name) {
+                  <button type="button" class="menu-item" [class.on]="specialist.value === item.name" (click)="setSpecialist(item.name)">{{ item.name }}</button>
                 }
                 @if (!specialists().length) {
                   <p class="empty">Закреплённых специалистов пока нет</p>
@@ -252,7 +260,7 @@ const COLUMN_LABELS: Record<string, string> = {
           <div class="list-pane">
           <table mat-table [dataSource]="summary()?.suppliers ?? []">
             <ng-container matColumnDef="name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.name }}</td></ng-container>
-            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Лицевых счетов с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
+            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
             <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="obligation(r.principal, r.penalty)" [blank]="false" /></td></ng-container>
@@ -283,17 +291,27 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учётный номер плательщика (УНП)</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
             <ng-container matColumnDef="rating_label"><th mat-header-cell *matHeaderCellDef>Рейтинг должника</th><td mat-cell *matCellDef="let r">@if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> }</td></ng-container>
             <ng-container matColumnDef="funnel_stage"><th mat-header-cell *matHeaderCellDef>Этап воронки взыскания</th><td mat-cell *matCellDef="let r">{{ stageLabel(r.funnel_stage || '') }}</td></ng-container>
-            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Номер ЛС с долгом</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
+            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
             <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Суммарный долг по всем услугам ЛС</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.debt_group }}</td></ng-container>
             <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ r.assigned_name }}</td></ng-container>
             <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ r.ownership_type_name }}</td></ng-container>
             <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ r.housing_object }}</td></ng-container>
             <ng-container matColumnDef="months_debt"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let r">{{ r.months_debt }}</td></ng-container>
             <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
-            <ng-container matColumnDef="earliest"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период</th><td mat-cell *matCellDef="let r">{{ r.earliest }}</td></ng-container>
+            <ng-container matColumnDef="registered_count"><th mat-header-cell *matHeaderCellDef>Кол-во зарегистрированных</th><td mat-cell *matCellDef="let r">{{ r.registered_count }}</td></ng-container>
+            <ng-container matColumnDef="services_debt_count"><th mat-header-cell *matHeaderCellDef>Количество услуг с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.services_debt_count }}</td></ng-container>
+            <ng-container matColumnDef="contract_number"><th mat-header-cell *matHeaderCellDef>Номер договора</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'contract_number') }}</td></ng-container>
+            <ng-container matColumnDef="contract_date"><th mat-header-cell *matHeaderCellDef>Дата договора</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'contract_date') }}</td></ng-container>
+            <ng-container matColumnDef="service_provider"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'service_provider') }}</td></ng-container>
+            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма задолженности</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'initial_principal') }}</td></ng-container>
+            <ng-container matColumnDef="initial_penalty"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма пени</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'initial_penalty') }}</td></ng-container>
+            <ng-container matColumnDef="period_balances"><th mat-header-cell *matHeaderCellDef>Остатки задолженности и пени по периодам</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'period_balances') }}</td></ng-container>
+            <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения по договору</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'repayment_due_on') }}</td></ng-container>
+            <ng-container matColumnDef="last_payment_date"><th mat-header-cell *matHeaderCellDef>Дата последней оплаты</th><td mat-cell *matCellDef="let r">{{ personLines(r, 'last_payment_date') }}</td></ng-container>
+            <ng-container matColumnDef="earliest"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период возникновения долга</th><td mat-cell *matCellDef="let r">{{ r.earliest }}</td></ng-container>
             <ng-container matColumnDef="category"><th mat-header-cell *matHeaderCellDef>Категория должника</th><td mat-cell *matCellDef="let r">{{ r.category }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="shownPersons()"></tr>
             <tr mat-row *matRowDef="let row; columns: shownPersons()" class="clickable-row" (click)="open(row.sample_id)"></tr>
@@ -322,13 +340,14 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
             <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
             <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Наименование схемы</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
-            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="obligation_total"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation_total" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_principal" /></td></ng-container>
+            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Остаток задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Остаток пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation_total"><th mat-header-cell *matHeaderCellDef>Суммарный долг по услуге</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation_total" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_principal" /></td></ng-container>
             <ng-container matColumnDef="initial_penalty"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_penalty" /></td></ng-container>
-            <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
-            <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения</th><td mat-cell *matCellDef="let r">{{ r.repayment_due_on }}</td></ng-container>
+            <ng-container matColumnDef="period_balances"><th mat-header-cell *matHeaderCellDef>Остатки задолженности и пени по периодам</th><td mat-cell *matCellDef="let r">{{ periodText(r) }}</td></ng-container>
+            <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период возникновения долга</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
+            <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения по договору</th><td mat-cell *matCellDef="let r">{{ r.repayment_due_on }}</td></ng-container>
             <ng-container matColumnDef="last_payment_date"><th mat-header-cell *matHeaderCellDef>Дата последней оплаты</th><td mat-cell *matCellDef="let r">{{ r.last_payment_date }}</td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
             <ng-container matColumnDef="scenario_brief"><th mat-header-cell *matHeaderCellDef>Сценарий</th><td mat-cell *matCellDef="let r">{{ r.scenario_brief }}</td></ng-container>
@@ -337,6 +356,7 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ r.housing_object }}</td></ng-container>
             <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let r">{{ r.debt_period }}</td></ng-container>
             <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
+            <ng-container matColumnDef="registered_count"><th mat-header-cell *matHeaderCellDef>Кол-во зарегистрированных</th><td mat-cell *matCellDef="let r">{{ r.registered_count }}</td></ng-container>
             <ng-container matColumnDef="category_name"><th mat-header-cell *matHeaderCellDef>Категория должника</th><td mat-cell *matCellDef="let r">{{ r.category_name }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="shownServices()"></tr>
             <tr mat-row *matRowDef="let row; columns: shownServices()" class="clickable-row" (click)="open(row.id)"></tr>
@@ -356,21 +376,9 @@ const COLUMN_LABELS: Record<string, string> = {
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <div class="name">{{ card.payer || 'Без наименования' }}</div>
                     @if (canMove()) {
-                      <button type="button" class="more" aria-label="Сменить этап" (click)="toggleStage($event, card.sample_id)">
-                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.2 2.8 7.2 8.8M7 3.5H3.5v9h9V9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-                      </button>
+                      <button type="button" class="stage-btn" (click)="openStage($event, card)">Сменить этап воронки</button>
                     }
-                    @if (stageMenu() === card.sample_id) {
-                      <div class="stage-menu" (click)="$event.stopPropagation()">
-                        @for (item of stages; track item.id) {
-                          <button type="button" [class.on]="column.stage === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
-                        }
-                      </div>
-                    }
-                    <div class="line">{{ personId(card) }} · {{ card.ls_count }} ЛС · {{ card.service_count || 1 }} усл.</div>
-                    @if (card.service_name) {
-                      <div class="line">{{ card.service_name }}</div>
-                    }
+                    <div class="line">{{ personId(card) }} · количество ЛС с задолженностью {{ card.ls_count }} · услуг {{ card.services_debt_count ?? card.service_count || 0 }}</div>
                     @if (card.address) {
                       <div class="line">{{ street(card.address) }}</div>
                     }
@@ -380,12 +388,26 @@ const COLUMN_LABELS: Record<string, string> = {
                       }
                       <span>Группа задолженности {{ card.debt_group || '—' }}@if (card.category) { · {{ card.category }} }</span>
                     </div>
-                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
-                    <div class="line">Месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }}</div>
+                    <div class="line">Закреплённый специалист: {{ card.assigned_name || '—' }}</div>
+                    <div class="line">Тип собственности: {{ card.ownership_type_name || '—' }}</div>
+                    <div class="line">Тип объекта жилфонда: {{ card.housing_object || '—' }}</div>
+                    <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
+                    <div class="line">Наиболее ранний период возникновения долга: {{ card.earliest || '—' }}</div>
                     <div class="money">
-                      <div>Сумма задолженности <app-money [value]="card.obligation" [blank]="false" /></div>
+                      <div>Суммарный долг по всем услугам ЛС <app-money [value]="card.obligation" [blank]="false" /></div>
                       <small>Сумма основного долга <app-money [value]="card.principal" [blank]="false" /> · Сумма пени <app-money [value]="card.penalty" [blank]="false" /></small>
                     </div>
+                    @for (line of card.service_lines || []; track line.service_list_id) {
+                      <div class="svc">
+                        <div>Номер договора {{ line.service_list_id }}@if (line.service_name) { · {{ line.service_name }} }</div>
+                        <div>Дата договора {{ line.start_date || '—' }} · Поставщик услуги: {{ line.shot_name || '—' }}</div>
+                        <div>Первоначальная сумма задолженности <app-money [value]="line.initial_principal" /> · пеня <app-money [value]="line.initial_penalty" /></div>
+                        <div>Срок погашения по договору {{ line.repayment_due_on || '—' }} · Дата последней оплаты {{ line.last_payment_date || '—' }}</div>
+                        @for (period of line.periods; track period.period) {
+                          <div>Остаток {{ period.period }}: задолженность <app-money [value]="period.principal" [blank]="false" /> · пеня <app-money [value]="period.penalty" [blank]="false" /></div>
+                        }
+                      </div>
+                    }
                     <div class="foot"><span class="when">{{ cardMark(card) }}</span></div>
                   </article>
                 }
@@ -408,7 +430,8 @@ const COLUMN_LABELS: Record<string, string> = {
           <div class="list-pane">
           <table mat-table [dataSource]="groupsRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
-            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>Лицевой счёт (Номер ЛС)</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
+            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
+            <ng-container matColumnDef="services"><th mat-header-cell *matHeaderCellDef>Количество услуг с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.services }}</td></ng-container>
             <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
@@ -436,7 +459,7 @@ const COLUMN_LABELS: Record<string, string> = {
                   <mat-option value="months">Кол-во месяцев долга</mat-option>
                   <mat-option value="residents">Кол-во проживающих</mat-option>
                   @if (auth.showServiceOrg()) {
-                    <mat-option value="billing">Краткое наименование поставщика или обслуживающей организации</mat-option>
+                    <mat-option value="billing">Обслуживающая организация</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -444,8 +467,8 @@ const COLUMN_LABELS: Record<string, string> = {
                 <mat-form-field>
                   <mat-label>Значение</mat-label>
                   <mat-select [formControl]="customValue">
-                    @for (item of specialists(); track item.id) {
-                      <mat-option [value]="'' + item.id">{{ item.name }}</mat-option>
+                    @for (item of specialists(); track item.name) {
+                      <mat-option [value]="item.name">{{ item.name }}</mat-option>
                     }
                   </mat-select>
                 </mat-form-field>
@@ -483,7 +506,12 @@ const COLUMN_LABELS: Record<string, string> = {
         <div class="backdrop" (click)="reasonOpen.set(false)">
           <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
             <h3>Смена этапа воронки взыскания</h3>
-            <p class="hint">Переход между этапами воронки. Мероприятие внутри сценария этой кнопкой не меняется. Укажите основание.</p>
+            <p class="hint">Это переход карточки между этапами воронки взыскания. Мероприятие этой кнопкой не меняется. Без заполненного основания этап не меняется.</p>
+            <div class="save-row">
+              <select [formControl]="funnelStage" (click)="$event.stopPropagation()">
+                @for (item of stages; track item.id) { <option [value]="item.id">{{ item.label }}</option> }
+              </select>
+            </div>
             <div class="save-row">
               <input [formControl]="funnelReason" placeholder="Основание" (click)="$event.stopPropagation()" />
             </div>
@@ -594,12 +622,13 @@ const COLUMN_LABELS: Record<string, string> = {
     .k-card[draggable="true"] { cursor: grab; }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
     .k-card.picked { background: #e7f4f1; }
-    .k-card .name { padding-right: 18px; }
-    .k-card .more {
-      position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; border: 0;
-      background: transparent; color: #9aa3ad; cursor: pointer;
+    .k-card .name { padding-right: 148px; }
+    .k-card .stage-btn {
+      position: absolute; top: 8px; right: 8px; border: 1px solid #d8dce0; background: #fff;
+      color: var(--erip-primary); border-radius: 4px; font-size: 11px; line-height: 1.2;
+      padding: 3px 6px; cursor: pointer;
     }
-    .k-card .more svg { width: 14px; height: 14px; display: block; }
+    .k-card .svc { margin-top: 6px; padding-top: 6px; border-top: 1px solid #e6ebf0; font-size: 12px; color: #33414d; }
     .stage-menu {
       position: absolute; z-index: 5; top: 28px; right: 8px; min-width: 180px; padding: 4px;
       background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
@@ -648,12 +677,13 @@ export class ContractsListComponent implements OnInit {
     { id: 'prevention', label: 'Автообзвон/уведомления' },
     { id: 'warning', label: 'Предупреждение вручено' },
     { id: 'disconnect', label: 'Отключение услуг' },
-    { id: 'enforcement', label: 'Испол. надпись / иск' },
+    { id: 'enforcement', label: 'Исполнительная надпись / иск' },
     { id: 'court', label: 'ОПИ' },
     { id: 'closed', label: 'Не должник' },
   ];
   protected readonly groupOptions = [
     { id: 'debt_group', label: 'Группа задолженности' },
+    { id: 'schema', label: 'Наименование схемы' },
     { id: 'provider', label: 'Поставщик услуги' },
     { id: 'billing', label: 'Обслуживающая организация' },
     { id: 'category', label: 'Категория должника' },
@@ -670,7 +700,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly serviceCatalog = signal<string[]>([]);
   protected readonly columnsOpen = signal(false);
   protected readonly groupChoices = this.contractGroupChoices();
-  protected readonly groupColumns = ['value', 'accounts', 'debt', 'penalty'];
+  protected readonly groupColumns = ['value', 'accounts', 'services', 'debt', 'penalty'];
   protected readonly supplierColumns = ['name', 'ls_count', 'principal', 'penalty', 'obligation', 'measures', 'claims'];
   protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('suppliers');
   protected readonly panelOpen = signal(false);
@@ -679,12 +709,12 @@ export class ContractsListComponent implements OnInit {
   protected readonly rows = signal<AccountService[]>([]);
   protected readonly kanban = signal<{ stage: string; title: string; total: number; cards: ContractPerson[] }[]>([]);
   protected readonly events = signal<CalendarEvent[]>([]);
-  protected readonly groupsRows = signal<{ value: string; accounts: number; debt: string | null; penalty: string | null }[]>([]);
+  protected readonly groupsRows = signal<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]>([]);
   protected readonly summary = signal<ContractSummary | null>(null);
   protected readonly dial = signal<{ dial_mobile_from_day: number; dial_mobile_from_hour: number | null; dial_mobile_to_hour: number | null } | null>(null);
   protected readonly categories = signal<DebtorCategory[]>([]);
   protected readonly saved = signal<SavedFilter[]>([]);
-  protected readonly specialists = signal<{ id: number; name: string }[]>([]);
+  protected readonly specialists = signal<{ name: string }[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
   protected readonly stageMenu = signal<number | null>(null);
@@ -692,6 +722,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly selected = signal<Set<number>>(new Set());
   protected readonly reasonOpen = signal(false);
   protected readonly funnelReason = new FormControl('', { nonNullable: true });
+  protected readonly funnelStage = new FormControl('new', { nonNullable: true });
   private pendingIds: number[] = [];
   private pendingStage = '';
   private cardDragged = false;
@@ -771,8 +802,8 @@ export class ContractsListComponent implements OnInit {
     if (this.auth.showSchema()) columns.push('schema_label');
     columns.push(
       'balance_out', 'balance_mulct_out', 'obligation_total', 'initial_principal', 'initial_penalty',
-      'debt_started_on', 'repayment_due_on', 'last_payment_date', 'effective_group', 'scenario_brief',
-      'assigned_name', 'ownership_type_name', 'housing_object', 'debt_period', 'subj_count', 'category_name',
+      'period_balances', 'debt_started_on', 'repayment_due_on', 'last_payment_date', 'effective_group', 'scenario_brief',
+      'assigned_name', 'ownership_type_name', 'housing_object', 'debt_period', 'subj_count', 'registered_count', 'category_name',
     );
     return columns;
   }
@@ -780,6 +811,7 @@ export class ContractsListComponent implements OnInit {
   private contractGroupChoices(): { id: string; label: string }[] {
     return this.groupOptions.filter((item) => {
       if (item.id === 'provider') return this.auth.showSupplier();
+      if (item.id === 'schema') return this.auth.showSchema();
       if (item.id === 'billing') return this.auth.showServiceOrg();
       return true;
     });
@@ -848,14 +880,8 @@ export class ContractsListComponent implements OnInit {
     return this.categories().find((item) => String(item.id) === id)?.name ?? id;
   }
 
-  specialistName(): string {
-    const id = this.specialist.value;
-    return this.specialists().find((item) => String(item.id) === id)?.name ?? id;
-  }
-
-  setSpecialist(id: number): void {
-    const value = String(id);
-    this.specialist.setValue(this.specialist.value === value ? '' : value);
+  setSpecialist(name: string): void {
+    this.specialist.setValue(this.specialist.value === name ? '' : name);
   }
 
   groupByLabel(id: string): string {
@@ -1032,18 +1058,27 @@ export class ContractsListComponent implements OnInit {
     if (!ids.length) return;
     this.pendingIds = ids;
     this.pendingStage = stage;
+    this.funnelStage.setValue(stage || 'new');
     this.funnelReason.setValue('');
     this.reasonOpen.set(true);
   }
 
+  protected openStage(event: Event, card: ContractPerson): void {
+    event.stopPropagation();
+    const samples = this.selected().has(card.sample_id) ? [...this.selected()] : [card.sample_id];
+    const ids = this.accountIds(samples);
+    this.moveAccounts(ids.length ? ids : (card.account_ids || []), card.funnel_stage || 'new');
+  }
+
   protected confirmMove(): void {
     const reason = this.funnelReason.value.trim();
+    const stage = this.funnelStage.value;
     if (!this.pendingIds.length || !reason) {
       this.error.set('Укажите основание смены этапа воронки взыскания');
       return;
     }
     this.reasonOpen.set(false);
-    this.api.contractStage(this.pendingIds, this.pendingStage, reason).subscribe({
+    this.api.contractStage(this.pendingIds, stage, reason).subscribe({
       next: () => {
         this.selected.set(new Set());
         this.pendingIds = [];
@@ -1185,6 +1220,33 @@ export class ContractsListComponent implements OnInit {
     });
   }
 
+  protected personLines(row: ContractPerson, name: string): string {
+    const lines = row.service_lines || [];
+    const join = (pick: (line: NonNullable<ContractPerson['service_lines']>[number]) => string) => {
+      const text = lines.map(pick).filter(Boolean).join('; ');
+      return text || '—';
+    };
+    if (name === 'contract_number') return join((line) => line.service_name ? `${line.service_list_id} (${line.service_name})` : String(line.service_list_id));
+    if (name === 'contract_date') return join((line) => line.start_date || '');
+    if (name === 'service_provider') return join((line) => line.shot_name);
+    if (name === 'initial_principal') return join((line) => line.initial_principal || '');
+    if (name === 'initial_penalty') return join((line) => line.initial_penalty || '');
+    if (name === 'repayment_due_on') return join((line) => line.repayment_due_on || '');
+    if (name === 'last_payment_date') return join((line) => line.last_payment_date || '');
+    if (name === 'period_balances') {
+      return join((line) => (line.periods || []).map((period) =>
+        `${line.service_name || line.service_list_id} ${period.period}: долг ${period.principal || 0}, пеня ${period.penalty || 0}`,
+      ).join('; '));
+    }
+    return '—';
+  }
+
+  protected periodText(row: AccountService): string {
+    const periods = row.periods || [];
+    if (!periods.length) return '—';
+    return periods.map((period) => `${period.period}: долг ${period.principal || 0}, пеня ${period.penalty || 0}`).join('; ');
+  }
+
   protected personId(card: ContractPerson): string {
     if (card.payer_identifier) return `ИН ${card.payer_identifier}`;
     if (card.payer_unp) return `УНП ${card.payer_unp}`;
@@ -1230,7 +1292,7 @@ export class ContractsListComponent implements OnInit {
     this.category.setValue(String(query['debtor_category'] ?? ''), { emitEvent: false });
     this.stage.setValue(String(query['funnel_stage'] ?? ''), { emitEvent: false });
     this.billing.setValue(String(query['billing_provider'] ?? ''), { emitEvent: false });
-    this.specialist.setValue(String(query['assigned_to'] ?? ''), { emitEvent: false });
+    this.specialist.setValue(String(query['assigned_name'] ?? ''), { emitEvent: false });
     this.ownership.setValue(String(query['ownership'] ?? ''), { emitEvent: false });
     this.housing.setValue(String(query['housing'] ?? ''), { emitEvent: false });
     this.monthsDebt.setValue(String(query['months_debt'] ?? ''), { emitEvent: false });
@@ -1313,7 +1375,7 @@ export class ContractsListComponent implements OnInit {
       debtor_category: this.category.value,
       funnel_stage: this.stage.value,
       billing_provider: this.billing.value,
-      assigned_to: this.specialist.value || null,
+      assigned_name: this.specialist.value,
       ownership: this.ownership.value,
       housing: this.housing.value,
       months_debt: this.monthsDebt.value || null,

@@ -61,12 +61,9 @@ class AccountFilter(django_filters.FilterSet):
         text = str(value).strip()
         if not text:
             return queryset
-        return queryset.filter(
-            Q(assigned_to__first_name__icontains=text)
-            | Q(assigned_to__last_name__icontains=text)
-            | Q(assigned_to__middle_name__icontains=text)
-            | Q(assigned_to__username__icontains=text)
-        )
+        from apps.debts.services.assignees import specialist_label
+
+        return queryset.annotate(_assignee=specialist_label()).filter(_assignee__iexact=text)
 
     def filter_q(self, queryset, name, value):
         from .repositories import AccountRepository
@@ -134,12 +131,9 @@ class ContractFilter(django_filters.FilterSet):
         text = str(value).strip()
         if not text:
             return queryset
-        return queryset.filter(
-            Q(account__assigned_to__first_name__icontains=text)
-            | Q(account__assigned_to__last_name__icontains=text)
-            | Q(account__assigned_to__middle_name__icontains=text)
-            | Q(account__assigned_to__username__icontains=text)
-        )
+        from apps.debts.services.assignees import specialist_label
+
+        return queryset.annotate(_assignee=specialist_label("account__")).filter(_assignee__iexact=text)
 
     def filter_billing(self, queryset, name, value):
         text = str(value).strip()

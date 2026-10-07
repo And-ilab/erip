@@ -31,10 +31,19 @@ const LABELS: Record<string, string> = {
   payer_identifier: 'Идентификационный номер (ИН)',
   payer_unp: 'Учётный номер плательщика (УНП)',
   rating_label: 'Рейтинг должника',
-  debt_started_on: 'Дата возникновения',
+  debt_started_on: 'Наиболее ранний период возникновения долга',
   debt_total: 'Сумма основного долга',
   mulct_total: 'Сумма пени',
-  obligation_total: 'Сумма задолженности',
+  obligation_total: 'Суммарный долг по всем услугам ЛС',
+  services_debt_count: 'Количество услуг с задолженностью',
+  contract_number: 'Номер договора',
+  contract_date: 'Дата договора',
+  service_provider: 'Поставщик услуги',
+  initial_principal: 'Первоначальная сумма задолженности',
+  initial_penalty: 'Первоначальная сумма пени',
+  period_balances: 'Остатки задолженности и пени по периодам',
+  repayment_due_on: 'Срок погашения по договору',
+  last_payment_date: 'Дата последней оплаты',
   effective_group: 'Группа задолженности',
   scenario_name: 'Сценарий',
   scenario_brief: 'Сценарий',
@@ -51,7 +60,9 @@ const BASE_COLUMNS = [
   'client_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
   'rating_label', 'funnel_stage', 'debt_total', 'mulct_total', 'obligation_total', 'effective_group',
   'scenario_brief', 'assigned_name', 'ownership_type_name', 'acc_category_full', 'months_debt',
-  'subj_count', 'registered_count',
+  'subj_count', 'registered_count', 'services_debt_count', 'debt_started_on',
+  'contract_number', 'contract_date', 'service_provider', 'initial_principal', 'initial_penalty',
+  'period_balances', 'repayment_due_on', 'last_payment_date',
 ];
 
 type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
@@ -80,7 +91,7 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
               <button type="button" class="fchip" (click)="clearStage($event)">Этап: {{ stageLabel(stage.value) }} ×</button>
             }
             @if (specialist.value) {
-              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialistName() }} ×</button>
+              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialist.value }} ×</button>
             }
             @if (ownership.value) {
               <button type="button" class="fchip" (click)="clearText(ownership, $event)">Собственность: {{ ownership.value }} ×</button>
@@ -131,8 +142,8 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
                   <button type="button" class="menu-item" [class.on]="stage.value === item.id" (click)="setStage(item.id)">{{ item.label }}</button>
                 }
                 <div class="sub">Закреплённый специалист</div>
-                @for (item of specialists(); track item.id) {
-                  <button type="button" class="menu-item" [class.on]="specialist.value === '' + item.id" (click)="setSpecialist(item.id)">{{ item.name }}</button>
+                @for (item of specialists(); track item.name) {
+                  <button type="button" class="menu-item" [class.on]="specialist.value === item.name" (click)="setSpecialist(item.name)">{{ item.name }}</button>
                 }
                 @if (!specialists().length) {
                   <p class="empty">Закреплённых специалистов пока нет</p>
@@ -310,7 +321,7 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
                     @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
                     @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
                     @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" /> }
-                    @default { {{ cell(r, name) }} }
+                    @default { {{ boardCell(r, name) }} }
                   }
                 </td>
               </ng-container>
@@ -327,10 +338,12 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
           <div class="list-pane">
           <table mat-table [dataSource]="groupedRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value || '—' }}</td></ng-container>
-            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
-            <tr mat-header-row *matHeaderRowDef="['value', 'accounts', 'debt']"></tr>
-            <tr mat-row *matRowDef="let row; columns: ['value', 'accounts', 'debt']"></tr>
+            <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
+            <ng-container matColumnDef="services"><th mat-header-cell *matHeaderCellDef>Количество услуг с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.services }}</td></ng-container>
+            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: groupColumns"></tr>
           </table>
           </div>
         }
@@ -347,16 +360,7 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
                     @if (canMove()) {
-                      <button type="button" class="more" aria-label="Сменить этап" (click)="toggleStage($event, card.id)">
-                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.2 2.8 7.2 8.8M7 3.5H3.5v9h9V9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-                      </button>
-                    }
-                    @if (stageMenu() === card.id) {
-                      <div class="stage-menu" (click)="$event.stopPropagation()">
-                        @for (item of stages; track item.id) {
-                          <button type="button" [class.on]="(card.funnel_stage || 'new') === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
-                        }
-                      </div>
+                      <button type="button" class="stage-btn" (click)="openStage($event, card)">Сменить этап воронки</button>
                     }
                     <div class="line">Номер ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address) }} }</div>
                     <div class="group-line">
@@ -366,15 +370,27 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
                       @if (card.effective_group) { <span>Группа задолженности {{ card.effective_group }}</span> }
                     </div>
                     <div class="line">{{ card.scenario_brief || 'Сценарий не назначен' }}</div>
-                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
-                    @if (card.ownership_type_name || card.acc_category_full) {
-                      <div class="line">{{ card.ownership_type_name }}@if (card.acc_category_full) { · {{ card.acc_category_full }} }</div>
-                    }
-                    <div class="line">Месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
+                    <div class="line">Закреплённый специалист: {{ card.assigned_name || '—' }}</div>
+                    <div class="line">Тип собственности: {{ card.ownership_type_name || '—' }}</div>
+                    <div class="line">Тип объекта жилфонда: {{ card.acc_category_full || '—' }}</div>
+                    <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
+                    <div class="line">Количество услуг с задолженностью: {{ card.services_debt_count ?? 0 }}</div>
+                    <div class="line">Наиболее ранний период возникновения долга: {{ card.debt_started_on || '—' }}</div>
                     <div class="money">
-                      <div>Сумма задолженности <app-money [value]="card.obligation_total" [blank]="false" /></div>
+                      <div>Суммарный долг по всем услугам ЛС <app-money [value]="card.obligation_total" [blank]="false" /></div>
                       <small>Сумма основного долга <app-money [value]="card.debt_total" [blank]="false" /> · Сумма пени <app-money [value]="card.mulct_total" [blank]="false" /></small>
                     </div>
+                    @for (line of card.service_lines || []; track line.service_list_id) {
+                      <div class="svc">
+                        <div>Номер договора {{ line.service_list_id }}@if (line.service_name) { · {{ line.service_name }} }</div>
+                        <div>Дата договора {{ line.start_date || '—' }} · Поставщик услуги: {{ line.shot_name || '—' }}</div>
+                        <div>Первоначальная сумма задолженности <app-money [value]="line.initial_principal" /> · пеня <app-money [value]="line.initial_penalty" /></div>
+                        <div>Срок погашения по договору {{ line.repayment_due_on || '—' }} · Дата последней оплаты {{ line.last_payment_date || '—' }}</div>
+                        @for (period of line.periods; track period.period) {
+                          <div>Остаток {{ period.period }}: задолженность <app-money [value]="period.principal" [blank]="false" /> · пеня <app-money [value]="period.penalty" [blank]="false" /></div>
+                        }
+                      </div>
+                    }
                     <div class="foot">
                       @if (mark(card); as note) {
                         <span class="when">
@@ -426,8 +442,8 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
                 <mat-form-field>
                   <mat-label>Значение</mat-label>
                   <mat-select [formControl]="customValue">
-                    @for (item of specialists(); track item.id) {
-                      <mat-option [value]="'' + item.id">{{ item.name }}</mat-option>
+                    @for (item of specialists(); track item.name) {
+                      <mat-option [value]="item.name">{{ item.name }}</mat-option>
                     }
                   </mat-select>
                 </mat-form-field>
@@ -465,7 +481,13 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
         <div class="backdrop" (click)="reasonOpen.set(false)">
           <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
             <h3>Смена этапа воронки взыскания</h3>
-            <p class="muted">Это переход между этапами воронки, а не замена мероприятия внутри сценария. Без основания этап не меняется.</p>
+            <p class="muted">Это переход карточки между этапами воронки взыскания. Мероприятие этой кнопкой не меняется. Без заполненного основания этап не меняется.</p>
+            <mat-form-field class="reason-field">
+              <mat-label>Этап воронки взыскания</mat-label>
+              <mat-select [formControl]="funnelStage">
+                @for (item of stages; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
             <mat-form-field class="reason-field">
               <mat-label>Основание</mat-label>
               <input matInput [formControl]="funnelReason" />
@@ -585,12 +607,13 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
-    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; padding-right: 18px; color: #1f2933; }
-    .k-card .more {
-      position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; border: 0;
-      background: transparent; color: #9aa3ad; cursor: pointer;
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; padding-right: 148px; color: #1f2933; }
+    .k-card .stage-btn {
+      position: absolute; top: 8px; right: 8px; border: 1px solid #d8dce0; background: #fff;
+      color: var(--erip-primary); border-radius: 4px; font-size: 11px; line-height: 1.2;
+      padding: 3px 6px; cursor: pointer;
     }
-    .k-card .more svg { width: 14px; height: 14px; display: block; }
+    .k-card .svc { margin-top: 6px; padding-top: 6px; border-top: 1px solid #e6ebf0; font-size: 12px; color: #33414d; }
     .stage-menu {
       position: absolute; z-index: 5; top: 28px; right: 8px; min-width: 180px; padding: 4px;
       background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
@@ -650,7 +673,7 @@ export class AccountsListComponent implements OnInit {
     { id: 'prevention', label: 'Автообзвон/уведомления' },
     { id: 'warning', label: 'Предупреждение вручено' },
     { id: 'disconnect', label: 'Отключение услуг' },
-    { id: 'enforcement', label: 'Испол. надпись / иск' },
+    { id: 'enforcement', label: 'Исполнительная надпись / иск' },
     { id: 'court', label: 'ОПИ' },
     { id: 'closed', label: 'Не должник' },
   ];
@@ -691,10 +714,11 @@ export class AccountsListComponent implements OnInit {
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly filters = signal<SavedFilter[]>([]);
-  protected readonly specialists = signal<{ id: number; name: string }[]>([]);
+  protected readonly specialists = signal<{ name: string }[]>([]);
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly serviceChoices = signal<ServiceChoice[]>([]);
-  protected readonly groupedRows = signal<{ value: string; accounts: number; debt: string | null }[]>([]);
+  protected readonly groupColumns = ['value', 'accounts', 'services', 'debt', 'penalty'];
+  protected readonly groupedRows = signal<{ value: string; accounts: number; services: number; debt: string | null; penalty: string | null }[]>([]);
   protected readonly selected = signal<Set<number>>(new Set());
   protected readonly dropStage = signal<string | null>(null);
   protected readonly search = new FormControl('', { nonNullable: true });
@@ -724,6 +748,7 @@ export class AccountsListComponent implements OnInit {
   protected readonly periodFrom = new FormControl('', { nonNullable: true });
   protected readonly periodTo = new FormControl('', { nonNullable: true });
   protected readonly funnelReason = new FormControl('', { nonNullable: true });
+  protected readonly funnelStage = new FormControl('new', { nonNullable: true });
   protected readonly reasonOpen = signal(false);
   private pendingMove: { ids: number[]; stage: string } | null = null;
   protected pageSize = 50;
@@ -810,14 +835,8 @@ export class AccountsListComponent implements OnInit {
     return this.stages.find((item) => item.id === id)?.label ?? id;
   }
 
-  specialistName(): string {
-    const id = this.specialist.value;
-    return this.specialists().find((item) => String(item.id) === id)?.name ?? id;
-  }
-
-  setSpecialist(id: number): void {
-    const value = String(id);
-    this.specialist.setValue(this.specialist.value === value ? '' : value);
+  setSpecialist(name: string): void {
+    this.specialist.setValue(this.specialist.value === name ? '' : name);
   }
 
   groupByLabel(id: string): string {
@@ -846,6 +865,28 @@ export class AccountsListComponent implements OnInit {
     const value = row[name as keyof AccountRow];
     if (name === 'effective_group') return value ? String(value) : '';
     return value == null ? '' : String(value);
+  }
+
+  boardCell(row: AccountRow, name: string): string {
+    const lines = row.service_lines || [];
+    const join = (pick: (line: NonNullable<AccountRow['service_lines']>[number]) => string) => {
+      const text = lines.map(pick).filter(Boolean).join('; ');
+      return text || '—';
+    };
+    if (name === 'services_debt_count') return String(row.services_debt_count ?? 0);
+    if (name === 'contract_number') return join((line) => line.service_name ? `${line.service_list_id} (${line.service_name})` : String(line.service_list_id));
+    if (name === 'contract_date') return join((line) => line.start_date || '');
+    if (name === 'service_provider') return join((line) => line.shot_name);
+    if (name === 'initial_principal') return join((line) => line.initial_principal || '');
+    if (name === 'initial_penalty') return join((line) => line.initial_penalty || '');
+    if (name === 'repayment_due_on') return join((line) => line.repayment_due_on || '');
+    if (name === 'last_payment_date') return join((line) => line.last_payment_date || '');
+    if (name === 'period_balances') {
+      return join((line) => (line.periods || []).map((period) =>
+        `${line.service_name || line.service_list_id} ${period.period}: долг ${period.principal || 0}, пеня ${period.penalty || 0}`,
+      ).join('; '));
+    }
+    return this.cell(row, name);
   }
 
   togglePanel(event: Event): void {
@@ -1202,13 +1243,21 @@ export class AccountsListComponent implements OnInit {
   private moveIds(ids: number[], stage: string): void {
     this.stageMenu.set(null);
     this.pendingMove = { ids, stage };
+    this.funnelStage.setValue(stage || 'new');
     this.funnelReason.setValue('');
     this.reasonOpen.set(true);
+  }
+
+  protected openStage(event: Event, card: AccountRow): void {
+    event.stopPropagation();
+    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
+    this.moveIds(ids, card.funnel_stage || 'new');
   }
 
   protected confirmMove(): void {
     const pending = this.pendingMove;
     const reason = this.funnelReason.value.trim();
+    const stage = this.funnelStage.value;
     if (!pending || !reason) {
       this.snack.open('Укажите основание смены этапа воронки взыскания', 'OK');
       return;
@@ -1223,7 +1272,7 @@ export class AccountsListComponent implements OnInit {
         this.showKanban();
         return;
       }
-      this.api.updateAccount(id, { funnel_stage: pending.stage, funnel_reason: reason }).subscribe({
+      this.api.updateAccount(id, { funnel_stage: stage, funnel_reason: reason }).subscribe({
         next: () => step(),
         error: (e) => this.snack.open(errorMessage(e), 'OK'),
       });
@@ -1240,11 +1289,6 @@ export class AccountsListComponent implements OnInit {
     event.stopPropagation();
     this.periodFrom.setValue('');
     this.periodTo.setValue('');
-  }
-
-  protected toggleStage(event: Event, id: number): void {
-    event.stopPropagation();
-    this.stageMenu.update((open) => open === id ? null : id);
   }
 
   protected letter(label: string): string {
@@ -1346,7 +1390,7 @@ export class AccountsListComponent implements OnInit {
     this.groupsSelected.setValue(this.parseGroups(item.query['debt_group__in']), { emitEvent: false });
     this.rating.setValue(this.parseRatings(item.query['rating__in'] ?? item.query['rating']), { emitEvent: false });
     this.stage.setValue(String(item.query['funnel_stage'] ?? ''), { emitEvent: false });
-    this.specialist.setValue(String(item.query['assigned_to'] ?? ''), { emitEvent: false });
+    this.specialist.setValue(String(item.query['assigned_name'] ?? ''), { emitEvent: false });
     this.ownership.setValue(String(item.query['ownership'] ?? ''), { emitEvent: false });
     this.housing.setValue(String(item.query['housing'] ?? ''), { emitEvent: false });
     this.monthsDebt.setValue(String(item.query['months_debt'] ?? ''), { emitEvent: false });
@@ -1465,7 +1509,7 @@ export class AccountsListComponent implements OnInit {
       debt_group__in: selected.length ? selected.join(',') : null,
       rating__in: this.rating.value.length ? this.rating.value.join(',') : null,
       funnel_stage: this.stage.value,
-      assigned_to: this.specialist.value || null,
+      assigned_name: this.specialist.value,
       ownership: this.ownership.value,
       housing: this.housing.value,
       months_debt: this.monthsDebt.value || null,

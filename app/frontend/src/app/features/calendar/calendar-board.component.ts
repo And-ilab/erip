@@ -135,9 +135,7 @@ interface DayCell {
                 <button type="button" class="num" (click)="focusDay(day)">{{ long(day) }}</button>
                 @if (brief(day); as card) {
                   <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day)">
-                    <b>{{ card.total }}</b> {{ eventsWord(card.total) }}
-                    @if (card.overdue) { <span>просрочено {{ card.overdue }}</span> }
-                    @else if (card.soon) { <span>в ближайшие дни {{ card.soon }}</span> }
+                    <b>{{ card.total }}</b> {{ eventsWord(card.total) }}{{ tail(card) }}
                   </button>
                 }
               </section>
@@ -160,14 +158,14 @@ interface DayCell {
                   <tr>
                     @for (day of week; track day.iso) {
                       <td [class.out]="!day.inMonth" [class.dim]="day.inMonth && !inSpan(day.iso)" [class.mark]="marked(day.iso)" [class.today]="day.iso === today">
-                        <button type="button" class="num" (click)="focusDay(day.iso)">{{ day.day }}</button>
-                        @if (brief(day.iso); as card) {
-                          <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day.iso)">
-                            <b>{{ card.total }}</b> {{ eventsWord(card.total) }}
-                            @if (card.overdue) { <span>просрочено {{ card.overdue }}</span> }
-                            @else if (card.soon) { <span>в ближайшие дни {{ card.soon }}</span> }
-                          </button>
-                        }
+                        <div class="slot">
+                          <button type="button" class="num" (click)="focusDay(day.iso)">{{ day.day }}</button>
+                          @if (brief(day.iso); as card) {
+                            <button type="button" class="sum" [class.overdue]="card.tone === 'overdue'" [class.soon]="card.tone === 'soon'" (click)="focusDay(day.iso)">
+                              <b>{{ card.total }}</b> {{ eventsWord(card.total) }}{{ tail(card) }}
+                            </button>
+                          }
+                        </div>
                       </td>
                     }
                   </tr>
@@ -294,10 +292,12 @@ interface DayCell {
     .fail { color: #c62828; }
     .day, .week section { background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; padding: 10px; }
     .day + .day, .week + .week, .month-block + .month-block { margin-top: 12px; }
-    .week { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; }
+    .week { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; align-items: start; }
+    .week section { height: 88px; overflow: hidden; box-sizing: border-box; }
     .week section.dim { background: #f8fafb; }
-    .month, .year table, .matrix { width: 100%; border-collapse: collapse; background: #fff; }
-    .month td { vertical-align: top; height: 64px; border: 1px solid #e6ebf0; padding: 4px; }
+    .month, .year table, .matrix { width: 100%; border-collapse: collapse; background: #fff; table-layout: fixed; }
+    .month td { vertical-align: top; height: 72px; padding: 0; border: 1px solid #e6ebf0; }
+    .month .slot { height: 72px; overflow: hidden; padding: 4px; box-sizing: border-box; }
     .month td.out, .month td.dim { background: #f8fafb; }
     .month td.mark { background: #e7f2f4; }
     .month td.today { box-shadow: inset 0 0 0 1px #0f6e78; }
@@ -312,9 +312,9 @@ interface DayCell {
     .sum {
       display: block; width: 100%; margin-top: 4px; padding: 4px 6px; border: 0; border-radius: 4px;
       background: #e7f2f4; color: #0f4c54; text-align: left; font: inherit; font-size: 12px; line-height: 1.25; cursor: pointer;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .sum b { font-size: 13px; }
-    .sum span { display: block; }
     .sum.soon { background: #fff4d6; color: #8a5a00; }
     .sum.overdue { background: #fde8e8; color: #9b1c1c; }
     .more { font-size: 11px; color: #6b7280; }
@@ -472,6 +472,12 @@ export class CalendarBoardComponent implements OnChanges {
     if (mod10 === 1 && mod100 !== 11) return 'событие';
     if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'события';
     return 'событий';
+  }
+
+  protected tail(card: { overdue: number; soon: number }): string {
+    if (card.overdue) return `, просрочено ${card.overdue}`;
+    if (card.soon) return `, в ближайшие дни ${card.soon}`;
+    return '';
   }
 
   protected tone(date: string): string {
