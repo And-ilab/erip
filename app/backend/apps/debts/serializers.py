@@ -114,6 +114,41 @@ def _supplier_totals(instance, data):
     services = getattr(instance, "supplier_services", None)
     if services is not None and "services_count" in data:
         data["services_count"] = services
+    return _supplier_group(instance, data)
+
+
+def _supplier_group(instance, data):
+    """Группа, сценарий и этап на карточке поставщика — по его услугам, не по старшей группе счёта."""
+    if not hasattr(instance, "supplier_group"):
+        return data
+    from apps.debts.services.portfolio import STAGE_BY_GROUP, rating_letter, scenario_names
+
+    group = instance.supplier_group
+    if "effective_group" in data:
+        data["effective_group"] = group
+    if "debt_group" in data:
+        data["debt_group"] = group
+    names = scenario_names()
+    if "scenario_name" in data:
+        data["scenario_name"] = names.get(group, "") if group else ""
+    if "group_name" in data:
+        scale = DebtGroupScale.objects.filter(group=group, is_active=True).first() if group else None
+        data["group_name"] = scale.name if scale else ""
+    months = instance.supplier_months
+    if "months_debt" in data:
+        data["months_debt"] = months
+    started = instance.supplier_started
+    if "debt_started_on" in data:
+        data["debt_started_on"] = started.isoformat() if started else None
+    aggravating = bool(instance.bankruptcy) or instance.registrations.filter(idler_val=True).exists()
+    letter = rating_letter(group, aggravating)
+    if "rating" in data:
+        data["rating"] = letter
+    if "rating_label" in data:
+        repeat = instance.rating_repeat if letter == instance.rating else None
+        data["rating_label"] = _rating_label(letter, repeat)
+    if "funnel_stage" in data:
+        data["funnel_stage"] = "closed" if not group else STAGE_BY_GROUP.get(group, "new")
     return data
 
 

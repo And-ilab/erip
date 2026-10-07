@@ -38,6 +38,55 @@ def _supplier(org_a, account_a):
     return supplier, water
 
 
+def test_supplier_card_shows_his_service_group(api, org_a, account_a):
+    account_a.debt_group = 5
+    account_a.scenario_name = "Взыскание через ОПИ"
+    account_a.funnel_stage = "enforcement"
+    account_a.rating = "D"
+    account_a.rating_repeat = 1
+    account_a.balance_out = Decimal("31.02")
+    account_a.save()
+    water = AccountService.objects.create(
+        organization=org_a, account=account_a, service_list_id=2, service_id=11,
+        service_name="Горячая вода", provider_id=32200087, shot_name="ГП Брестводоканал",
+        balance_out=Decimal("21.84"), debt_group=1, debt_period=0, debt_started_on=date(2026, 9, 26),
+    )
+    power = account_a.services.exclude(pk=water.pk).get()
+    power.provider_id = 29
+    power.shot_name = "БЭС"
+    power.service_name = "Электроэнергия"
+    power.balance_out = Decimal("9.69")
+    power.debt_group = 5
+    power.debt_period = 15
+    power.debt_started_on = date(2025, 8, 26)
+    power.save()
+    water_org = ServiceOrganization.objects.create(
+        organization=org_a, provider_id=32200087, short_name="ГП Брестводоканал", is_supplier=True,
+    )
+    power_org = ServiceOrganization.objects.create(
+        organization=org_a, provider_id=29, short_name="БЭС", is_supplier=True,
+    )
+    water_user = make_user("water_face", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    power_user = make_user("power_face", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    water_user.service_organizations.add(water_org)
+    power_user.service_organizations.add(power_org)
+
+    water_card = api(water_user).get(f"/api/v1/accounts/{account_a.id}/").json()
+    assert water_card["effective_group"] == 1
+    assert water_card["scenario_name"] == "Превентивный обзвон и уведомления"
+    assert water_card["funnel_stage"] == "prevention"
+    assert water_card["rating_label"] == "A"
+    assert water_card["debt_started_on"] == "2026-09-26"
+    assert Decimal(str(water_card["balance_out"])).quantize(Decimal("0.01")) == Decimal("21.84")
+
+    power_card = api(power_user).get(f"/api/v1/accounts/{account_a.id}/").json()
+    assert power_card["effective_group"] == 5
+    assert power_card["scenario_name"] == "Взыскание через ОПИ"
+    assert power_card["funnel_stage"] == "enforcement"
+    assert power_card["debt_started_on"] == "2025-08-26"
+    assert Decimal(str(power_card["balance_out"])).quantize(Decimal("0.01")) == Decimal("9.69")
+
+
 def test_supplier_summary_hides_foreign_service_and_balance(api, org_a, account_a):
     supplier, water = _supplier(org_a, account_a)
     client = api(supplier)

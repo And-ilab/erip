@@ -1,7 +1,7 @@
 import csv
 from datetime import date
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Max, Min, Q, Sum
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -163,6 +163,9 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         if providers is not None and self.action in {"list", "export", "kanban", "retrieve"}:
             allowed = providers or [-1]
             service_filter = Q(services__provider_id__in=allowed)
+            debt_filter = service_filter & (
+                Q(services__balance_out__gt=0) | Q(services__balance_mulct_out__gt=0) | Q(services__overdue_debt__gt=0)
+            )
             qs = qs.annotate(
                 supplier_principal=Sum("services__balance_out", filter=service_filter),
                 supplier_penalty=Sum("services__balance_mulct_out", filter=service_filter),
@@ -171,6 +174,12 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 supplier_calc=Sum("services__calc_sum", filter=service_filter),
                 supplier_paid=Sum("services__share_service_summ", filter=service_filter),
                 supplier_subsidy=Sum("services__calc_result_sum", filter=service_filter),
+                supplier_group=Max(
+                    Coalesce("services__debt_group_manual", "services__debt_group"),
+                    filter=debt_filter,
+                ),
+                supplier_months=Max("services__debt_period", filter=debt_filter),
+                supplier_started=Min("services__debt_started_on", filter=debt_filter),
             )
         return qs
 
