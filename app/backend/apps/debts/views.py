@@ -68,11 +68,74 @@ FUNNEL_STAGES = [
     ("closed", "Не должник"),
 ]
 ACCOUNT_COLUMNS = [
-    "account_id", "client_account", "unified_account", "provider_short_name", "account_address", "short_fio",
-    "payer_identifier", "payer_unp", "rating_label", "debt_started_on", "debt_total", "mulct_total", "obligation_total",
-    "effective_group", "scenario_brief", "assigned_name", "ownership_type_name", "acc_category_full",
-    "months_debt", "subj_count", "registered_count", "funnel_stage",
+    "schema_label", "account_id", "client_account", "short_fio", "provider_short_name", "account_address",
+    "payer_identifier", "payer_unp", "unified_account", "rating_label", "funnel_stage",
+    "debt_started_on", "debt_total", "mulct_total", "obligation_total", "effective_group", "scenario_brief",
+    "assigned_name", "ownership_type_name", "acc_category_full", "months_debt", "subj_count", "registered_count",
 ]
+COLUMN_MARK = "__explicit"
+CONTRACT_PERSON_COLUMNS = [
+    "payer", "payer_identifier", "payer_unp", "rating_label", "funnel_stage", "ls_count",
+    "principal", "penalty", "obligation", "effective_group", "assigned_name", "ownership_type_name",
+    "housing_object", "months_debt", "subj_count", "earliest", "category",
+]
+CONTRACT_SERVICE_COLUMNS = [
+    "payer", "payer_identifier", "payer_unp", "account_number", "rating_label", "funnel_stage",
+    "service_name", "service_list_id", "start_date", "shot_name", "billing_provider", "schema_label",
+    "balance_out", "balance_mulct_out", "obligation_total", "initial_principal", "initial_penalty",
+    "debt_started_on", "repayment_due_on", "last_payment_date", "effective_group", "scenario_brief",
+    "assigned_name", "ownership_type_name", "housing_object", "debt_period", "subj_count", "category_name",
+]
+
+
+def _account_column_catalog(user) -> list[str]:
+    from apps.users.identity import identity_columns
+
+    flags = identity_columns(user)
+    names = list(ACCOUNT_COLUMNS)
+    if not flags["show_schema"]:
+        names = [name for name in names if name != "schema_label"]
+    if not flags["show_service_org"]:
+        names = [name for name in names if name != "provider_short_name"]
+    return names
+
+
+def _service_column_catalog(user) -> list[str]:
+    from apps.users.identity import identity_columns
+
+    flags = identity_columns(user)
+    hidden = set()
+    if not flags["show_schema"]:
+        hidden.add("schema_label")
+    if not flags["show_supplier"]:
+        hidden.add("shot_name")
+    if not flags["show_service_org"]:
+        hidden.add("billing_provider")
+    return [name for name in CONTRACT_SERVICE_COLUMNS if name not in hidden]
+
+
+def _visible_columns(stored: list, allowed: list[str]) -> list[str]:
+    raw = list(stored or [])
+    explicit = COLUMN_MARK in raw
+    chosen = [name for name in raw if name in allowed]
+    if explicit:
+        return chosen or list(allowed)
+    for name in allowed:
+        if name not in chosen:
+            if name == "schema_label":
+                chosen.insert(0, name)
+            else:
+                chosen.append(name)
+    return chosen
+
+
+def _save_columns(pref, payload, allowed: list[str]) -> list[str]:
+    chosen = [name for name in payload if name in allowed]
+    if not chosen:
+        raise ValidationError({"columns": "Оставьте хотя бы один столбец"})
+    pref.columns = [*chosen, COLUMN_MARK]
+    pref.save(update_fields=["columns", "updated_at"])
+    return chosen
 
 
 def _supplier_ids(user):
@@ -509,14 +572,15 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False, methods=["get", "put"], url_path="columns")
     def columns(self, request):
+        allowed = _account_column_catalog(request.user)
         pref, _created = RegistryPreference.objects.get_or_create(
-            user=request.user, target="accounts", defaults={"columns": ACCOUNT_COLUMNS},
+            user=request.user, target="accounts", defaults={"columns": allowed},
         )
         if request.method == "PUT":
-            chosen = [name for name in request.data.get("columns", []) if name in ACCOUNT_COLUMNS]
-            pref.columns = chosen or ACCOUNT_COLUMNS
-            pref.save(update_fields=["columns", "updated_at"])
-        return Response({"columns": pref.columns or ACCOUNT_COLUMNS, "available": ACCOUNT_COLUMNS})
+            chosen = _save_columns(pref, request.data.get("columns", []), allowed)
+        else:
+            chosen = _visible_columns(pref.columns, allowed)
+        return Response({"columns": chosen, "available": allowed})
 
 
 class _ChildViewSet(ScopedQuerysetMixin, viewsets.ReadOnlyModelViewSet):
@@ -610,6 +674,26 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
 
     def _visible(self):
         return self.filter_queryset(self.get_queryset())
+
+    @action(detail=False, methods=["get", "put"], url_path="columns")
+    def columns(self, request):
+        board = request.query_params.get("board") or request.data.get("board") or "persons"
+        if board == "services":
+            allowed = _service_column_catalog(request.user)
+            target = "contract_services"
+        elif board == "persons":
+            allowed = list(CONTRACT_PERSON_COLUMNS)
+            target = "contract_persons"
+        else:
+            raise ValidationError({"board": "persons или services"})
+        pref, _created = RegistryPreference.objects.get_or_create(
+            user=request.user, target=target, defaults={"columns": allowed},
+        )
+        if request.method == "PUT":
+            chosen = _save_columns(pref, request.data.get("columns", []), allowed)
+        else:
+            chosen = _visible_columns(pref.columns, allowed)
+        return Response({"columns": chosen, "available": allowed, "board": board})
 
     @action(detail=False)
     def summary(self, request):

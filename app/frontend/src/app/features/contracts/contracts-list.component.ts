@@ -28,6 +28,50 @@ import {
 
 type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
 
+const PERSON_FIELDS = [
+  'payer', 'payer_identifier', 'payer_unp', 'rating_label', 'funnel_stage', 'ls_count',
+  'principal', 'penalty', 'obligation', 'effective_group', 'assigned_name', 'ownership_type_name',
+  'housing_object', 'months_debt', 'subj_count', 'earliest', 'category',
+];
+
+const COLUMN_LABELS: Record<string, string> = {
+  payer: 'ФИО плательщика / Наименование юридического лица',
+  payer_identifier: 'Идентификационный номер (ИН)',
+  payer_unp: 'Учётный номер плательщика (УНП)',
+  rating_label: 'Рейтинг должника',
+  funnel_stage: 'Этап воронки взыскания',
+  ls_count: 'Номер ЛС с долгом',
+  principal: 'Сумма основного долга',
+  penalty: 'Сумма пени',
+  obligation: 'Сумма задолженности',
+  effective_group: 'Группа задолженности',
+  assigned_name: 'Закреплённый специалист',
+  ownership_type_name: 'Тип собственности',
+  housing_object: 'Тип объекта жилфонда',
+  months_debt: 'Кол-во месяцев долга',
+  subj_count: 'Кол-во проживающих',
+  earliest: 'Наиболее ранний период',
+  category: 'Категория должника',
+  account_number: 'Номер ЛС',
+  service_name: 'Наименование услуги',
+  service_list_id: 'Номер договора',
+  start_date: 'Дата договора',
+  shot_name: 'Поставщик услуги',
+  billing_provider: 'Обслуживающая организация',
+  schema_label: 'Наименование схемы',
+  balance_out: 'Сумма основного долга',
+  balance_mulct_out: 'Сумма пени',
+  obligation_total: 'Сумма задолженности',
+  initial_principal: 'Первоначальная сумма долга',
+  initial_penalty: 'Первоначальная сумма пени',
+  debt_started_on: 'Наиболее ранний период',
+  repayment_due_on: 'Срок погашения',
+  last_payment_date: 'Дата последней оплаты',
+  scenario_brief: 'Сценарий',
+  debt_period: 'Кол-во месяцев долга',
+  category_name: 'Категория должника',
+};
+
 @Component({
   selector: 'app-contracts-list',
   standalone: true,
@@ -154,6 +198,21 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | '
             </div>
           }
         </div>
+        @if (view() === 'persons' || view() === 'services') {
+          <div class="columns-wrap" (click)="$event.stopPropagation()">
+            <button type="button" class="tool" [attr.aria-expanded]="columnsOpen()" (click)="toggleColumns($event)">Столбцы</button>
+            @if (columnsOpen()) {
+              <div class="columns-panel" role="dialog" aria-label="Столбцы реестра">
+                @for (name of activeCatalog(); track name) {
+                  <label>
+                    <input type="checkbox" [checked]="columnOn(name)" (change)="toggleColumn(name)" />
+                    <span>{{ columnLabel(name) }}</span>
+                  </label>
+                }
+              </div>
+            }
+          </div>
+        }
         <div class="views">
           @if (view() === 'persons' || view() === 'services' || view() === 'grouped') {
             <button type="button" class="view-btn wide" [class.on]="view() === 'persons'" (click)="showPersons()">Лица</button>
@@ -201,8 +260,8 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | '
             <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
             <ng-container matColumnDef="earliest"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период</th><td mat-cell *matCellDef="let r">{{ r.earliest }}</td></ng-container>
             <ng-container matColumnDef="category"><th mat-header-cell *matHeaderCellDef>Категория должника</th><td mat-cell *matCellDef="let r">{{ r.category }}</td></ng-container>
-            <tr mat-header-row *matHeaderRowDef="personColumns"></tr>
-            <tr mat-row *matRowDef="let row; columns: personColumns" class="clickable-row" (click)="open(row.sample_id)"></tr>
+            <tr mat-header-row *matHeaderRowDef="shownPersons()"></tr>
+            <tr mat-row *matRowDef="let row; columns: shownPersons()" class="clickable-row" (click)="open(row.sample_id)"></tr>
           </table>
           </div>
           <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
@@ -244,8 +303,8 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | '
             <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let r">{{ r.debt_period }}</td></ng-container>
             <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
             <ng-container matColumnDef="category_name"><th mat-header-cell *matHeaderCellDef>Категория должника</th><td mat-cell *matCellDef="let r">{{ r.category_name }}</td></ng-container>
-            <tr mat-header-row *matHeaderRowDef="columns"></tr>
-            <tr mat-row *matRowDef="let row; columns: columns" class="clickable-row" (click)="open(row.id)"></tr>
+            <tr mat-header-row *matHeaderRowDef="shownServices()"></tr>
+            <tr mat-row *matRowDef="let row; columns: shownServices()" class="clickable-row" (click)="open(row.id)"></tr>
           </table>
           </div>
           <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
@@ -448,9 +507,20 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | '
       height: 30px; padding: 0 10px; border: 0; border-radius: 4px; background: var(--erip-primary); color: #fff; font-size: 13px;
     }
     .empty { margin: 4px 16px; font-size: 12px; color: var(--erip-muted); }
-    .view-btn {
+    .view-btn, .tool {
       height: 32px; border: 1px solid #d8dce0; border-radius: 4px; background: #fff; color: #374151; width: 32px; font-size: 14px;
     }
+    .tool { width: auto; padding: 0 10px; font-size: 13px; white-space: nowrap; cursor: pointer; font: inherit; }
+    .columns-wrap { position: relative; }
+    .columns-panel {
+      position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; width: 340px; max-height: 360px;
+      overflow: auto; background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(16, 42, 67, .16); padding: 6px 0;
+    }
+    .columns-panel label {
+      display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; font-size: 13px; cursor: pointer;
+    }
+    .columns-panel label:hover { background: #f3f6f8; }
     .view-btn.wide { width: auto; padding: 0 10px; font-size: 13px; }
     .view-btn.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
     .views { display: flex; gap: 4px; }
@@ -549,12 +619,11 @@ export class ContractsListComponent implements OnInit {
     { id: 'residents', label: 'Кол-во проживающих' },
     { id: 'period', label: 'Период возникновения долга' },
   ];
-  protected readonly personColumns = [
-    'select', 'payer', 'payer_identifier', 'payer_unp', 'rating_label', 'funnel_stage', 'ls_count',
-    'principal', 'penalty', 'obligation', 'effective_group', 'assigned_name', 'ownership_type_name',
-    'housing_object', 'months_debt', 'subj_count', 'earliest', 'category',
-  ];
-  protected readonly columns = this.serviceColumns();
+  protected readonly personShown = signal<string[]>([...PERSON_FIELDS]);
+  protected readonly personCatalog = signal<string[]>([...PERSON_FIELDS]);
+  protected readonly serviceShown = signal<string[]>([]);
+  protected readonly serviceCatalog = signal<string[]>([]);
+  protected readonly columnsOpen = signal(false);
   protected readonly groupChoices = this.contractGroupChoices();
   protected readonly groupColumns = ['value', 'accounts', 'debt', 'penalty'];
   protected readonly view = signal<'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('persons');
@@ -609,9 +678,15 @@ export class ContractsListComponent implements OnInit {
   protected closeSearch(): void {
     this.panelOpen.set(false);
     this.stageMenu.set(null);
+    this.columnsOpen.set(false);
   }
 
   ngOnInit(): void {
+    const services = this.serviceColumns().filter((name) => name !== 'select');
+    this.serviceShown.set(services);
+    this.serviceCatalog.set(services);
+    this.loadColumns('persons');
+    this.loadColumns('services');
     this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.reload());
     this.groups.valueChanges.subscribe(() => this.reload());
     this.category.valueChanges.subscribe(() => this.reload());
@@ -655,6 +730,61 @@ export class ContractsListComponent implements OnInit {
       if (item.id === 'provider') return this.auth.showSupplier();
       if (item.id === 'billing') return this.auth.showServiceOrg();
       return true;
+    });
+  }
+
+  protected shownPersons(): string[] {
+    return ['select', ...this.personShown()];
+  }
+
+  protected shownServices(): string[] {
+    return ['select', ...this.serviceShown()];
+  }
+
+  protected activeCatalog(): string[] {
+    return this.view() === 'services' ? this.serviceCatalog() : this.personCatalog();
+  }
+
+  protected columnOn(name: string): boolean {
+    const shown = this.view() === 'services' ? this.serviceShown() : this.personShown();
+    return shown.includes(name);
+  }
+
+  protected columnLabel(name: string): string {
+    return COLUMN_LABELS[name] ?? name;
+  }
+
+  protected toggleColumns(event: Event): void {
+    event.stopPropagation();
+    this.panelOpen.set(false);
+    this.columnsOpen.update((open) => !open);
+  }
+
+  protected toggleColumn(name: string): void {
+    const services = this.view() === 'services';
+    const current = services ? this.serviceShown() : this.personShown();
+    const next = current.includes(name) ? current.filter((item) => item !== name) : [...current, name];
+    if (!next.length) return;
+    if (services) this.serviceShown.set(next);
+    else this.personShown.set(next);
+    const board = services ? 'services' : 'persons';
+    this.api.saveContractColumns(board, next).subscribe({ error: (e) => this.error.set(errorMessage(e)) });
+  }
+
+  private loadColumns(board: 'persons' | 'services'): void {
+    this.api.contractColumns(board).subscribe({
+      next: (prefs) => {
+        const allowed = prefs.available;
+        const names = prefs.columns.filter((name) => allowed.includes(name));
+        if (!allowed.length || !names.length) return;
+        if (board === 'services') {
+          this.serviceCatalog.set(allowed);
+          this.serviceShown.set(names);
+        } else {
+          this.personCatalog.set(allowed);
+          this.personShown.set(names);
+        }
+      },
     });
   }
 

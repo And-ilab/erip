@@ -233,6 +233,27 @@ def test_registry_filters_several_groups(api, specialist_a, account_a, ready):
     assert any(row["value"] == "3" for row in grouped)
 
 
+def test_registry_columns_stay_hidden(api, specialist_a, superadmin):
+    listed = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    assert "client_account" in listed["columns"]
+    assert "schema_label" not in listed["available"]
+    hidden = [name for name in listed["columns"] if name != "account_address"]
+    saved = api(specialist_a).put("/api/v1/accounts/columns/", {"columns": hidden}, format="json")
+    assert saved.status_code == 200
+    assert "account_address" not in saved.json()["columns"]
+    again = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    assert again["columns"] == saved.json()["columns"]
+    empty = api(specialist_a).put("/api/v1/accounts/columns/", {"columns": []}, format="json")
+    assert empty.status_code == 400
+
+    root = api(superadmin).get("/api/v1/accounts/columns/").json()
+    assert "schema_label" in root["available"]
+    without = [name for name in root["columns"] if name != "schema_label"]
+    kept = api(superadmin).put("/api/v1/accounts/columns/", {"columns": without}, format="json").json()
+    assert "schema_label" not in kept["columns"]
+    assert "schema_label" in api(superadmin).get("/api/v1/accounts/columns/").json()["available"]
+
+
 def test_registry_filters_several_ratings(api, specialist_a, account_a, ready):
     account_a.rating = "B"
     account_a.save()

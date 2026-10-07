@@ -187,6 +187,19 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
           <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
         }
         <button type="button" class="tool" (click)="exportCsv()">CSV</button>
+        <div class="columns-wrap" (click)="$event.stopPropagation()">
+          <button type="button" class="tool" [attr.aria-expanded]="columnsOpen()" (click)="toggleColumns($event)">Столбцы</button>
+          @if (columnsOpen()) {
+            <div class="columns-panel" role="dialog" aria-label="Столбцы реестра">
+              @for (name of catalog(); track name) {
+                <label>
+                  <input type="checkbox" [checked]="columns().includes(name)" (change)="toggleColumn(name)" />
+                  <span>{{ label(name) }}</span>
+                </label>
+              }
+            </div>
+          }
+        </div>
         <app-registry-views
           [mode]="view() === 'grouped' ? 'list' : view()"
           [map]="true"
@@ -515,6 +528,16 @@ type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | '
       height: 32px; border: 1px solid #d8dce0; border-radius: 4px; background: #fff; color: #374151;
     }
     .tool { padding: 0 10px; font-size: 13px; white-space: nowrap; }
+    .columns-wrap { position: relative; }
+    .columns-panel {
+      position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; width: 320px; max-height: 360px;
+      overflow: auto; background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(16, 42, 67, .16); padding: 6px 0;
+    }
+    .columns-panel label {
+      display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; font-size: 13px; cursor: pointer;
+    }
+    .columns-panel label:hover { background: #f3f6f8; }
     .views { display: flex; gap: 4px; }
     .view-btn { width: 32px; font-size: 14px; }
     .view-btn.on, .charts-box.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
@@ -650,6 +673,8 @@ export class AccountsListComponent implements OnInit {
   protected readonly territoryId = signal<number | null>(null);
   protected readonly territoryName = signal('');
   protected readonly columns = signal<string[]>([...BASE_COLUMNS]);
+  protected readonly catalog = signal<string[]>([...BASE_COLUMNS]);
+  protected readonly columnsOpen = signal(false);
   protected readonly board = signal<KanbanColumn[]>([]);
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly events = signal<CalendarEvent[]>([]);
@@ -705,6 +730,7 @@ export class AccountsListComponent implements OnInit {
   protected closeSearch(): void {
     this.panelOpen.set(false);
     this.stageMenu.set(null);
+    this.columnsOpen.set(false);
   }
 
   @HostListener('document:pointermove', ['$event'])
@@ -741,12 +767,9 @@ export class AccountsListComponent implements OnInit {
     });
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
     this.api.columns().subscribe((prefs) => {
-      const saved = prefs.columns.length ? prefs.columns : [...BASE_COLUMNS];
-      const names = saved.filter((name) => name !== 'scenario_name' && (name !== 'provider_short_name' || this.auth.showServiceOrg()));
-      for (const name of BASE_COLUMNS) {
-        if (!names.includes(name)) names.push(name);
-      }
-      if (this.auth.showSchema() && !names.includes('schema_label')) names.unshift('schema_label');
+      const allowed = prefs.available.length ? prefs.available : [...BASE_COLUMNS];
+      const names = prefs.columns.filter((name) => allowed.includes(name));
+      this.catalog.set(allowed);
       if (names.length) this.columns.set(names);
     });
     this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results));
@@ -1051,6 +1074,20 @@ export class AccountsListComponent implements OnInit {
       return;
     }
     this.open(row);
+  }
+
+  protected toggleColumns(event: Event): void {
+    event.stopPropagation();
+    this.panelOpen.set(false);
+    this.columnsOpen.update((open) => !open);
+  }
+
+  protected toggleColumn(name: string): void {
+    const current = this.columns();
+    const next = current.includes(name) ? current.filter((item) => item !== name) : [...current, name];
+    if (!next.length) return;
+    this.columns.set(next);
+    this.api.saveColumns(next).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
   }
 
   protected startColumn(event: DragEvent, name: string): void {

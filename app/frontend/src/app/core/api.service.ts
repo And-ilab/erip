@@ -174,6 +174,14 @@ export class ApiService {
     return this.http.put<{ columns: string[]; available: string[] }>(`${this.base}/accounts/columns/`, { columns });
   }
 
+  contractColumns(board: 'persons' | 'services'): Observable<{ columns: string[]; available: string[] }> {
+    return this.http.get<{ columns: string[]; available: string[] }>(`${this.base}/contracts/columns/`, { params: toParams({ board }) });
+  }
+
+  saveContractColumns(board: 'persons' | 'services', columns: string[]): Observable<{ columns: string[]; available: string[] }> {
+    return this.http.put<{ columns: string[]; available: string[] }>(`${this.base}/contracts/columns/`, { board, columns });
+  }
+
   contracts(params: Params): Observable<Page<AccountService>> {
     return this.http.get<Page<AccountService>>(`${this.base}/contracts/`, { params: toParams(params) });
   }
