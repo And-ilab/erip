@@ -1,9 +1,9 @@
 """Запросы к данным реестра ЛС (сложные выборки вынесены из вьюх)."""
 
-from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import Coalesce
 
-from .models import Account, ClaimCase, Measure, MeasureItem
+from .models import Account, ClaimCase, Measure, MeasureItem, Registration
 
 
 class AccountRepository:
@@ -13,10 +13,13 @@ class AccountRepository:
     def registry(self) -> QuerySet:
         """Реестр ЛС: итоги по услугам считаются в одном запросе."""
         # Meta.ordering не применяется к запросам с GROUP BY — порядок задаётся явно
-        return self.base.select_related("assigned_to", "debtor_category").annotate(
+        legal = Registration.objects.filter(account_id=OuterRef("pk"), subj_legal_entity=True)
+        return self.base.select_related("assigned_to", "debtor_category", "scenario_run__scenario").annotate(
             services_count=Count("services", distinct=True),
             debt_total=Sum("services__balance_out"),
             mulct_total=Sum("services__balance_mulct_out"),
+            registered_count=Count("registrations", distinct=True),
+            is_legal=Exists(legal),
             sort_group=Coalesce("debt_group_manual", "debt_group"),
         ).order_by("client_account", "id")
 

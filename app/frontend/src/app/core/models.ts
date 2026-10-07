@@ -69,16 +69,21 @@ export interface AccountRow {
   rating_label: string;
   debt_started_on: string | null;
   scenario_name: string;
+  scenario_brief?: string;
   assigned_name: string;
   ownership_type_name: string;
+  acc_category_full?: string;
   months_debt: number | null;
   subj_count: number | null;
+  registered_count?: number | null;
+  is_legal?: boolean;
   funnel_stage: string;
   claim_id?: number | null;
   claim_stage?: string;
   services_count: number;
   debt_total: string | null;
   mulct_total: string | null;
+  obligation_total?: string | null;
   warning_due: string | null;
   claim_due: string | null;
   warning_handed_on: string | null;
@@ -167,6 +172,13 @@ export interface AccountService {
   billing_provider: string;
   schema_label: string;
   funnel_stage: string;
+  assigned_name?: string;
+  ownership_type_name?: string;
+  housing_object?: string;
+  subj_count?: number | null;
+  account_months?: number | null;
+  scenario_brief?: string;
+  obligation_total?: string | null;
 }
 
 export interface ContractPerson {
@@ -185,6 +197,14 @@ export interface ContractPerson {
   address?: string;
   due_on?: string | null;
   account_ids?: number[];
+  rating_label?: string;
+  funnel_stage?: string;
+  assigned_name?: string;
+  ownership_type_name?: string;
+  housing_object?: string;
+  months_debt?: number | null;
+  subj_count?: number | null;
+  obligation?: string | null;
 }
 
 export interface ContractSummary {
@@ -434,6 +454,8 @@ export interface CalendarEvent {
   account_id: number | null;
   measure_id?: number | null;
   contract_id?: number | null;
+  urgency?: 'overdue' | 'soon' | 'planned';
+  due?: string;
 }
 
 export interface KanbanColumn {

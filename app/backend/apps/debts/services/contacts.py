@@ -16,6 +16,24 @@ def _mobile_hours(hour: int, start: int | None, end: int | None) -> bool:
     return hour >= start or hour < end
 
 
+def apply_call_priorities(account: Account) -> None:
+    """Приоритет задаёт режим обзвона, а не карточка контакта.
+
+    Только ПМ: контакты ПМ получают 1, контакты АИС — 0. Только АИС — наоборот.
+    Оба источника участвуют с приоритетом 1.
+    """
+    mode = account.contact_source_mode or "combined"
+    contacts = account.contacts.all()
+    if mode == "pm":
+        contacts.filter(source=Contact.Source.PM).exclude(priority=1).update(priority=1)
+        contacts.filter(source=Contact.Source.AIS).exclude(priority=0).update(priority=0)
+    elif mode == "ais":
+        contacts.filter(source=Contact.Source.AIS).exclude(priority=1).update(priority=1)
+        contacts.filter(source=Contact.Source.PM).exclude(priority=0).update(priority=0)
+    else:
+        contacts.exclude(priority=1).update(priority=1)
+
+
 def choose_phone(account: Account, on_date: date | None = None, at: time | None = None) -> Contact | None:
     today = date.today()
     on_date = on_date or today

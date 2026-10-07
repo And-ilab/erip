@@ -5,7 +5,7 @@
 """
 
 from django.db.models import Case, CharField, Count, IntegerField, Max, Min, Sum, Value, When
-from django.db.models.functions import Cast, Coalesce, NullIf
+from django.db.models.functions import Cast, Coalesce, Concat, NullIf
 from rest_framework.exceptions import ValidationError
 
 from apps.debts.services.portfolio import debtor_peers
@@ -30,6 +30,31 @@ FUNNEL_RANK = {
     "enforcement": 5,
     "court": 6,
 }
+RANK_STAGE = {rank: code for code, rank in FUNNEL_RANK.items()}
+
+
+def _rating_label(rating: str | None, repeat) -> str:
+    letter = rating or ""
+    if not letter or letter == "E" or not repeat:
+        return letter
+    return f"{letter}/{repeat}"
+
+
+def _person_extra(row) -> dict:
+    from decimal import Decimal
+
+    principal = row["principal"] or Decimal("0")
+    penalty = row["penalty"] or Decimal("0")
+    return {
+        "rating_label": _rating_label(row.get("rating"), row.get("rating_repeat")),
+        "funnel_stage": RANK_STAGE.get(row.get("rank"), "new"),
+        "assigned_name": row.get("assigned_name") or "",
+        "ownership_type_name": row.get("ownership_type_name") or "",
+        "housing_object": row.get("housing_object") or "",
+        "months_debt": row.get("months_debt"),
+        "subj_count": row.get("subj_count"),
+        "obligation": principal + penalty,
+    }
 
 
 def bounded_int(value, default: int, *, minimum: int = 1, maximum: int | None = None, field: str = "page") -> int:
@@ -108,6 +133,18 @@ def _person_groups(qs):
         payer=Max("account__short_fio"),
         payer_identifier=Max(NullIf("account__payer_identifier", Value(""))),
         payer_unp=Max(NullIf("account__payer_unp", Value(""))),
+        rating=Max(NullIf("account__rating", Value(""))),
+        rating_repeat=Max("account__rating_repeat"),
+        assigned_name=Max(Concat(
+            Coalesce("account__assigned_to__first_name", Value("")),
+            Value(" "),
+            Coalesce("account__assigned_to__middle_name", Value("")),
+            output_field=CharField(),
+        )),
+        ownership_type_name=Max("account__ownership_type_name"),
+        housing_object=Max("account__acc_category_full"),
+        months_debt=Max("account__months_debt"),
+        subj_count=Max("account__subj_count"),
         category=Max("account__debtor_category__name"),
         earliest=Min("debt_started_on"),
         due_on=Min("repayment_due_on"),
@@ -134,6 +171,7 @@ def person_page(qs, page: int, page_size: int) -> tuple[int, list[dict]]:
             "penalty": row["penalty"],
             "earliest": row["earliest"],
             "sample_id": row["sample_id"],
+            **_person_extra(row),
         }
         for row in chunk
     ]
@@ -167,6 +205,7 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int)
                     "principal": row["principal"],
                     "penalty": row["penalty"],
                     "debt_group": row["debt_group"],
+                    **_person_extra(row),
                     "earliest": row["earliest"],
                     "due_on": row["due_on"],
                     "account_ids": ids.get(row["person_key"], []),
@@ -187,12 +226,17 @@ def _account_ids(qs, keys: list) -> dict:
     return {key: sorted(ids) for key, ids in found.items()}
 
 
-def move_stage(user, accounts, stage: str) -> None:
-    """Этап карточки должника — этап всех его видимых лицевых счетов."""
+def move_stage(user, accounts, stage: str, reason: str = "") -> None:
+    """Этап карточки должника — этап всех его видимых лицевых счетов. Без основания переход не пишется."""
+    from apps.debts.models import StatusHistory
+
     if getattr(user, "contour", "") == "supplier":
         raise ValidationError({"funnel_stage": "Поставщик не меняет этап воронки"})
     if stage not in FUNNEL_RANK:
         raise ValidationError({"funnel_stage": "Неизвестный этап"})
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError({"funnel_reason": "Укажите основание смены этапа воронки взыскания"})
     rows = list(accounts)
     if not rows:
         return
@@ -202,6 +246,11 @@ def move_stage(user, accounts, stage: str) -> None:
     for account in rows:
         if account.funnel_stage == stage:
             continue
+        previous = account.funnel_stage
         account.funnel_stage = stage
         account.funnel_locked = True
         account.save(update_fields=["funnel_stage", "funnel_locked", "updated_at"])
+        StatusHistory.objects.create(
+            organization=account.organization, account=account, kind=StatusHistory.Kind.FUNNEL,
+            old_value=previous, new_value=stage, reason=reason[:500], author=user,
+        )

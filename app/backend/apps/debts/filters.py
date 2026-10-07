@@ -40,6 +40,13 @@ class AccountFilter(django_filters.FilterSet):
     rating__in = django_filters.BaseInFilter(field_name="rating")
     funnel_stage = django_filters.CharFilter(field_name="funnel_stage")
     assigned_to = django_filters.NumberFilter(field_name="assigned_to")
+    assigned_name = django_filters.CharFilter(method="filter_assigned_name")
+    ownership = django_filters.CharFilter(field_name="ownership_type_name", lookup_expr="icontains")
+    housing = django_filters.CharFilter(field_name="acc_category_full", lookup_expr="icontains")
+    months_debt = django_filters.NumberFilter(field_name="months_debt")
+    subj_count = django_filters.NumberFilter(field_name="subj_count")
+    period_from = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="gte")
+    period_to = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="lte")
     debtor_category = django_filters.NumberFilter(field_name="debtor_category")
     account_id = django_filters.NumberFilter(field_name="account_id")
     inheritance_case = django_filters.BooleanFilter(field_name="inheritance_case")
@@ -49,6 +56,17 @@ class AccountFilter(django_filters.FilterSet):
     class Meta:
         model = Account
         fields = ["provider_id", "organization", "is_private_enterprise", "house_id"]
+
+    def filter_assigned_name(self, queryset, name, value):
+        text = str(value).strip()
+        if not text:
+            return queryset
+        return queryset.filter(
+            Q(assigned_to__first_name__icontains=text)
+            | Q(assigned_to__last_name__icontains=text)
+            | Q(assigned_to__middle_name__icontains=text)
+            | Q(assigned_to__username__icontains=text)
+        )
 
     def filter_q(self, queryset, name, value):
         from .repositories import AccountRepository
@@ -85,6 +103,13 @@ class ContractFilter(django_filters.FilterSet):
     debtor_category = django_filters.NumberFilter(field_name="account__debtor_category")
     billing_provider = django_filters.CharFilter(method="filter_billing")
     funnel_stage = django_filters.CharFilter(field_name="account__funnel_stage")
+    assigned_name = django_filters.CharFilter(method="filter_assigned_name")
+    ownership = django_filters.CharFilter(field_name="account__ownership_type_name", lookup_expr="icontains")
+    housing = django_filters.CharFilter(field_name="account__acc_category_full", lookup_expr="icontains")
+    months_debt = django_filters.NumberFilter(field_name="debt_period")
+    subj_count = django_filters.NumberFilter(field_name="account__subj_count")
+    period_from = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="gte")
+    period_to = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="lte")
     inheritance_case = django_filters.BooleanFilter(field_name="account__inheritance_case")
 
     class Meta:
@@ -103,6 +128,17 @@ class ContractFilter(django_filters.FilterSet):
         for item in value:
             condition |= self._shown_group(item)
         return queryset.filter(condition)
+
+    def filter_assigned_name(self, queryset, name, value):
+        text = str(value).strip()
+        if not text:
+            return queryset
+        return queryset.filter(
+            Q(account__assigned_to__first_name__icontains=text)
+            | Q(account__assigned_to__last_name__icontains=text)
+            | Q(account__assigned_to__middle_name__icontains=text)
+            | Q(account__assigned_to__username__icontains=text)
+        )
 
     def filter_billing(self, queryset, name, value):
         text = str(value).strip()

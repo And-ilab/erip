@@ -36,3 +36,38 @@ def _parse(raw: str, field: str) -> date:
         return date.fromisoformat(raw)
     except ValueError:
         raise ValidationError({field: "Дата в формате ГГГГ-ММ-ДД"}) from None
+
+
+def due_lookup(field: str, start: date, end: date, today: date | None = None):
+    """Срок в видимом окне. Если окно включает сегодня, просроченные сроки тоже остаются на доске."""
+    from django.db.models import Q
+
+    today = today or timezone.localdate()
+    visible = Q(**{f"{field}__gte": start, f"{field}__lt": end})
+    if start <= today < end:
+        visible |= Q(**{f"{field}__lt": today})
+    return visible
+
+
+def present_deadline(day: date, *, start: date, end: date, kind: str, title: str, today: date | None = None, **extra) -> dict:
+    """Просрочка красным, ближайшие два дня — жёлтым. Срок вне месяца показывается в сегодняшней клетке."""
+    today = today or timezone.localdate()
+    if day < today:
+        urgency = "overdue"
+    elif day <= today + timedelta(days=2):
+        urgency = "soon"
+    else:
+        urgency = "planned"
+    shown = day
+    label = title
+    if urgency == "overdue" and not (start <= day < end) and start <= today < end:
+        shown = today
+        label = f"{title} (просрочено {day.strftime('%d.%m.%Y')})"
+    return {
+        "date": shown.isoformat(),
+        "due": day.isoformat(),
+        "kind": kind,
+        "title": label,
+        "urgency": urgency,
+        **extra,
+    }

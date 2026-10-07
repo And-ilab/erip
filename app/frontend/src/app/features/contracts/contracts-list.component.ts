@@ -7,7 +7,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
@@ -26,14 +26,14 @@ import {
   ServiceChoice,
 } from '../../core/models';
 
-type CustomField = 'group' | 'category' | 'stage' | 'billing';
+type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
 
 @Component({
   selector: 'app-contracts-list',
   standalone: true,
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent,
-    MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent,
+    MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
   ],
   template: `
     <div class="registry">
@@ -52,6 +52,24 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             }
             @if (billing.value) {
               <button type="button" class="fchip" (click)="clearBilling($event)">Организация: {{ billing.value }} ×</button>
+            }
+            @if (specialist.value) {
+              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialist.value }} ×</button>
+            }
+            @if (ownership.value) {
+              <button type="button" class="fchip" (click)="clearText(ownership, $event)">Собственность: {{ ownership.value }} ×</button>
+            }
+            @if (housing.value) {
+              <button type="button" class="fchip" (click)="clearText(housing, $event)">Жилфонд: {{ housing.value }} ×</button>
+            }
+            @if (monthsDebt.value) {
+              <button type="button" class="fchip" (click)="clearText(monthsDebt, $event)">Месяцев: {{ monthsDebt.value }} ×</button>
+            }
+            @if (residents.value) {
+              <button type="button" class="fchip" (click)="clearText(residents, $event)">Проживающих: {{ residents.value }} ×</button>
+            }
+            @if (periodFrom.value || periodTo.value) {
+              <button type="button" class="fchip" (click)="clearPeriod($event)">Период: {{ periodFrom.value || '…' }} — {{ periodTo.value || '…' }} ×</button>
             }
             @if (groupBy.value) {
               <button type="button" class="fchip" (click)="clearGroupByChip($event)">Группировать по: {{ groupByLabel(groupBy.value) }} ×</button>
@@ -87,6 +105,31 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                     <input [formControl]="billing" placeholder="Название или код" (click)="$event.stopPropagation()" />
                   </div>
                 }
+                <div class="sub">Закреплённый специалист</div>
+                <div class="save-row">
+                  <input [formControl]="specialist" placeholder="ФИО специалиста" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Тип собственности</div>
+                <div class="save-row">
+                  <input [formControl]="ownership" placeholder="Например, частная" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Тип объекта жилфонда</div>
+                <div class="save-row">
+                  <input [formControl]="housing" placeholder="Например, квартира" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Кол-во месяцев долга</div>
+                <div class="save-row">
+                  <input [formControl]="monthsDebt" type="number" placeholder="Месяцев" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Кол-во проживающих</div>
+                <div class="save-row">
+                  <input [formControl]="residents" type="number" placeholder="Человек" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Период возникновения долга</div>
+                <div class="save-row">
+                  <input [formControl]="periodFrom" type="date" (click)="$event.stopPropagation()" />
+                  <input [formControl]="periodTo" type="date" (click)="$event.stopPropagation()" />
+                </div>
                 <button type="button" class="menu-add" (click)="customOpen.set(true)">+ Добавить пользовательский фильтр</button>
               </div>
               <div class="col">
@@ -123,40 +166,41 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
       <div class="body">
         @if (summary(); as s) {
           <p class="hint">
-            Лицевых счетов с задолженностью: <b>{{ s.ls_count }}</b>.
-            Долг <app-money [value]="s.principal" [blank]="false" />, пеня <app-money [value]="s.penalty" [blank]="false" />.
-            Мероприятия:
+            Сводка для поставщика услуг. Лицевых счетов с задолженностью: <b>{{ s.ls_count }}</b>.
+            Сумма основного долга <app-money [value]="s.principal" [blank]="false" />,
+            сумма пени <app-money [value]="s.penalty" [blank]="false" />,
+            сумма задолженности <app-money [value]="obligation(s.principal, s.penalty)" [blank]="false" />.
+            Мероприятия по этим счетам:
             @for (item of s.measures; track item.kind) { {{ item.kind }} {{ item.total }}; }
           </p>
-        }
-        @if (dial(); as rule) {
-          <p class="hint">
-            Обзвон: с {{ rule.dial_mobile_from_day }}-го числа и в выбранные дни недели — только мобильный.
-            @if (rule.dial_mobile_from_hour != null) {
-              Часы только мобильного: {{ rule.dial_mobile_from_hour }}–{{ rule.dial_mobile_to_hour }}.
-            }
-          </p>
-        }
-        @if (auth.isSuperadmin()) {
-          <div class="filters">
-            <mat-form-field><mat-label>День месяца</mat-label><input matInput type="number" [formControl]="dialDay" /></mat-form-field>
-            <mat-form-field><mat-label>Час с</mat-label><input matInput type="number" [formControl]="dialFrom" /></mat-form-field>
-            <mat-form-field><mat-label>Час до</mat-label><input matInput type="number" [formControl]="dialTo" /></mat-form-field>
-            <button mat-stroked-button (click)="saveDial()">Сохранить правило обзвона</button>
-          </div>
         }
         @if (error()) { <p class="status-failed">{{ error() }}</p> }
         @if (view() === 'persons') {
           <div class="list-pane">
           <table mat-table [dataSource]="persons()">
-            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>ФИО плательщиков (краткое) (Плательщик ФИО)</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
-            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>Идентификационный номер паспорта</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
-            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учетный номер плательщика</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
-            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Лицевой счёт (Номер ЛС) с долгом</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
-            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="earliest"><th mat-header-cell *matHeaderCellDef>Ранний период</th><td mat-cell *matCellDef="let r">{{ r.earliest }}</td></ng-container>
-            <ng-container matColumnDef="category"><th mat-header-cell *matHeaderCellDef>Категория</th><td mat-cell *matCellDef="let r">{{ r.category }}</td></ng-container>
+            <ng-container matColumnDef="select">
+              <th mat-header-cell *matHeaderCellDef></th>
+              <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
+                <input type="checkbox" [checked]="isSelected(r.sample_id)" (change)="togglePerson(r)" />
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>ФИО плательщика / Наименование юридического лица</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
+            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>Идентификационный номер (ИН)</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
+            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учётный номер плательщика (УНП)</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
+            <ng-container matColumnDef="rating_label"><th mat-header-cell *matHeaderCellDef>Рейтинг должника</th><td mat-cell *matCellDef="let r">@if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> }</td></ng-container>
+            <ng-container matColumnDef="funnel_stage"><th mat-header-cell *matHeaderCellDef>Этап воронки взыскания</th><td mat-cell *matCellDef="let r">{{ stageLabel(r.funnel_stage || '') }}</td></ng-container>
+            <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Номер ЛС с долгом</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
+            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.debt_group }}</td></ng-container>
+            <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ r.assigned_name }}</td></ng-container>
+            <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ r.ownership_type_name }}</td></ng-container>
+            <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ r.housing_object }}</td></ng-container>
+            <ng-container matColumnDef="months_debt"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let r">{{ r.months_debt }}</td></ng-container>
+            <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
+            <ng-container matColumnDef="earliest"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период</th><td mat-cell *matCellDef="let r">{{ r.earliest }}</td></ng-container>
+            <ng-container matColumnDef="category"><th mat-header-cell *matHeaderCellDef>Категория должника</th><td mat-cell *matCellDef="let r">{{ r.category }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="personColumns"></tr>
             <tr mat-row *matRowDef="let row; columns: personColumns" class="clickable-row" (click)="open(row.sample_id)"></tr>
           </table>
@@ -166,19 +210,40 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         @if (view() === 'services') {
           <div class="list-pane">
           <table mat-table [dataSource]="rows()">
-            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>ФИО плательщиков (краткое) (Плательщик ФИО)</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
-            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>Идентификационный номер паспорта</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
-            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учетный номер плательщика</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
-            <ng-container matColumnDef="account_number"><th mat-header-cell *matHeaderCellDef>Лицевой счёт (Номер ЛС)</th><td mat-cell *matCellDef="let r">{{ r.account_number }}</td></ng-container>
+            <ng-container matColumnDef="select">
+              <th mat-header-cell *matHeaderCellDef></th>
+              <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
+                <input type="checkbox" [checked]="isSelected(r.id)" (change)="toggleService(r)" />
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="payer"><th mat-header-cell *matHeaderCellDef>ФИО плательщика / Наименование юридического лица</th><td mat-cell *matCellDef="let r">{{ r.payer }}</td></ng-container>
+            <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>Идентификационный номер (ИН)</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
+            <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учётный номер плательщика (УНП)</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
+            <ng-container matColumnDef="account_number"><th mat-header-cell *matHeaderCellDef>Номер ЛС</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/accounts', r.account]" (click)="$event.stopPropagation()">{{ r.account_number }}</a></td></ng-container>
+            <ng-container matColumnDef="rating_label"><th mat-header-cell *matHeaderCellDef>Рейтинг должника</th><td mat-cell *matCellDef="let r">@if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> }</td></ng-container>
+            <ng-container matColumnDef="funnel_stage"><th mat-header-cell *matHeaderCellDef>Этап воронки взыскания</th><td mat-cell *matCellDef="let r">{{ stageLabel(r.funnel_stage) }}</td></ng-container>
             <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
-            <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Краткое наименование поставщика</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
-            <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Краткое наименование поставщика или обслуживающей организации</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
+            <ng-container matColumnDef="service_list_id"><th mat-header-cell *matHeaderCellDef>Номер договора</th><td mat-cell *matCellDef="let r">{{ r.service_list_id }}</td></ng-container>
+            <ng-container matColumnDef="start_date"><th mat-header-cell *matHeaderCellDef>Дата договора</th><td mat-cell *matCellDef="let r">{{ r.start_date }}</td></ng-container>
+            <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.shot_name }}</td></ng-container>
+            <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
             <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Наименование схемы</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
-            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Возникновение</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
-            <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
-            <ng-container matColumnDef="category_name"><th mat-header-cell *matHeaderCellDef>Категория</th><td mat-cell *matCellDef="let r">{{ r.category_name }}</td></ng-container>
+            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation_total"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation_total" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_principal" /></td></ng-container>
+            <ng-container matColumnDef="initial_penalty"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_penalty" /></td></ng-container>
+            <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
+            <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения</th><td mat-cell *matCellDef="let r">{{ r.repayment_due_on }}</td></ng-container>
+            <ng-container matColumnDef="last_payment_date"><th mat-header-cell *matHeaderCellDef>Дата последней оплаты</th><td mat-cell *matCellDef="let r">{{ r.last_payment_date }}</td></ng-container>
+            <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
+            <ng-container matColumnDef="scenario_brief"><th mat-header-cell *matHeaderCellDef>Сценарий</th><td mat-cell *matCellDef="let r">{{ r.scenario_brief }}</td></ng-container>
+            <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ r.assigned_name }}</td></ng-container>
+            <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ r.ownership_type_name }}</td></ng-container>
+            <ng-container matColumnDef="housing_object"><th mat-header-cell *matHeaderCellDef>Тип объекта жилфонда</th><td mat-cell *matCellDef="let r">{{ r.housing_object }}</td></ng-container>
+            <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let r">{{ r.debt_period }}</td></ng-container>
+            <ng-container matColumnDef="subj_count"><th mat-header-cell *matHeaderCellDef>Кол-во проживающих</th><td mat-cell *matCellDef="let r">{{ r.subj_count }}</td></ng-container>
+            <ng-container matColumnDef="category_name"><th mat-header-cell *matHeaderCellDef>Категория должника</th><td mat-cell *matCellDef="let r">{{ r.category_name }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="columns"></tr>
             <tr mat-row *matRowDef="let row; columns: columns" class="clickable-row" (click)="open(row.id)"></tr>
           </table>
@@ -216,10 +281,17 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
                       <div class="line">{{ street(card.address) }}</div>
                     }
                     <div class="group-line">
-                      <span class="letter">{{ card.debt_group || '—' }}</span>
-                      <span>Группа {{ card.debt_group || '—' }}@if (card.category) { · {{ card.category }} }</span>
+                      @if (card.rating_label) {
+                        <span class="rating-badge r{{ card.rating_label[0] }}" title="Рейтинг должника">{{ card.rating_label }}</span>
+                      }
+                      <span>Группа задолженности {{ card.debt_group || '—' }}@if (card.category) { · {{ card.category }} }</span>
                     </div>
-                    <div class="money"><app-money [value]="card.principal" [blank]="false" /> <small>+ пени <app-money [value]="card.penalty" [blank]="false" /></small></div>
+                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
+                    <div class="line">Месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }}</div>
+                    <div class="money">
+                      <div>Сумма задолженности <app-money [value]="card.obligation" [blank]="false" /></div>
+                      <small>Сумма основного долга <app-money [value]="card.principal" [blank]="false" /> · Сумма пени <app-money [value]="card.penalty" [blank]="false" /></small>
+                    </div>
                     <div class="foot"><span class="when">{{ cardMark(card) }}</span></div>
                   </article>
                 }
@@ -243,8 +315,8 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
           <table mat-table [dataSource]="groupsRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
             <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>Лицевой счёт (Номер ЛС)</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <tr mat-header-row *matHeaderRowDef="groupColumns"></tr>
             <tr mat-row *matRowDef="let row; columns: groupColumns"></tr>
           </table>
@@ -256,22 +328,27 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
         <div class="backdrop" (click)="customOpen.set(false)">
           <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Пользовательский фильтр">
             <h3>Добавить пользовательский фильтр</h3>
-            <p class="hint">Одно условие: группа, категория, этап{{ auth.showServiceOrg() ? ' или обслуживающая организация' : '' }}.</p>
+            <p class="hint">Дополнительное условие к уже выбранным фильтрам. Базовые поля доступны всем ролям.</p>
             <div class="filters">
               <mat-form-field>
                 <mat-label>Поле</mat-label>
                 <mat-select [formControl]="customField">
                   <mat-option value="group">Группа задолженности</mat-option>
                   <mat-option value="category">Категория</mat-option>
-                  <mat-option value="stage">Этап воронки</mat-option>
+                  <mat-option value="stage">Этап воронки взыскания</mat-option>
+                  <mat-option value="specialist">Закреплённый специалист</mat-option>
+                  <mat-option value="ownership">Тип собственности</mat-option>
+                  <mat-option value="housing">Тип объекта жилфонда</mat-option>
+                  <mat-option value="months">Кол-во месяцев долга</mat-option>
+                  <mat-option value="residents">Кол-во проживающих</mat-option>
                   @if (auth.showServiceOrg()) {
                     <mat-option value="billing">Краткое наименование поставщика или обслуживающей организации</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
-              @if (customField.value === 'billing') {
+              @if (customField.value === 'billing' || customField.value === 'specialist' || customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
                 <mat-form-field>
-                  <mat-label>Название или код</mat-label>
+                  <mat-label>Значение</mat-label>
                   <input matInput [formControl]="customValue" />
                 </mat-form-field>
               } @else {
@@ -294,6 +371,22 @@ type CustomField = 'group' | 'category' | 'stage' | 'billing';
             <div class="dialog-actions">
               <button mat-flat-button color="primary" type="button" (click)="addCustom()">Добавить</button>
               <button mat-stroked-button type="button" (click)="customOpen.set(false)">Отмена</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      @if (reasonOpen()) {
+        <div class="backdrop" (click)="reasonOpen.set(false)">
+          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
+            <h3>Смена этапа воронки взыскания</h3>
+            <p class="hint">Переход между этапами воронки. Мероприятие внутри сценария этой кнопкой не меняется. Укажите основание.</p>
+            <div class="save-row">
+              <input [formControl]="funnelReason" placeholder="Основание" (click)="$event.stopPropagation()" />
+            </div>
+            <div class="dialog-actions">
+              <button mat-flat-button color="primary" type="button" (click)="confirmMove()">Перевести</button>
+              <button mat-stroked-button type="button" (click)="reasonOpen.set(false)">Отмена</button>
             </div>
           </div>
         </div>
@@ -445,13 +538,21 @@ export class ContractsListComponent implements OnInit {
     { id: 'closed', label: 'Не должник' },
   ];
   protected readonly groupOptions = [
-    { id: 'debt_group', label: 'Группа' },
-    { id: 'provider', label: 'Поставщик' },
-    { id: 'billing', label: 'Краткое наименование поставщика или обслуживающей организации' },
-    { id: 'category', label: 'Категория' },
+    { id: 'debt_group', label: 'Группа задолженности' },
+    { id: 'provider', label: 'Поставщик услуги' },
+    { id: 'billing', label: 'Обслуживающая организация' },
+    { id: 'category', label: 'Категория должника' },
+    { id: 'specialist', label: 'Закреплённый специалист' },
+    { id: 'ownership', label: 'Тип собственности' },
+    { id: 'housing', label: 'Тип объекта жилфонда' },
+    { id: 'months', label: 'Кол-во месяцев долга' },
+    { id: 'residents', label: 'Кол-во проживающих' },
+    { id: 'period', label: 'Период возникновения долга' },
   ];
   protected readonly personColumns = [
-    'payer', 'payer_identifier', 'payer_unp', 'ls_count', 'principal', 'penalty', 'earliest', 'category',
+    'select', 'payer', 'payer_identifier', 'payer_unp', 'rating_label', 'funnel_stage', 'ls_count',
+    'principal', 'penalty', 'obligation', 'effective_group', 'assigned_name', 'ownership_type_name',
+    'housing_object', 'months_debt', 'subj_count', 'earliest', 'category',
   ];
   protected readonly columns = this.serviceColumns();
   protected readonly groupChoices = this.contractGroupChoices();
@@ -473,12 +574,23 @@ export class ContractsListComponent implements OnInit {
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly dropStage = signal<string | null>(null);
   protected readonly selected = signal<Set<number>>(new Set());
+  protected readonly reasonOpen = signal(false);
+  protected readonly funnelReason = new FormControl('', { nonNullable: true });
+  private pendingIds: number[] = [];
+  private pendingStage = '';
   private cardDragged = false;
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly groups = new FormControl<number[]>([], { nonNullable: true });
   protected readonly category = new FormControl('', { nonNullable: true });
   protected readonly stage = new FormControl('', { nonNullable: true });
   protected readonly billing = new FormControl('', { nonNullable: true });
+  protected readonly specialist = new FormControl('', { nonNullable: true });
+  protected readonly ownership = new FormControl('', { nonNullable: true });
+  protected readonly housing = new FormControl('', { nonNullable: true });
+  protected readonly monthsDebt = new FormControl('', { nonNullable: true });
+  protected readonly residents = new FormControl('', { nonNullable: true });
+  protected readonly periodFrom = new FormControl('', { nonNullable: true });
+  protected readonly periodTo = new FormControl('', { nonNullable: true });
   protected readonly filterName = new FormControl('', { nonNullable: true });
   protected readonly groupBy = new FormControl('', { nonNullable: true });
   protected readonly customField = new FormControl<CustomField>('group', { nonNullable: true });
@@ -505,6 +617,13 @@ export class ContractsListComponent implements OnInit {
     this.category.valueChanges.subscribe(() => this.reload());
     this.stage.valueChanges.subscribe(() => this.reload());
     this.billing.valueChanges.pipe(debounceTime(300)).subscribe(() => this.reload());
+    this.specialist.valueChanges.pipe(debounceTime(300)).subscribe(() => this.reload());
+    this.ownership.valueChanges.pipe(debounceTime(300)).subscribe(() => this.reload());
+    this.housing.valueChanges.pipe(debounceTime(300)).subscribe(() => this.reload());
+    this.monthsDebt.valueChanges.pipe(debounceTime(300)).subscribe(() => this.reload());
+    this.residents.valueChanges.pipe(debounceTime(300)).subscribe(() => this.reload());
+    this.periodFrom.valueChanges.subscribe(() => this.reload());
+    this.periodTo.valueChanges.subscribe(() => this.reload());
     this.groupBy.valueChanges.subscribe((value) => {
       if (value) this.showGrouped();
       else if (this.view() === 'grouped') this.showPersons();
@@ -512,21 +631,22 @@ export class ContractsListComponent implements OnInit {
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
     this.api.categories().subscribe((page) => this.categories.set(page.results));
     this.api.savedFilters('contracts').subscribe((page) => this.saved.set(page.results));
-    this.api.dialSettings().subscribe((rule) => {
-      this.dial.set(rule);
-      this.dialDay.setValue(rule.dial_mobile_from_day);
-      this.dialFrom.setValue(rule.dial_mobile_from_hour);
-      this.dialTo.setValue(rule.dial_mobile_to_hour);
-    });
     this.reload();
   }
 
   private serviceColumns(): string[] {
-    const columns = ['payer', 'payer_identifier', 'payer_unp', 'account_number', 'service_name'];
+    const columns = [
+      'select', 'payer', 'payer_identifier', 'payer_unp', 'account_number', 'rating_label', 'funnel_stage',
+      'service_name', 'service_list_id', 'start_date',
+    ];
     if (this.auth.showSupplier()) columns.push('shot_name');
     if (this.auth.showServiceOrg()) columns.push('billing_provider');
     if (this.auth.showSchema()) columns.push('schema_label');
-    columns.push('balance_out', 'balance_mulct_out', 'debt_started_on', 'effective_group', 'category_name');
+    columns.push(
+      'balance_out', 'balance_mulct_out', 'obligation_total', 'initial_principal', 'initial_penalty',
+      'debt_started_on', 'repayment_due_on', 'last_payment_date', 'effective_group', 'scenario_brief',
+      'assigned_name', 'ownership_type_name', 'housing_object', 'debt_period', 'subj_count', 'category_name',
+    );
     return columns;
   }
 
@@ -594,6 +714,17 @@ export class ContractsListComponent implements OnInit {
     this.billing.setValue('');
   }
 
+  clearText(control: FormControl<string>, event: Event): void {
+    event.stopPropagation();
+    control.setValue('');
+  }
+
+  clearPeriod(event: Event): void {
+    event.stopPropagation();
+    this.periodFrom.setValue('');
+    this.periodTo.setValue('');
+  }
+
   clearGroupByChip(event: Event): void {
     event.stopPropagation();
     this.groupBy.setValue('');
@@ -609,6 +740,11 @@ export class ContractsListComponent implements OnInit {
     if (this.customField.value === 'category') this.category.setValue(value);
     if (this.customField.value === 'stage') this.stage.setValue(value);
     if (this.customField.value === 'billing') this.billing.setValue(value);
+    if (this.customField.value === 'specialist') this.specialist.setValue(value);
+    if (this.customField.value === 'ownership') this.ownership.setValue(value);
+    if (this.customField.value === 'housing') this.housing.setValue(value);
+    if (this.customField.value === 'months') this.monthsDebt.setValue(value);
+    if (this.customField.value === 'residents') this.residents.setValue(value);
     this.customOpen.set(false);
   }
 
@@ -702,13 +838,45 @@ export class ContractsListComponent implements OnInit {
   private moveAccounts(ids: number[], stage: string): void {
     this.stageMenu.set(null);
     if (!ids.length) return;
-    this.api.contractStage(ids, stage).subscribe({
+    this.pendingIds = ids;
+    this.pendingStage = stage;
+    this.funnelReason.setValue('');
+    this.reasonOpen.set(true);
+  }
+
+  protected confirmMove(): void {
+    const reason = this.funnelReason.value.trim();
+    if (!this.pendingIds.length || !reason) {
+      this.error.set('Укажите основание смены этапа воронки взыскания');
+      return;
+    }
+    this.reasonOpen.set(false);
+    this.api.contractStage(this.pendingIds, this.pendingStage, reason).subscribe({
       next: () => {
         this.selected.set(new Set());
+        this.pendingIds = [];
         this.showKanban();
       },
       error: (e) => this.error.set(errorMessage(e)),
     });
+  }
+
+  protected togglePerson(row: ContractPerson): void {
+    const next = new Set(this.selected());
+    if (next.has(row.sample_id)) next.delete(row.sample_id);
+    else next.add(row.sample_id);
+    this.selected.set(next);
+  }
+
+  protected toggleService(row: AccountService): void {
+    const next = new Set(this.selected());
+    if (next.has(row.id)) next.delete(row.id);
+    else next.add(row.id);
+    this.selected.set(next);
+  }
+
+  protected obligation(principal: string | null, penalty: string | null): number {
+    return Number(principal ?? 0) + Number(penalty ?? 0);
   }
 
   registryMode(): string {
@@ -841,6 +1009,13 @@ export class ContractsListComponent implements OnInit {
     this.category.setValue(String(query['debtor_category'] ?? ''), { emitEvent: false });
     this.stage.setValue(String(query['funnel_stage'] ?? ''), { emitEvent: false });
     this.billing.setValue(String(query['billing_provider'] ?? ''), { emitEvent: false });
+    this.specialist.setValue(String(query['assigned_name'] ?? ''), { emitEvent: false });
+    this.ownership.setValue(String(query['ownership'] ?? ''), { emitEvent: false });
+    this.housing.setValue(String(query['housing'] ?? ''), { emitEvent: false });
+    this.monthsDebt.setValue(String(query['months_debt'] ?? ''), { emitEvent: false });
+    this.residents.setValue(String(query['subj_count'] ?? ''), { emitEvent: false });
+    this.periodFrom.setValue(String(query['period_from'] ?? ''), { emitEvent: false });
+    this.periodTo.setValue(String(query['period_to'] ?? ''), { emitEvent: false });
     const raw = String(query['debt_group__in'] ?? '');
     this.groups.setValue(raw ? raw.split(',').map(Number).filter((item) => item > 0) : [], { emitEvent: false });
     this.groupBy.setValue(String(query['group_by'] ?? ''), { emitEvent: false });
@@ -912,6 +1087,13 @@ export class ContractsListComponent implements OnInit {
       debtor_category: this.category.value,
       funnel_stage: this.stage.value,
       billing_provider: this.billing.value,
+      assigned_name: this.specialist.value,
+      ownership: this.ownership.value,
+      housing: this.housing.value,
+      months_debt: this.monthsDebt.value || null,
+      subj_count: this.residents.value || null,
+      period_from: this.periodFrom.value,
+      period_to: this.periodTo.value,
     };
   }
 }

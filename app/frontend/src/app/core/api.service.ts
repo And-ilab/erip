@@ -118,7 +118,7 @@ export class ApiService {
     return this.http.get<DebtShare[]>(`${this.base}/accounts/${id}/debt-shares/`);
   }
 
-  updateAccount(id: number, body: Partial<AccountDetail>): Observable<AccountDetail> {
+  updateAccount(id: number, body: Partial<AccountDetail> & { funnel_reason?: string }): Observable<AccountDetail> {
     return this.http.patch<AccountDetail>(`${this.base}/accounts/${id}/`, body);
   }
 
@@ -190,10 +190,11 @@ export class ApiService {
     return this.http.get<Page<ContractPerson>>(`${this.base}/contracts/persons/`, { params: toParams(params) });
   }
 
-  contractStage(accountIds: number[], funnelStage: string): Observable<{ status: string }> {
+  contractStage(accountIds: number[], funnelStage: string, reason: string): Observable<{ status: string }> {
     return this.http.post<{ status: string }>(`${this.base}/contracts/stage/`, {
       account_ids: accountIds,
       funnel_stage: funnelStage,
+      funnel_reason: reason,
     });
   }
 

@@ -21,29 +21,40 @@ import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
-  account_id: 'Код ЛС',
-  client_account: 'Лицевой счёт (Номер ЛС)',
-  unified_account: 'Уникальный единый номер ЛС (УЕН ЛС)',
-  provider_short_name: 'Краткое наименование поставщика или обслуживающей организации',
+  account_id: 'ID ЛС',
+  client_account: 'Номер ЛС',
+  unified_account: 'Уникальный единый номер (УЕН)',
+  provider_short_name: 'Обслуживающая организация',
   schema_label: 'Наименование схемы',
-  account_address: 'Адрес ЛС запросом (Адрес)',
-  short_fio: 'ФИО плательщиков (краткое) (Плательщик ФИО)',
-  payer_identifier: 'Идентификационный номер паспорта',
-  payer_unp: 'Учетный номер плательщика',
-  rating_label: 'Рейтинг',
+  account_address: 'Адрес',
+  short_fio: 'ФИО плательщика / Наименование юридического лица',
+  payer_identifier: 'Идентификационный номер (ИН)',
+  payer_unp: 'Учётный номер плательщика (УНП)',
+  rating_label: 'Рейтинг должника',
   debt_started_on: 'Дата возникновения',
-  debt_total: 'Исходящее сальдо с пенями',
-  mulct_total: 'Исходящее сальдо пени',
-  effective_group: 'Группа',
+  debt_total: 'Сумма основного долга',
+  mulct_total: 'Сумма пени',
+  obligation_total: 'Сумма задолженности',
+  effective_group: 'Группа задолженности',
   scenario_name: 'Сценарий',
-  assigned_name: 'Специалист',
-  ownership_type_name: 'Наименование типа собственности (тип собственности)',
-  months_debt: 'Кол-во периодов долга',
-  subj_count: 'Кол-во человек (всех) (Проживающие)',
-  funnel_stage: 'Этап воронки',
+  scenario_brief: 'Сценарий',
+  assigned_name: 'Закреплённый специалист',
+  ownership_type_name: 'Тип собственности',
+  acc_category_full: 'Тип объекта жилфонда',
+  months_debt: 'Кол-во месяцев долга',
+  subj_count: 'Кол-во проживающих',
+  registered_count: 'Кол-во зарегистрированных',
+  funnel_stage: 'Этап воронки взыскания',
 };
 
-type CustomField = 'group' | 'rating' | 'stage';
+const BASE_COLUMNS = [
+  'client_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
+  'rating_label', 'funnel_stage', 'debt_total', 'mulct_total', 'obligation_total', 'effective_group',
+  'scenario_brief', 'assigned_name', 'ownership_type_name', 'acc_category_full', 'months_debt',
+  'subj_count', 'registered_count',
+];
+
+type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
 
 @Component({
   selector: 'app-accounts-list',
@@ -68,6 +79,24 @@ type CustomField = 'group' | 'rating' | 'stage';
             @if (stage.value) {
               <button type="button" class="fchip" (click)="clearStage($event)">Этап: {{ stageLabel(stage.value) }} ×</button>
             }
+            @if (specialist.value) {
+              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialist.value }} ×</button>
+            }
+            @if (ownership.value) {
+              <button type="button" class="fchip" (click)="clearText(ownership, $event)">Собственность: {{ ownership.value }} ×</button>
+            }
+            @if (housing.value) {
+              <button type="button" class="fchip" (click)="clearText(housing, $event)">Жилфонд: {{ housing.value }} ×</button>
+            }
+            @if (monthsDebt.value) {
+              <button type="button" class="fchip" (click)="clearText(monthsDebt, $event)">Месяцев: {{ monthsDebt.value }} ×</button>
+            }
+            @if (residents.value) {
+              <button type="button" class="fchip" (click)="clearText(residents, $event)">Проживающих: {{ residents.value }} ×</button>
+            }
+            @if (periodFrom.value || periodTo.value) {
+              <button type="button" class="fchip" (click)="clearPeriod($event)">Период: {{ periodFrom.value || '…' }} — {{ periodTo.value || '…' }} ×</button>
+            }
             @if (groupBy.value) {
               <button type="button" class="fchip" (click)="clearGroupByChip($event)">Группировать по: {{ groupByLabel(groupBy.value) }} ×</button>
             }
@@ -91,16 +120,41 @@ type CustomField = 'group' | 'rating' | 'stage';
                     <button type="button" class="pill" [class.on]="groupsSelected.value.includes(g)" (click)="toggleGroup(g)">{{ g }}</button>
                   }
                 </div>
-                <div class="sub">Рейтинг</div>
+                <div class="sub">Рейтинг должника</div>
                 <div class="pills">
                   @for (letter of letters; track letter) {
                     <button type="button" class="pill" [class.on]="rating.value.includes(letter)" (click)="toggleRating(letter)">{{ letter }}</button>
                   }
                 </div>
-                <div class="sub">Этап</div>
+                <div class="sub">Этап воронки взыскания</div>
                 @for (item of stages; track item.id) {
                   <button type="button" class="menu-item" [class.on]="stage.value === item.id" (click)="setStage(item.id)">{{ item.label }}</button>
                 }
+                <div class="sub">Закреплённый специалист</div>
+                <div class="save-row">
+                  <input [formControl]="specialist" placeholder="ФИО специалиста" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Тип собственности</div>
+                <div class="save-row">
+                  <input [formControl]="ownership" placeholder="Например, частная" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Тип объекта жилфонда</div>
+                <div class="save-row">
+                  <input [formControl]="housing" placeholder="Например, квартира" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Кол-во месяцев долга</div>
+                <div class="save-row">
+                  <input [formControl]="monthsDebt" type="number" placeholder="Месяцев" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Кол-во проживающих</div>
+                <div class="save-row">
+                  <input [formControl]="residents" type="number" placeholder="Человек" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Период возникновения долга</div>
+                <div class="save-row">
+                  <input [formControl]="periodFrom" type="date" (click)="$event.stopPropagation()" />
+                  <input [formControl]="periodTo" type="date" (click)="$event.stopPropagation()" />
+                </div>
                 <button type="button" class="menu-add" (click)="customOpen.set(true)">+ Добавить пользовательский фильтр</button>
               </div>
               <div class="col">
@@ -234,9 +288,12 @@ type CustomField = 'group' | 'rating' | 'stage';
                     @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
                     @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
                     @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
+                    @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
                     @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
+                    @case ('scenario_brief') { {{ r.scenario_brief || '—' }} }
                     @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
                     @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
+                    @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" /> }
                     @default { {{ cell(r, name) }} }
                   }
                 </td>
@@ -255,7 +312,7 @@ type CustomField = 'group' | 'rating' | 'stage';
           <table mat-table [dataSource]="groupedRows()">
             <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value || '—' }}</td></ng-container>
             <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.debt" [blank]="false" /></td></ng-container>
             <tr mat-header-row *matHeaderRowDef="['value', 'accounts', 'debt']"></tr>
             <tr mat-row *matRowDef="let row; columns: ['value', 'accounts', 'debt']"></tr>
           </table>
@@ -285,14 +342,23 @@ type CustomField = 'group' | 'rating' | 'stage';
                         }
                       </div>
                     }
-                    <div class="line">Лицевой счёт (Номер ЛС) {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address) }} }</div>
-                    @if (card.effective_group) {
-                      <div class="group-line">
-                        <span class="letter">{{ letter(card.rating_label) }}</span>
-                        <span>Группа {{ card.effective_group }}</span>
-                      </div>
+                    <div class="line">Номер ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address) }} }</div>
+                    <div class="group-line">
+                      @if (card.rating_label) {
+                        <span class="rating-badge r{{ card.rating_label[0] }}" title="Рейтинг должника">{{ card.rating_label }}</span>
+                      }
+                      @if (card.effective_group) { <span>Группа задолженности {{ card.effective_group }}</span> }
+                    </div>
+                    <div class="line">{{ card.scenario_brief || 'Сценарий не назначен' }}</div>
+                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
+                    @if (card.ownership_type_name || card.acc_category_full) {
+                      <div class="line">{{ card.ownership_type_name }}@if (card.acc_category_full) { · {{ card.acc_category_full }} }</div>
                     }
-                    <div class="money"><app-money [value]="card.debt_total" [blank]="false" /> <small>+ пени <app-money [value]="card.mulct_total" [blank]="false" /></small></div>
+                    <div class="line">Месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
+                    <div class="money">
+                      <div>Сумма задолженности <app-money [value]="card.obligation_total" [blank]="false" /></div>
+                      <small>Сумма основного долга <app-money [value]="card.debt_total" [blank]="false" /> · Сумма пени <app-money [value]="card.mulct_total" [blank]="false" /></small>
+                    </div>
                     <div class="foot">
                       @if (mark(card); as note) {
                         <span class="when">
@@ -301,7 +367,7 @@ type CustomField = 'group' | 'rating' | 'stage';
                         </span>
                       } @else { <span></span> }
                       @if (initials(card.assigned_name); as who) {
-                        <span class="who" [style.background]="avatarColor(card.assigned_name)">{{ who }}</span>
+                        <span class="who" [style.background]="avatarColor(card.assigned_name)" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
                       }
                     </div>
                   </article>
@@ -325,16 +391,27 @@ type CustomField = 'group' | 'rating' | 'stage';
         <div class="backdrop" (click)="customOpen.set(false)">
           <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Пользовательский фильтр">
             <h3>Добавить пользовательский фильтр</h3>
-            <p class="muted">Одно условие: группа, рейтинг или этап воронки.</p>
+            <p class="muted">Дополнительное условие к уже выбранным фильтрам. Базовые поля доступны всем ролям.</p>
             <div class="filters">
               <mat-form-field>
                 <mat-label>Поле</mat-label>
                 <mat-select [formControl]="customField">
                   <mat-option value="group">Группа задолженности</mat-option>
-                  <mat-option value="rating">Рейтинг</mat-option>
-                  <mat-option value="stage">Этап воронки</mat-option>
+                  <mat-option value="rating">Рейтинг должника</mat-option>
+                  <mat-option value="stage">Этап воронки взыскания</mat-option>
+                  <mat-option value="specialist">Закреплённый специалист</mat-option>
+                  <mat-option value="ownership">Тип собственности</mat-option>
+                  <mat-option value="housing">Тип объекта жилфонда</mat-option>
+                  <mat-option value="months">Кол-во месяцев долга</mat-option>
+                  <mat-option value="residents">Кол-во проживающих</mat-option>
                 </mat-select>
               </mat-form-field>
+              @if (customField.value === 'specialist' || customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
+                <mat-form-field>
+                  <mat-label>Значение</mat-label>
+                  <input matInput [formControl]="customValue" />
+                </mat-form-field>
+              } @else {
               <mat-form-field>
                 <mat-label>Значение</mat-label>
                 <mat-select [formControl]="customValue">
@@ -349,10 +426,28 @@ type CustomField = 'group' | 'rating' | 'stage';
                   }
                 </mat-select>
               </mat-form-field>
+              }
             </div>
             <div class="dialog-actions">
               <button mat-flat-button color="primary" type="button" (click)="addCustom()">Добавить</button>
               <button mat-stroked-button type="button" (click)="customOpen.set(false)">Отмена</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      @if (reasonOpen()) {
+        <div class="backdrop" (click)="reasonOpen.set(false)">
+          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
+            <h3>Смена этапа воронки взыскания</h3>
+            <p class="muted">Это переход между этапами воронки, а не замена мероприятия внутри сценария. Без основания этап не меняется.</p>
+            <mat-form-field class="reason-field">
+              <mat-label>Основание</mat-label>
+              <input matInput [formControl]="funnelReason" />
+            </mat-form-field>
+            <div class="dialog-actions">
+              <button mat-flat-button color="primary" type="button" (click)="confirmMove()">Перевести</button>
+              <button mat-stroked-button type="button" (click)="reasonOpen.set(false)">Отмена</button>
             </div>
           </div>
         </div>
@@ -500,6 +595,11 @@ type CustomField = 'group' | 'rating' | 'stage';
     .dialog { width: min(520px, calc(100vw - 32px)); background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 12px 32px rgba(16, 42, 67, .2); }
     .dialog h3 { margin: 0 0 8px; color: var(--erip-primary-dark); }
     .dialog-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .reason-field { width: 100%; }
+    .legal {
+      margin-left: 6px; padding: 1px 6px; border-radius: 8px; background: #e7f2f4; color: var(--erip-primary);
+      font-size: 11px; font-weight: 700;
+    }
   `,
 })
 export class AccountsListComponent implements OnInit {
@@ -520,12 +620,16 @@ export class AccountsListComponent implements OnInit {
     { id: 'closed', label: 'Не должник' },
   ];
   protected readonly groupOptions = [
-    { id: 'provider', label: 'Краткое наименование поставщика или обслуживающей организации' },
+    { id: 'provider', label: 'Обслуживающая организация' },
     { id: 'debt_group', label: 'Группа задолженности' },
-    { id: 'rating', label: 'Рейтинг' },
-    { id: 'category', label: 'Категория' },
-    { id: 'specialist', label: 'Специалист' },
-    { id: 'period', label: 'Период' },
+    { id: 'rating', label: 'Рейтинг должника' },
+    { id: 'category', label: 'Категория должника' },
+    { id: 'specialist', label: 'Закреплённый специалист' },
+    { id: 'ownership', label: 'Тип собственности' },
+    { id: 'housing', label: 'Тип объекта жилфонда' },
+    { id: 'months', label: 'Кол-во месяцев долга' },
+    { id: 'residents', label: 'Кол-во проживающих' },
+    { id: 'period', label: 'Период возникновения долга' },
   ];
   protected readonly measures = [
     { id: 'call', label: 'Автообзвон' },
@@ -545,10 +649,7 @@ export class AccountsListComponent implements OnInit {
   protected readonly mapQuery = signal<Record<string, string | number | null>>({});
   protected readonly territoryId = signal<number | null>(null);
   protected readonly territoryName = signal('');
-  protected readonly columns = signal<string[]>([
-    'client_account', 'short_fio', 'account_address', 'rating_label', 'funnel_stage',
-    'debt_total', 'mulct_total', 'effective_group', 'assigned_name',
-  ]);
+  protected readonly columns = signal<string[]>([...BASE_COLUMNS]);
   protected readonly board = signal<KanbanColumn[]>([]);
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly events = signal<CalendarEvent[]>([]);
@@ -577,6 +678,16 @@ export class AccountsListComponent implements OnInit {
   protected readonly startedOn = new FormControl('', { nonNullable: true });
   protected readonly assignee = new FormControl('', { nonNullable: true });
   protected readonly dueOn = new FormControl('', { nonNullable: true });
+  protected readonly specialist = new FormControl('', { nonNullable: true });
+  protected readonly ownership = new FormControl('', { nonNullable: true });
+  protected readonly housing = new FormControl('', { nonNullable: true });
+  protected readonly monthsDebt = new FormControl('', { nonNullable: true });
+  protected readonly residents = new FormControl('', { nonNullable: true });
+  protected readonly periodFrom = new FormControl('', { nonNullable: true });
+  protected readonly periodTo = new FormControl('', { nonNullable: true });
+  protected readonly funnelReason = new FormControl('', { nonNullable: true });
+  protected readonly reasonOpen = signal(false);
+  private pendingMove: { ids: number[]; stage: string } | null = null;
   protected pageSize = 50;
   protected spanFrom = monthStart();
   protected spanTo = monthEnd();
@@ -617,14 +728,24 @@ export class AccountsListComponent implements OnInit {
     this.groupsSelected.valueChanges.subscribe(() => this.onFilter());
     this.rating.valueChanges.subscribe(() => this.onFilter());
     this.stage.valueChanges.subscribe(() => this.onFilter());
+    this.specialist.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.ownership.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.housing.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.monthsDebt.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.residents.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.periodFrom.valueChanges.subscribe(() => this.onFilter());
+    this.periodTo.valueChanges.subscribe(() => this.onFilter());
     this.groupBy.valueChanges.subscribe((value) => {
       if (value) this.showGrouped();
       else if (this.view() === 'grouped') this.reload(1);
     });
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
     this.api.columns().subscribe((prefs) => {
-      const saved = prefs.columns.length ? prefs.columns : [];
-      const names = saved.filter((name) => name !== 'provider_short_name' || this.auth.showServiceOrg());
+      const saved = prefs.columns.length ? prefs.columns : [...BASE_COLUMNS];
+      const names = saved.filter((name) => name !== 'scenario_name' && (name !== 'provider_short_name' || this.auth.showServiceOrg()));
+      for (const name of BASE_COLUMNS) {
+        if (!names.includes(name)) names.push(name);
+      }
       if (this.auth.showSchema() && !names.includes('schema_label')) names.unshift('schema_label');
       if (names.length) this.columns.set(names);
     });
@@ -738,6 +859,11 @@ export class AccountsListComponent implements OnInit {
     }
     if (this.customField.value === 'rating' && !this.rating.value.includes(value)) this.toggleRating(value);
     if (this.customField.value === 'stage') this.stage.setValue(value);
+    if (this.customField.value === 'specialist') this.specialist.setValue(value);
+    if (this.customField.value === 'ownership') this.ownership.setValue(value);
+    if (this.customField.value === 'housing') this.housing.setValue(value);
+    if (this.customField.value === 'months') this.monthsDebt.setValue(value);
+    if (this.customField.value === 'residents') this.residents.setValue(value);
     this.customOpen.set(false);
   }
 
@@ -1010,20 +1136,46 @@ export class AccountsListComponent implements OnInit {
   }
 
   private moveIds(ids: number[], stage: string): void {
-    const pending = [...ids];
+    this.stageMenu.set(null);
+    this.pendingMove = { ids, stage };
+    this.funnelReason.setValue('');
+    this.reasonOpen.set(true);
+  }
+
+  protected confirmMove(): void {
+    const pending = this.pendingMove;
+    const reason = this.funnelReason.value.trim();
+    if (!pending || !reason) {
+      this.snack.open('Укажите основание смены этапа воронки взыскания', 'OK');
+      return;
+    }
+    this.reasonOpen.set(false);
+    const ids = [...pending.ids];
     const step = (): void => {
-      const id = pending.shift();
+      const id = ids.shift();
       if (id == null) {
         this.selected.set(new Set());
+        this.pendingMove = null;
         this.showKanban();
         return;
       }
-      this.api.updateAccount(id, { funnel_stage: stage }).subscribe({
+      this.api.updateAccount(id, { funnel_stage: pending.stage, funnel_reason: reason }).subscribe({
         next: () => step(),
         error: (e) => this.snack.open(errorMessage(e), 'OK'),
       });
     };
     step();
+  }
+
+  protected clearText(control: FormControl<string>, event: Event): void {
+    event.stopPropagation();
+    control.setValue('');
+  }
+
+  protected clearPeriod(event: Event): void {
+    event.stopPropagation();
+    this.periodFrom.setValue('');
+    this.periodTo.setValue('');
   }
 
   protected toggleStage(event: Event, id: number): void {
@@ -1130,6 +1282,13 @@ export class AccountsListComponent implements OnInit {
     this.groupsSelected.setValue(this.parseGroups(item.query['debt_group__in']), { emitEvent: false });
     this.rating.setValue(this.parseRatings(item.query['rating__in'] ?? item.query['rating']), { emitEvent: false });
     this.stage.setValue(String(item.query['funnel_stage'] ?? ''), { emitEvent: false });
+    this.specialist.setValue(String(item.query['assigned_name'] ?? ''), { emitEvent: false });
+    this.ownership.setValue(String(item.query['ownership'] ?? ''), { emitEvent: false });
+    this.housing.setValue(String(item.query['housing'] ?? ''), { emitEvent: false });
+    this.monthsDebt.setValue(String(item.query['months_debt'] ?? ''), { emitEvent: false });
+    this.residents.setValue(String(item.query['subj_count'] ?? ''), { emitEvent: false });
+    this.periodFrom.setValue(String(item.query['period_from'] ?? ''), { emitEvent: false });
+    this.periodTo.setValue(String(item.query['period_to'] ?? ''), { emitEvent: false });
     this.groupBy.setValue(String(item.query['group_by'] ?? ''), { emitEvent: false });
     this.panelOpen.set(false);
     if (this.groupBy.value) this.showGrouped();
@@ -1242,6 +1401,13 @@ export class AccountsListComponent implements OnInit {
       debt_group__in: selected.length ? selected.join(',') : null,
       rating__in: this.rating.value.length ? this.rating.value.join(',') : null,
       funnel_stage: this.stage.value,
+      assigned_name: this.specialist.value,
+      ownership: this.ownership.value,
+      housing: this.housing.value,
+      months_debt: this.monthsDebt.value || null,
+      subj_count: this.residents.value || null,
+      period_from: this.periodFrom.value,
+      period_to: this.periodTo.value,
       group_by: this.groupBy.value,
       territory: this.territoryId(),
     };

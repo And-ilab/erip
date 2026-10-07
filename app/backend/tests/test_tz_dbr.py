@@ -323,7 +323,7 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
     card = next(item for column in columns for item in column["cards"] if account_a.id in item["account_ids"])
     moved = api(specialist_a).post(
         "/api/v1/contracts/stage/",
-        {"account_ids": card["account_ids"], "funnel_stage": "disconnect"},
+        {"account_ids": card["account_ids"], "funnel_stage": "disconnect", "funnel_reason": "Проверка переноса этапа"},
         format="json",
     )
     assert moved.status_code == 200
@@ -335,13 +335,13 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
     assert any(account_a.id in item["account_ids"] for item in disconnect["cards"])
     assert api(observer_a).post(
         "/api/v1/contracts/stage/",
-        {"account_ids": [account_a.id], "funnel_stage": "warning"},
+        {"account_ids": [account_a.id], "funnel_stage": "warning", "funnel_reason": "Проверка переноса этапа"},
         format="json",
     ).status_code == 403
     foreign = make_account(org_b, 777)
     denied = api(specialist_a).post(
         "/api/v1/contracts/stage/",
-        {"account_ids": [account_a.id, foreign.id], "funnel_stage": "court"},
+        {"account_ids": [account_a.id, foreign.id], "funnel_stage": "court", "funnel_reason": "Проверка переноса этапа"},
         format="json",
     )
     assert denied.status_code == 404
@@ -350,7 +350,7 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
     supplier, _water = _supplier(org_a, account_a)
     assert api(supplier).post(
         "/api/v1/contracts/stage/",
-        {"account_ids": [account_a.id], "funnel_stage": "warning"},
+        {"account_ids": [account_a.id], "funnel_stage": "warning", "funnel_reason": "Проверка переноса этапа"},
         format="json",
     ).status_code == 400
 

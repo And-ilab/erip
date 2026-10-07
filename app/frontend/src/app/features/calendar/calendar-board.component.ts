@@ -113,7 +113,7 @@ interface DayCell {
             <h3>{{ long(day) }}</h3>
             @if (showEvents) {
               @for (event of on(day); track track(event)) {
-                <button type="button" class="ev" (click)="openEvent.emit(event)">
+                <button type="button" class="ev" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" (click)="openEvent.emit(event)">
                   <b>{{ event.kind }}</b> {{ event.title }}
                 </button>
               } @empty {
@@ -131,7 +131,7 @@ interface DayCell {
                 <button type="button" class="num" (click)="begin(day)">{{ long(day) }}</button>
                 @if (showEvents) {
                   @for (event of on(day); track track(event)) {
-                    <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }} · {{ event.title }}</button>
+                    <button type="button" class="ev" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" (click)="openEvent.emit(event)">{{ event.kind }} · {{ event.title }}</button>
                   }
                 }
               </section>
@@ -157,7 +157,7 @@ interface DayCell {
                         <button type="button" class="num" (click)="begin(day.iso)">{{ day.day }}</button>
                         @if (showEvents) {
                           @for (event of on(day.iso).slice(0, 3); track track(event)) {
-                            <button type="button" class="ev" (click)="openEvent.emit(event)">{{ event.kind }}</button>
+                            <button type="button" class="ev" [class.overdue]="event.urgency === 'overdue'" [class.soon]="event.urgency === 'soon'" (click)="openEvent.emit(event)">{{ event.kind }} · {{ event.title }}</button>
                           }
                           @if (on(day.iso).length > 3) {
                             <button type="button" class="more" (click)="focusDay(day.iso)">ещё {{ on(day.iso).length - 3 }}</button>
@@ -265,11 +265,8 @@ interface DayCell {
           <p class="hint">{{ pickHint() }}</p>
         </section>
         <section>
-          <h3>Отображение событий</h3>
-          <div class="modes">
-            <button type="button" [class.on]="showEvents" (click)="showEvents = true">Вкл</button>
-            <button type="button" [class.on]="!showEvents" (click)="showEvents = false">Выкл</button>
-          </div>
+          <h3>Сроки</h3>
+          <p class="hint">Красным отмечен просроченный срок, жёлтым — срок в ближайшие два дня. Пустых дней без события на доске нет.</p>
         </section>
       </aside>
     }
@@ -299,6 +296,8 @@ interface DayCell {
     .num, .ev, .more, .dot { display: block; width: 100%; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
     .num { font-weight: 700; color: #1f2933; }
     .ev { margin-top: 2px; padding: 2px 4px; border-radius: 4px; background: #e7f2f4; color: #0f4c54; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ev.soon { background: #fff4d6; color: #8a5a00; }
+    .ev.overdue { background: #fde8e8; color: #9b1c1c; }
     .more { font-size: 11px; color: #6b7280; }
     .year { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
     .year + .year { margin-top: 12px; }
@@ -512,9 +511,8 @@ export class CalendarBoardComponent implements OnChanges {
 
   protected coveredDays(): string[] {
     const days = eachDay(this.anchor(), this.spanEnd());
-    if (days.length <= 45) return days;
     const busy = days.filter((day) => this.on(day).length);
-    return busy.length ? busy : [days[0]];
+    return busy.length ? busy : days.slice(0, 1);
   }
 
   protected hiddenDays(): number {

@@ -69,8 +69,9 @@ FUNNEL_STAGES = [
 ]
 ACCOUNT_COLUMNS = [
     "account_id", "client_account", "unified_account", "provider_short_name", "account_address", "short_fio",
-    "payer_identifier", "payer_unp", "rating_label", "debt_started_on", "debt_total", "mulct_total", "effective_group",
-    "scenario_name", "assigned_name", "ownership_type_name", "months_debt", "subj_count", "funnel_stage",
+    "payer_identifier", "payer_unp", "rating_label", "debt_started_on", "debt_total", "mulct_total", "obligation_total",
+    "effective_group", "scenario_brief", "assigned_name", "ownership_type_name", "acc_category_full",
+    "months_debt", "subj_count", "registered_count", "funnel_stage",
 ]
 
 
@@ -417,7 +418,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         debt = _debt_sum(request.user)
         if key == "period":
             rows = (
-                qs.annotate(bucket=TruncMonth("operational_date"))
+                qs.annotate(bucket=TruncMonth("debt_started_on"))
                 .values("bucket")
                 .annotate(accounts=Count("id"), debt=debt)
                 .order_by("bucket")
@@ -432,7 +433,11 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             "provider": "provider_short_name",
             "schema": "organization__name",
             "category": "debtor_category__name",
-            "specialist": "assigned_to_id",
+            "specialist": "assigned_to__last_name",
+            "ownership": "ownership_type_name",
+            "housing": "acc_category_full",
+            "months": "months_debt",
+            "residents": "subj_count",
         }
         field = fields.get(key)
         if field is None:
@@ -447,26 +452,25 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def calendar(self, request):
-        from .services.calendar import resolve_span
+        from .services.calendar import due_lookup, present_deadline, resolve_span
 
         start, end = resolve_span(request.query_params)
         accounts = self.filter_queryset(self.get_queryset())
         events = []
         for field, kind in (("warning_due", "Предупреждение"), ("claim_due", "Иск")):
-            for account in accounts.exclude(**{field: None}).filter(**{f"{field}__gte": start, f"{field}__lt": end}):
-                events.append({
-                    "date": getattr(account, field), "kind": kind, "account_id": account.id,
-                    "title": f"ЛС {account.client_account}",
-                })
-        measures = Measure.objects.filter(
-            accounts__in=accounts, due_on__gte=start, due_on__lt=end,
-        ).distinct()
+            for account in accounts.exclude(**{field: None}).filter(due_lookup(field, start, end)):
+                events.append(present_deadline(
+                    getattr(account, field), start=start, end=end, kind=kind,
+                    title=f"ЛС {account.client_account}", account_id=account.id,
+                ))
+        measures = Measure.objects.filter(accounts__in=accounts).filter(due_lookup("due_on", start, end)).distinct()
         for measure in measures:
-            events.append({
-                "date": measure.due_on, "kind": measure.get_kind_display(), "account_id": None,
-                "title": measure.get_kind_display(), "measure_id": measure.id,
-            })
-        return Response([{**event, "date": event["date"].isoformat()} for event in events])
+            events.append(present_deadline(
+                measure.due_on, start=start, end=end, kind=measure.get_kind_display(),
+                title=f"{measure.get_kind_display()} · партия {measure.id}",
+                account_id=None, measure_id=measure.id,
+            ))
+        return Response(events)
 
     @action(detail=False)
     def export(self, request):
@@ -476,23 +480,30 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         response.write("\ufeff")
         writer = csv.writer(response, delimiter=";")
         headers = [
-            "Код ЛС", "Лицевой счёт (Номер ЛС)", "Уникальный единый номер ЛС (УЕН ЛС)",
-            "Краткое наименование поставщика или обслуживающей организации", "Адрес ЛС запросом (Адрес)",
-            "ФИО плательщиков (краткое) (Плательщик ФИО)", "Идентификационный номер паспорта", "Учетный номер плательщика",
-            "Рейтинг", "Дата возникновения", "Исходящее сальдо с пенями", "Исходящее сальдо пени", "Группа", "Сценарий",
-            "Специалист", "Наименование типа собственности (тип собственности)", "Кол-во периодов долга",
-            "Кол-во человек (всех) (Проживающие)", "Этап воронки",
+            "ID ЛС", "Номер ЛС", "Уникальный единый номер (УЕН)",
+            "Обслуживающая организация", "Адрес",
+            "ФИО плательщика / Наименование юридического лица", "Идентификационный номер (ИН)",
+            "Учётный номер плательщика (УНП)",
+            "Рейтинг должника", "Дата возникновения", "Сумма основного долга", "Сумма пени", "Сумма задолженности",
+            "Группа задолженности", "Сценарий", "Этап воронки взыскания",
+            "Закреплённый специалист", "Тип собственности", "Тип объекта жилфонда", "Кол-во месяцев долга",
+            "Кол-во проживающих", "Кол-во зарегистрированных",
         ]
         writer.writerow(headers)
+        stage_titles = dict(FUNNEL_STAGES)
         for account in rows:
+            packed = AccountListSerializer(account, context={"request": request}).data
             writer.writerow([
                 account.account_id, account.client_account, account.unified_account or "", account.provider_short_name,
                 account.account_address, account.short_fio, account.payer_identifier, account.payer_unp,
-                AccountListSerializer(account).data["rating_label"], account.debt_started_on or "",
-                account.debt_total, account.mulct_total, account.effective_group or "",
-                account.scenario_name, getattr(account.assigned_to, "display_name", "") if account.assigned_to_id else "",
-                account.ownership_type_name, account.months_debt if account.months_debt is not None else "",
-                account.subj_count if account.subj_count is not None else "", account.funnel_stage,
+                packed["rating_label"], account.debt_started_on or "",
+                packed["debt_total"], packed["mulct_total"], packed["obligation_total"],
+                account.effective_group or "", packed["scenario_brief"],
+                stage_titles.get(account.funnel_stage, account.funnel_stage),
+                packed["assigned_name"], account.ownership_type_name, account.acc_category_full,
+                account.months_debt if account.months_debt is not None else "",
+                account.subj_count if account.subj_count is not None else "",
+                packed.get("registered_count") if packed.get("registered_count") is not None else "",
             ])
         return response
 
@@ -580,7 +591,8 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     """Реестр и карточка задолженности по договору поставщика."""
 
     queryset = AccountService.objects.select_related(
-        "account", "account__debtor_category", "account__organization",
+        "account", "account__debtor_category", "account__organization", "account__assigned_to",
+        "account__scenario_run__scenario",
     )
     serializer_class = AccountServiceSerializer
     permission_classes = [RolePermission]
@@ -651,32 +663,36 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
         chosen = list(Account.objects.filter(services__in=self._visible(), pk__in=wanted).distinct())
         if {account.pk for account in chosen} != wanted:
             raise NotFound()
-        move_stage(request.user, chosen, request.data.get("funnel_stage") or "")
+        move_stage(
+            request.user, chosen, request.data.get("funnel_stage") or "",
+            str(request.data.get("funnel_reason") or ""),
+        )
         return Response({"status": "ok"})
 
     @action(detail=False)
     def calendar(self, request):
-        from .services.calendar import resolve_span
+        from .services.calendar import due_lookup, present_deadline, resolve_span
 
         start, end = resolve_span(request.query_params)
         services = self._visible().select_related("account")
         events = []
         for field, kind in (("repayment_due_on", "Срок погашения"), ("debt_started_on", "Возникновение")):
-            for service in services.exclude(**{field: None}).filter(**{f"{field}__gte": start, f"{field}__lt": end}):
-                events.append({
-                    "date": getattr(service, field).isoformat(), "kind": kind,
-                    "title": f"{service.service_name} · ЛС {service.account.client_account}",
-                    "account_id": service.account_id, "contract_id": service.id,
-                })
+            for service in services.exclude(**{field: None}).filter(due_lookup(field, start, end)):
+                events.append(present_deadline(
+                    getattr(service, field), start=start, end=end, kind=kind,
+                    title=f"{service.service_name} · ЛС {service.account.client_account}",
+                    account_id=service.account_id, contract_id=service.id,
+                ))
         account_ids = services.values("account_id")
-        measures = Measure.objects.filter(due_on__gte=start, due_on__lt=end).filter(
+        measures = Measure.objects.filter(due_lookup("due_on", start, end)).filter(
             Q(services__in=services) | Q(accounts__in=account_ids, services__isnull=True)
         ).distinct()
         for measure in measures:
-            events.append({
-                "date": measure.due_on.isoformat(), "kind": measure.get_kind_display(),
-                "title": measure.get_kind_display(), "account_id": None, "measure_id": measure.id,
-            })
+            events.append(present_deadline(
+                measure.due_on, start=start, end=end, kind=measure.get_kind_display(),
+                title=f"{measure.get_kind_display()} · партия {measure.id}",
+                account_id=None, measure_id=measure.id,
+            ))
         return Response(events)
 
     @action(detail=False, methods=["post"])
@@ -709,6 +725,22 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     def grouped(self, request):
         key = request.query_params.get("group_by") or "debt_group"
         qs = self._visible()
+        if key == "period":
+            from django.db.models.functions import TruncMonth
+
+            rows = (
+                qs.annotate(bucket=TruncMonth("debt_started_on"))
+                .values("bucket")
+                .annotate(accounts=Count("account", distinct=True), debt=Sum("balance_out"), penalty=Sum("balance_mulct_out"))
+                .order_by("bucket")
+            )
+            return Response([
+                {
+                    "value": row["bucket"].isoformat() if row["bucket"] else "",
+                    "accounts": row["accounts"], "debt": row["debt"], "penalty": row["penalty"],
+                }
+                for row in rows
+            ])
         if key == "debt_group":
             qs = qs.annotate(sort_group=Coalesce("debt_group_manual", "debt_group"))
             field = "sort_group"
@@ -717,7 +749,11 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
                 "provider": "shot_name",
                 "category": "account__debtor_category__name",
                 "billing": "account__provider_short_name",
-                "period": "debt_started_on",
+                "specialist": "account__assigned_to__last_name",
+                "ownership": "account__ownership_type_name",
+                "housing": "account__acc_category_full",
+                "months": "debt_period",
+                "residents": "account__subj_count",
             }
             field = fields.get(key)
             if field is None:

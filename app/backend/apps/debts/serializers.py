@@ -1,6 +1,9 @@
+from decimal import Decimal
+
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
-from apps.nsi.models import DebtGroupScale
+from apps.nsi.models import DebtGroupScale, ScenarioDefinition
 
 from .models import (
     Account,
@@ -43,6 +46,77 @@ def _rating_label(rating: str, repeat: int | None) -> str:
     return f"{rating}/{repeat}"
 
 
+STEP_TITLES = {
+    "call": "Автообзвон",
+    "manual_call": "Ручной звонок",
+    "notice": "Уведомление",
+    "warning": "Предупреждение",
+    "disconnect": "Отключение",
+    "writ": "Исполнительная надпись",
+    "collection": "Взыскание",
+    "claim": "Иск",
+}
+
+
+def _money(value) -> Decimal:
+    if value in (None, ""):
+        return Decimal("0.00")
+    return Decimal(str(value))
+
+
+def _add_money(left, right) -> str:
+    return f"{(_money(left) + _money(right)):.2f}"
+
+
+def _step_list(steps) -> str:
+    titles = []
+    for step in steps or []:
+        title = STEP_TITLES.get(step.get("action") or "", "")
+        if title and title not in titles:
+            titles.append(title)
+    return ", ".join(titles)
+
+
+def scenario_brief(account, published: dict | None = None) -> str:
+    """Название назначенного сценария и краткий перечень его мероприятий.
+
+    Имя правила по группе («Письменное предупреждение») — это текущий шаг, его показывает этап воронки.
+    """
+    run = None
+    try:
+        run = account.scenario_run
+    except ObjectDoesNotExist:
+        run = None
+    scenario = run.scenario if run is not None else None
+    if scenario is None and published is not None:
+        scenario = published.get(account.organization_id)
+    if scenario is None:
+        return ""
+    steps = _step_list(scenario.steps)
+    if not steps:
+        return scenario.name
+    return f"{scenario.name}: {steps}"
+
+
+def published_scenario(organization_id, cache: dict):
+    if organization_id in cache:
+        return cache[organization_id]
+    own = (
+        ScenarioDefinition.objects.filter(
+            organization_id=organization_id, status=ScenarioDefinition.Status.ACTIVE,
+        )
+        .order_by("id")
+        .first()
+    )
+    shared = (
+        ScenarioDefinition.objects.filter(organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE)
+        .order_by("id")
+        .first()
+    )
+    cache[organization_id] = own or shared
+    return cache[organization_id]
+
+
 class AccountListSerializer(serializers.ModelSerializer):
     services_count = serializers.IntegerField(read_only=True)
     debt_total = serializers.DecimalField(max_digits=20, decimal_places=2, read_only=True)
@@ -51,6 +125,10 @@ class AccountListSerializer(serializers.ModelSerializer):
     assigned_name = serializers.CharField(source="assigned_to.display_name", default="", read_only=True)
     rating_label = serializers.SerializerMethodField()
     schema_label = serializers.SerializerMethodField()
+    registered_count = serializers.IntegerField(read_only=True)
+    is_legal = serializers.BooleanField(read_only=True)
+    scenario_brief = serializers.SerializerMethodField()
+    obligation_total = serializers.SerializerMethodField()
     warning_handed_on = serializers.SerializerMethodField()
     order_on = serializers.SerializerMethodField()
     filed_on = serializers.SerializerMethodField()
@@ -62,8 +140,9 @@ class AccountListSerializer(serializers.ModelSerializer):
             "id", "organization", "account_id", "client_account", "unified_account", "provider_id",
             "provider_short_name", "account_address", "short_fio", "payer_identifier", "payer_unp", "balance_out",
             "debt_group", "effective_group", "rating", "rating_label", "debt_started_on", "scenario_name",
-            "assigned_name", "ownership_type_name", "months_debt", "subj_count", "funnel_stage", "schema_label",
-            "services_count", "debt_total", "mulct_total", "warning_due", "claim_due", "updated_at",
+            "assigned_name", "ownership_type_name", "acc_category_full", "months_debt", "subj_count",
+            "registered_count", "is_legal", "funnel_stage", "schema_label", "scenario_brief",
+            "services_count", "debt_total", "mulct_total", "obligation_total", "warning_due", "claim_due", "updated_at",
             "ais_updated_at", "operational_date", "inheritance_case", "debtor_category",
             "warning_handed_on", "order_on", "filed_on", "package_on",
         ]
@@ -86,9 +165,22 @@ class AccountListSerializer(serializers.ModelSerializer):
     def get_package_on(self, obj):
         return _iso_date(getattr(obj, "package_on", None))
 
+    def get_scenario_brief(self, obj) -> str:
+        cache = self.context.setdefault("_published_scenarios", {})
+        try:
+            obj.scenario_run
+        except ObjectDoesNotExist:
+            published_scenario(obj.organization_id, cache)
+        return scenario_brief(obj, cache)
+
+    def get_obligation_total(self, obj) -> str:
+        return _add_money(getattr(obj, "debt_total", None), getattr(obj, "mulct_total", None))
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        return _supplier_totals(instance, data)
+        data = _supplier_totals(instance, data)
+        data["obligation_total"] = _add_money(data.get("debt_total"), data.get("mulct_total"))
+        return data
 
 
 def _supplier_totals(instance, data):
@@ -165,6 +257,7 @@ class AccountDetailSerializer(serializers.ModelSerializer):
     rating_label = serializers.SerializerMethodField()
     assigned_name = serializers.CharField(source="assigned_to.display_name", default="", read_only=True)
     schema_label = serializers.SerializerMethodField()
+    scenario_brief = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
@@ -183,6 +276,14 @@ class AccountDetailSerializer(serializers.ModelSerializer):
 
     def get_rating_label(self, obj) -> str:
         return _rating_label(obj.rating, obj.rating_repeat)
+
+    def get_scenario_brief(self, obj) -> str:
+        cache = self.context.setdefault("_published_scenarios", {})
+        try:
+            obj.scenario_run
+        except ObjectDoesNotExist:
+            published_scenario(obj.organization_id, cache)
+        return scenario_brief(obj, cache)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -206,7 +307,15 @@ class AccountDetailSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         from .models import StatusHistory
 
+        old_stage = instance.funnel_stage
+        funnel_reason = ""
         if "funnel_stage" in validated_data and validated_data["funnel_stage"] != instance.funnel_stage:
+            request = self.context.get("request")
+            funnel_reason = str(request.data.get("funnel_reason") or "").strip() if request is not None else ""
+            if not funnel_reason:
+                raise serializers.ValidationError({
+                    "funnel_reason": "Укажите основание смены этапа воронки взыскания",
+                })
             instance.funnel_locked = True
         if "scenario_name" in validated_data and validated_data["scenario_name"] != instance.scenario_name:
             instance.scenario_locked = True
@@ -230,6 +339,7 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         old_category = instance.debtor_category_id
         old_residence = instance.residence_note
         old_legal = instance.legal_status
+        old_mode = instance.contact_source_mode
         request = self.context.get("request")
         user = request.user if request is not None else None
         from .services.contracts import reject_supplier_account_fields
@@ -288,6 +398,16 @@ class AccountDetailSerializer(serializers.ModelSerializer):
                 old_value=old_legal, new_value=instance.legal_status, reason="Статус лица",
                 author=author,
             )
+        if instance.funnel_stage != old_stage:
+            StatusHistory.objects.create(
+                organization=instance.organization, account=instance, kind=StatusHistory.Kind.FUNNEL,
+                old_value=old_stage, new_value=instance.funnel_stage, reason=funnel_reason,
+                author=author,
+            )
+        if instance.contact_source_mode != old_mode:
+            from .services.contacts import apply_call_priorities
+
+            apply_call_priorities(instance)
         return instance
 
 
@@ -307,6 +427,13 @@ class AccountServiceSerializer(serializers.ModelSerializer):
     billing_provider = serializers.CharField(source="account.provider_short_name", read_only=True)
     schema_label = serializers.SerializerMethodField()
     rating_label = serializers.SerializerMethodField()
+    assigned_name = serializers.CharField(source="account.assigned_to.display_name", default="", read_only=True)
+    ownership_type_name = serializers.CharField(source="account.ownership_type_name", read_only=True)
+    housing_object = serializers.CharField(source="account.acc_category_full", read_only=True)
+    subj_count = serializers.IntegerField(source="account.subj_count", read_only=True)
+    account_months = serializers.IntegerField(source="account.months_debt", read_only=True)
+    scenario_brief = serializers.SerializerMethodField()
+    obligation_total = serializers.SerializerMethodField()
 
     class Meta:
         model = AccountService
@@ -322,6 +449,17 @@ class AccountServiceSerializer(serializers.ModelSerializer):
     def get_rating_label(self, obj) -> str:
         account = obj.account
         return _rating_label(account.rating, account.rating_repeat)
+
+    def get_scenario_brief(self, obj) -> str:
+        cache = self.context.setdefault("_published_scenarios", {})
+        try:
+            obj.account.scenario_run
+        except ObjectDoesNotExist:
+            published_scenario(obj.account.organization_id, cache)
+        return scenario_brief(obj.account, cache)
+
+    def get_obligation_total(self, obj) -> str:
+        return _add_money(obj.balance_out, obj.balance_mulct_out)
 
     def validate(self, attrs):
         group = attrs.get("debt_group_manual")
@@ -415,6 +553,16 @@ class ContactSerializer(serializers.ModelSerializer):
         if registration is not None and account is not None and registration.account_id != account.pk:
             raise serializers.ValidationError({"registration": "Лицо зарегистрировано на другом лицевом счёте"})
         return attrs
+
+    def create(self, validated_data):
+        validated_data["source"] = Contact.Source.PM
+        validated_data.pop("priority", None)
+        contact = super().create(validated_data)
+        from .services.contacts import apply_call_priorities
+
+        apply_call_priorities(contact.account)
+        contact.refresh_from_db()
+        return contact
 
 
 class BalanceHistorySerializer(serializers.ModelSerializer):
