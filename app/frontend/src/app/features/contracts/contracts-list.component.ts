@@ -259,8 +259,10 @@ const COLUMN_LABELS: Record<string, string> = {
             <tr mat-row *matRowDef="let row; columns: supplierColumns" class="clickable-row" (click)="openSupplier(row)"></tr>
           </table>
           </div>
-          @if (summary() && !(summary()?.suppliers.length)) {
-            <p class="hint">Нет лицевых счетов с задолженностью по видимым услугам.</p>
+          @if (summary(); as board) {
+            @if (!board.suppliers.length) {
+              <p class="hint">Нет лицевых счетов с задолженностью по видимым услугам.</p>
+            }
           }
         }
         @if (error()) { <p class="status-failed">{{ error() }}</p> }
@@ -1045,7 +1047,7 @@ export class ContractsListComponent implements OnInit {
 
   protected providerLabel(): string {
     const id = Number(this.provider.value);
-    const row = this.summary()?.suppliers.find((item) => item.provider_id === id);
+    const row = this.summary()?.suppliers?.find((item) => item.provider_id === id);
     return row?.name || this.provider.value;
   }
 
