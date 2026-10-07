@@ -486,8 +486,10 @@ interface GroupSection {
           <app-calendar-board
             [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="canLaunch()"
             [supplier]="supplierContour()" [templates]="templates()" [serviceChoices]="serviceChoices()"
+            captionTail="мероприятия по делам" [selectedGroups]="groupsSelected.value"
             (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
-            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)" />
+            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)"
+            (groupsChange)="applyCalendarGroups($event)" />
         }
       </div>
 
@@ -966,6 +968,10 @@ export class AccountsListComponent implements OnInit {
   togglePanel(event: Event): void {
     event.stopPropagation();
     this.panelOpen.update((open) => !open);
+  }
+
+  applyCalendarGroups(groups: number[]): void {
+    this.groupsSelected.setValue(groups);
   }
 
   toggleGroup(group: number): void {

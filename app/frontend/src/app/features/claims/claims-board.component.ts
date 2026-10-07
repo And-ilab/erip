@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormControl, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -149,7 +149,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
       @if (mode() === 'calendar') {
         <app-calendar-board
           [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="false"
-          (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openClaimEvent($event)" />
+          captionTail="мероприятия по делам" [selectedGroups]="filter.groups"
+          (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openClaimEvent($event)"
+          (groupsChange)="applyCalendarGroups($event)" />
       }
 
       @if (mode() === 'charts') {
@@ -453,7 +455,8 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly error = signal('');
   protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('list');
-  private filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
+  @ViewChild(RegistryFilterComponent) private registryFilter?: RegistryFilterComponent;
+  protected filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
   protected readonly chartQuery = signal<Record<string, string | number>>({});
   protected readonly pickerOpen = signal(false);
   protected spanFrom = monthStart();
@@ -634,6 +637,10 @@ export class ClaimsBoardComponent implements OnInit {
 
   protected stageLabel(id: string): string {
     return this.funnel.find((item) => item.id === (id || 'new'))?.label || 'Новый должник';
+  }
+
+  protected applyCalendarGroups(groups: number[]): void {
+    this.registryFilter?.setGroups(groups);
   }
 
   protected onFilter(query: RegistryFilterQuery): void {

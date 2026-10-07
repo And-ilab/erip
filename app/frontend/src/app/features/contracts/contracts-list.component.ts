@@ -435,8 +435,10 @@ const COLUMN_LABELS: Record<string, string> = {
           <app-calendar-board
             [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="auth.canWrite()"
             [supplier]="auth.me()?.contour === 'supplier'" [templates]="templates()" [serviceChoices]="serviceChoices()"
+            captionTail="мероприятия по договорам" [selectedGroups]="groups.value"
             (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
-            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)" />
+            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)"
+            (groupsChange)="applyCalendarGroups($event)" />
         }
         @if (view() === 'grouped') {
           <div class="list-pane groups">
@@ -963,6 +965,10 @@ export class ContractsListComponent implements OnInit {
   togglePanel(event: Event): void {
     event.stopPropagation();
     this.panelOpen.update((open) => !open);
+  }
+
+  applyCalendarGroups(groups: number[]): void {
+    this.groups.setValue(groups);
   }
 
   toggleGroup(group: number): void {

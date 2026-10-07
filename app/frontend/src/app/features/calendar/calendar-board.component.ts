@@ -1,6 +1,7 @@
-import { Component, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, EventEmitter, HostListener, Input, OnChanges, OnInit, Output, SimpleChanges, inject } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
+import { ApiService } from '../../core/api.service';
 import { CalendarEvent, MessageTemplate, ServiceChoice } from '../../core/models';
 
 export type CalendarMode = 'day' | 'week' | 'month' | 'year';
@@ -35,6 +36,21 @@ const KINDS = [
   { id: 'collection', label: 'Взыскание' },
   { id: 'scenario', label: 'Смена сценария' },
 ];
+const TYPE_BOXES = [
+  { id: 'call', label: 'Автообзвон' },
+  { id: 'notice', label: 'Уведомления (e-mail)' },
+  { id: 'warning', label: 'Предупреждения' },
+  { id: 'disconnect', label: 'Отключение услуг' },
+  { id: 'collection', label: 'Испол. надпись / иск / ОПИ' },
+];
+const DEFAULT_BANDS = [
+  { group: 1, label: 'Группа 1 · до 2 месяцев' },
+  { group: 2, label: 'Группа 2 · 2–3 месяца' },
+  { group: 3, label: 'Группа 3 · 3–6 месяцев' },
+  { group: 4, label: 'Группа 4 · 6–12 месяцев' },
+  { group: 5, label: 'Группа 5 · 1–3 года' },
+  { group: 6, label: 'Группа 6 · свыше 3 лет' },
+];
 
 /** Цвет плашки календаря мероприятий: вид, а не срочность. */
 export function measureKindBucket(event: CalendarEvent): string {
@@ -59,6 +75,7 @@ interface DayCell {
   imports: [ReactiveFormsModule],
   host: { '[class.events]': 'showEvents' },
   template: `
+    <div class="cal-main">
     @if (chrome === 'inline') {
       <div class="inline-bar">
         <div class="nav">
@@ -256,6 +273,35 @@ interface DayCell {
         }
       }
     }
+    </div>
+
+    @if (showEvents) {
+      <aside class="cal-side">
+        <section class="side-card">
+          <h4>Группы задолженности</h4>
+          @for (item of bands; track item.group) {
+            <button type="button" class="legend" [class.on]="groupOn(item.group)" (click)="toggleLegend(item.group)">
+              <i class="dot g{{ item.group }}"></i>
+              <span>{{ item.label }}</span>
+              <b>{{ groupCount(item.group) }}</b>
+            </button>
+          }
+        </section>
+        <section class="side-card">
+          <h4>Тип мероприятия</h4>
+          @for (item of typeBoxes; track item.id) {
+            <label class="kind-line">
+              <input type="checkbox" [checked]="kindEnabled(item.id)" (change)="toggleKind(item.id)" />
+              <span>{{ item.label }}</span>
+            </label>
+          }
+        </section>
+        <section class="side-card">
+          <h4>Подсказка</h4>
+          <p>Мероприятия и дедлайны, жёстко определённые законодательством, отображаются в календаре по датам. Цвет соответствует группе задолженности дела.</p>
+        </section>
+      </aside>
+    }
 
     @if (drawer) {
       <div class="scrim" (click)="drawer = false"></div>
@@ -372,7 +418,38 @@ interface DayCell {
     .ev.k-other { background: #eef2f5; color: #3d4a57; }
     .ev .label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ev.overdue { box-shadow: inset 3px 0 0 #c62828; }
-    :host.events { display: flex; flex-direction: column; min-height: 0; }
+    :host.events {
+      display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; min-width: 0;
+    }
+    .cal-main { min-width: 0; }
+    .cal-side { display: flex; flex-direction: column; gap: 12px; }
+    .side-card {
+      background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; padding: 14px 14px 12px;
+      box-shadow: 0 1px 2px rgba(16, 42, 67, .04);
+    }
+    .side-card h4 {
+      margin: 0 0 10px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #8b95a1; font-weight: 700;
+    }
+    .side-card p { margin: 0; color: #6b7280; font-size: 12px; line-height: 1.45; }
+    .cal-side .legend, .cal-side .kind-line {
+      display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 8px; padding: 0;
+      border: 0; background: transparent; font: inherit; font-size: 13px; color: #1f2933; text-align: left;
+    }
+    .cal-side .legend:last-child, .cal-side .kind-line:last-child { margin-bottom: 0; }
+    .cal-side .legend { cursor: pointer; }
+    .cal-side .legend span { flex: 1; min-width: 0; }
+    .cal-side .legend b { margin-left: auto; color: #8b95a1; font-weight: 600; }
+    .cal-side .legend.on span { color: var(--erip-primary); font-weight: 700; }
+    .cal-side .dot { width: 10px; height: 10px; margin: 0; border-radius: 2px; flex: 0 0 auto; display: block; }
+    .cal-side .dot.g1 { background: #22a35a; }
+    .cal-side .dot.g2 { background: #3b78e0; }
+    .cal-side .dot.g3 { background: #e09a2b; }
+    .cal-side .dot.g4 { background: #e15b5b; }
+    .cal-side .dot.g5 { background: #f97316; }
+    .cal-side .dot.g6 { background: #7f1d1d; }
+    .kind-line { cursor: pointer; }
+    .kind-line input { accent-color: #2563eb; width: 15px; height: 15px; }
+    @media (max-width: 960px) { :host.events { grid-template-columns: 1fr; } }
     :host.events .month-block {
       flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0;
       background: #fff; border: 1px solid #e6ebf0; border-radius: 8px; overflow: hidden;
@@ -478,7 +555,7 @@ interface DayCell {
     @media (max-width: 1100px) { .year { grid-template-columns: repeat(2, 1fr); } .week { grid-template-columns: repeat(2, 1fr); } }
   `],
 })
-export class CalendarBoardComponent implements OnChanges {
+export class CalendarBoardComponent implements OnChanges, OnInit {
   @Input() events: CalendarEvent[] = [];
   @Input() from = '';
   @Input() to = '';
@@ -487,16 +564,19 @@ export class CalendarBoardComponent implements OnChanges {
   @Input() supplier = false;
   @Input() templates: MessageTemplate[] = [];
   @Input() serviceChoices: ServiceChoice[] = [];
-  /** drawer — правая панель реестров ЛС и договоров. inline — шапка календаря мероприятий. */
-  @Input() chrome: 'drawer' | 'inline' = 'drawer';
+  /** inline — шапка и сетка как на макете. drawer — старая панель выбора диапазона. */
+  @Input() chrome: 'drawer' | 'inline' = 'inline';
   /** В клетке месяца и недели — плашки мероприятий, а не сводка «N событий». */
-  @Input() showEvents = false;
+  @Input() showEvents = true;
   @Input() captionTail = '';
+  /** Группы, уже выбранные сквозным фильтром реестра. */
+  @Input() selectedGroups: number[] = [];
   @Output() readonly modeChange = new EventEmitter<CalendarMode>();
   @Output() readonly spanChange = new EventEmitter<{ from: string; to: string }>();
   @Output() readonly openEvent = new EventEmitter<CalendarEvent>();
   @Output() readonly createEvent = new EventEmitter<CalendarDraft>();
   @Output() readonly filters = new EventEmitter<void>();
+  @Output() readonly groupsChange = new EventEmitter<number[]>();
 
   protected readonly modes = [
     { id: 'day' as const, label: 'День' },
@@ -507,6 +587,8 @@ export class CalendarBoardComponent implements OnChanges {
   protected readonly weekdays = WEEKDAYS;
   protected readonly months = MONTHS;
   protected readonly kinds = KINDS;
+  protected readonly typeBoxes = TYPE_BOXES;
+  protected bands = DEFAULT_BANDS;
   protected readonly today = iso(new Date());
   protected drawer = false;
   protected draft = '';
@@ -524,12 +606,28 @@ export class CalendarBoardComponent implements OnChanges {
   protected readonly scenarioName = new FormControl('', { nonNullable: true });
   protected readonly assignee = new FormControl('', { nonNullable: true });
   protected readonly services = new FormControl<string[]>([], { nonNullable: true });
+  private readonly api = inject(ApiService);
   private index = new Map<string, CalendarEvent[]>();
   private pickerBrowsing = false;
+  private readonly kindsOn = new Set(TYPE_BOXES.map((item) => item.id));
 
   @HostListener('document:keydown.escape')
   closeOnEscape(): void {
     this.drawer = false;
+  }
+
+  ngOnInit(): void {
+    this.api.debtGroups().subscribe({
+      next: (page) => {
+        const rows = [...page.results].sort((left, right) => left.group - right.group);
+        if (!rows.length) return;
+        this.bands = rows.map((row) => ({
+          group: row.group,
+          label: `Группа ${row.group} · ${row.name}`,
+        }));
+      },
+      error: () => undefined,
+    });
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -583,7 +681,41 @@ export class CalendarBoardComponent implements OnChanges {
   }
 
   protected named(date: string): CalendarEvent[] {
-    return this.on(date).filter((event) => (event.title || '').trim().length > 0);
+    return this.on(date).filter((event) => (event.title || '').trim().length > 0 && this.kindPasses(event));
+  }
+
+  protected kindEnabled(id: string): boolean {
+    return this.kindsOn.has(id);
+  }
+
+  protected toggleKind(id: string): void {
+    if (this.kindsOn.has(id)) this.kindsOn.delete(id);
+    else this.kindsOn.add(id);
+  }
+
+  protected groupOn(group: number): boolean {
+    return this.selectedGroups.includes(group);
+  }
+
+  protected toggleLegend(group: number): void {
+    const next = this.groupOn(group)
+      ? this.selectedGroups.filter((item) => item !== group)
+      : [...this.selectedGroups, group].sort((left, right) => left - right);
+    this.groupsChange.emit(next);
+  }
+
+  protected groupCount(group: number): number {
+    let total = 0;
+    for (const rows of this.index.values()) {
+      total += rows.filter((event) => event.debt_group === group && this.kindPasses(event) && (event.title || '').trim()).length;
+    }
+    return total;
+  }
+
+  private kindPasses(event: CalendarEvent): boolean {
+    if (!this.showEvents) return true;
+    const bucket = measureKindBucket(event);
+    return bucket === 'other' || this.kindsOn.has(bucket);
   }
 
   protected preview(date: string): CalendarEvent[] {
