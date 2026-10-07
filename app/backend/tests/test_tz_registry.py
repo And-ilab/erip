@@ -85,7 +85,10 @@ def test_pm_contact_survives_ais_refresh_and_dial_prefers_mobile(org_a, account_
     PortfolioRefresher().refresh_account(account_a)
     pm = Contact.objects.get(source=Contact.Source.PM)
     assert pm.value == "+375291110000"
-    assert Contact.objects.filter(source=Contact.Source.AIS, value=account_a.contact_phone).exists()
+    pm.refresh_from_db()
+    assert pm.priority == 1
+    ais_phone = Contact.objects.get(source=Contact.Source.AIS, value=account_a.contact_phone)
+    assert ais_phone.priority == 1
     picked = choose_phone(account_a, date(2026, 9, 26))
     assert picked.value == "+375291110000"
 

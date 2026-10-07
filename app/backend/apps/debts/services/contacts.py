@@ -34,25 +34,39 @@ def apply_call_priorities(account: Account) -> None:
         contacts.exclude(priority=1).update(priority=1)
 
 
+def contacts_for_dial(account: Account, kinds: list[str]):
+    """В обзвон и рассылку попадает только источник, выбранный режимом."""
+    mode = account.contact_source_mode or "combined"
+    qs = account.contacts.filter(kind__in=kinds)
+    if mode == "pm":
+        return qs.filter(source=Contact.Source.PM)
+    if mode == "ais":
+        return qs.filter(source=Contact.Source.AIS)
+    return qs
+
+
 def choose_phone(account: Account, on_date: date | None = None, at: time | None = None) -> Contact | None:
     today = date.today()
     on_date = on_date or today
     settings = CalculationSettings.load()
-    mode = account.contact_source_mode or "combined"
-    qs = account.contacts.filter(kind__in=[Contact.Kind.MOBILE, Contact.Kind.CITY])
-    if mode == "pm":
-        qs = qs.filter(source=Contact.Source.PM)
-    elif mode == "ais":
-        qs = qs.filter(source=Contact.Source.AIS)
+    qs = contacts_for_dial(account, [Contact.Kind.MOBILE, Contact.Kind.CITY])
     hour = at.hour if at is not None else (datetime.now().hour if on_date == today else None)
     day_from, weekdays = _dial_rule(account, settings)
     mobile_only = on_date.weekday() in weekdays or on_date.day >= day_from
     if hour is not None and _mobile_hours(hour, settings.dial_mobile_from_hour, settings.dial_mobile_to_hour):
         mobile_only = True
-    ordered = qs.order_by("-priority", "kind")
+    ordered = qs.order_by("-priority", "kind", "id")
     if mobile_only:
         return ordered.filter(kind=Contact.Kind.MOBILE).first()
     return ordered.first()
+
+
+def choose_email(account: Account) -> Contact | None:
+    ordered = contacts_for_dial(account, [Contact.Kind.EMAIL]).order_by("-priority", "id")
+    for contact in ordered:
+        if "@" in contact.value:
+            return contact
+    return None
 
 
 def _dial_rule(account: Account, settings: CalculationSettings) -> tuple[int, list[int]]:

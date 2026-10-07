@@ -162,13 +162,16 @@ import {
         @if (auth.canWrite()) {
         <div class="filters">
           <mat-form-field>
-            <mat-label>Источник обзвона</mat-label>
-            <mat-select [(ngModel)]="contactMode" (selectionChange)="saveProfile()">
-              <mat-option value="pm">Только ПМ</mat-option>
-              <mat-option value="ais">Только АИС</mat-option>
-              <mat-option value="combined">Комбинированный</mat-option>
+            <mat-label>Режим автообзвона</mat-label>
+            <mat-select [(ngModel)]="contactMode" (selectionChange)="saveMode()">
+              <mat-option value="pm">Только контакты ПМ</mat-option>
+              <mat-option value="ais">Только контакты АИС «Расчет-ЖКУ»</mat-option>
+              <mat-option value="combined">ПМ и АИС</mat-option>
             </mat-select>
           </mat-form-field>
+        </div>
+        <p class="muted">Приоритет ставит режим: выбранный источник получает 1, другой — 0. Телефон и e-mail добавляются отдельно, без источника и без приоритета.</p>
+        <div class="filters">
           <mat-form-field>
             <mat-label>Лицо</mat-label>
             <mat-select [(ngModel)]="contactPersonId">
@@ -177,26 +180,24 @@ import {
             </mat-select>
           </mat-form-field>
           <mat-form-field><mat-label>Телефон или e-mail</mat-label><input matInput [(ngModel)]="contactValue" /></mat-form-field>
-          <mat-form-field><mat-label>Приоритет</mat-label><input matInput type="number" [(ngModel)]="contactPriority" /></mat-form-field>
           <mat-form-field>
             <mat-label>Тип</mat-label>
             <mat-select [(ngModel)]="contactKind">
               <mat-option value="mobile">Мобильный</mat-option>
               <mat-option value="city">Городской</mat-option>
               <mat-option value="email">E-mail</mat-option>
-              <mat-option value="messenger">Мессенджер</mat-option>
             </mat-select>
           </mat-form-field>
-          <button mat-stroked-button (click)="addContact()">Добавить</button>
+          <button mat-stroked-button (click)="addContact()">Добавить контакт</button>
         </div>
         }
         @if (contacts().length) {
         <div class="list-pane lines">
         @for (contact of contacts(); track contact.id) {
           <p>
-            {{ contact.person_name || 'счёт' }} · {{ contact.kind }} · {{ contact.value }} · приоритет {{ contact.priority }}
-            · {{ contact.source === 'ais' ? 'АИС «Расчет-ЖКУ»' : 'внесено в ПМ' }}
-            {{ contact.ais_updated_at | date: 'dd.MM.yyyy' }}
+            {{ contact.person_name || 'счёт' }} · {{ contactKindLabel(contact.kind) }} · {{ contact.value }} · приоритет {{ contact.priority }}
+            · {{ contactSourceLabel(contact.source) }}
+            @if (contact.source === 'ais' && contact.ais_updated_at) { {{ contact.ais_updated_at | date: 'dd.MM.yyyy' }} }
             @if (auth.canWrite() && contact.source === 'pm') {
               <button mat-button (click)="editContact(contact)">Изменить</button>
               <button mat-button (click)="removeContact(contact)">Удалить</button>
@@ -295,7 +296,6 @@ export class ContractDetailComponent implements OnInit {
   protected reason = '';
   protected contactMode = 'combined';
   protected contactValue = '';
-  protected contactPriority = 1;
   protected contactKind = 'mobile';
   protected categoryId: number | null = null;
   protected residence = '';
@@ -359,12 +359,21 @@ export class ContractDetailComponent implements OnInit {
     });
   }
 
+  contactKindLabel(kind: string): string {
+    const labels: Record<string, string> = { mobile: 'Мобильный', city: 'Городской', email: 'E-mail' };
+    return labels[kind] || kind;
+  }
+
+  contactSourceLabel(source: string): string {
+    return source === 'ais' ? 'АИС «Расчет-ЖКУ»' : 'ПМ';
+  }
+
   addContact(): void {
     const account = this.account();
     if (!account || !this.contactValue.trim()) return;
     this.api.saveContact({
       account: account.id, registration: this.contactPersonId, kind: this.contactKind,
-      value: this.contactValue.trim(), priority: this.contactPriority,
+      value: this.contactValue.trim(),
     }).subscribe({
       next: () => {
         this.contactValue = '';
@@ -380,8 +389,11 @@ export class ContractDetailComponent implements OnInit {
       this.snack.open('Введите новое значение в поле контакта', 'OK');
       return;
     }
-    this.api.saveContact({ id: contact.id, kind: this.contactKind, value, priority: this.contactPriority }).subscribe({
-      next: () => this.load(),
+    this.api.saveContact({ id: contact.id, kind: contact.kind, value }).subscribe({
+      next: () => {
+        this.contactValue = '';
+        this.load();
+      },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
@@ -389,6 +401,18 @@ export class ContractDetailComponent implements OnInit {
   removeContact(contact: ContactRow): void {
     this.api.deleteContact(contact.id).subscribe({
       next: () => this.load(),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  saveMode(): void {
+    const account = this.account();
+    if (!account || (account.contact_source_mode || 'combined') === this.contactMode) return;
+    this.api.updateAccount(account.id, { contact_source_mode: this.contactMode }).subscribe({
+      next: (updated) => {
+        this.account.set(updated);
+        this.api.accountContacts(updated.id).subscribe((page) => this.contacts.set(page.results));
+      },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }

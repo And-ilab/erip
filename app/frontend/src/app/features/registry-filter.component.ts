@@ -18,7 +18,7 @@ const STAGES = [
   { id: 'prevention', label: 'Автообзвон/уведомления' },
   { id: 'warning', label: 'Предупреждение вручено' },
   { id: 'disconnect', label: 'Отключение услуг' },
-  { id: 'enforcement', label: 'Испол. надпись / иск' },
+  { id: 'enforcement', label: 'Исполнительная надпись / иск' },
   { id: 'court', label: 'ОПИ' },
   { id: 'closed', label: 'Не должник' },
 ];

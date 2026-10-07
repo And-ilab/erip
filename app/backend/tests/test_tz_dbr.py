@@ -344,6 +344,10 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
     account_a.debt_group_manual = 5
     account_a.debt_group_manual_reason = "Комиссия"
     account_a.save(update_fields=["payer_identifier", "funnel_stage", "debt_group", "debt_group_manual", "debt_group_manual_reason"])
+    gas = account_a.services.get()
+    gas.debt_group_manual = 5
+    gas.debt_group_manual_reason = "Комиссия"
+    gas.save(update_fields=["debt_group_manual", "debt_group_manual_reason"])
     AccountService.objects.create(
         organization=org_a, account=account_a, service_list_id=8, service_id=18,
         service_name="Свет", balance_out=Decimal("20"),
@@ -358,6 +362,37 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
     assert warning["cards"][0]["service_count"] == 2
     assert "penalty" in warning["cards"][0]
     assert "due_on" in warning["cards"][0]
+
+
+def test_account_board_lists_contract_fields(api, specialist_a, account_a):
+    row = api(specialist_a).get("/api/v1/accounts/").json()["results"][0]
+    assert row["services_debt_count"] == 1
+    assert row["service_lines"][0]["service_list_id"] == 1
+    assert "periods" in row["service_lines"][0]
+    AccountService.objects.create(
+        organization=account_a.organization, account=account_a, service_list_id=2, service_id=11,
+        service_name="Вода", balance_out=Decimal("40"), balance_mulct_out=Decimal("5"), debt_period=2,
+    )
+    grouped = api(specialist_a).get("/api/v1/accounts/grouped/", {"group_by": "debt_group"}).json()
+    assert grouped
+    row = grouped[0]
+    assert row["services"] == 2
+    assert Decimal(row["debt"]) == Decimal("150.00")
+    assert Decimal(row["penalty"]) == Decimal("5")
+
+
+def test_supplier_kanban_follows_his_service_group(api, org_a, account_a):
+    supplier, water = _supplier(org_a, account_a)
+    account_a.funnel_stage = "enforcement"
+    account_a.save(update_fields=["funnel_stage"])
+    water.debt_group = 1
+    water.save(update_fields=["debt_group"])
+    columns = api(supplier).get("/api/v1/contracts/kanban/").json()
+    prevention = next(column for column in columns if column["stage"] == "prevention")
+    enforcement = next(column for column in columns if column["stage"] == "enforcement")
+    assert any(account_a.id in card["account_ids"] for card in prevention["cards"])
+    assert all(account_a.id not in card["account_ids"] for card in enforcement["cards"])
+    assert prevention["cards"][0]["service_lines"]
 
 
 def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, specialist_a, observer_a, account_a):
@@ -514,7 +549,7 @@ def test_account_kanban_exposes_card_marks(api, specialist_a, account_a):
     titles = [column["title"] for column in columns]
     assert titles[:6] == [
         "Новый должник", "Автообзвон/уведомления", "Предупреждение вручено",
-        "Отключение услуг", "Испол. надпись / иск", "ОПИ",
+        "Отключение услуг", "Исполнительная надпись / иск", "ОПИ",
     ]
     warning = next(column for column in columns if column["stage"] == "warning")
     card = warning["cards"][0]
@@ -537,6 +572,8 @@ def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, special
         format="json",
     )
     assert created.status_code == 201
+    assert created.json()["source"] == "pm"
+    assert created.json()["priority"] == 1
     assert created.json()["person_name"].startswith("Иванов")
     service = account_a.services.get()
     measure = api(specialist_a).post(
@@ -562,6 +599,87 @@ def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, special
     account_a.refresh_from_db()
     assert account_a.legal_status == "liquidation"
     assert account_a.bankruptcy is True
+
+
+def test_dial_mode_sets_priority_and_the_form_cannot(api, specialist_a, account_a):
+    """Источник и приоритет задаёт режим автообзвона, а не поля формы контакта."""
+    from apps.debts.services.contacts import choose_email
+    from apps.debts.services.measures import email_for
+
+    ais_phone = Contact.objects.create(
+        organization=account_a.organization, account=account_a, kind=Contact.Kind.MOBILE,
+        value="+375291000001", source=Contact.Source.AIS, priority=7,
+    )
+    ais_mail = Contact.objects.create(
+        organization=account_a.organization, account=account_a, kind=Contact.Kind.EMAIL,
+        value="ais@example.com", source=Contact.Source.AIS, priority=7,
+    )
+    created = api(specialist_a).post(
+        "/api/v1/contacts/",
+        {
+            "account": account_a.id, "kind": "email", "value": "pm@example.com",
+            "priority": 4, "source": "ais",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    body = created.json()
+    assert body["source"] == "pm"
+    assert body["priority"] == 1
+    ais_phone.refresh_from_db()
+    ais_mail.refresh_from_db()
+    assert ais_phone.priority == 1
+    assert ais_mail.priority == 1
+
+    only_pm = api(specialist_a).patch(
+        f"/api/v1/accounts/{account_a.id}/", {"contact_source_mode": "pm"}, format="json",
+    )
+    assert only_pm.status_code == 200
+    account_a.refresh_from_db()
+    ais_phone.refresh_from_db()
+    pm = Contact.objects.get(pk=body["id"])
+    assert pm.priority == 1
+    assert ais_phone.priority == 0
+    assert choose_phone(account_a) is None
+    assert choose_email(account_a).value == "pm@example.com"
+    assert email_for(account_a) == "pm@example.com"
+
+    only_ais = api(specialist_a).patch(
+        f"/api/v1/accounts/{account_a.id}/", {"contact_source_mode": "ais"}, format="json",
+    )
+    assert only_ais.status_code == 200
+    account_a.refresh_from_db()
+    ais_phone.refresh_from_db()
+    pm.refresh_from_db()
+    ais_mail.refresh_from_db()
+    assert ais_phone.priority == 1
+    assert ais_mail.priority == 1
+    assert pm.priority == 0
+    assert choose_phone(account_a).value == "+375291000001"
+    assert choose_email(account_a).value == "ais@example.com"
+    assert email_for(account_a) == "ais@example.com"
+
+    rewritten = api(specialist_a).patch(
+        f"/api/v1/contacts/{pm.id}/",
+        {"value": "pm2@example.com", "priority": 9, "source": "ais"},
+        format="json",
+    )
+    assert rewritten.status_code == 200, rewritten.content
+    assert rewritten.json()["source"] == "pm"
+    assert rewritten.json()["priority"] == 0
+    assert rewritten.json()["value"] == "pm2@example.com"
+    locked = api(specialist_a).patch(
+        f"/api/v1/contacts/{ais_phone.id}/", {"priority": 3, "value": "+375291000099"}, format="json",
+    )
+    assert locked.status_code == 400
+    ais_phone.refresh_from_db()
+    assert ais_phone.priority == 1
+    assert ais_phone.value == "+375291000001"
+
+    unknown = api(specialist_a).patch(
+        f"/api/v1/accounts/{account_a.id}/", {"contact_source_mode": "manual"}, format="json",
+    )
+    assert unknown.status_code == 400
 
 
 def test_supplier_without_organizations_sees_nothing(api, org_a, account_a):

@@ -1,6 +1,6 @@
 import csv
 
-from django.db.models import Count, Max, Min, Q, Sum
+from django.db.models import Count, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -61,7 +61,7 @@ FUNNEL_STAGES = [
     ("prevention", "Автообзвон/уведомления"),
     ("warning", "Предупреждение вручено"),
     ("disconnect", "Отключение услуг"),
-    ("enforcement", "Испол. надпись / иск"),
+    ("enforcement", "Исполнительная надпись / иск"),
     ("court", "ОПИ"),
     ("closed", "Не должник"),
 ]
@@ -70,19 +70,24 @@ ACCOUNT_COLUMNS = [
     "payer_identifier", "payer_unp", "unified_account", "rating_label", "funnel_stage",
     "debt_started_on", "debt_total", "mulct_total", "obligation_total", "effective_group", "scenario_brief",
     "assigned_name", "ownership_type_name", "acc_category_full", "months_debt", "subj_count", "registered_count",
+    "services_debt_count", "contract_number", "contract_date", "service_provider",
+    "initial_principal", "initial_penalty", "period_balances", "repayment_due_on", "last_payment_date",
 ]
 COLUMN_MARK = "__explicit"
 CONTRACT_PERSON_COLUMNS = [
     "payer", "payer_identifier", "payer_unp", "rating_label", "funnel_stage", "ls_count",
     "principal", "penalty", "obligation", "effective_group", "assigned_name", "ownership_type_name",
-    "housing_object", "months_debt", "subj_count", "earliest", "category",
+    "housing_object", "months_debt", "subj_count", "registered_count", "services_debt_count", "earliest",
+    "contract_number", "contract_date", "service_provider", "initial_principal", "initial_penalty",
+    "period_balances", "repayment_due_on", "last_payment_date", "category",
 ]
 CONTRACT_SERVICE_COLUMNS = [
     "payer", "payer_identifier", "payer_unp", "account_number", "rating_label", "funnel_stage",
     "service_name", "service_list_id", "start_date", "shot_name", "billing_provider", "schema_label",
     "balance_out", "balance_mulct_out", "obligation_total", "initial_principal", "initial_penalty",
-    "debt_started_on", "repayment_due_on", "last_payment_date", "effective_group", "scenario_brief",
-    "assigned_name", "ownership_type_name", "housing_object", "debt_period", "subj_count", "category_name",
+    "period_balances", "debt_started_on", "repayment_due_on", "last_payment_date", "effective_group",
+    "scenario_brief", "assigned_name", "ownership_type_name", "housing_object", "debt_period",
+    "subj_count", "registered_count", "category_name",
 ]
 
 
@@ -142,12 +147,91 @@ def _supplier_ids(user):
     return AccessScope(user).provider_ids()
 
 
+def _debt_services_filter(user):
+    """Услуги с остатком долга или пени. Поставщик считает только свои."""
+    condition = Q(services__balance_out__gt=0) | Q(services__balance_mulct_out__gt=0) | Q(services__overdue_debt__gt=0)
+    providers = _supplier_ids(user)
+    if providers is None:
+        return condition
+    return condition & Q(services__provider_id__in=providers or [-1])
+
+
 def _debt_sum(user):
     """В группировке поставщик суммирует сальдо своих услуг, а не общий долг лицевого счёта."""
     providers = _supplier_ids(user)
     if providers is None:
         return Sum("balance_out")
     return Sum("services__balance_out", filter=Q(services__provider_id__in=providers or [-1]))
+
+
+def _penalty_sum(user):
+    providers = _supplier_ids(user)
+    if providers is None:
+        return Sum("services__balance_mulct_out")
+    return Sum("services__balance_mulct_out", filter=Q(services__provider_id__in=providers or [-1]))
+
+
+def _line_join(lines, key: str) -> str:
+    parts = []
+    for line in lines or []:
+        value = line.get(key)
+        if value not in (None, ""):
+            parts.append(str(value))
+    return "; ".join(parts)
+
+
+def _period_join(lines) -> str:
+    parts = []
+    for line in lines or []:
+        name = line.get("service_name") or str(line.get("service_list_id") or "")
+        for period in line.get("periods") or []:
+            parts.append(
+                f"{name} {period.get('period')}: долг {period.get('principal') or 0}, пеня {period.get('penalty') or 0}"
+            )
+    return "; ".join(parts)
+
+
+def _group_rows(qs, field, user):
+    """Долг лицевого счёта и суммы по услугам считаются разными запросами.
+
+    Один JOIN к услугам умножил бы `balance_out` счёта на число услуг.
+    """
+    money = qs.values(field).annotate(
+        accounts=Count("id", distinct=True),
+        debt=_debt_sum(user),
+    ).order_by(field)
+    extras = {
+        row[field]: row
+        for row in qs.values(field).annotate(
+            penalty=_penalty_sum(user),
+            services=Count("services", filter=_debt_services_filter(user), distinct=True),
+        )
+    }
+    packed = []
+    for row in money:
+        extra = extras.get(row[field], {})
+        packed.append({
+            "raw": row[field],
+            "accounts": row["accounts"],
+            "services": extra.get("services") or 0,
+            "debt": row["debt"] or 0,
+            "penalty": extra.get("penalty") or 0,
+        })
+    return packed
+
+
+def _service_board_prefetch(user):
+    """Услуги и периоды текущей страницы грида или канбана. Поставщик видит только свои."""
+    from django.db.models import Prefetch
+
+    services = AccountService.objects.order_by("service_name", "id")
+    providers = _supplier_ids(user)
+    if providers is not None:
+        services = services.filter(provider_id__in=providers or [-1])
+    services = services.prefetch_related(
+        Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period")),
+    )
+    return Prefetch("services", queryset=services)
 
 
 def _services_for(user, account):
@@ -218,6 +302,8 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         qs = super().get_queryset().select_related("organization")
         if self.action in {"list", "export", "kanban", "calendar"}:
             qs = AccountRepository(qs).registry()
+        if self.action in {"list", "export", "kanban"}:
+            qs = qs.prefetch_related(_service_board_prefetch(self.request.user))
         providers = _supplier_ids(self.request.user)
         # Суммы по услугам нужны строке списка. На карте и в группировке они
         # добавляют GROUP BY по лицевому счёту, и один населённый пункт
@@ -471,31 +557,30 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def grouped(self, request):
-        from django.db.models import Count, Sum
         from django.db.models.functions import Coalesce, TruncMonth
 
         key = request.query_params.get("group_by") or "debt_group"
         qs = self.filter_queryset(self.get_queryset())
-        debt = _debt_sum(request.user)
         if key == "period":
-            rows = (
-                qs.annotate(bucket=TruncMonth("debt_started_on"))
-                .values("bucket")
-                .annotate(accounts=Count("id"), debt=debt)
-                .order_by("bucket")
-            )
+            rows = _group_rows(qs.annotate(bucket=TruncMonth("debt_started_on")), "bucket", request.user)
             return Response([
-                {"value": row["bucket"].isoformat() if row["bucket"] else "", "accounts": row["accounts"], "debt": row["debt"]}
+                {
+                    "value": row["raw"].isoformat() if row["raw"] else "",
+                    "accounts": row["accounts"], "services": row["services"],
+                    "debt": row["debt"], "penalty": row["penalty"],
+                }
                 for row in rows
             ])
         if key == "specialist":
             from apps.debts.services.assignees import specialist_label
 
-            qs = qs.annotate(specialist_name=specialist_label())
-            field = "specialist_name"
-            rows = qs.values(field).annotate(accounts=Count("id", distinct=True), debt=debt).order_by(field)
+            rows = _group_rows(qs.annotate(specialist_name=specialist_label()), "specialist_name", request.user)
             return Response([
-                {"value": (row[field] or "").strip(), "accounts": row["accounts"], "debt": row["debt"]}
+                {
+                    "value": (row["raw"] or "").strip(),
+                    "accounts": row["accounts"], "services": row["services"],
+                    "debt": row["debt"], "penalty": row["penalty"],
+                }
                 for row in rows
             ])
         fields = {
@@ -514,10 +599,13 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             raise ValidationError({"group_by": "Неизвестное поле группировки"})
         if key == "debt_group":
             qs = qs.annotate(sort_group=Coalesce("debt_group_manual", "debt_group"))
-        rows = qs.values(field).annotate(accounts=Count("id", distinct=True), debt=debt).order_by(field)
         return Response([
-            {"value": "" if row[field] is None else str(row[field]), "accounts": row["accounts"], "debt": row["debt"]}
-            for row in rows
+            {
+                "value": "" if row["raw"] is None else str(row["raw"]),
+                "accounts": row["accounts"], "services": row["services"],
+                "debt": row["debt"], "penalty": row["penalty"],
+            }
+            for row in _group_rows(qs, field, request.user)
         ])
 
     @action(detail=False)
@@ -545,10 +633,14 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             "Обслуживающая организация", "Адрес",
             "ФИО плательщика / Наименование юридического лица", "Идентификационный номер (ИН)",
             "Учётный номер плательщика (УНП)",
-            "Рейтинг должника", "Дата возникновения", "Сумма основного долга", "Сумма пени", "Сумма задолженности",
+            "Рейтинг должника", "Наиболее ранний период возникновения долга", "Сумма основного долга", "Сумма пени",
+            "Суммарный долг по всем услугам ЛС",
             "Группа задолженности", "Сценарий", "Этап воронки взыскания",
             "Закреплённый специалист", "Тип собственности", "Тип объекта жилфонда", "Кол-во месяцев долга",
-            "Кол-во проживающих", "Кол-во зарегистрированных",
+            "Кол-во проживающих", "Кол-во зарегистрированных", "Количество услуг с задолженностью",
+            "Номер договора", "Дата договора", "Поставщик услуги",
+            "Первоначальная сумма задолженности", "Первоначальная сумма пени",
+            "Остатки задолженности и пени по периодам", "Срок погашения по договору", "Дата последней оплаты",
         ]
         writer.writerow(headers)
         stage_titles = dict(FUNNEL_STAGES)
@@ -565,6 +657,15 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 account.months_debt if account.months_debt is not None else "",
                 account.subj_count if account.subj_count is not None else "",
                 packed.get("registered_count") if packed.get("registered_count") is not None else "",
+                packed.get("services_debt_count") or 0,
+                _line_join(packed.get("service_lines"), "service_list_id"),
+                _line_join(packed.get("service_lines"), "start_date"),
+                _line_join(packed.get("service_lines"), "shot_name"),
+                _line_join(packed.get("service_lines"), "initial_principal"),
+                _line_join(packed.get("service_lines"), "initial_penalty"),
+                _period_join(packed.get("service_lines")),
+                _line_join(packed.get("service_lines"), "repayment_due_on"),
+                _line_join(packed.get("service_lines"), "last_payment_date"),
             ])
         return response
 
@@ -655,7 +756,16 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     queryset = AccountService.objects.select_related(
         "account", "account__debtor_category", "account__organization", "account__assigned_to",
         "account__scenario_run__scenario",
-    )
+    ).annotate(
+        registered_count=Coalesce(Subquery(
+            Registration.objects.filter(account_id=OuterRef("account_id"))
+            .order_by()
+            .values("account_id")
+            .annotate(total=Count("id"))
+            .values("total"),
+            output_field=IntegerField(),
+        ), 0),
+    ).prefetch_related("debt_periods")
     serializer_class = AccountServiceSerializer
     permission_classes = [RolePermission]
     scope_organization_field = "organization"
@@ -705,7 +815,8 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
 
         page_size = bounded_int(request.query_params.get("page_size"), 50, maximum=200, field="page_size")
         page = bounded_int(request.query_params.get("page"), 1, field="page")
-        total, rows = person_page(self._visible(), page, page_size)
+        supplier = getattr(request.user, "contour", "") == "supplier"
+        total, rows = person_page(self._visible(), page, page_size, supplier=supplier)
         return Response({"count": total, "results": rows})
 
     @action(detail=False)
@@ -714,7 +825,8 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
 
         page_size = bounded_int(request.query_params.get("page_size"), 100, maximum=200, field="page_size")
         page = bounded_int(request.query_params.get("page"), 1, field="page")
-        return Response(kanban_columns(self._visible(), FUNNEL_STAGES, page, page_size))
+        supplier = getattr(request.user, "contour", "") == "supplier"
+        return Response(kanban_columns(self._visible(), FUNNEL_STAGES, page, page_size, supplier=supplier))
 
     @action(detail=False, methods=["post"])
     def stage(self, request):
@@ -773,19 +885,27 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     def grouped(self, request):
         key = request.query_params.get("group_by") or "debt_group"
         qs = self._visible()
+        owed = Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0)
+        totals = {
+            "accounts": Count("account", distinct=True),
+            "services": Count("id", filter=owed),
+            "debt": Sum("balance_out"),
+            "penalty": Sum("balance_mulct_out"),
+        }
         if key == "period":
             from django.db.models.functions import TruncMonth
 
             rows = (
                 qs.annotate(bucket=TruncMonth("debt_started_on"))
                 .values("bucket")
-                .annotate(accounts=Count("account", distinct=True), debt=Sum("balance_out"), penalty=Sum("balance_mulct_out"))
+                .annotate(**totals)
                 .order_by("bucket")
             )
             return Response([
                 {
                     "value": row["bucket"].isoformat() if row["bucket"] else "",
-                    "accounts": row["accounts"], "debt": row["debt"], "penalty": row["penalty"],
+                    "accounts": row["accounts"], "services": row["services"],
+                    "debt": row["debt"], "penalty": row["penalty"],
                 }
                 for row in rows
             ])
@@ -800,6 +920,7 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
         else:
             fields = {
                 "provider": "shot_name",
+                "schema": "account__organization__name",
                 "category": "account__debtor_category__name",
                 "billing": "account__provider_short_name",
                 "ownership": "account__ownership_type_name",
@@ -810,13 +931,12 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
             field = fields.get(key)
             if field is None:
                 raise ValidationError({"group_by": "Неизвестное поле группировки"})
-        rows = qs.values(field).annotate(
-            accounts=Count("account", distinct=True), debt=Sum("balance_out"), penalty=Sum("balance_mulct_out"),
-        ).order_by(field)
+        rows = qs.values(field).annotate(**totals).order_by(field)
         return Response([
             {
                 "value": "" if row[field] is None else str(row[field]),
-                "accounts": row["accounts"], "debt": row["debt"], "penalty": row["penalty"],
+                "accounts": row["accounts"], "services": row["services"],
+                "debt": row["debt"], "penalty": row["penalty"],
             }
             for row in rows
         ])

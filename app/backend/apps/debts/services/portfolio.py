@@ -275,6 +275,9 @@ class PortfolioRefresher:
                 contact.ais_updated_at = now
                 contact.registration = person
                 contact.save(update_fields=["ais_updated_at", "registration", "updated_at"])
+        from apps.debts.services.contacts import apply_call_priorities
+
+        apply_call_priorities(account)
 
     def _history_balances(self, account: Account) -> None:
         from apps.debts.models import ServiceDebtPeriod

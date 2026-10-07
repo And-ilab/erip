@@ -118,14 +118,34 @@ def _parse_time(value, field: str = "time_from") -> time | None:
 
 def phone_for_call(account: Account, on_date: date | None, at) -> str:
     contact = choose_phone(account, on_date, at)
-    raw = contact.value if contact else (account.contact_phone or account.phone or "")
+    if contact is not None:
+        return belarus_phone(contact.value)
+    mode = account.contact_source_mode or "combined"
+    if mode == "pm":
+        return ""
+    phones = account.contacts.filter(kind__in=["mobile", "city"])
+    if mode == "ais":
+        phones = phones.filter(source="ais")
+    if phones.exists():
+        return ""
+    raw = account.contact_phone or account.phone or ""
     return belarus_phone(raw)
 
 
 def email_for(account: Account) -> str:
-    contact = account.contacts.filter(kind="email").order_by("-priority", "id").first()
-    if contact and "@" in contact.value:
+    from apps.debts.services.contacts import choose_email
+
+    contact = choose_email(account)
+    if contact is not None:
         return contact.value.strip()
+    mode = account.contact_source_mode or "combined"
+    if mode == "pm":
+        return ""
+    emails = account.contacts.filter(kind="email")
+    if mode == "ais":
+        emails = emails.filter(source="ais")
+    if emails.exists():
+        return ""
     payer = account.registrations.exclude(email="").filter(subj_is_main=True).order_by("id").first()
     if payer is None:
         payer = account.registrations.exclude(email="").order_by("id").first()

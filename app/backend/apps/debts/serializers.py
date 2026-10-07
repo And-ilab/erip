@@ -177,9 +177,14 @@ class AccountListSerializer(serializers.ModelSerializer):
         return _add_money(getattr(obj, "debt_total", None), getattr(obj, "mulct_total", None))
 
     def to_representation(self, instance):
+        from .services.board_lines import board_service_lines
+
         data = super().to_representation(instance)
         data = _supplier_totals(instance, data)
         data["obligation_total"] = _add_money(data.get("debt_total"), data.get("mulct_total"))
+        lines, debt_count = board_service_lines(instance.services.all())
+        data["service_lines"] = lines
+        data["services_debt_count"] = debt_count
         return data
 
 
@@ -302,6 +307,11 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         assigned = attrs.get("assigned_to", getattr(self.instance, "assigned_to", None))
         if assigned is not None and not assigned.is_superadmin and assigned.organization_id != self.instance.organization_id:
             raise serializers.ValidationError({"assigned_to": "Специалист другой схемы"})
+        mode = attrs.get("contact_source_mode")
+        if mode is not None and mode not in {"pm", "ais", "combined"}:
+            raise serializers.ValidationError({
+                "contact_source_mode": "Режим автообзвона: только ПМ, только АИС или оба источника",
+            })
         return attrs
 
     def update(self, instance, validated_data):
@@ -434,6 +444,9 @@ class AccountServiceSerializer(serializers.ModelSerializer):
     account_months = serializers.IntegerField(source="account.months_debt", read_only=True)
     scenario_brief = serializers.SerializerMethodField()
     obligation_total = serializers.SerializerMethodField()
+    registered_count = serializers.IntegerField(read_only=True)
+    periods = serializers.SerializerMethodField()
+    ais_account_id = serializers.IntegerField(source="account.account_id", read_only=True)
 
     class Meta:
         model = AccountService
@@ -451,12 +464,19 @@ class AccountServiceSerializer(serializers.ModelSerializer):
         return _rating_label(account.rating, account.rating_repeat)
 
     def get_scenario_brief(self, obj) -> str:
+        if obj.scenario_name:
+            return obj.scenario_name
         cache = self.context.setdefault("_published_scenarios", {})
         try:
             obj.account.scenario_run
         except ObjectDoesNotExist:
             published_scenario(obj.account.organization_id, cache)
         return scenario_brief(obj.account, cache)
+
+    def get_periods(self, obj) -> list:
+        from .services.board_lines import period_rows
+
+        return period_rows(obj)
 
     def get_obligation_total(self, obj) -> str:
         return _add_money(obj.balance_out, obj.balance_mulct_out)
@@ -528,11 +548,13 @@ class RegistrationSerializer(serializers.ModelSerializer):
 
 class ContactSerializer(serializers.ModelSerializer):
     person_name = serializers.SerializerMethodField()
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    source_display = serializers.CharField(source="get_source_display", read_only=True)
 
     class Meta:
         model = Contact
         exclude = ["raw"]
-        read_only_fields = ["organization", "source", "ais_updated_at", "import_job"]
+        read_only_fields = ["organization", "source", "priority", "ais_updated_at", "import_job"]
 
     def get_person_name(self, obj) -> str:
         return str(obj.registration) if obj.registration_id else ""
@@ -558,11 +580,21 @@ class ContactSerializer(serializers.ModelSerializer):
         validated_data["source"] = Contact.Source.PM
         validated_data.pop("priority", None)
         contact = super().create(validated_data)
+        self._apply_mode(contact)
+        return contact
+
+    def update(self, instance, validated_data):
+        validated_data.pop("priority", None)
+        validated_data.pop("source", None)
+        contact = super().update(instance, validated_data)
+        self._apply_mode(contact)
+        return contact
+
+    def _apply_mode(self, contact):
         from .services.contacts import apply_call_priorities
 
         apply_call_priorities(contact.account)
         contact.refresh_from_db()
-        return contact
 
 
 class BalanceHistorySerializer(serializers.ModelSerializer):
