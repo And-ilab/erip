@@ -36,7 +36,7 @@ export class BynSignComponent {}
   imports: [BynSignComponent],
   template: `
     @if (text(); as shown) {
-      <span class="money-figure">{{ shown }}<app-byn-sign /></span>
+      <span class="money-figure">{{ shown }}@if (sign()) { <app-byn-sign /> }</span>
     } @else {
       {{ empty() }}
     }
@@ -52,6 +52,8 @@ export class MoneyComponent {
   readonly empty = input('—');
   /** Пустое значение — прочерк без знака. Ноль остаётся суммой. */
   readonly blank = input(true);
+  /** Знак валюты у числа. В реестре ЛС валюту показывает заголовок столбца. */
+  readonly sign = input(true);
   /** Крупные суммы на графиках: «12,5 тыс.» и знак. */
   readonly compact = input(false);
 

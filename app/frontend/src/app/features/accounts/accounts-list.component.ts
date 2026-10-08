@@ -13,7 +13,7 @@ import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { MoneyComponent } from '../../core/money.component';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
@@ -57,6 +57,10 @@ const LABELS: Record<string, string> = {
   funnel_stage: 'Этап воронки взыскания',
 };
 
+const MONEY_COLUMNS = new Set([
+  'debt_total', 'mulct_total', 'obligation_total', 'initial_principal', 'initial_penalty', 'period_balances',
+]);
+
 const BASE_COLUMNS = [
   'client_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
   'rating_label', 'funnel_stage', 'debt_total', 'mulct_total', 'obligation_total', 'effective_group',
@@ -89,7 +93,7 @@ interface GroupSection {
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
-    CalendarBoardComponent, RegistryViewsComponent, MoneyComponent,
+    CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent,
   ],
   template: `
     <div class="registry">
@@ -325,7 +329,9 @@ interface GroupSection {
             @for (name of columns(); track name) {
               <ng-container [matColumnDef]="name">
                 <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)"
-                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)">{{ label(name) }}</th>
+                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)">
+                  {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }
+                </th>
                 <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'">
                   @switch (name) {
                     @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
@@ -334,9 +340,9 @@ interface GroupSection {
                     @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
                     @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
                     @case ('scenario_brief') { {{ short(r.scenario_brief) }} }
-                    @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
-                    @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
-                    @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" /> }
+                    @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" [sign]="false" /> }
+                    @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" [sign]="false" /> }
+                    @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" [sign]="false" /> }
                     @default { {{ boardCell(r, name) }} }
                   }
                 </td>
@@ -362,7 +368,7 @@ interface GroupSection {
               <thead>
                 <tr>
                   @for (name of shownColumns(); track name) {
-                    <th>{{ name === 'select' ? '' : label(name) }}</th>
+                    <th>@if (name !== 'select') { {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> } }</th>
                   }
                 </tr>
               </thead>
@@ -393,9 +399,9 @@ interface GroupSection {
                               @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
                               @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
                               @case ('scenario_brief') { {{ short(r.scenario_brief) }} }
-                              @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" /> }
-                              @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" /> }
-                              @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" /> }
+                              @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" [sign]="false" /> }
+                              @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" [sign]="false" /> }
+                              @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" [sign]="false" /> }
                               @default { {{ boardCell(r, name) }} }
                             }
                           </td>
@@ -678,6 +684,7 @@ interface GroupSection {
     .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .picked-count { font-size: 13px; color: var(--erip-primary); white-space: nowrap; }
     th[draggable="true"] { cursor: grab; }
+    th app-byn-sign { margin-left: 0.28em; }
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
@@ -905,6 +912,10 @@ export class AccountsListComponent implements OnInit {
 
   label(name: string): string {
     return LABELS[name] ?? name;
+  }
+
+  protected moneyColumn(name: string): boolean {
+    return MONEY_COLUMNS.has(name);
   }
 
   stageLabel(id: string): string {
