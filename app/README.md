@@ -181,7 +181,7 @@ python scripts/smoke_e2e.py --backend http://127.0.0.1:8000 --gateway http://127
   - `serviceId`, `typeId` и `docType` — по справочникам БНП;
   - документы только `.pdf`, не более 15 МБ.
 
-  Справочники извлекаются из `Справочники БНП.docx` скриптом `scripts/extract_bnp_dictionaries.py`.
+  Справочники извлекаются из `Справочники БНП.docx` скриптом `scripts/extract_bnp_dictionaries.py`. Рабочая карта кабинета, манифеста и услуг ЖКУ — `docs/tz/BNP_INTEGRATION.md`.
 - Проверочные эндпоинты: `/gw/v1/integrations/pris/echo`, `/pris/claimant-info`, `/pris/save-data-debt/validate`, `/bnp/validate`, `/bnp/dictionaries`.
 
 ### Логи и ошибки
