@@ -88,7 +88,7 @@ cd frontend; npm install; npm start
 ## Тесты и проверки
 
 ```bash
-cd app/backend && pytest --cov=apps        # 201 тест
+cd app/backend && pytest --cov=apps        # 204 теста
 cd app/gateway && pytest --cov=app         # 37 тестов
 cd app && ruff check backend gateway scripts
 cd app/frontend && npx ng build
