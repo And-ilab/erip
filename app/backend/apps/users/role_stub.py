@@ -18,22 +18,21 @@ def stub_role_choices() -> list[dict]:
     return [{"id": code, "label": label} for code, label, _role, _contour in STUB_ROLES]
 
 
-def issue_stub_user(code: str) -> User:
+def bind_role(user: User, code: str) -> User:
+    """Ставит выбранную роль и контур. Пароль не трогает."""
     spec = next((item for item in STUB_ROLES if item[0] == code), None)
     if spec is None:
         raise KeyError(code)
     _code, label, role, contour = spec
-    username = f"stub-{code.replace('_', '-')}"
-    user, _created = User.objects.get_or_create(username=username, defaults={"role": role, "contour": contour})
     user.role = role
     user.contour = contour
     user.is_active = True
     user.is_staff = False
     user.is_superuser = False
+    user.can_approve = False
     user.first_name = label
     user.last_name = ""
     user.middle_name = ""
-    user.set_unusable_password()
     if role == User.Role.SUPERADMIN:
         user.organization = None
         user.save()
@@ -55,6 +54,17 @@ def issue_stub_user(code: str) -> User:
     else:
         user.service_organizations.clear()
     return user
+
+
+def issue_stub_user(code: str) -> User:
+    spec = next((item for item in STUB_ROLES if item[0] == code), None)
+    if spec is None:
+        raise KeyError(code)
+    _code, _label, role, contour = spec
+    username = f"stub-{code.replace('_', '-')}"
+    user, _created = User.objects.get_or_create(username=username, defaults={"role": role, "contour": contour})
+    user.set_unusable_password()
+    return bind_role(user, code)
 
 
 def _busiest_supplier(organization) -> ServiceOrganization | None:

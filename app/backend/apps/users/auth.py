@@ -55,12 +55,30 @@ class CookieTokenObtainPairView(TokenObtainPairView):
     throttle_scope = "login"
 
     def post(self, request, *args, **kwargs):
+        data = request.data if isinstance(request.data, dict) else {}
+        username = str(data.get("username") or "")
+        from apps.users.role_testers import is_role_tester
+
+        if is_role_tester(username):
+            return self._tester_gate(username.strip(), str(data.get("password") or ""))
         response = super().post(request, *args, **kwargs)
         refresh = response.data.get("refresh")
         if refresh:
             _set_refresh_cookie(response, refresh)
             response.data.pop("refresh")
         return response
+
+    def _tester_gate(self, username: str, password: str) -> Response:
+        from apps.users.models import User
+        from apps.users.role_testers import issue_ticket, role_choices
+
+        user = User.objects.filter(username__iexact=username, is_active=True).first()
+        if user is None or not user.check_password(password):
+            return Response(
+                error_body("invalid_credentials", "Неверный логин или пароль"),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return Response({"choose_role": True, "roles": role_choices(), "ticket": issue_ticket(user)})
 
 
 class CookieTokenRefreshView(APIView):
@@ -125,6 +143,32 @@ class PasswordChangeView(APIView):
         revoke_all_refresh_tokens(request.user)
         response = Response(status=status.HTTP_204_NO_CONTENT)
         response.delete_cookie(settings.AUTH_COOKIE_NAME, path="/api/v1/auth/")
+        return response
+
+
+class RoleChoiceView(APIView):
+    """После пароля тестовой учётной записи выдаёт сессию уже в выбранной роли."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
+    def post(self, request):
+        from apps.users.role_testers import apply_tester_role, user_from_ticket
+
+        data = request.data if isinstance(request.data, dict) else {}
+        try:
+            user = user_from_ticket(str(data.get("ticket") or ""))
+            user = apply_tester_role(user, str(data.get("role") or ""))
+        except KeyError:
+            raise ValidationError({"role": "Неизвестная роль"}) from None
+        except ValueError as exc:
+            message = "Время выбора роли истекло, войдите снова" if str(exc) == "expired" else "Подтверждение входа недействительно"
+            raise ValidationError({"ticket": message}) from None
+        refresh = RefreshToken.for_user(user)
+        response = Response({"access": str(refresh.access_token)})
+        _set_refresh_cookie(response, str(refresh))
         return response
 
 

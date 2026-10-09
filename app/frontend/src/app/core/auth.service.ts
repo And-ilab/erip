@@ -5,6 +5,13 @@ import { Observable, catchError, map, of, switchMap, tap } from 'rxjs';
 
 import { Me } from './models';
 
+export interface LoginGate {
+  access?: string;
+  choose_role?: boolean;
+  ticket?: string;
+  roles?: { id: string; label: string }[];
+}
+
 const ACCESS_KEY = 'erip.access';
 const LEGACY_REFRESH_KEY = 'erip.refresh';
 
@@ -35,8 +42,17 @@ export class AuthService {
     return this.access;
   }
 
-  login(username: string, password: string): Observable<Me> {
-    return this.http.post<{ access: string }>('/api/v1/auth/token/', { username, password }).pipe(
+  login(username: string, password: string): Observable<LoginGate> {
+    return this.http.post<LoginGate>('/api/v1/auth/token/', { username, password }).pipe(
+      tap((body) => {
+        if (body.access) this.storeAccess(body.access);
+      }),
+      switchMap((body) => (body.access ? this.loadMe().pipe(map(() => body)) : of(body))),
+    );
+  }
+
+  chooseRole(ticket: string, role: string): Observable<Me> {
+    return this.http.post<{ access: string }>('/api/v1/auth/role-choice/', { ticket, role }).pipe(
       tap((tokens) => this.storeAccess(tokens.access)),
       switchMap(() => this.loadMe()),
     );

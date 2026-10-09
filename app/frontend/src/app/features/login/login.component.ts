@@ -18,6 +18,18 @@ import { AuthService } from '../../core/auth.service';
       <mat-card class="card">
         <mat-card-header><mat-card-title>Вход в ПМ «Работа с задолженностью»</mat-card-title></mat-card-header>
         <mat-card-content class="columns">
+          @if (roleTicket()) {
+            <div class="roles">
+              <p class="muted">{{ pendingUser() }}. Выберите роль для этой сессии.</p>
+              @for (role of accountRoles(); track role.id) {
+                <button type="button" mat-stroked-button class="full-width" [disabled]="loading()" (click)="pick(role.id)">
+                  {{ role.label }}
+                </button>
+              }
+              <button type="button" mat-button class="full-width" [disabled]="loading()" (click)="back()">Другой логин</button>
+              @if (error()) { <p class="status-failed">{{ error() }}</p> }
+            </div>
+          } @else {
           <form [formGroup]="form" (ngSubmit)="submit()">
             <mat-form-field class="full-width">
               <mat-label>Логин</mat-label>
@@ -30,7 +42,8 @@ import { AuthService } from '../../core/auth.service';
             @if (error()) { <p class="status-failed">{{ error() }}</p> }
             <button mat-flat-button color="primary" class="full-width" [disabled]="form.invalid || loading()">Войти</button>
           </form>
-          @if (roles().length) {
+          }
+          @if (roles().length && !roleTicket()) {
             <div class="roles">
               <p class="muted">Временный вход без пароля</p>
               @for (role of roles(); track role.id) {
@@ -63,6 +76,9 @@ export class LoginComponent implements OnInit {
   protected readonly loading = signal(false);
   protected readonly error = signal('');
   protected readonly roles = signal<{ id: string; label: string }[]>([]);
+  protected readonly accountRoles = signal<{ id: string; label: string }[]>([]);
+  protected readonly roleTicket = signal('');
+  protected readonly pendingUser = signal('');
 
   ngOnInit(): void {
     this.auth.stubRoles().subscribe({
@@ -88,11 +104,39 @@ export class LoginComponent implements OnInit {
     this.loading.set(true);
     this.error.set('');
     this.auth.login(username, password).subscribe({
-      next: () => this.router.navigate(['/accounts']),
+      next: (body) => {
+        if (body.choose_role && body.ticket && body.roles?.length) {
+          this.loading.set(false);
+          this.pendingUser.set(username.trim());
+          this.roleTicket.set(body.ticket);
+          this.accountRoles.set(body.roles);
+          return;
+        }
+        this.router.navigate(['/accounts']);
+      },
       error: (e) => {
         this.loading.set(false);
         this.error.set(e.status === 401 ? 'Неверный логин или пароль' : errorMessage(e));
       },
     });
+  }
+
+  pick(role: string): void {
+    this.loading.set(true);
+    this.error.set('');
+    this.auth.chooseRole(this.roleTicket(), role).subscribe({
+      next: () => this.router.navigate(['/accounts']),
+      error: (e) => {
+        this.loading.set(false);
+        this.error.set(errorMessage(e));
+      },
+    });
+  }
+
+  back(): void {
+    this.roleTicket.set('');
+    this.accountRoles.set([]);
+    this.pendingUser.set('');
+    this.error.set('');
   }
 }
