@@ -11,7 +11,8 @@ import { MatTableModule } from '@angular/material/table';
 import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
+import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
@@ -790,6 +791,7 @@ export class AccountsListComponent implements OnInit {
   protected readonly territoryId = signal<number | null>(null);
   protected readonly territoryName = signal('');
   protected readonly columns = signal<string[]>([...BASE_COLUMNS]);
+  protected readonly columnOrder = signal<string[]>([...BASE_COLUMNS]);
   protected readonly catalog = signal<string[]>([...BASE_COLUMNS]);
   protected readonly columnsOpen = signal(false);
   protected readonly board = signal<KanbanColumn[]>([]);
@@ -887,12 +889,7 @@ export class AccountsListComponent implements OnInit {
       else if (this.view() === 'grouped') this.reload(1);
     });
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
-    this.api.columns().subscribe((prefs) => {
-      const allowed = prefs.available.length ? prefs.available : [...BASE_COLUMNS];
-      const names = prefs.columns.filter((name) => allowed.includes(name));
-      this.catalog.set(allowed);
-      if (names.length) this.columns.set(names);
-    });
+    this.api.columns().subscribe((prefs) => this.applyColumns(prefs));
     this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results));
     this.api.specialists().subscribe({
       next: (rows) => this.specialists.set(rows),
@@ -1250,11 +1247,12 @@ export class AccountsListComponent implements OnInit {
   }
 
   protected toggleColumn(name: string): void {
-    const current = this.columns();
-    const next = current.includes(name) ? current.filter((item) => item !== name) : [...current, name];
-    if (!next.length) return;
-    this.columns.set(next);
-    this.api.saveColumns(next).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
+    const current = { order: this.columnOrder(), visible: this.columns() };
+    const next = current.visible.includes(name)
+      ? hideColumn(current, name)
+      : showColumn(current, this.catalog(), name);
+    if (next === current || !next.visible.length) return;
+    this.rememberColumns(next.visible, next.order);
   }
 
   protected startColumn(event: DragEvent, name: string): void {
@@ -1273,14 +1271,26 @@ export class AccountsListComponent implements OnInit {
     const from = this.draggedColumn;
     this.draggedColumn = '';
     if (!from || from === name) return;
-    const columns = [...this.columns()];
-    const source = columns.indexOf(from);
-    const target = columns.indexOf(name);
-    if (source < 0 || target < 0) return;
-    columns.splice(source, 1);
-    columns.splice(target, 0, from);
-    this.columns.set(columns);
-    this.api.saveColumns(columns).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
+    const next = moveColumn({ order: this.columnOrder(), visible: this.columns() }, from, name);
+    if (next.visible === this.columns()) return;
+    this.rememberColumns(next.visible, next.order);
+  }
+
+  private applyColumns(prefs: ColumnPrefs): void {
+    const allowed = prefs.available.length ? prefs.available : [...BASE_COLUMNS];
+    const names = prefs.columns.filter((name) => allowed.includes(name));
+    this.catalog.set(allowed);
+    const order = resolveColumnOrder(prefs.order ?? [], names, allowed);
+    this.columnOrder.set(order);
+    const shown = new Set(names);
+    const visible = order.filter((name) => shown.has(name));
+    if (visible.length) this.columns.set(visible);
+  }
+
+  private rememberColumns(visible: string[], order: string[]): void {
+    this.columnOrder.set(order);
+    this.columns.set(visible);
+    this.api.saveColumns(visible, order).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
   }
 
   protected startCard(event: DragEvent, card: AccountRow): void {

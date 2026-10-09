@@ -86,6 +86,13 @@ function fieldErrors(details: unknown): string {
     .join('; ');
 }
 
+export interface ColumnPrefs {
+  columns: string[];
+  available: string[];
+  order?: string[];
+  board?: string;
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof HttpErrorResponse) {
     const body = error.error as ApiError | undefined;
@@ -168,20 +175,20 @@ export class ApiService {
     return this.http.get(`${this.base}/accounts/export/`, { params: toParams(params), responseType: 'blob' });
   }
 
-  columns(): Observable<{ columns: string[]; available: string[] }> {
-    return this.http.get<{ columns: string[]; available: string[] }>(`${this.base}/accounts/columns/`);
+  columns(): Observable<ColumnPrefs> {
+    return this.http.get<ColumnPrefs>(`${this.base}/accounts/columns/`);
   }
 
-  saveColumns(columns: string[]): Observable<{ columns: string[]; available: string[] }> {
-    return this.http.put<{ columns: string[]; available: string[] }>(`${this.base}/accounts/columns/`, { columns });
+  saveColumns(columns: string[], order: string[]): Observable<ColumnPrefs> {
+    return this.http.put<ColumnPrefs>(`${this.base}/accounts/columns/`, { columns, order });
   }
 
-  contractColumns(board: 'persons' | 'services'): Observable<{ columns: string[]; available: string[] }> {
-    return this.http.get<{ columns: string[]; available: string[] }>(`${this.base}/contracts/columns/`, { params: toParams({ board }) });
+  contractColumns(board: 'persons' | 'services'): Observable<ColumnPrefs> {
+    return this.http.get<ColumnPrefs>(`${this.base}/contracts/columns/`, { params: toParams({ board }) });
   }
 
-  saveContractColumns(board: 'persons' | 'services', columns: string[]): Observable<{ columns: string[]; available: string[] }> {
-    return this.http.put<{ columns: string[]; available: string[] }>(`${this.base}/contracts/columns/`, { board, columns });
+  saveContractColumns(board: 'persons' | 'services', columns: string[], order: string[]): Observable<ColumnPrefs> {
+    return this.http.put<ColumnPrefs>(`${this.base}/contracts/columns/`, { board, columns, order });
   }
 
   contracts(params: Params): Observable<Page<AccountService>> {

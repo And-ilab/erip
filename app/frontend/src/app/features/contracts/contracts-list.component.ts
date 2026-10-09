@@ -10,7 +10,8 @@ import { MatTableModule } from '@angular/material/table';
 import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
+import { hideColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
@@ -768,8 +769,10 @@ export class ContractsListComponent implements OnInit {
     { id: 'period', label: 'Период возникновения долга' },
   ];
   protected readonly personShown = signal<string[]>([...PERSON_FIELDS]);
+  protected readonly personOrder = signal<string[]>([...PERSON_FIELDS]);
   protected readonly personCatalog = signal<string[]>([...PERSON_FIELDS]);
   protected readonly serviceShown = signal<string[]>([]);
+  protected readonly serviceOrder = signal<string[]>([]);
   protected readonly serviceCatalog = signal<string[]>([]);
   protected readonly columnsOpen = signal(false);
   protected readonly groupChoices = this.contractGroupChoices();
@@ -837,6 +840,7 @@ export class ContractsListComponent implements OnInit {
   ngOnInit(): void {
     const services = this.serviceColumns().filter((name) => name !== 'select');
     this.serviceShown.set(services);
+    this.serviceOrder.set(services);
     this.serviceCatalog.set(services);
     this.loadColumns('persons');
     this.loadColumns('services');
@@ -920,30 +924,46 @@ export class ContractsListComponent implements OnInit {
 
   protected toggleColumn(name: string): void {
     const services = this.view() === 'services';
-    const current = services ? this.serviceShown() : this.personShown();
-    const next = current.includes(name) ? current.filter((item) => item !== name) : [...current, name];
-    if (!next.length) return;
-    if (services) this.serviceShown.set(next);
-    else this.personShown.set(next);
+    const current = {
+      order: services ? this.serviceOrder() : this.personOrder(),
+      visible: services ? this.serviceShown() : this.personShown(),
+    };
+    const catalog = services ? this.serviceCatalog() : this.personCatalog();
+    const next = current.visible.includes(name) ? hideColumn(current, name) : showColumn(current, catalog, name);
+    if (next === current || !next.visible.length) return;
+    if (services) {
+      this.serviceOrder.set(next.order);
+      this.serviceShown.set(next.visible);
+    } else {
+      this.personOrder.set(next.order);
+      this.personShown.set(next.visible);
+    }
     const board = services ? 'services' : 'persons';
-    this.api.saveContractColumns(board, next).subscribe({ error: (e) => this.error.set(errorMessage(e)) });
+    this.api.saveContractColumns(board, next.visible, next.order).subscribe({ error: (e) => this.error.set(errorMessage(e)) });
   }
 
   private loadColumns(board: 'persons' | 'services'): void {
     this.api.contractColumns(board).subscribe({
-      next: (prefs) => {
-        const allowed = prefs.available;
-        const names = prefs.columns.filter((name) => allowed.includes(name));
-        if (!allowed.length || !names.length) return;
-        if (board === 'services') {
-          this.serviceCatalog.set(allowed);
-          this.serviceShown.set(names);
-        } else {
-          this.personCatalog.set(allowed);
-          this.personShown.set(names);
-        }
-      },
+      next: (prefs) => this.applyBoard(board, prefs),
     });
+  }
+
+  private applyBoard(board: 'persons' | 'services', prefs: ColumnPrefs): void {
+    const allowed = prefs.available;
+    const names = prefs.columns.filter((name) => allowed.includes(name));
+    if (!allowed.length || !names.length) return;
+    const order = resolveColumnOrder(prefs.order ?? [], names, allowed);
+    const shown = new Set(names);
+    const visible = order.filter((name) => shown.has(name));
+    if (board === 'services') {
+      this.serviceCatalog.set(allowed);
+      this.serviceOrder.set(order);
+      this.serviceShown.set(visible);
+    } else {
+      this.personCatalog.set(allowed);
+      this.personOrder.set(order);
+      this.personShown.set(visible);
+    }
   }
 
   stageLabel(id: string): string {

@@ -52,6 +52,7 @@ from .serializers import (
     SavedFilterSerializer,
     StatusHistorySerializer,
 )
+from .services.column_layout import column_layout, save_column_layout
 from .services.contacts import choose_phone
 from .services.registry import GROUP_LIMIT, REGISTRY_STATUSES, annotate_registry, build_matrix
 from .services.territory import TerritoryIndex, TerritoryMap
@@ -73,7 +74,6 @@ ACCOUNT_COLUMNS = [
     "services_debt_count", "contract_number", "contract_date", "service_provider",
     "initial_principal", "initial_penalty", "period_balances", "repayment_due_on", "last_payment_date",
 ]
-COLUMN_MARK = "__explicit"
 CONTRACT_PERSON_COLUMNS = [
     "payer", "payer_identifier", "payer_unp", "rating_label", "funnel_stage", "ls_count",
     "principal", "penalty", "obligation", "effective_group", "assigned_name", "ownership_type_name",
@@ -117,28 +117,10 @@ def _service_column_catalog(user) -> list[str]:
     return [name for name in CONTRACT_SERVICE_COLUMNS if name not in hidden]
 
 
-def _visible_columns(stored: list, allowed: list[str]) -> list[str]:
-    raw = list(stored or [])
-    explicit = COLUMN_MARK in raw
-    chosen = [name for name in raw if name in allowed]
-    if explicit:
-        return chosen or list(allowed)
-    for name in allowed:
-        if name not in chosen:
-            if name == "schema_label":
-                chosen.insert(0, name)
-            else:
-                chosen.append(name)
-    return chosen
-
-
-def _save_columns(pref, payload, allowed: list[str]) -> list[str]:
-    chosen = [name for name in payload if name in allowed]
-    if not chosen:
-        raise ValidationError({"columns": "Оставьте хотя бы один столбец"})
-    pref.columns = [*chosen, COLUMN_MARK]
-    pref.save(update_fields=["columns", "updated_at"])
-    return chosen
+def _remember_columns(pref, request, allowed: list[str]) -> tuple[list[str], list[str]]:
+    if request.method == "PUT":
+        return save_column_layout(pref, request.data.get("columns", []), allowed, request.data.get("order"))
+    return column_layout(pref.columns, allowed)
 
 
 def _supplier_ids(user):
@@ -683,11 +665,8 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         pref, _created = RegistryPreference.objects.get_or_create(
             user=request.user, target="accounts", defaults={"columns": allowed},
         )
-        if request.method == "PUT":
-            chosen = _save_columns(pref, request.data.get("columns", []), allowed)
-        else:
-            chosen = _visible_columns(pref.columns, allowed)
-        return Response({"columns": chosen, "available": allowed})
+        chosen, order = _remember_columns(pref, request, allowed)
+        return Response({"columns": chosen, "available": allowed, "order": order})
 
 
 class _ChildViewSet(ScopedQuerysetMixin, viewsets.ReadOnlyModelViewSet):
@@ -817,11 +796,8 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
         pref, _created = RegistryPreference.objects.get_or_create(
             user=request.user, target=target, defaults={"columns": allowed},
         )
-        if request.method == "PUT":
-            chosen = _save_columns(pref, request.data.get("columns", []), allowed)
-        else:
-            chosen = _visible_columns(pref.columns, allowed)
-        return Response({"columns": chosen, "available": allowed, "board": board})
+        chosen, order = _remember_columns(pref, request, allowed)
+        return Response({"columns": chosen, "available": allowed, "order": order, "board": board})
 
     @action(detail=False)
     def summary(self, request):

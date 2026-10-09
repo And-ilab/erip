@@ -285,7 +285,68 @@ def test_registry_columns_stay_hidden(api, specialist_a, superadmin):
     without = [name for name in root["columns"] if name != "schema_label"]
     kept = api(superadmin).put("/api/v1/accounts/columns/", {"columns": without}, format="json").json()
     assert "schema_label" not in kept["columns"]
+    assert kept["order"][0] == "schema_label"
     assert "schema_label" in api(superadmin).get("/api/v1/accounts/columns/").json()["available"]
+
+
+def test_hidden_column_returns_to_its_place(api, specialist_a):
+    listed = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    original = listed["columns"]
+    hidden_name = original[2]
+    kept = [name for name in original if name != hidden_name]
+    saved = api(specialist_a).put("/api/v1/accounts/columns/", {"columns": kept}, format="json").json()
+    assert saved["columns"] == kept
+    assert saved["order"][2] == hidden_name
+    restored = api(specialist_a).put(
+        "/api/v1/accounts/columns/",
+        {"columns": [*kept, hidden_name]},
+        format="json",
+    ).json()
+    assert restored["columns"] == original
+    assert restored["order"][2] == hidden_name
+
+    order = list(restored["order"])
+    left, parked, right = order[1], order[2], order[3]
+    layout = [order[-1], *order[:-1]]
+    moved_visible = [name for name in layout if name != parked]
+    shifted = api(specialist_a).put(
+        "/api/v1/accounts/columns/",
+        {"columns": moved_visible, "order": layout},
+        format="json",
+    ).json()
+    assert shifted["order"] == layout
+    assert parked not in shifted["columns"]
+    shown = api(specialist_a).put(
+        "/api/v1/accounts/columns/",
+        {"columns": [*moved_visible, parked]},
+        format="json",
+    ).json()
+    place = shown["order"].index(parked)
+    assert shown["order"][place - 1] == left
+    assert shown["order"][place + 1] == right
+    assert shown["columns"][shown["columns"].index(parked) - 1] == left
+    again = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    assert again["columns"] == shown["columns"]
+    assert again["order"] == shown["order"]
+
+    persons = api(specialist_a).get("/api/v1/contracts/columns/", {"board": "persons"}).json()
+    person_columns = persons["columns"]
+    person_hidden = person_columns[4]
+    person_kept = [name for name in person_columns if name != person_hidden]
+    person_saved = api(specialist_a).put(
+        "/api/v1/contracts/columns/",
+        {"board": "persons", "columns": person_kept},
+        format="json",
+    ).json()
+    assert person_saved["columns"] == person_kept
+    assert person_saved["order"][4] == person_hidden
+    person_back = api(specialist_a).put(
+        "/api/v1/contracts/columns/",
+        {"board": "persons", "columns": [*person_kept, person_hidden]},
+        format="json",
+    ).json()
+    assert person_back["columns"] == person_columns
+    assert person_back["order"][4] == person_hidden
 
 
 def test_registry_filters_several_ratings(api, specialist_a, account_a, ready):

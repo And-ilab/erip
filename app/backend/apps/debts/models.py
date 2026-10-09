@@ -954,7 +954,7 @@ class RefreshRequest(AisRecord):
 
 
 class RegistryPreference(TimeStampedModel):
-    """Какие колонки реестра пользователь оставил включёнными."""
+    """Какие колонки реестра включены и в каком порядке, включая скрытые."""
 
     user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="registry_preferences")
     target = models.CharField("Реестр", max_length=20)
