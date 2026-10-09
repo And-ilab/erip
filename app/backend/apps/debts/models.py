@@ -389,6 +389,7 @@ class Registration(AisRecord):
     sex = models.IntegerField("Пол (код)", null=True, blank=True)
     sex_name = models.CharField("Пол", max_length=50, blank=True)
     personal_num = models.CharField("Идентификационный номер паспорта", max_length=100, blank=True)
+    payer_unp = models.CharField("Учетный номер плательщика", max_length=20, blank=True)
     citizenship_name = models.CharField("Гражданство", max_length=250, blank=True)
     email = models.CharField("E-mail", max_length=50, blank=True)
     contact_phone = models.CharField("Контактный телефон", max_length=50, blank=True)

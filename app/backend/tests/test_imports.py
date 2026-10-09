@@ -21,6 +21,9 @@ SPEC_DIR = Path(settings.AIS_SPEC_DIR)
 SAMPLE_DIR = Path(settings.AIS_SAMPLE_DIR)
 needs_spec = pytest.mark.skipif(not SPEC_DIR.is_dir(), reason="Нет каталога «Примеры данных»")
 needs_sample = pytest.mark.skipif(not sample_files(SAMPLE_DIR), reason="Нет каталога fixtures/ais_sample")
+# Колонка отчёта «Регистрация», которой нет в спецификации Oracle.
+REPORT_ONLY_COLUMNS = {("registration", "PAYER_UNP")}
+REPORT_SAMPLE = Path(__file__).resolve().parents[3] / "Тестовая выборка для тестов"
 
 
 def file_of(schema: str, entity: str) -> Path:
@@ -40,6 +43,8 @@ def test_field_map_matches_spec(entity):
     for field_spec in entity_map.specs:
         by_column.setdefault(field_spec.column, []).append(field_spec)
     for column, specs in by_column.items():
+        if (entity, column) in REPORT_ONLY_COLUMNS and column not in occurrences:
+            continue
         assert column in occurrences, f"{entity}: колонки {column!r} нет в спецификации"
         comments = occurrences[column]
         assert len(specs) <= len(comments)
@@ -237,3 +242,78 @@ def test_reload_ais_sample_clears_every_account_then_imports_the_folder(org_a, t
     assert fresh.short_fio == "Новый"
     assert fresh.organization.schema_name == "BR2000"
     assert fresh.organization.name == "Брест"
+
+
+@pytest.mark.django_db
+def test_registration_report_unp_reaches_the_account_registry(org_a):
+    """Отчёт «Регистрация» кладёт УНП юрлица на ЛС, паспорт физлица остаётся ИН."""
+    cards = AisImporter("account", org_a).run(
+        "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;SCHEMA_NAME\n"
+        "403537;501;2250690;schema_a\n386007;501;1;schema_a\n500;501;2;schema_a\n".encode(),
+        "Карточка.csv",
+    )
+    assert cards.created == 3, cards.errors
+    header = (
+        "Код ЛС;Код регистрации лица;Код лица;Фамилия;"
+        "Является плательщиком;Является юридическим лицом;"
+        "Идентификационный номер паспорта;Учетный номер плательщика\n"
+    )
+    rows = (
+        "403537;1;10;ПК;1;1;;7000908838\n"
+        "386007;2;11;ООО;1;1;;201669224\n"
+        "500;3;12;Иванов;1;0;7010180A001PB2;\n"
+    )
+    job = AisImporter("registration", org_a).run((header + rows).encode(), "Регистрация.csv")
+    assert job.rejected == 0, job.errors
+    assert "Учетный номер плательщика" not in job.unknown_columns
+    legal = Account.objects.get(account_id=403537)
+    assert legal.payer_unp == "7000908838"
+    assert legal.payer_identifier == ""
+    assert legal.registrations.get(registration_id=1).payer_unp == "7000908838"
+    assert Account.objects.get(account_id=386007).payer_unp == "201669224"
+    person = Account.objects.get(account_id=500)
+    assert person.payer_identifier == "7010180A001PB2"
+    assert person.payer_unp == ""
+
+
+@pytest.mark.django_db
+def test_legal_payer_unp_falls_back_to_personal_num(org_a):
+    """Ночная выгрузка без колонки УНП по-прежнему берёт его из PERSONAL_NUM юрлица."""
+    cards = AisImporter("account", org_a).run(
+        b"ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;SCHEMA_NAME\n10;501;1;schema_a\n",
+        "a.csv",
+    )
+    assert cards.created == 1, cards.errors
+    body = (
+        "ACCOUNT_ID;REGISTRATION_ID;SUBJ_ID;SUBJ_IS_MAIN;SUBJ_LEGAL_ENTITY;PERSONAL_NUM\n"
+        "10;1;1;1;1;190000001\n"
+    )
+    job = AisImporter("registration", org_a).run(body.encode(), "r.csv")
+    assert job.rejected == 0, job.errors
+    account = Account.objects.get(account_id=10)
+    assert account.payer_unp == "190000001"
+    assert account.payer_identifier == ""
+
+
+@pytest.mark.django_db
+@pytest.mark.skipif(not (REPORT_SAMPLE / "Регистрация.csv").is_file(), reason="Нет тестовой выборки")
+def test_single_word_sample_shows_legal_unp(org_a):
+    """Файлы «Тестовая выборка для тестов» с именами из одного слова."""
+    from apps.imports.parsing import decode
+
+    card = (REPORT_SAMPLE / "Карточка.csv").read_bytes()
+    text, _encoding = decode(card)
+    lines = [line for line in text.splitlines() if line.strip()]
+    headers = [cell.strip() for cell in lines[0].split(";")]
+    schema_at = next(i for i, name in enumerate(headers) if name in {"SCHEMA_NAME", "Код схемы"})
+    org_a.schema_name = lines[1].split(";")[schema_at].strip()
+    org_a.save(update_fields=["schema_name"])
+    cards = AisImporter("account", org_a).run(card, "Карточка.csv")
+    regs = AisImporter("registration", org_a).run(
+        (REPORT_SAMPLE / "Регистрация.csv").read_bytes(), "Регистрация.csv",
+    )
+    assert cards.rejected == 0, cards.errors[:3]
+    assert regs.rejected == 0, regs.errors[:3]
+    assert "Учетный номер плательщика" not in regs.unknown_columns
+    assert Account.objects.get(account_id=403537).payer_unp == "7000908838"
+    assert Account.objects.get(account_id=386007).payer_unp == "201669224"

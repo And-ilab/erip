@@ -218,6 +218,8 @@ REGISTRATION_MAP = EntityMap(
         F("CHECK_OUT_DATE", "check_out_date", "date"),
         F("WORK_PLACE_CAPACITY", "work_place_capacity"),
         F("PERSONAL_NUM", "personal_num"),
+        # В спецификации Oracle колонки нет: её добавляет отчёт «Регистрация».
+        F("PAYER_UNP", "payer_unp"),
         F("IM", "im"),
         F("MAINDOCORGAN", "maindoc_organ"),
         F("SUBJ_ID", "subj_id", "int"),

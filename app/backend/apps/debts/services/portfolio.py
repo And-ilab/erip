@@ -237,11 +237,11 @@ class PortfolioRefresher:
         main = account.registrations.filter(subj_is_main=True).order_by("id").first()
         identifier = ""
         unp = ""
-        if main and main.personal_num:
+        if main:
             if main.subj_legal_entity:
-                unp = main.personal_num
-            else:
-                identifier = main.personal_num
+                unp = (main.payer_unp or main.personal_num or "").strip()
+            elif main.personal_num:
+                identifier = main.personal_num.strip()
         fields = []
         if account.payer_identifier != identifier:
             account.payer_identifier = identifier

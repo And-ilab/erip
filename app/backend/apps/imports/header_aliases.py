@@ -144,6 +144,7 @@ HEADER_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
         "check_out_date": ("Дата убытия",),
         "work_place_capacity": ("Должность",),
         "personal_num": ("Идентификационный номер паспорта",),
+        "payer_unp": ("Учетный номер плательщика",),
         "im": ("Имя",),
         "maindoc_organ": ("Кем выдан",),
         "_account_id": ("Код ЛС",),
