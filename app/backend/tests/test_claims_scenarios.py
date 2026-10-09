@@ -4,12 +4,62 @@ from datetime import date
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 
 from apps.debts.models import AccountScenarioRun, Attachment, DebtWorkItem, Measure
 from apps.nsi.services.scenario_engine import step_template_name
 from apps.notifications.models import MessageTemplate
 
 from .conftest import make_account
+
+
+def _formed_package(api, user, account, case_id):
+    """Собирает пакет и прикладывает файлы ЭЦП, чтобы заглушка отправки могла сработать."""
+    call_command("loaddata", "bnp_dictionaries", verbosity=0)
+    saved = api(user).post(
+        f"/api/v1/claims/{case_id}/package/",
+        {
+            "service_id": 572,
+            "contact_data": "+375291112233",
+            "notification_email": "ivan@example.com",
+            "user_message": "Прошу совершить исполнительную надпись",
+            "debtors": [{
+                "personType": "natural",
+                "personalId": "3230587H066PB5",
+                "secondName": "Иванов",
+                "firstName": "Иван",
+                "middleName": "Иванович",
+            }],
+            "debts": [{"source": "balance", "typeId": "dolg_9_3", "dateAt": "2026-03-01"}],
+        },
+        format="json",
+    )
+    assert saved.status_code == 200, saved.content
+    application = api(user).post(f"/api/v1/claims/{case_id}/package/application/", {}, format="json")
+    assert application.status_code == 200, application.content
+    for doc_type, filename in (("debt_calculation", "raschet.pdf"), ("proxy", "doverennost.pdf")):
+        uploaded = api(user).post(
+            f"/api/v1/claims/{case_id}/package/documents/",
+            {"doc_type": doc_type, "signature_kind": "p7s", "pdf": SimpleUploadedFile(filename, b"%PDF-1.4")},
+            format="multipart",
+        )
+        assert uploaded.status_code == 200, uploaded.content
+    formed = api(user).post(f"/api/v1/claims/{case_id}/package/form/", {}, format="json")
+    assert formed.status_code == 200, formed.content
+    body = formed.json()
+    for doc in body["package"]["documents"]:
+        signed = api(user).post(
+            f"/api/v1/claims/{case_id}/package/documents/",
+            {
+                "doc_type": doc["doc_type"],
+                "doc_id": doc["id"],
+                "signature_kind": "p7s",
+                "signature": SimpleUploadedFile(doc["signature_name"], b"eds"),
+            },
+            format="multipart",
+        )
+        assert signed.status_code == 200, signed.content
+        assert signed.json()["package"]["formed_at"]
 
 
 def _ready(api, user, account):
@@ -34,6 +84,7 @@ def test_notary_is_blocked_without_tariff_and_refusal_opens_lawsuit(api, special
     assert "тариф" in blocked.content.decode() or "вручен" in blocked.content.decode()
 
     _ready(api, specialist_a, account_a)
+    _formed_package(api, specialist_a, account_a, case_id)
     sent = api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
     assert sent.status_code == 200, sent.content
     body = sent.json()
@@ -204,6 +255,7 @@ def test_recovered_waits_for_ais_flag(api, specialist_a, account_a):
 @pytest.mark.django_db
 def test_notary_refusal_needs_a_note_or_a_file(api, specialist_a, account_a):
     case_id = _ready(api, specialist_a, account_a)
+    _formed_package(api, specialist_a, account_a, case_id)
     api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
     empty = api(specialist_a).post(
         f"/api/v1/claims/{case_id}/notary-result/", {"result": "refused", "note": ""}, format="json",

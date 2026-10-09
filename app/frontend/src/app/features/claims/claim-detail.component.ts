@@ -9,6 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
+import { ClaimPackageComponent } from './claim-package.component';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 
@@ -17,7 +18,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   standalone: true,
   imports: [
     FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent,
+    MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimPackageComponent,
   ],
   template: `
     <div class="case">
@@ -74,16 +75,10 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               <mat-form-field class="wide"><mat-label>Нотариальная контора</mat-label>
                 <input matInput value="Справочник контор ещё не подключён" disabled />
               </mat-form-field>
-              <h3>Комплект документов</h3>
-              <ul class="pack">
-                <li [class.ready]="!!warningDate">Предупреждение о задолженности</li>
-                <li class="ready">Расчёт задолженности из АИС</li>
-                <li [class.ready]="Number(tariff) > 0">Нотариальный тариф</li>
-                <li [class.ready]="!!row.submission_id">Заявление на исполнительную надпись</li>
-                <li [class.ready]="hasFile(row, 'calculation')">Файл расчёта с карточки</li>
-                <li [class.ready]="hasFile(row, 'warrant')">Доверенность</li>
-                <li [class.ready]="hasFile(row, 'scan')">Скан постановления или отказа</li>
-              </ul>
+              <h3>Пакет для личного кабинета БНП</h3>
+              @if (row.package) {
+                <app-claim-package [claimId]="row.id" [pack]="row.package" (changed)="replace($event)" />
+              }
               @if (row.files.length) {
                 <ul class="files">
                   @for (file of row.files; track file.id) {
@@ -105,7 +100,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </mat-form-field>
               }
               <div class="actions">
-                <button mat-flat-button color="primary" (click)="saveThenSend()">Сформировать пакет и направить</button>
+                <button mat-flat-button color="primary" (click)="saveThenSend()">Направить нотариусу</button>
                 <button mat-stroked-button (click)="save()">Сохранить черновик</button>
                 <a mat-button routerLink="/claims">Отмена</a>
               </div>
@@ -331,11 +326,18 @@ export class ClaimDetailComponent implements OnInit {
     });
   }
 
+  protected replace(row: ClaimCase): void {
+    this.apply(row);
+  }
+
   protected saveThenSend(): void {
     const row = this.claim();
     if (!row) return;
     this.api.patchClaim(row.id, this.draft()).subscribe({
-      next: () => this.act('send-notary'),
+      next: (next) => {
+        this.apply(next);
+        this.act('send-notary');
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }

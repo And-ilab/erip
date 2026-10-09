@@ -859,6 +859,54 @@ class ClaimCase(AisRecord):
         return f"{self.account_id}:{self.stage}"
 
 
+class ClaimPackage(AisRecord):
+    """Состав заявления в личный кабинет БНП. Отправка в кабинет этим объектом не занимается."""
+
+    case = models.OneToOneField(ClaimCase, on_delete=models.CASCADE, related_name="package", verbose_name="Дело")
+    service_id = models.PositiveIntegerField("Услуга БНП", null=True, blank=True)
+    contact_data = models.CharField("Контактные данные", max_length=500, blank=True)
+    notification_email = models.CharField("E-mail для уведомлений", max_length=250, blank=True)
+    user_message = models.CharField("Сообщение нотариусу", max_length=2000, blank=True)
+    debtors = models.JSONField("Должники", default=list, blank=True)
+    debts = models.JSONField("Задолженность", default=list, blank=True)
+    manifest = models.JSONField("Манифест", default=dict, blank=True)
+    problems = models.JSONField("Замечания сборки", default=list, blank=True)
+    formed_at = models.DateTimeField("Пакет сформирован", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Пакет БНП"
+        verbose_name_plural = "Пакеты БНП"
+
+    def __str__(self) -> str:
+        return f"пакет {self.case_id}"
+
+
+class ClaimPackageDocument(AisRecord):
+    """Документ пакета и отдельный файл ЭЦП (.pdf.sgn или .pdf.p7s)."""
+
+    package = models.ForeignKey(
+        ClaimPackage, on_delete=models.CASCADE, related_name="documents", verbose_name="Пакет",
+    )
+    doc_type = models.CharField("Тип документа БНП", max_length=50)
+    file_name = models.CharField("Имя PDF", max_length=180)
+    signature_name = models.CharField("Имя файла ЭЦП", max_length=190)
+    signer = models.CharField("Кто подписывает", max_length=20, default="applicant")
+    generated = models.BooleanField("Собран в ПМ", default=False)
+    pdf = models.FileField("PDF", upload_to="claims/bnp/%Y/%m/", blank=True)
+    signature = models.FileField("ЭЦП", upload_to="claims/bnp/%Y/%m/", blank=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["package", "file_name"], name="uniq_bnp_package_file"),
+        ]
+        verbose_name = "Документ пакета БНП"
+        verbose_name_plural = "Документы пакета БНП"
+
+    def __str__(self) -> str:
+        return self.file_name
+
+
 class ClaimAct(AisRecord):
     """Акт ОПИ о невозможности взыскания, приложенный к делу."""
 

@@ -462,7 +462,7 @@ const DELIVERY_METHODS = [
 })
 export class MeasureDetailComponent {
   private readonly api = inject(ApiService);
-  private readonly auth = inject(AuthService);
+  protected readonly auth = inject(AuthService);
   private readonly snack = inject(MatSnackBar);
 
   readonly id = input.required<string>();

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from django.db.models.functions import Coalesce
+from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -15,6 +16,15 @@ from apps.core.permissions import RolePermission
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
 from .models import Account, ClaimCase
+from .services.bnp_package import (
+    delete_document,
+    form_package,
+    generate_application,
+    manifest_bytes,
+    open_document,
+    save_package,
+    store_document,
+)
 from .services.claims import (
     add_act,
     apply_ais_receipt,
@@ -49,6 +59,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             case_payload(case)
             for case in self.get_queryset().select_related("account__assigned_to").prefetch_related(
                 "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
+                "account__registrations", "package__documents",
             )
         ]
         return Response({
@@ -87,6 +98,61 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         case = move_case(case, stage, request.user, str(request.data.get("reason") or ""))
         record_action(request, AuditLog.Action.UPDATE, case, after={"stage": case.stage})
         return Response(case_payload(case, with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="package")
+    def package(self, request, pk=None):
+        save_package(self._case(pk), request.data)
+        record_action(request, AuditLog.Action.UPDATE, self._case(pk))
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="package/application")
+    def package_application(self, request, pk=None):
+        generate_application(self._case(pk))
+        record_action(request, AuditLog.Action.UPDATE, self._case(pk))
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="package/form")
+    def package_form(self, request, pk=None):
+        case = form_package(self._case(pk), request.user)
+        record_action(request, AuditLog.Action.UPDATE, case)
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="package/documents")
+    def package_documents(self, request, pk=None):
+        doc_id = request.data.get("doc_id") or None
+        store_document(
+            self._case(pk),
+            doc_type=str(request.data.get("doc_type") or ""),
+            pdf=request.FILES.get("pdf"),
+            signature=request.FILES.get("signature"),
+            signature_kind=str(request.data.get("signature_kind") or "p7s"),
+            doc_id=int(doc_id) if doc_id else None,
+        )
+        record_action(request, AuditLog.Action.UPDATE, self._case(pk))
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["delete"], url_path=r"package/documents/(?P<doc_id>[0-9]+)")
+    def package_document(self, request, pk=None, doc_id=None):
+        delete_document(self._case(pk), int(doc_id))
+        record_action(request, AuditLog.Action.UPDATE, self._case(pk))
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["get"], url_path="package/manifest")
+    def package_manifest(self, request, pk=None):
+        case = self._case(pk)
+        payload = manifest_bytes(case)
+        response = HttpResponse(payload, content_type="application/json; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="bnp-claim-{case.pk}.json"'
+        return response
+
+    @action(
+        detail=True, methods=["get"],
+        url_path=r"package/documents/(?P<doc_id>[0-9]+)/(?P<kind>pdf|signature)",
+    )
+    def package_file(self, request, pk=None, doc_id=None, kind="pdf"):
+        field, name = open_document(self._case(pk), int(doc_id), kind)
+        content_type = "application/pdf" if kind == "pdf" else "application/octet-stream"
+        return FileResponse(field.open("rb"), as_attachment=True, filename=name, content_type=content_type)
 
     @action(detail=True, methods=["post"], url_path="send-notary")
     def send_notary(self, request, pk=None):
@@ -168,6 +234,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         return get_object_or_404(
             self.get_queryset().select_related("account__assigned_to").prefetch_related(
                 "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
+                "account__registrations", "package__documents",
             ),
             pk=pk,
         )

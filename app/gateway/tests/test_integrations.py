@@ -59,6 +59,7 @@ def test_bnp_validate_rejects_long_personal_id(client):
     ({"debts__typeId": "bank"}, "недопустимы"),
     ({"serviceId": 999}, "serviceId"),
     ({"docs__fileName": "scan.jpg"}, ".pdf"),
+    ({"docs__signatureName": "zayavlenie.sig"}, ".pdf.sgn"),
     ({"docs__docType": "photo"}, "тип документа"),
     ({"notificationE-mail": "not-an-email"}, "e-mail"),
     ({"debtors__middleName": None}, "middleName"),

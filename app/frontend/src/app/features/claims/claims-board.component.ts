@@ -164,7 +164,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <h2>Добавление исполнительной надписи</h2>
             <p class="hint">
               Пакет собирается из шаблона и вложений. Переход «Направлено нотариусу» возможен только с датой вручения предупреждения и нотариальным тарифом.
-              В личный кабинет БНП на этом этапе пакет не уходит: канал — заглушка, файлы .pdf.sgn / .pdf.p7s до 15 МБ проверяет шлюз.
+              Дальше пакет собирается на карточке: манифест, PDF и файлы ЭЦП .pdf.sgn / .pdf.p7s. В личный кабинет БНП отправка не идёт.
             </p>
 
             <h3>Дело</h3>
@@ -246,7 +246,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             </ul>
 
             <div class="actions">
-              <button type="button" class="primary" [disabled]="busy() || !canSend()" (click)="save(true)">Сформировать пакет и направить</button>
+              <button type="button" class="primary" [disabled]="busy() || !canSend()" (click)="save(true)">Сохранить и открыть пакет</button>
               <button type="submit" class="ghost" [disabled]="busy() || !canDraft()">Сохранить черновик</button>
               <button type="button" class="ghost" (click)="closeDialog()">Отмена</button>
             </div>
@@ -851,13 +851,12 @@ export class ClaimsBoardComponent implements OnInit {
           this.finish(saved, 'Черновик сохранён');
           return;
         }
-        this.api.claimAction(saved.id, 'send-notary').subscribe({
-          next: (sent) => {
-            this.busy.set(false);
-            this.finish(sent, 'Пакет отмечен заглушкой БНП');
-          },
-          error: (err) => this.fail(err),
-        });
+        this.busy.set(false);
+        this.dialog.set(false);
+        this.mode.set('list');
+        this.snack.open('Дата и тариф сохранены. Соберите пакет на карточке: в кабинет БНП он не уходит.', 'OK', { duration: 4000 });
+        this.router.navigate(['/claims', saved.id]);
+        this.reload();
       },
       error: (err) => this.fail(err),
     });

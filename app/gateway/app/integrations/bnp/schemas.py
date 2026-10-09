@@ -139,6 +139,14 @@ class Doc(BnpModel):
             raise ValueError("принимаются только документы .pdf")
         return value
 
+    @field_validator("signature_name")
+    @classmethod
+    def signature_file(cls, value):
+        lower = value.lower()
+        if not (lower.endswith(".pdf.p7s") or lower.endswith(".pdf.sgn")):
+            raise ValueError("файл ЭЦП в пакете: .pdf.sgn или .pdf.p7s")
+        return value
+
     @field_validator("doc_type")
     @classmethod
     def known_doc_type(cls, value):

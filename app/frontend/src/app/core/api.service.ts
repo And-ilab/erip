@@ -493,6 +493,30 @@ export class ApiService {
     return this.http.post<ClaimCase>(`${this.base}/claims/${id}/${action}/`, body);
   }
 
+  uploadClaimDocument(
+    id: number, docType: string, pdf: File | null, signature: File | null, kind: string, docId?: number,
+  ): Observable<ClaimCase> {
+    const data = new FormData();
+    data.append('doc_type', docType);
+    data.append('signature_kind', kind);
+    if (docId) data.append('doc_id', String(docId));
+    if (pdf) data.append('pdf', pdf, pdf.name);
+    if (signature) data.append('signature', signature, signature.name);
+    return this.http.post<ClaimCase>(`${this.base}/claims/${id}/package/documents/`, data);
+  }
+
+  deleteClaimDocument(id: number, docId: number): Observable<ClaimCase> {
+    return this.http.delete<ClaimCase>(`${this.base}/claims/${id}/package/documents/${docId}/`);
+  }
+
+  claimPackageFile(id: number, docId: number, kind: 'pdf' | 'signature'): Observable<Blob> {
+    return this.http.get(`${this.base}/claims/${id}/package/documents/${docId}/${kind}/`, { responseType: 'blob' });
+  }
+
+  claimManifest(id: number): Observable<Blob> {
+    return this.http.get(`${this.base}/claims/${id}/package/manifest/`, { responseType: 'blob' });
+  }
+
   scenarios(): Observable<Page<ScenarioRow>> {
     return this.http.get<Page<ScenarioRow>>(`${this.base}/nsi/scenarios/`);
   }
@@ -674,6 +698,69 @@ export interface ClaimCase {
   approver_choices?: { id: number; name: string; role: string }[];
   lawsuit_kinds?: Named[];
   stages?: Named[];
+  package?: ClaimPackage;
+}
+
+export interface ClaimPackage {
+  persisted: boolean;
+  formed_at: string | null;
+  service_id: number | null;
+  contact_data: string;
+  notification_email: string;
+  user_message: string;
+  debtors: BnpDebtor[];
+  debts: BnpDebt[];
+  documents: BnpDocument[];
+  problems: string[];
+  manifest: { applications?: { externalId?: string }[] };
+  send_blockers: string[];
+  services: BnpServiceOption[];
+  debt_types: { id: string; name: string }[];
+  doc_types: { id: string; name: string }[];
+  required_docs: string[];
+}
+
+export interface BnpDebtor {
+  personType: string;
+  personalId: string;
+  secondName: string;
+  firstName: string;
+  middleName: string;
+  unp: string;
+  regNumber: string;
+  regName: string;
+  solidary?: boolean;
+}
+
+export interface BnpDebt {
+  source: 'balance' | 'penalty';
+  typeId: string;
+  amount: string;
+  currency: string;
+  startDate?: string;
+  endDate?: string;
+  dateAt?: string;
+}
+
+export interface BnpDocument {
+  id: number;
+  doc_type: string;
+  doc_type_label: string;
+  file_name: string;
+  signature_name: string;
+  signer: string;
+  signer_label: string;
+  has_pdf: boolean;
+  has_signature: boolean;
+  generated: boolean;
+  size: number;
+}
+
+export interface BnpServiceOption {
+  id: number;
+  name: string;
+  housing: boolean;
+  debt_type_ids: string[];
 }
 
 export interface ScenarioStep {

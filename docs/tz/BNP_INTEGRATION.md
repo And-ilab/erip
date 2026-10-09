@@ -16,7 +16,8 @@
 
 - `schemas.py` — `BnpManifest`: UTF-8, условная обязательность по типу лица, личный номер, УНП, сумма `10.00`, даты `YYYY-MM-DD`, `serviceId` / `typeId` / `docType` по справочникам.
 - `bnp_dictionaries.json` и фикстура `app/backend/apps/nsi/fixtures/bnp_dictionaries.json` — те же три справочника. Пересборка: из каталога `app` команда `python scripts/extract_bnp_dictionaries.py`.
-- `StubBnpClient.submit()` проверяет манифест и размеры файлов, пишет номер `stub-…`, в кабинет не ходит. Замена — наследник `BnpClient`. Карточка дела: `POST /api/v1/claims/{id}/send-notary/` ставит `submission_mode=stub`.
+- `StubBnpClient.submit()` проверяет манифест и размеры файлов, пишет номер `stub-…`, в кабинет не ходит. Замена — наследник `BnpClient`.
+- Претензионно-исковая работа собирает пакет сама: `POST /api/v1/claims/{id}/package/` сохраняет состав, `.../package/application/` собирает заявление PDF, `.../package/documents/` принимает PDF и файл ЭЦП `.pdf.sgn` или `.pdf.p7s`, `.../package/form/` проверяет манифест. Суммы берутся из АИС. `POST .../send-notary/` по-прежнему ставит `submission_mode=stub` и в кабинет не отправляет.
 
 В справочнике 39 услуг (из них 32 — `exec_order`), 108 типов задолженности, 10 типов документов. Коды задолженности, на которые ссылаются услуги, в справочнике типов есть.
 

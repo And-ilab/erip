@@ -72,6 +72,8 @@ MONEY_FIELDS = {"notary_tariff", "state_duty"}
 
 
 def update_case(case: ClaimCase, data: dict, user) -> ClaimCase:
+    previous_warning = case.warning_delivered_on
+    previous_tariff = case.notary_tariff
     if data.get("application_withdrawn"):
         data["notary_tariff"] = Decimal("0")
     kind = data.get("lawsuit_kind")
@@ -83,6 +85,10 @@ def update_case(case: ClaimCase, data: dict, user) -> ClaimCase:
     for field, value in data.items():
         setattr(case, field, _coerce(field, value))
     case.save()
+    if case.warning_delivered_on != previous_warning or case.notary_tariff != previous_tariff:
+        from apps.debts.services.bnp_package import drop_formed_package
+
+        drop_formed_package(case)
     _event(case, user, case.stage, case.stage, "Карточка дела изменена")
     from apps.debts.services.claim_measures import sync_claim_measure
 
@@ -138,13 +144,16 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "") -> ClaimCase:
 
 def send_to_notary(case: ClaimCase, user) -> ClaimCase:
     _require_notary_fields(case)
+    from apps.debts.services.bnp_package import require_formed_package
+
+    require_formed_package(case)
     case.submission_mode = "stub"
     case.submission_id = f"stub-{case.pk}"
     case.save(update_fields=["submission_mode", "submission_id", "updated_at"])
     DebtWorkItem.objects.create(
         organization=case.organization, account=case.account, kind=DebtWorkItem.Kind.WRIT,
         title="Пакет на исполнительную надпись",
-        note="В личный кабинет БНП не отправлялся: канал-заглушка.",
+        note="Пакет сформирован в ПМ. В личный кабинет БНП не отправлялся: канал-заглушка.",
         started_on=timezone.localdate(),
     )
     return move_case(case, ClaimCase.Stage.NOTARY, user, f"Заглушка БНП, номер {case.submission_id}")
@@ -345,6 +354,9 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         ]
         data["lawsuit_kinds"] = [{"id": code, "label": label} for code, label in ClaimCase.LawsuitKind.choices]
         data["stages"] = [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices]
+        from apps.debts.services.bnp_package import package_payload
+
+        data["package"] = package_payload(case)
     return data
 
 
@@ -403,6 +415,9 @@ def _date(value) -> str | None:
 def _guard(case: ClaimCase, stage: str, reason: str) -> None:
     if stage == ClaimCase.Stage.NOTARY:
         _require_notary_fields(case)
+        from apps.debts.services.bnp_package import require_formed_package
+
+        require_formed_package(case)
     if stage == ClaimCase.Stage.LAWSUIT and case.stage != ClaimCase.Stage.REFUSED and not reason.strip():
         raise ClaimBlocked("Пропуск до иска записывается с причиной")
     if stage == ClaimCase.Stage.IMPOSSIBLE and case.acts.count() < 1:

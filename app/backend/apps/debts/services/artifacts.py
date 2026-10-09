@@ -67,6 +67,10 @@ def attach_warning_pdf(measure: Measure, accounts: list[Account]) -> None:
     measure.artifact.save(f"warning-{measure.pk}.pdf", ContentFile(payload), save=True)
 
 
+def render_text_pdf(lines: list[str]) -> bytes:
+    return _pdf_bytes(lines)
+
+
 def _pdf_bytes(lines: list[str], font_size: int = 12, indent_mm: int = 0, outdent_mm: int = 0) -> bytes:
     size = font_size if 8 <= font_size <= 24 else 12
     font = _font_path()
