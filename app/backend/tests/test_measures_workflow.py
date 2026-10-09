@@ -47,7 +47,7 @@ def test_phone_without_prefix_gets_375():
 
 
 @pytest.mark.django_db
-def test_call_keeps_only_accounts_with_belarus_phone(api, specialist_a, account_a, org_a):
+def test_call_keeps_only_accounts_with_belarus_phone(api, admin_a, specialist_a, account_a, org_a):
     legal = make_account(org_a, 3001, client_account="00003001", payer_unp="100000001")
     legal.payer_identifier = ""
     legal.debt_group = 1
@@ -57,7 +57,7 @@ def test_call_keeps_only_accounts_with_belarus_phone(api, specialist_a, account_
     foreign.save(update_fields=["debt_group"])
     account_a.debt_group = 1
     account_a.save(update_fields=["debt_group"])
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "call",
@@ -92,21 +92,21 @@ def test_call_keeps_only_accounts_with_belarus_phone(api, specialist_a, account_
 
 
 @pytest.mark.django_db
-def test_notice_requires_email_and_rejects_messenger(api, specialist_a, account_a, org_a):
+def test_notice_requires_email_and_rejects_messenger(api, admin_a, specialist_a, account_a, org_a):
     silent = make_account(org_a, 3003, client_account="00003003", contact_phone="")
-    missing = api(specialist_a).post(
+    missing = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "notice", "account_ids": [silent.id], "template_name": "Письмо", "channel": "email"},
         format="json",
     )
     assert missing.status_code == 400
-    messenger = api(specialist_a).post(
+    messenger = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "notice", "account_ids": [account_a.id], "template_name": "Письмо", "channel": "messenger"},
         format="json",
     )
     assert messenger.status_code == 400
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "notice", "account_ids": [account_a.id], "template_name": "Письмо", "channel": "email"},
         format="json",
@@ -116,9 +116,9 @@ def test_notice_requires_email_and_rejects_messenger(api, specialist_a, account_
 
 
 @pytest.mark.django_db
-def test_warning_delivery_starts_the_payment_clock(api, specialist_a, account_a):
+def test_warning_delivery_starts_the_payment_clock(api, admin_a, specialist_a, account_a):
     today = timezone.localdate()
-    measure_id = _warning(api, specialist_a, account_a, today.isoformat())
+    measure_id = _warning(api, admin_a, account_a, today.isoformat())
     account_a.refresh_from_db()
     assert account_a.warning_due == today + timedelta(days=5)
     detail = api(specialist_a).get(f"/api/v1/measures/{measure_id}/")
@@ -127,17 +127,17 @@ def test_warning_delivery_starts_the_payment_clock(api, specialist_a, account_a)
 
 
 @pytest.mark.django_db
-def test_disconnect_waits_for_warning_then_can_be_cancelled(api, specialist_a, account_a):
+def test_disconnect_waits_for_warning_then_can_be_cancelled(api, admin_a, specialist_a, account_a):
     service = account_a.services.get()
-    early = api(specialist_a).post(
+    early = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id]},
         format="json",
     )
     assert early.status_code == 400
     today = timezone.localdate()
-    _warning(api, specialist_a, account_a, today.isoformat())
-    soon = api(specialist_a).post(
+    _warning(api, admin_a, account_a, today.isoformat())
+    soon = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id]},
         format="json",
@@ -148,7 +148,7 @@ def test_disconnect_waits_for_warning_then_can_be_cancelled(api, specialist_a, a
     )
     ready = api(specialist_a).get("/api/v1/measures/ready-to-disconnect/")
     assert len(ready.json()["results"]) == 1
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id]},
         format="json",
@@ -163,7 +163,7 @@ def test_disconnect_waits_for_warning_then_can_be_cancelled(api, specialist_a, a
     )
     assert cancelled.status_code == 200, cancelled.content
     assert cancelled.json()["status"] == "cancelled"
-    suspended = api(specialist_a).post(
+    suspended = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
@@ -187,9 +187,9 @@ def test_disconnect_waits_for_warning_then_can_be_cancelled(api, specialist_a, a
 
 
 @pytest.mark.django_db
-def test_paid_suspension_asks_to_resume(api, specialist_a, account_a):
+def test_paid_suspension_asks_to_resume(api, admin_a, specialist_a, account_a):
     service = account_a.services.get()
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
@@ -226,7 +226,7 @@ def test_approval_blocks_supplier_until_admin_agrees(api, specialist_a, admin_a,
     house = ServiceOrganization.objects.create(organization=org_a, provider_id=9201, short_name="Водоканал", is_supplier=True)
     supplier = make_user("sup", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
     supplier.service_organizations.add(house)
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
@@ -249,11 +249,11 @@ def test_approval_blocks_supplier_until_admin_agrees(api, specialist_a, admin_a,
 
 
 @pytest.mark.django_db
-def test_unpaid_service_that_cannot_be_disconnected_is_rejected(api, specialist_a, account_a):
+def test_unpaid_service_that_cannot_be_disconnected_is_rejected(api, admin_a, specialist_a, account_a):
     service = account_a.services.get()
     service.service_name = "Содержание жилья"
     service.save(update_fields=["service_name"])
-    response = api(specialist_a).post(
+    response = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
@@ -265,15 +265,15 @@ def test_unpaid_service_that_cannot_be_disconnected_is_rejected(api, specialist_
 
 
 @pytest.mark.django_db
-def test_disconnect_skips_the_younger_service(api, specialist_a, account_a):
+def test_disconnect_skips_the_younger_service(api, admin_a, specialist_a, account_a):
     gas = account_a.services.get()
     water = AccountService.objects.create(
         organization=account_a.organization, account=account_a, service_list_id=2, service_id=11,
         service_name="Вода", balance_out=Decimal("20"), debt_period=1,
     )
     today = timezone.localdate()
-    _warning(api, specialist_a, account_a, (today - timedelta(days=6)).isoformat())
-    created = api(specialist_a).post(
+    _warning(api, admin_a, account_a, (today - timedelta(days=6)).isoformat())
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect",
@@ -288,10 +288,10 @@ def test_disconnect_skips_the_younger_service(api, specialist_a, account_a):
 
 
 @pytest.mark.django_db
-def test_kanban_drop_sets_party_status(api, specialist_a, observer_a, account_a, org_a):
+def test_kanban_drop_sets_party_status(api, admin_a, specialist_a, observer_a, account_a, org_a):
     account_a.debt_group = 1
     account_a.save(update_fields=["debt_group"])
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "call", "account_ids": [account_a.id], "template_name": "Напоминание",
@@ -301,6 +301,10 @@ def test_kanban_drop_sets_party_status(api, specialist_a, observer_a, account_a,
     )
     assert created.status_code == 201, created.content
     measure_id = created.json()["id"]
+    denied = api(specialist_a).post(f"/api/v1/measures/{measure_id}/status/", {"status": "running"}, format="json")
+    assert denied.status_code == 403
+    specialist_a.can_approve = True
+    specialist_a.save(update_fields=["can_approve"])
     moved = api(specialist_a).post(f"/api/v1/measures/{measure_id}/status/", {"status": "running"}, format="json")
     assert moved.status_code == 200, moved.content
     assert moved.json()["status"] == "running"

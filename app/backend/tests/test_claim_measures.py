@@ -30,6 +30,8 @@ def test_claim_account_is_listed_in_measures_and_refusal_updates_the_row(api, sp
         {"warning_delivered_on": "2026-03-01", "notary_tariff": "12.50"},
         format="json",
     )
+    specialist_a.can_approve = True
+    specialist_a.save(update_fields=["can_approve"])
     api(specialist_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "lawsuit", "reason": "Спор о праве"}, format="json")
 
     listed = api(specialist_a).get("/api/v1/measures/registry/")
@@ -48,6 +50,31 @@ def test_claim_account_is_listed_in_measures_and_refusal_updates_the_row(api, sp
     assert any("Отказ нотариуса" in title for title in titles)
     assert Measure.objects.filter(accounts=account_a, source_action="claim").count() == 1
     assert ClaimCase.objects.get(pk=case_id).stage == "refused"
+
+
+def _finish_chain_prefix(org, account):
+    """Закрывает автообзвон, уведомление и предупреждение, чтобы цепочка дошла до надписи."""
+    from apps.nsi.models import ScenarioDefinition
+    from apps.nsi.services.scenarios import ensure_standard_scenario
+
+    ensure_standard_scenario()
+    scenario = ScenarioDefinition.objects.get(organization=None, name="Стандартное взыскание")
+    today = timezone.localdate()
+    steps = (
+        (1, "call", Measure.Kind.CALL, "Автообзвон"),
+        (2, "email", Measure.Kind.NOTICE, "Уведомление"),
+        (3, "warning", Measure.Kind.WARNING, "Предупреждение"),
+    )
+    for order, action, kind, title in steps:
+        row = Measure.objects.create(
+            organization=org, kind=kind, status=Measure.Status.DONE, template_name=title,
+            started_on=today, due_on=today, source_scenario=scenario, source_version=scenario.version,
+            source_step=order, source_action=action,
+        )
+        row.accounts.add(account)
+        MeasureItem.objects.create(
+            organization=org, measure=row, account=account, status=MeasureItem.Status.DONE,
+        )
 
 
 def _with_group(org, number, group, period):
@@ -76,23 +103,13 @@ def test_debt_group_opens_its_own_measure(org_a, specialist_a):
     ensure_imported_run(third)
     ensure_imported_run(fourth)
 
-    assert list(Measure.objects.filter(accounts=first).values_list("kind", "template_name")) == [
-        (Measure.Kind.CALL, "Голос группы 1"),
-    ]
-    assert set(Measure.objects.filter(accounts=second).values_list("kind", "template_name")) == {
-        (Measure.Kind.WARNING, "Предупреждение"),
-        (Measure.Kind.CALL, "Голос группы 2"),
-    }
-    row = Measure.objects.get(accounts=third)
-    assert row.kind == Measure.Kind.COLLECTION
-    assert row.template_name == "Взыскание через ОПИ"
-    assert row.status == Measure.Status.ASSIGNED
-    assert row.assignee_id == specialist_a.id
-    from apps.debts.services.registry import measure_title
-
-    hopeless = Measure.objects.get(accounts=fourth)
-    assert hopeless.kind == Measure.Kind.COLLECTION
-    assert measure_title(hopeless) == "Взыскание, безнадёжная задолженность"
+    for account in (first, second, third, fourth):
+        row = Measure.objects.get(accounts=account)
+        assert (row.kind, row.template_name, row.status) == (
+            Measure.Kind.CALL, "Автообзвон", Measure.Status.ASSIGNED,
+        )
+    fourth.refresh_from_db()
+    assert fourth.scenario_name == "Взыскание, безнадёжная задолженность"
 
 
 @pytest.mark.django_db
@@ -125,9 +142,7 @@ def test_old_autodial_for_a_higher_group_is_replaced(org_a, specialist_a):
     )
     ensure_imported_run(account)
     rows = list(Measure.objects.filter(accounts=account).values_list("kind", "template_name", "status"))
-    assert (Measure.Kind.CALL, "Голос группы 1", Measure.Status.FAILED) not in rows
-    assert (Measure.Kind.COLLECTION, "Взыскание через ОПИ", Measure.Status.ASSIGNED) in rows
-    assert Measure.objects.get(accounts=account, kind=Measure.Kind.COLLECTION).assignee_id == specialist_a.id
+    assert rows == [(Measure.Kind.CALL, "Автообзвон", Measure.Status.ASSIGNED)]
 
 
 @pytest.mark.django_db
@@ -157,7 +172,7 @@ def test_accounts_without_measures_are_grouped_by_id():
 
 @pytest.mark.django_db
 def test_assigned_autodial_without_a_group_yields_to_the_card_scenario(api, specialist_a, org_a):
-    """Карточка и реестр читают шаг группы. Назначенный автообзвон без группы не остаётся вместо взыскания."""
+    """Открытый автообзвон остаётся шагом цепочки. Подпись группы на карточке его не подменяет."""
     from apps.nsi.models import ScenarioDefinition, ScenarioRevision
 
     account = _with_group(org_a, 8201, 5, 14)
@@ -185,14 +200,14 @@ def test_assigned_autodial_without_a_group_yields_to_the_card_scenario(api, spec
     listed = api(specialist_a).get("/api/v1/measures/registry/")
     assert listed.status_code == 200, listed.content
     titles = [row["title"] for group in listed.json()["groups"] for row in group["results"]]
-    assert "Взыскание через ОПИ" in titles
-    assert not any(title.startswith("Автообзвон") for title in titles)
+    assert any(title.startswith("Автообзвон") for title in titles)
+    assert "Взыскание через ОПИ" not in titles
     opened = api(specialist_a).get(f"/api/v1/accounts/{account.id}/measures/")
     assert opened.status_code == 200, opened.content
     card_titles = [row["title"] for row in opened.json()["results"]]
-    assert card_titles == ["Взыскание через ОПИ"]
+    assert card_titles == ["Автообзвон — Голос группы 1"]
     account.refresh_from_db()
-    assert account.scenario_name == card_titles[0]
+    assert account.scenario_name == "Взыскание через ОПИ"
 
 
 @pytest.mark.django_db
@@ -206,6 +221,7 @@ def test_collection_executor_is_the_pinned_billing_specialist(org_a, specialist_
     account = _with_group(org_a, 8301, 5, 14)
     account.assigned_to = pinned
     account.save(update_fields=["assigned_to"])
+    _finish_chain_prefix(org_a, account)
     ensure_imported_run(account)
     row = Measure.objects.get(accounts=account, kind=Measure.Kind.COLLECTION)
     assert row.status == Measure.Status.ASSIGNED
@@ -218,8 +234,9 @@ def test_collection_without_a_specialist_is_assigned_not_failed(org_a):
     from apps.nsi.services.scenario_engine import ensure_imported_run
 
     account = _with_group(org_a, 8302, 5, 14)
+    _finish_chain_prefix(org_a, account)
     ensure_imported_run(account)
-    row = Measure.objects.get(accounts=account)
+    row = Measure.objects.get(accounts=account, kind=Measure.Kind.COLLECTION)
     assert row.kind == Measure.Kind.COLLECTION
     assert row.status == Measure.Status.ASSIGNED
     assert row.assignee_id is None

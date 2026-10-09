@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, parsers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
@@ -455,6 +455,24 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         account = self.get_object()
         backfill_account(account)
         return self._nested("", MeasureSerializer, _own_measures(request.user, account))
+
+    @action(detail=True, methods=["post"], url_path="skip-step")
+    def skip_step(self, request, pk=None):
+        from apps.nsi.services.scenario_engine import skip_current_step
+        from apps.debts.services.measures import MeasureLaunchError
+
+        account = self.get_object()
+        try:
+            run = skip_current_step(account, request.user, str(request.data.get("reason") or ""))
+        except MeasureLaunchError as exc:
+            detail = exc.detail
+            if isinstance(detail, dict) and "skip" in detail and "Пропуск доступен" in str(detail["skip"]):
+                raise PermissionDenied(detail["skip"]) from exc
+            raise ValidationError(detail) from exc
+        record_action(request, AuditLog.Action.UPDATE, run, after={"skipped": run.skipped_orders})
+        return Response({
+            "account": account.pk, "skipped": run.skipped_orders, "last_skip": run.last_skip, "paused": run.paused,
+        })
 
     @action(detail=True, methods=["get", "post"], url_path="writ-checks")
     def writ_checks(self, request, pk=None):
@@ -1117,7 +1135,10 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     audit_list = True
 
     def get_serializer_class(self):
-        if self.action in {"retrieve", "create", "confirm", "accept", "cancel", "approve", "reject", "deliver", "send", "result", "move"}:
+        if self.action in {
+            "retrieve", "create", "confirm", "accept", "cancel", "approve", "reject", "deliver", "send",
+            "result", "move", "tasks", "task_status", "task_checks",
+        }:
             return MeasureDetailSerializer
         return MeasureSerializer
 
@@ -1197,6 +1218,8 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     def create(self, request, *args, **kwargs):
         from .services.measures import MeasureLaunchError, launch_measure
 
+        if request.user.role not in {"superadmin", "local_admin"}:
+            raise PermissionDenied("Мероприятие вне сценария запускает локальный администратор или суперадминистратор")
         accounts = self._selected_accounts(request)
         if accounts:
             accounts = list(
@@ -1220,6 +1243,50 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         data["dropped_services"] = result["dropped_services"]
         data["service_ids"] = result["service_ids"]
         return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def tasks(self, request, pk=None):
+        from .services.tasks import TaskError, add_task
+
+        measure = self.get_object()
+        try:
+            task = add_task(
+                measure, request.user, str(request.data.get("title") or ""),
+                request.data.get("due_on"), request.data.get("assignee"),
+            )
+        except TaskError as exc:
+            raise ValidationError(exc.detail) from exc
+        record_action(request, AuditLog.Action.CREATE, task, after={"title": task.title})
+        return Response(self.get_serializer(measure).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="task-status")
+    def task_status(self, request, pk=None):
+        from .services.tasks import TaskError, set_task_status
+
+        measure = self.get_object()
+        try:
+            set_task_status(measure, int(request.data.get("task_id") or 0), str(request.data.get("status") or ""))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"task_id": "Укажите задание"}) from exc
+        except TaskError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response(self.get_serializer(measure).data)
+
+    @action(detail=True, methods=["post"], url_path="task-checks")
+    def task_checks(self, request, pk=None):
+        from .services.tasks import TaskError, add_check, set_check
+
+        measure = self.get_object()
+        try:
+            if request.data.get("check_id"):
+                set_check(measure, int(request.data.get("check_id")), bool(request.data.get("done")))
+            else:
+                add_check(measure, int(request.data.get("task_id") or 0), str(request.data.get("title") or ""))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"task_id": "Укажите задание"}) from exc
+        except TaskError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response(self.get_serializer(measure).data)
 
     def _open_items(self, request, measure):
         qs = measure.items.filter(account__in=_visible_accounts(request.user))
@@ -1246,6 +1313,10 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True, methods=["post"], url_path="status")
     def move(self, request, pk=None):
+        from apps.users.access import can_skip_stage
+
+        if not can_skip_stage(request.user):
+            raise PermissionDenied("Статус партии переносит администратор или специалист с согласованием")
         measure = self.get_object()
 
         def runner():

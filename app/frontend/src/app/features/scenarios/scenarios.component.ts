@@ -293,6 +293,17 @@ const ACTIONS = [
         @if (canEdit()) {
           <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
           <button mat-stroked-button (click)="saveCalling()">Сохранить признак схемы</button>
+          <h3>Сроки схемы</h3>
+          <p class="muted">Пустое число дней после предупреждения берёт общее значение ({{ centralWarning }}). Ожидание шага перекрывает срок, записанный в сценарии. У каждой схемы свои числа.</p>
+          <div class="line">
+            <mat-form-field><mat-label>Дней после предупреждения</mat-label><input matInput type="number" [(ngModel)]="warningWait" /></mat-form-field>
+          </div>
+          <div class="line">
+            @for (item of waitActions; track item.id) {
+              <mat-form-field><mat-label>{{ item.label }}</mat-label><input matInput type="number" [(ngModel)]="stepWaits[item.id]" /></mat-form-field>
+            }
+          </div>
+          <button mat-stroked-button (click)="saveTimeline()">Сохранить сроки схемы</button>
         }
         @if (auth.isSuperadmin()) {
           <h4>Общее правило номера</h4>
@@ -417,6 +428,18 @@ export class ScenariosComponent implements OnInit {
   protected scenarioWeekdays: number[] = [];
   protected dialDay = 25;
   protected dialWeekdays: number[] = [5, 6];
+  protected readonly waitActions = [
+    { id: 'call', label: 'До автообзвона, дней' },
+    { id: 'email', label: 'До уведомления, дней' },
+    { id: 'warning', label: 'До предупреждения, дней' },
+    { id: 'writ', label: 'До надписи, дней' },
+    { id: 'lawsuit', label: 'До иска, дней' },
+  ];
+  protected warningWait: number | null = null;
+  protected centralWarning = 5;
+  protected stepWaits: Record<string, number | null> = {
+    call: null, email: null, warning: null, writ: null, lawsuit: null,
+  };
 
   ngOnInit(): void {
     this.reload();
@@ -432,6 +455,14 @@ export class ScenariosComponent implements OnInit {
     if (this.canEdit()) {
       this.api.scenarioCalling().subscribe({
         next: (row) => this.orgCallLegal = row.call_legal,
+        error: () => undefined,
+      });
+      this.api.scenarioTimeline().subscribe({
+        next: (row) => {
+          this.warningWait = row.warning_wait_custom;
+          this.centralWarning = row.central_warning_wait_days;
+          for (const item of this.waitActions) this.stepWaits[item.id] = row.step_waits?.[item.id] ?? null;
+        },
         error: () => undefined,
       });
     }
@@ -747,6 +778,22 @@ export class ScenariosComponent implements OnInit {
   protected saveCalling(): void {
     this.api.saveScenarioCalling(this.orgCallLegal).subscribe({
       next: () => this.snack.open('Признак схемы сохранён', 'OK', { duration: 2000 }),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected saveTimeline(): void {
+    const waits: Record<string, number> = {};
+    for (const item of this.waitActions) {
+      const value = this.stepWaits[item.id];
+      if (value !== null && value !== undefined && String(value) !== '') waits[item.id] = Number(value);
+    }
+    const warning = this.warningWait === null || String(this.warningWait) === '' ? null : Number(this.warningWait);
+    this.api.saveScenarioTimeline({ warning_wait_days: warning, step_waits: waits }).subscribe({
+      next: (row) => {
+        this.warningWait = row.warning_wait_custom;
+        this.snack.open('Сроки схемы сохранены', 'OK', { duration: 2000 });
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }

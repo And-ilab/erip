@@ -8,13 +8,13 @@ from apps.core.exceptions import ServiceError
 from apps.debts.models import AccountScenarioRun, DebtWorkItem, ScenarioPause
 from apps.debts.services.artifacts import _pdf_bytes
 from apps.nsi.models import (
-    CalculationSettings,
     PrintedDocument,
     PrintForm,
     PrintFormRevision,
     ScenarioDefinition,
     ScenarioRevision,
 )
+from apps.nsi.services.timelines import warning_wait_for
 
 ACTIONS = {
     "call", "sms", "email", "messenger", "warning", "disconnect", "writ", "lawsuit", "manual_call",
@@ -177,7 +177,7 @@ def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") ->
         "services": services,
         "last_payment": last.isoformat() if last else "нет",
         "organization": account.organization.name,
-        "due_days": str(CalculationSettings.load().warning_wait_days),
+        "due_days": str(warning_wait_for(account.organization)),
         "tariff": tariff or "—",
     }
     text = form.body
@@ -295,9 +295,18 @@ def _work_kind(doc_kind: str) -> str:
     return DebtWorkItem.Kind.WARNING
 
 
-# Шкала 4.2.1.5: группа 1 — обзвон, группа 2 — предупреждение и обзвон реже,
-# группы 3–6 — исполнительная надпись. Отключение ждёт врученное предупреждение.
+# Цепочка должника идёт по порядку. Срок перед шагом задаёт сценарий или схема.
+# Отключение в типовой ряд не входит: его запускает администратор после предупреждения.
 STANDARD_STEPS = [
+    {"order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False},
+    {"order": 2, "action": "email", "wait_days": 0, "template": "Уведомление", "terminal": False},
+    {"order": 3, "action": "warning", "wait_days": 0, "template": "Предупреждение", "terminal": False},
+    {"order": 4, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись", "terminal": False},
+    {"order": 5, "action": "lawsuit", "wait_days": 0, "template": "Исковое заявление", "terminal": True},
+]
+
+# Прежний шаблон выбирал один шаг по группе. Неизменённая копия заменяется цепочкой.
+GROUP_STANDARD_STEPS = [
     {"order": 1, "action": "call", "wait_days": 0, "template": "Голос группы 1", "groups": [1], "terminal": False},
     {
         "order": 2, "action": "warning", "wait_days": 0, "template": "Предупреждение",
@@ -327,15 +336,19 @@ LEGACY_STANDARD_STEPS = [
 ]
 
 
+def _is_stock_chain(steps) -> bool:
+    return steps == LEGACY_STANDARD_STEPS or steps == GROUP_STANDARD_STEPS
+
+
 def upgrade_legacy_scenario(scenario: ScenarioDefinition | None) -> None:
-    """Неизменённый шаблон «всем автообзвон» заменяется раскладкой по группе. Правка администратора не трогается."""
+    """Неизменённый типовой шаблон становится цепочкой. Правка администратора не трогается."""
     if scenario is None:
         return
-    if scenario.steps == LEGACY_STANDARD_STEPS:
+    if _is_stock_chain(scenario.steps):
         scenario.steps = STANDARD_STEPS
         scenario.save(update_fields=["steps", "updated_at"])
     for revision in scenario.revisions.all():
-        if revision.steps == LEGACY_STANDARD_STEPS:
+        if _is_stock_chain(revision.steps):
             revision.steps = STANDARD_STEPS
             revision.save(update_fields=["steps"])
 

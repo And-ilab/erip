@@ -11,7 +11,9 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.debts.models import Account, AccountScenarioRun, Measure, MeasureItem
-from apps.debts.services.measures import MeasureLaunchError, is_legal_entity, launch_measure, phone_for_call, rollup
+from apps.debts.services.measures import (
+    MeasureLaunchError, is_legal_entity, launch_measure, log_event, phone_for_call, rollup,
+)
 from apps.users.models import ServiceOrganization, User
 
 _advancing: set[int] = set()
@@ -97,6 +99,56 @@ def _scenario_for_import(account: Account):
     return chosen
 
 
+def skip_current_step(account: Account, user, reason: str) -> AccountScenarioRun:
+    """Пропуск текущего шага. Дальше сценарий идёт сам. Открытая партия этого шага закрывается."""
+    from apps.users.access import can_skip_stage
+
+    text = (reason or "").strip()
+    if not can_skip_stage(user):
+        raise MeasureLaunchError({"skip": "Пропуск доступен администратору и специалисту с согласованием"})
+    if not text:
+        raise MeasureLaunchError({"reason": "Укажите причину пропуска"})
+    run = AccountScenarioRun.objects.filter(account=account).select_related("scenario").first()
+    if run is None:
+        raise MeasureLaunchError({"scenario": "На лицевом счёте нет сценария"})
+    if run.paused:
+        raise MeasureLaunchError({"scenario": "Сценарий на паузе"})
+    revision = run.scenario.revisions.filter(version=run.version).first()
+    steps = list((revision.steps if revision else run.scenario.steps) or [])
+    measures = list(Measure.objects.filter(
+        source_scenario=run.scenario, source_version=run.version, accounts=account,
+    ))
+    skipped = set(run.skipped_orders or [])
+    done = {item.source_step for item in measures if item.status == Measure.Status.DONE} | skipped
+    target = None
+    for order in sorted({step.get("order") for step in steps}):
+        if order in done:
+            continue
+        target = order
+        break
+    if target is None:
+        raise MeasureLaunchError({"skip": "Пропускать нечего: шаги сценария уже пройдены"})
+    closing = OPEN | {Measure.Status.FAILED}
+    for item in measures:
+        if item.source_step != target or item.status not in closing:
+            continue
+        old = item.status
+        item.status = Measure.Status.CANCELLED
+        item.note = text[:500]
+        item.save(update_fields=["status", "note", "updated_at"])
+        item.items.exclude(status=MeasureItem.Status.DONE).update(
+            status=MeasureItem.Status.CANCELLED, note=text[:500], updated_at=timezone.now(),
+        )
+        log_event(item, None, user, old, item.status, text[:500])
+    skipped.add(target)
+    run.skipped_orders = sorted(int(item) for item in skipped if item is not None)
+    run.last_skip = text[:300]
+    run.save(update_fields=["skipped_orders", "last_skip", "updated_at"])
+    advance_account(account)
+    run.refresh_from_db()
+    return run
+
+
 def advance_after_measure(measure: Measure) -> None:
     if any(account_id in _advancing for account_id in measure.accounts.values_list("pk", flat=True)):
         return
@@ -124,62 +176,9 @@ def _step_for(steps: list[dict], measure: Measure) -> dict | None:
     return None
 
 
-def _group_ids(step: dict) -> list[int]:
-    return [int(item) for item in (step.get("groups") or [])]
-
-
-def _outside_groups(step: dict, account: Account) -> bool:
-    groups = _group_ids(step)
-    if not groups:
-        return False
-    return account.effective_group not in groups
-
-
 def _steps_for_account(steps: list[dict], account: Account) -> list[dict]:
-    """Шаг группы — один источник для карточки и реестра.
-
-    Опубликованный сценарий используется, если в нём есть шаг этой группы.
-    Иначе берётся шкала п. 4.2.1.5, а не общий автообзвон без группы.
-    """
-    group = account.effective_group
-    if not group:
-        return steps
-    if any(group in _group_ids(step) for step in steps):
-        return steps
-    from apps.nsi.services.scenarios import STANDARD_STEPS
-
-    scale = [step for step in STANDARD_STEPS if group in _group_ids(step)]
-    return scale or steps
-
-
-def _release_other_groups(account: Account, steps: list[dict], measures: list[Measure]) -> list[Measure]:
-    """Открытый шаг чужой группы снимается, чтобы счёт остался на мероприятии своей группы.
-
-    Если у группы есть свой шаг, автообзвон без группы тоже снимается: иначе карточка
-    показывает «Взыскание», а реестр оставляет старый звонок.
-    """
-    targeted = {
-        (step.get("order"), step.get("action") or "")
-        for step in steps
-        if account.effective_group in _group_ids(step)
-    }
-    kept = []
-    for item in measures:
-        if item.status in {Measure.Status.DONE, Measure.Status.CANCELLED}:
-            kept.append(item)
-            continue
-        if targeted:
-            if (item.source_step, item.source_action or "") in targeted:
-                kept.append(item)
-                continue
-        else:
-            step = _step_for(steps, item)
-            if step is not None and not _outside_groups(step, account):
-                kept.append(item)
-                continue
-        item.items.all().delete()
-        item.delete()
-    return kept
+    """Цепочка сценария идёт как опубликована. Группа не подменяет её другим шаблоном."""
+    return steps
 
 
 def _advance_once(account: Account) -> bool:
@@ -190,11 +189,11 @@ def _advance_once(account: Account) -> bool:
     steps = _steps_for_account(list((revision.steps if revision else run.scenario.steps) or []), account)
     if not steps:
         return False
-    measures = _release_other_groups(account, steps, list(
+    measures = list(
         Measure.objects.filter(
             source_scenario=run.scenario, source_version=run.version, accounts=account,
         )
-    ))
+    )
     skipped = set(run.skipped_orders or [])
     if any(item.status in OPEN and _blocks(steps, item) for item in measures):
         return False
@@ -210,7 +209,7 @@ def _advance_once(account: Account) -> bool:
         if not candidates:
             continue
         step = candidates[0]
-        if not _wait_elapsed(run, previous, step):
+        if not _wait_elapsed(account, run, previous, step):
             return False
         if step.get("action") == "messenger":
             skipped.add(order)
@@ -250,8 +249,10 @@ def _latest_done(measures: list[Measure]) -> Measure | None:
     return max(done, key=lambda item: (item.updated_at, item.pk))
 
 
-def _wait_elapsed(run: AccountScenarioRun, previous: Measure | None, step: dict) -> bool:
-    days = int(step.get("wait_days") or 0)
+def _wait_elapsed(account: Account, run: AccountScenarioRun, previous: Measure | None, step: dict) -> bool:
+    from apps.nsi.services.timelines import step_wait_days
+
+    days = step_wait_days(account.organization, step)
     if days <= 0:
         return True
     anchor = previous.updated_at if previous is not None else run.created_at
@@ -349,11 +350,6 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
         services = list(account.services.all())
         data["service_ids"] = [service.id for service in services]
     if kind == Measure.Kind.COLLECTION:
-        from apps.debts.services.portfolio import scenario_names
-
-        card = (account.scenario_name or "").strip() or scenario_names().get(account.effective_group or 0, "")
-        if card:
-            data["template_name"] = card
         from apps.debts.services.measures import collection_executor
 
         executor = collection_executor(account)

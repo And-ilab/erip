@@ -300,6 +300,34 @@ export class ApiService {
     return this.http.post<MeasureRow>(`${this.base}/measures/`, body);
   }
 
+  addMeasureTask(id: number, title: string, dueOn = ''): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/tasks/`, { title, due_on: dueOn || null });
+  }
+
+  setMeasureTaskStatus(id: number, taskId: number, status: 'open' | 'done'): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/task-status/`, { task_id: taskId, status });
+  }
+
+  addTaskCheck(id: number, taskId: number, title: string): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/task-checks/`, { task_id: taskId, title });
+  }
+
+  setTaskCheck(id: number, checkId: number, done: boolean): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/task-checks/`, { check_id: checkId, done });
+  }
+
+  skipScenarioStep(accountId: number, reason: string): Observable<{ last_skip: string; skipped: number[] }> {
+    return this.http.post<{ last_skip: string; skipped: number[] }>(`${this.base}/accounts/${accountId}/skip-step/`, { reason });
+  }
+
+  scenarioTimeline(): Observable<{ warning_wait_days: number; warning_wait_custom: number | null; central_warning_wait_days: number; step_waits: Record<string, number> }> {
+    return this.http.get<{ warning_wait_days: number; warning_wait_custom: number | null; central_warning_wait_days: number; step_waits: Record<string, number> }>(`${this.base}/nsi/scenarios/timeline/`);
+  }
+
+  saveScenarioTimeline(body: { warning_wait_days: number | null; step_waits: Record<string, number> }): Observable<{ warning_wait_days: number; warning_wait_custom: number | null; step_waits: Record<string, number> }> {
+    return this.http.patch<{ warning_wait_days: number; warning_wait_custom: number | null; step_waits: Record<string, number> }>(`${this.base}/nsi/scenarios/timeline/`, body);
+  }
+
   measure(id: number): Observable<MeasureDetail> {
     return this.http.get<MeasureDetail>(`${this.base}/measures/${id}/`);
   }

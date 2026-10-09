@@ -6,6 +6,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from apps.audit.models import AuditLog
@@ -22,6 +23,7 @@ from .services.claims import (
     decide_writeoff,
     move_case,
     notary_result,
+    stage_is_skip,
     open_case,
     record_opi,
     send_to_notary,
@@ -75,7 +77,14 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"])
     def move(self, request, pk=None):
-        case = move_case(self._case(pk), str(request.data.get("stage") or ""), request.user, str(request.data.get("reason") or ""))
+        case = self._case(pk)
+        stage = str(request.data.get("stage") or "")
+        if stage_is_skip(case, stage):
+            from apps.users.access import can_skip_stage
+
+            if not can_skip_stage(request.user):
+                raise PermissionDenied("Пропуск этапа доступен администратору и специалисту с согласованием")
+        case = move_case(case, stage, request.user, str(request.data.get("reason") or ""))
         record_action(request, AuditLog.Action.UPDATE, case, after={"stage": case.stage})
         return Response(case_payload(case, with_choices=True))
 

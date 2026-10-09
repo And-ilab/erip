@@ -61,6 +61,8 @@ def test_writeoff_needs_three_acts_and_every_approval(api, specialist_a, admin_a
     early = api(specialist_a).post(f"/api/v1/claims/{case_id}/writeoff/", {"approver_ids": [admin_a.id]}, format="json")
     assert early.status_code == 400
 
+    specialist_a.can_approve = True
+    specialist_a.save(update_fields=["can_approve"])
     moved = api(specialist_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "impossible"}, format="json")
     assert moved.status_code == 200, moved.content
 
@@ -89,6 +91,8 @@ def test_one_refusal_blocks_writeoff(api, specialist_a, admin_a, org_a):
     case_id = _ready(api, specialist_a, account)
     for index in range(3):
         api(specialist_a).post(f"/api/v1/claims/{case_id}/acts/", {"title": f"Акт {index}"}, format="json")
+    specialist_a.can_approve = True
+    specialist_a.save(update_fields=["can_approve"])
     api(specialist_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "impossible"}, format="json")
     api(specialist_a).post(
         f"/api/v1/claims/{case_id}/writeoff/", {"approver_ids": [admin_a.id]}, format="json",
@@ -182,6 +186,8 @@ def test_print_form_keeps_version_on_the_document(api, admin_a, specialist_a, ac
 
 @pytest.mark.django_db
 def test_recovered_waits_for_ais_flag(api, specialist_a, account_a):
+    specialist_a.can_approve = True
+    specialist_a.save(update_fields=["can_approve"])
     case_id = _ready(api, specialist_a, account_a)
     blocked = api(specialist_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "recovered"}, format="json")
     assert blocked.status_code == 400

@@ -108,7 +108,7 @@ def test_supplier_summary_hides_foreign_service_and_balance(api, org_a, account_
         {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [gas.id]},
         format="json",
     )
-    assert denied.status_code == 400
+    assert denied.status_code == 403
     DebtWorkItem.objects.create(
         organization=org_a, account=account_a, service=gas, kind=DebtWorkItem.Kind.WARNING, title="Чужое",
     )
@@ -217,9 +217,9 @@ def test_inheritance_pauses_every_account_and_resumes_after_the_term(api, specia
     assert StatusHistory.objects.filter(account=account_a, kind="inheritance").exists()
 
 
-def test_disconnect_confirmation_and_mobile_hours(api, specialist_a, account_a):
+def test_disconnect_confirmation_and_mobile_hours(api, admin_a, specialist_a, account_a):
     service = account_a.services.get()
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
@@ -261,13 +261,24 @@ def test_contract_kanban_and_saved_shape(api, specialist_a, account_a):
     assert isinstance(grouped, list)
 
 
-def test_supplier_picks_service_kind_for_measure(api, org_a, account_a):
+def test_supplier_picks_service_kind_for_measure(api, admin_a, org_a, account_a):
     supplier, water = _supplier(org_a, account_a)
     client = api(supplier)
     choices = client.get("/api/v1/services/choices/")
     assert choices.status_code == 200
     assert choices.json()["results"] == [{"service_id": water.service_id, "service_name": "Вода"}]
-    created = client.post(
+    denied = client.post(
+        "/api/v1/measures/",
+        {
+            "kind": "warning",
+            "account_ids": [account_a.id],
+            "catalog_service_ids": [water.service_id],
+            "template_name": "Предупреждение",
+        },
+        format="json",
+    )
+    assert denied.status_code == 403
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "warning",
@@ -279,12 +290,12 @@ def test_supplier_picks_service_kind_for_measure(api, org_a, account_a):
     )
     assert created.status_code == 201, created.content
     assert water.id in created.json()["service_ids"]
-    foreign = client.post(
+    foreign = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "warning",
             "account_ids": [account_a.id],
-            "catalog_service_ids": [10],
+            "catalog_service_ids": [999],
             "template_name": "Предупреждение",
         },
         format="json",
@@ -300,8 +311,8 @@ def test_supplier_warning_needs_own_service(api, org_a, account_a):
         {"kind": "warning", "account_ids": [account_a.id], "template_name": "Предупреждение"},
         format="json",
     )
-    assert denied.status_code == 400
-    allowed = client.post(
+    assert denied.status_code == 403
+    own = client.post(
         "/api/v1/measures/",
         {
             "kind": "warning", "account_ids": [account_a.id], "service_ids": [water.id],
@@ -309,7 +320,7 @@ def test_supplier_warning_needs_own_service(api, org_a, account_a):
         },
         format="json",
     )
-    assert allowed.status_code == 201
+    assert own.status_code == 403
 
 
 def test_category_recalculates_scenario_immediately(api, specialist_a, org_a, account_a):
@@ -427,6 +438,14 @@ def test_supplier_kanban_follows_his_service_group(api, org_a, account_a):
 def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, specialist_a, observer_a, account_a):
     columns = api(specialist_a).get("/api/v1/contracts/kanban/").json()
     card = next(item for column in columns for item in column["cards"] if account_a.id in item["account_ids"])
+    denied_move = api(specialist_a).post(
+        "/api/v1/contracts/stage/",
+        {"account_ids": card["account_ids"], "funnel_stage": "disconnect", "funnel_reason": "Проверка переноса этапа"},
+        format="json",
+    )
+    assert denied_move.status_code == 403
+    specialist_a.can_approve = True
+    specialist_a.save(update_fields=["can_approve"])
     moved = api(specialist_a).post(
         "/api/v1/contracts/stage/",
         {"account_ids": card["account_ids"], "funnel_stage": "disconnect", "funnel_reason": "Проверка переноса этапа"},
@@ -458,7 +477,7 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
         "/api/v1/contracts/stage/",
         {"account_ids": [account_a.id], "funnel_stage": "warning", "funnel_reason": "Проверка переноса этапа"},
         format="json",
-    ).status_code == 400
+    ).status_code == 403
 
 
 def test_contract_calendar_creates_an_event_on_the_chosen_day(api, specialist_a, observer_a, account_a):
@@ -590,7 +609,7 @@ def test_account_kanban_exposes_card_marks(api, specialist_a, account_a):
     assert card["mulct_total"] is not None or card["debt_total"] is not None
 
 
-def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, specialist_a, org_a, account_a):
+def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, admin_a, specialist_a, org_a, account_a):
     person = account_a.registrations.get()
     created = api(specialist_a).post(
         "/api/v1/contacts/",
@@ -605,7 +624,7 @@ def test_contact_is_tied_to_a_person_and_stop_date_does_not_confirm(api, special
     assert created.json()["priority"] == 1
     assert created.json()["person_name"].startswith("Иванов")
     service = account_a.services.get()
-    measure = api(specialist_a).post(
+    measure = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
@@ -812,7 +831,7 @@ def test_contract_billing_filter_accepts_name_or_code(api, specialist_a, org_a, 
     assert missing.json()["count"] == 0
 
 
-def test_blank_payer_keys_stay_separate_and_bad_ids_are_400(api, specialist_a, org_a, account_a):
+def test_blank_payer_keys_stay_separate_and_bad_ids_are_400(api, admin_a, specialist_a, org_a, account_a):
     account_a.payer_identifier = ""
     account_a.payer_unp = ""
     account_a.save(update_fields=["payer_identifier", "payer_unp"])
@@ -826,7 +845,7 @@ def test_blank_payer_keys_stay_separate_and_bad_ids_are_400(api, specialist_a, o
     bad_page = api(specialist_a).get("/api/v1/contracts/kanban/", {"page_size": "abc"})
     assert bad_page.status_code == 400
     service = account_a.services.get()
-    bad_ids = api(specialist_a).post(
+    bad_ids = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": ["нет"]},
         format="json",
@@ -873,50 +892,59 @@ def test_two_suppliers_set_the_same_measure_on_their_own_services(api, specialis
     )
     gas_user = make_user("supplier_gas", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
     gas_user.service_organizations.add(gas_org)
-    water_warning = api(water_user).post(
+    assert api(water_user).post(
         "/api/v1/measures/",
         {
             "kind": "warning", "account_ids": [account_a.id], "service_ids": [water.id],
             "template_name": "Предупреждение",
         },
         format="json",
-    )
-    gas_warning = api(gas_user).post(
+    ).status_code == 403
+    assert api(gas_user).post(
         "/api/v1/measures/",
         {
             "kind": "warning", "account_ids": [account_a.id], "service_ids": [gas.id],
             "template_name": "Предупреждение",
         },
         format="json",
-    )
-    assert water_warning.status_code == 201, water_warning.content
-    assert gas_warning.status_code == 201, gas_warning.content
-    assert water_warning.json()["owner_provider_id"] == 900
-    assert gas_warning.json()["owner_provider_id"] == gas.provider_id
-    assert water_warning.json()["owner_name"] == "Водоканал"
+    ).status_code == 403
+    from apps.debts.services.measures import launch_measure
+
+    water_row = launch_measure(
+        water_user, [account_a], [water], {"kind": "warning", "template_name": "Предупреждение"},
+    )["measure"]
+    gas_row = launch_measure(
+        gas_user, [account_a], [gas], {"kind": "warning", "template_name": "Предупреждение"},
+    )["measure"]
+    assert water_row.owner_provider_id == 900
+    assert gas_row.owner_provider_id == gas.provider_id
+    assert water_row.owner_name == "Водоканал"
     water_seen = {
         row["id"] for row in api(water_user).get(f"/api/v1/accounts/{account_a.id}/measures/").json()["results"]
     }
     gas_seen = {
         row["id"] for row in api(gas_user).get(f"/api/v1/accounts/{account_a.id}/measures/").json()["results"]
     }
-    assert water_warning.json()["id"] in water_seen
-    assert gas_warning.json()["id"] not in water_seen
-    assert gas_warning.json()["id"] in gas_seen
-    assert water_warning.json()["id"] not in gas_seen
+    assert water_row.id in water_seen
+    assert gas_row.id not in water_seen
+    assert gas_row.id in gas_seen
+    assert water_row.id not in gas_seen
     billing = {
         row["id"] for row in api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/measures/").json()["results"]
     }
-    assert water_warning.json()["id"] in billing and gas_warning.json()["id"] in billing
-    scenario = api(water_user).post(
+    assert water_row.id in billing and gas_row.id in billing
+    assert api(water_user).post(
         "/api/v1/measures/",
         {
             "kind": "scenario", "account_ids": [account_a.id], "service_ids": [water.id],
             "scenario_name": "Сценарий водоканала", "started_on": "2026-09-01",
         },
         format="json",
+    ).status_code == 403
+    launch_measure(
+        water_user, [account_a], [water],
+        {"kind": "scenario", "scenario_name": "Сценарий водоканала", "started_on": "2026-09-01"},
     )
-    assert scenario.status_code == 201, scenario.content
     water.refresh_from_db()
     gas.refresh_from_db()
     account_a.refresh_from_db()

@@ -90,6 +90,26 @@ def update_case(case: ClaimCase, data: dict, user) -> ClaimCase:
     return case
 
 
+ADJACENT = {
+    ClaimCase.Stage.PREP: {ClaimCase.Stage.NOTARY},
+    ClaimCase.Stage.NOTARY: {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.REFUSED},
+    ClaimCase.Stage.WRIT_DONE: {ClaimCase.Stage.OPI},
+    ClaimCase.Stage.REFUSED: {ClaimCase.Stage.LAWSUIT},
+    ClaimCase.Stage.LAWSUIT: {ClaimCase.Stage.COURT},
+    ClaimCase.Stage.COURT: {ClaimCase.Stage.OPI},
+    ClaimCase.Stage.OPI: {ClaimCase.Stage.OPI_MEASURES},
+    ClaimCase.Stage.OPI_MEASURES: {ClaimCase.Stage.RECOVERED, ClaimCase.Stage.IMPOSSIBLE},
+    ClaimCase.Stage.IMPOSSIBLE: {ClaimCase.Stage.WRITEOFF},
+}
+
+
+def stage_is_skip(case: ClaimCase, stage: str) -> bool:
+    """Переход мимо соседнего этапа. Обычный следующий шаг пропуском не считается."""
+    if stage == case.stage:
+        return False
+    return stage not in ADJACENT.get(case.stage, set())
+
+
 def move_case(case: ClaimCase, stage: str, user, reason: str = "") -> ClaimCase:
     if stage not in ClaimCase.Stage.values:
         raise ClaimBlocked("Неизвестный этап")

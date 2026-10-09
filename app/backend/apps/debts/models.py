@@ -758,6 +758,19 @@ class MeasureTask(AisRecord):
         verbose_name_plural = "Задания"
 
 
+class TaskCheck(AisRecord):
+    """Пункт чек-листа, который пользователь заводит внутри задания."""
+
+    task = models.ForeignKey(MeasureTask, on_delete=models.CASCADE, related_name="checks", verbose_name="Задание")
+    title = models.CharField("Пункт", max_length=250)
+    done = models.BooleanField("Выполнен", default=False)
+
+    class Meta:
+        ordering = ["id"]
+        verbose_name = "Пункт чек-листа задания"
+        verbose_name_plural = "Чек-лист задания"
+
+
 class WritCheck(AisRecord):
     """Пункт чек-листа подготовки исполнительной надписи."""
 

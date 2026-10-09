@@ -459,16 +459,19 @@ export class MeasuresListComponent implements OnInit {
 
   protected canMove(): boolean {
     const me = this.auth.me();
-    return !!me && me.role !== 'observer' && me.contour !== 'supplier';
+    return this.auth.canSkip() && !!me && me.contour !== 'supplier';
   }
 
   protected canOrderDisconnect(): boolean {
-    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+    return this.auth.canLaunchMeasure() && this.auth.me()?.contour !== 'supplier';
   }
 
   ngOnInit(): void {
-    this.api.dialSettings().subscribe({
-      next: (settings) => this.waitDays.set(settings.warning_wait_days || 5),
+    this.api.scenarioTimeline().subscribe({
+      next: (row) => this.waitDays.set(row.warning_wait_days || 5),
+      error: () => this.api.dialSettings().subscribe({
+        next: (settings) => this.waitDays.set(settings.warning_wait_days || 5),
+      }),
     });
     this.load();
   }

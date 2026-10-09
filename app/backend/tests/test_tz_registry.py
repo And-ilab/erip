@@ -124,7 +124,7 @@ def test_pm_contact_survives_ais_refresh_and_dial_prefers_mobile(org_a, account_
     assert picked.value == "+375291110000"
 
 
-def test_inheritance_blocks_auto_measure_and_lifts_for_new_payer(api, specialist_a, org_a, account_a, ready):
+def test_inheritance_blocks_auto_measure_and_lifts_for_new_payer(api, admin_a, specialist_a, org_a, account_a, ready):
     payer = Registration.objects.get(account=account_a)
     response = api(specialist_a).patch(
         f"/api/v1/accounts/{account_a.id}/",
@@ -134,9 +134,9 @@ def test_inheritance_blocks_auto_measure_and_lifts_for_new_payer(api, specialist
     assert response.status_code == 200
     account_a.refresh_from_db()
     assert account_a.inheritance_payer_id == payer.subj_id
-    blocked = api(specialist_a).post("/api/v1/measures/", {"kind": "call", "account_ids": [account_a.id]}, format="json")
+    blocked = api(admin_a).post("/api/v1/measures/", {"kind": "call", "account_ids": [account_a.id]}, format="json")
     assert blocked.status_code == 400
-    allowed = api(specialist_a).post(
+    allowed = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "collection", "account_ids": [account_a.id], "service_ids": [account_a.services.get().id],
@@ -163,11 +163,11 @@ def test_refresh_recalculates_the_loaded_account(api, specialist_a, account_a, r
     assert again.json()["id"] != created.json()["id"]
 
 
-def test_disconnect_requires_a_service_and_payment_cancels_it(api, specialist_a, account_a, ready):
-    missing = api(specialist_a).post("/api/v1/measures/", {"kind": "disconnect", "account_ids": [account_a.id]}, format="json")
+def test_disconnect_requires_a_service_and_payment_cancels_it(api, admin_a, specialist_a, account_a, ready):
+    missing = api(admin_a).post("/api/v1/measures/", {"kind": "disconnect", "account_ids": [account_a.id]}, format="json")
     assert missing.status_code == 400
     service = account_a.services.get()
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
@@ -231,12 +231,12 @@ def test_group_comes_from_unpaid_periods_and_reentry_raises_subrating(org_a, acc
     assert account_a.rating_repeat == 2
 
 
-def test_call_file_uses_the_dial_rule_and_warning_is_a_file(api, specialist_a, account_a, ready):
+def test_call_file_uses_the_dial_rule_and_warning_is_a_file(api, admin_a, specialist_a, account_a, ready):
     Contact.objects.create(
         organization=account_a.organization, account=account_a, kind=Contact.Kind.MOBILE, value="+375291110000",
         source=Contact.Source.PM, priority=3,
     )
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "call", "account_ids": [account_a.id], "template_name": "Напоминание",
@@ -249,7 +249,7 @@ def test_call_file_uses_the_dial_rule_and_warning_is_a_file(api, specialist_a, a
     text = measure.artifact.read().decode("utf-8-sig")
     assert "+375291110000" in text
     assert "Напоминание" in text
-    warning = api(specialist_a).post(
+    warning = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "warning", "account_ids": [account_a.id], "template_name": "Предупреждение"},
         format="json",

@@ -501,7 +501,7 @@ export class ClaimsBoardComponent implements OnInit {
 
   protected canMove(): boolean {
     const me = this.auth.me();
-    return !!me && me.role !== 'observer' && me.contour !== 'supplier';
+    return this.auth.canSkip() && !!me && me.contour !== 'supplier';
   }
 
   protected isSelected(id: number): boolean {

@@ -35,6 +35,7 @@ export interface DirectoryUser {
   phone: string;
   position: string;
   role: Role;
+  can_approve?: boolean;
   contour: 'billing' | 'supplier';
   organization: number | null;
   service_organizations: number[];
@@ -78,6 +79,7 @@ export interface Me {
   display_name: string;
   email: string;
   role: Role;
+  can_approve: boolean;
   contour: 'billing' | 'supplier';
   organization: number | null;
   organization_name: string | null;
@@ -486,9 +488,25 @@ export interface MeasureEventRow {
   created_at: string;
 }
 
+export interface TaskCheckRow {
+  id: number;
+  title: string;
+  done: boolean;
+}
+
+export interface MeasureTaskRow {
+  id: number;
+  title: string;
+  due_on: string | null;
+  status: string;
+  assignee_name: string;
+  checks: TaskCheckRow[];
+}
+
 export interface MeasureDetail extends MeasureRow {
   items: MeasureItemRow[];
   events: MeasureEventRow[];
+  tasks?: MeasureTaskRow[];
   call_legal: boolean;
   group_from: number | null;
   group_to: number | null;

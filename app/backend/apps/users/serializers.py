@@ -54,7 +54,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "id", "username", "password", "first_name", "middle_name", "last_name", "display_name", "registry_name",
-            "email", "phone", "position", "role", "contour", "organization", "service_organizations", "is_active",
+            "email", "phone", "position", "role", "can_approve", "contour", "organization", "service_organizations", "is_active",
             "last_login",
         ]
         read_only_fields = ["last_login"]
@@ -73,6 +73,11 @@ class UserSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"role": "Нельзя менять собственную роль"})
         if self.instance is not None and self.instance.pk == actor.pk and attrs.get("is_active") is False:
             raise serializers.ValidationError({"is_active": "Нельзя заблокировать свою учётную запись"})
+        if "can_approve" in attrs and actor.role not in {User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN}:
+            raise serializers.ValidationError({"can_approve": "Признак согласования ставит администратор"})
+        target_role = attrs.get("role", getattr(self.instance, "role", User.Role.SPECIALIST))
+        if target_role != User.Role.SPECIALIST:
+            attrs["can_approve"] = False
         organization = attrs.get("organization") or getattr(self.instance, "organization", None)
         for so in attrs.get("service_organizations", []):
             if organization is None or so.organization_id != organization.pk:
@@ -116,7 +121,7 @@ class MeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "username", "display_name", "email", "role", "contour", "organization",
+            "id", "username", "display_name", "email", "role", "can_approve", "contour", "organization",
             "organization_name", "supplier_name", "show_schema", "show_supplier", "show_service_org",
         ]
 

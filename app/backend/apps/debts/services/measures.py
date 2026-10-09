@@ -308,16 +308,17 @@ def _unpaid(services: list[AccountService], threshold) -> list[AccountService]:
 
 
 def disconnect_candidates(accounts) -> list[dict]:
+    from apps.nsi.services.timelines import warning_wait_for
+
     settings = CalculationSettings.load()
     today = timezone.localdate()
-    wait = settings.warning_wait_days or 5
     rows = []
     warnings = (
         MeasureItem.objects.filter(
             account__in=accounts, measure__kind=Measure.Kind.WARNING, status=MeasureItem.Status.DONE,
             delivered_on__isnull=False,
         )
-        .select_related("account", "measure")
+        .select_related("account", "account__organization", "measure")
         .prefetch_related("measure__services")
         .order_by("account_id", "-delivered_on")
     )
@@ -325,7 +326,7 @@ def disconnect_candidates(accounts) -> list[dict]:
     for item in warnings:
         if item.account_id in seen:
             continue
-        due = item.delivered_on + timedelta(days=wait)
+        due = item.delivered_on + timedelta(days=warning_wait_for(item.account.organization))
         if due > today:
             continue
         linked = [service for service in item.measure.services.all() if service.account_id == item.account_id]
@@ -388,9 +389,10 @@ def _split_by_service_group(
 
 
 def _guard_disconnect(accounts: list[Account], services: list[AccountService], override: str) -> tuple[list[Account], list[dict], dict]:
+    from apps.nsi.services.timelines import warning_wait_for
+
     settings = CalculationSettings.load()
     today = timezone.localdate()
-    wait = settings.warning_wait_days or 5
     skipped = []
     extras = {}
     chosen = []
@@ -415,7 +417,7 @@ def _guard_disconnect(accounts: list[Account], services: list[AccountService], o
         if warning is None:
             skipped.append(_skip(account, "Нет врученного предупреждения или акта"))
             continue
-        due = warning.delivered_on + timedelta(days=wait)
+        due = warning.delivered_on + timedelta(days=warning_wait_for(account.organization))
         if due > today:
             skipped.append(_skip(account, f"Срок оплаты по предупреждению ещё не истёк ({due:%d.%m.%Y})"))
             continue
@@ -747,8 +749,9 @@ def deliver_warnings(measure: Measure, items, user, data) -> int:
         raise MeasureLaunchError({"recipient_name": "Укажите ФИО получившего"})
     if refused and not reason:
         raise MeasureLaunchError({"reason": "Опишите акт об отказе или невручении"})
-    wait = CalculationSettings.load().warning_wait_days or 5
-    due = delivered_on + timedelta(days=wait)
+    from apps.nsi.services.timelines import warning_wait_for
+
+    due = delivered_on + timedelta(days=warning_wait_for(measure.organization))
     count = 0
     for item in items:
         if item.status not in ITEM_OPEN and item.status != MeasureItem.Status.ASSIGNED:

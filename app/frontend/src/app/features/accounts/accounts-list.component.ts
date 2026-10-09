@@ -934,7 +934,7 @@ export class AccountsListComponent implements OnInit {
   }
 
   protected canLaunch(): boolean {
-    return this.auth.canWrite();
+    return this.auth.canLaunchMeasure();
   }
 
   protected supplierContour(): boolean {
@@ -1167,7 +1167,7 @@ export class AccountsListComponent implements OnInit {
 
   protected canMove(): boolean {
     const me = this.auth.me();
-    return !!me && me.role !== 'observer' && me.contour !== 'supplier';
+    return this.auth.canSkip() && !!me && me.contour !== 'supplier';
   }
 
   protected shownColumns(): string[] {

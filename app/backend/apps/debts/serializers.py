@@ -296,7 +296,14 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         old_stage = instance.funnel_stage
         funnel_reason = ""
         if "funnel_stage" in validated_data and validated_data["funnel_stage"] != instance.funnel_stage:
+            from rest_framework.exceptions import PermissionDenied
+
+            from apps.users.access import can_skip_stage
+
             request = self.context.get("request")
+            actor = getattr(request, "user", None) if request is not None else None
+            if not can_skip_stage(actor):
+                raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
             funnel_reason = str(request.data.get("funnel_reason") or "").strip() if request is not None else ""
             if not funnel_reason:
                 raise serializers.ValidationError({
@@ -704,9 +711,10 @@ class MeasureSerializer(serializers.ModelSerializer):
 class MeasureDetailSerializer(MeasureSerializer):
     items = serializers.SerializerMethodField()
     events = serializers.SerializerMethodField()
+    tasks = serializers.SerializerMethodField()
 
     class Meta(MeasureSerializer.Meta):
-        fields = [*MeasureSerializer.Meta.fields, "items", "events", "call_legal", "group_from", "group_to"]
+        fields = [*MeasureSerializer.Meta.fields, "items", "events", "tasks", "call_legal", "group_from", "group_to"]
 
     def get_items(self, obj):
         qs = obj.items.select_related("account")
@@ -729,6 +737,19 @@ class MeasureDetailSerializer(MeasureSerializer):
             }
             for row in rows
         ]
+
+    def get_tasks(self, obj):
+        rows = []
+        for task in obj.tasks.select_related("assignee").prefetch_related("checks"):
+            rows.append({
+                "id": task.id,
+                "title": task.title,
+                "due_on": task.due_on.isoformat() if task.due_on else None,
+                "status": task.status,
+                "assignee_name": task.assignee.display_name if task.assignee_id else "",
+                "checks": [{"id": item.id, "title": item.title, "done": item.done} for item in task.checks.all()],
+            })
+        return rows
 
 
 class RefreshRequestSerializer(serializers.ModelSerializer):

@@ -190,10 +190,9 @@ def test_reimport_updates_changed_fields_and_shows_measure(org_a, specialist_a):
     account = Account.objects.get(account_id=10)
     assert account.debt_group == 3
     measure = Measure.objects.get(accounts=account)
-    assert measure.kind == Measure.Kind.COLLECTION
-    assert measure.status == Measure.Status.ASSIGNED
-    assert measure.template_name == "Отключение и подготовка взыскания"
-    assert measure.assignee_id == specialist_a.id
+    assert measure.kind == Measure.Kind.CALL
+    assert measure.status == Measure.Status.FAILED
+    assert measure.template_name == "Автообзвон"
 
     changed = "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;BALANCE_OUT;SHORT_FIO\n10;501;00000010;80,00;Петров\n"
     again = AisImporter("account", org_a).run(changed.encode(), "a2.csv")

@@ -17,6 +17,13 @@ export class AuthService {
   readonly isSuperadmin = computed(() => this.me()?.role === 'superadmin');
   readonly canManageTemplates = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
   readonly canWrite = computed(() => ['superadmin', 'local_admin', 'specialist'].includes(this.me()?.role ?? ''));
+  readonly canLaunchMeasure = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
+  readonly canSkip = computed(() => {
+    const me = this.me();
+    if (!me) return false;
+    if (me.role === 'superadmin' || me.role === 'local_admin') return true;
+    return me.role === 'specialist' && me.can_approve === true;
+  });
   readonly showSchema = computed(() => this.me()?.show_schema === true);
   readonly showSupplier = computed(() => this.me()?.show_supplier === true);
   readonly showServiceOrg = computed(() => this.me()?.show_service_org === true);

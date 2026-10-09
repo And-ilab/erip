@@ -21,6 +21,7 @@ interface UserDraft {
   password: string;
   email: string;
   role: Role;
+  can_approve: boolean;
   contour: 'billing' | 'supplier';
   service_organizations: number[];
 }
@@ -93,6 +94,9 @@ export class OrgDraftDialog {
           </mat-select>
         </mat-form-field>
       </div>
+      @if (role === 'specialist') {
+        <label class="hint"><input type="checkbox" [(ngModel)]="canApprove" /> Согласует: может пропустить мероприятие или этап</label>
+      }
       @if (role === 'specialist' && contour === 'supplier') {
         <p class="hint">Поставщик видит только отмеченные организации. Пустой список даёт пустой реестр.</p>
         <div class="services">
@@ -129,6 +133,7 @@ export class UserDraftDialog {
   protected email = '';
   protected role: Role = this.data.roles[0]?.id ?? 'specialist';
   protected contour: 'billing' | 'supplier' = 'billing';
+  protected canApprove = false;
   protected services: number[] = [];
   protected error = '';
 
@@ -160,6 +165,7 @@ export class UserDraftDialog {
       password: this.password,
       email: this.email.trim(),
       role: this.role,
+      can_approve: this.role === 'specialist' && this.canApprove,
       contour,
       service_organizations: contour === 'supplier' ? this.services : [],
     });
@@ -223,7 +229,12 @@ export class UserDraftDialog {
                         {{ user.registry_name || user.username }}
                       </td>
                       <td>{{ user.username }}</td>
-                      <td><span class="role" [class]="roleClass(user)">{{ roleLabel(user) }}</span></td>
+                      <td>
+                        <span class="role" [class]="roleClass(user)">{{ roleLabel(user) }}</span>
+                        @if (user.role === 'specialist' && canToggle(user)) {
+                          <button mat-button type="button" (click)="toggleApprove(user)">{{ user.can_approve ? 'Снять согласование' : 'Дать согласование' }}</button>
+                        }
+                      </td>
                       <td><span class="status" [class.off]="!user.is_active">{{ user.is_active ? 'активен' : 'заблокирован' }}</span></td>
                       <td>{{ when(user.last_login) }}</td>
                       <td>
@@ -317,7 +328,7 @@ export class OrgDirectoryComponent implements OnInit {
   protected readonly rights = [
     { title: 'Суперадминистратор', text: 'Все схемы. Меняет границы групп, рейтинг, организации и любых пользователей.' },
     { title: 'Локальный администратор', text: 'Пользователи своей схемы, сценарии и печатные формы схемы. Границы групп задаёт суперадминистратор.' },
-    { title: 'Специалист', text: 'Реестр, мероприятия и карточки своей схемы. Пустой список обслуживающих организаций открывает всю схему.' },
+    { title: 'Специалист', text: 'Реестр, карточки и задания внутри мероприятий своей схемы. Мероприятие вне сценария и пропуск этапа — только если включено согласование.' },
     { title: 'Специалист поставщика', text: 'Только услуги, где его организация назначена поставщиком. Пустой список поставщика оставляет реестр пустым.' },
     { title: 'Наблюдатель', text: 'Просмотр данных своей схемы без изменений.' },
   ];
@@ -354,6 +365,9 @@ export class OrgDirectoryComponent implements OnInit {
   }
 
   protected roleLabel(user: DirectoryUser): string {
+    if (user.role === 'specialist' && user.can_approve) {
+      return user.contour === 'supplier' ? 'Специалист поставщика с согласованием' : 'Специалист с согласованием';
+    }
     if (user.role === 'specialist' && user.contour === 'supplier') return 'Специалист поставщика';
     return {
       superadmin: 'Суперадминистратор',
@@ -431,6 +445,16 @@ export class OrgDirectoryComponent implements OnInit {
             error: (err) => this.snack.open(errorMessage(err), 'OK'),
           });
         });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected toggleApprove(user: DirectoryUser): void {
+    this.api.saveUser({ id: user.id, can_approve: !user.can_approve }).subscribe({
+      next: () => {
+        this.snack.open(user.can_approve ? 'Согласование снято' : 'Специалист может пропускать этапы', 'OK', { duration: 2000 });
+        this.loadUsers();
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });

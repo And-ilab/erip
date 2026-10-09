@@ -36,7 +36,7 @@ def _collection(account):
 
 
 @pytest.mark.django_db
-def test_reimport_of_paid_account_recovers_the_case_and_measure(org_a):
+def test_reimport_of_paid_account_does_not_close_the_case(org_a):
     account = make_account(org_a, 501, client_account="00000501")
     from apps.debts.models import AccountService
 
@@ -63,13 +63,13 @@ def test_reimport_of_paid_account_recovers_the_case_and_measure(org_a):
     measure.refresh_from_db()
     account.refresh_from_db()
 
-    assert case.ais_debt_cleared is True
-    assert case.tariff_received is True
-    assert case.stage == ClaimCase.Stage.RECOVERED
-    assert measure.status == Measure.Status.DONE
-    assert measure.items.get().status == MeasureItem.Status.DONE
-    assert account.funnel_stage == "closed"
-    assert account.funnel_locked is False
+    assert case.ais_debt_cleared is False
+    assert case.tariff_received is False
+    assert case.stage == ClaimCase.Stage.NOTARY
+    assert measure.status == Measure.Status.CANCELLED
+    assert measure.items.get().status == MeasureItem.Status.CANCELLED
+    assert account.funnel_stage == "enforcement"
+    assert account.funnel_locked is True
 
     events = ClaimEvent.objects.filter(case=case).count()
     PortfolioRefresher().refresh_account(account)
@@ -88,7 +88,7 @@ def test_reimport_without_tariff_does_not_mark_recovered(org_a):
     case = _case(account, tariff=None)
     PortfolioRefresher().refresh_account(account)
     case.refresh_from_db()
-    assert case.ais_debt_cleared is True
+    assert case.ais_debt_cleared is False
     assert case.tariff_received is False
     assert case.stage == ClaimCase.Stage.NOTARY
 

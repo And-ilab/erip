@@ -26,16 +26,16 @@ def _call(api, user, account, **extra):
 
 
 @pytest.fixture
-def party(api, specialist_a, org_a, account_a):
+def party(api, admin_a, specialist_a, org_a, account_a):
     second = make_account(org_a, 1002, client_account="00001002")
     second.short_fio = "Петров П.П."
     second.save(update_fields=["short_fio"])
     created = _call(
-        api, specialist_a, account_a,
+        api, admin_a, account_a,
         account_ids=[account_a.id, second.id], assignee=specialist_a.id,
     )
     assert created.status_code == 201
-    failed = _call(api, specialist_a, account_a, started_on="2026-08-01", due_on="2026-08-02")
+    failed = _call(api, admin_a, account_a, started_on="2026-08-01", due_on="2026-08-02")
     Measure.objects.filter(pk=failed.json()["id"]).update(status=Measure.Status.FAILED, note="Неверный номер")
     return created.json()["id"]
 
@@ -84,8 +84,8 @@ def test_search_and_period_narrow_the_same_registry(api, specialist_a, party):
     assert bad.status_code == 400
 
 
-def test_matrix_puts_the_latest_measure_of_each_kind_on_the_account(api, specialist_a, account_a, party):
-    warning = api(specialist_a).post(
+def test_matrix_puts_the_latest_measure_of_each_kind_on_the_account(api, admin_a, specialist_a, account_a, party):
+    warning = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "warning", "account_ids": [account_a.id], "template_name": "Предупреждение", "started_on": "2026-07-11"},
         format="json",
@@ -143,12 +143,12 @@ def test_supplier_keeps_a_batch_that_includes_his_service(api, org_a, account_a)
     assert foreign.id not in found
 
 
-def test_open_measure_stays_visible_until_its_due_month(api, specialist_a, account_a):
-    created = _call(api, specialist_a, account_a, started_on="2026-06-20", due_on="2026-07-05")
+def test_open_measure_stays_visible_until_its_due_month(api, admin_a, specialist_a, account_a):
+    created = _call(api, admin_a, account_a, started_on="2026-06-20", due_on="2026-07-05")
     assert created.status_code == 201
     assert api(specialist_a).get("/api/v1/measures/registry/", {"period": "2026-07"}).json()["total"] == 1
     assert api(specialist_a).get("/api/v1/measures/registry/", {"period": "2026-08"}).json()["total"] == 0
-    running = _call(api, specialist_a, account_a, started_on="2026-07-01")
+    running = _call(api, admin_a, account_a, started_on="2026-07-01")
     Measure.objects.filter(pk=running.json()["id"]).update(status=Measure.Status.RUNNING, due_on=None, time_from=time(18, 0))
     july = api(specialist_a).get("/api/v1/measures/registry/", {"period": "2026-07"}).json()
     assert july["total"] == 2

@@ -1,7 +1,6 @@
 """Дело взыскания — та же строка, что реестр мероприятий. Иначе ЛС есть в исковой работе и нет в мероприятиях."""
 
 from django.db.models import Count, Q, QuerySet
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from apps.debts.models import Account, ClaimCase, Measure, MeasureItem
@@ -97,30 +96,15 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
         .values_list("pk", flat=True)[:2000]
     )
     ids = list(bare)
-    # Повторный заход в реестр не гоняет сценарий заново. Иначе каждый должник группы 2
-    # с уже верным обзвоном и каждый недозвон «нет номера» пересчитываются при открытии страницы.
-    covered = Q(
-        measures__kind__in=[Measure.Kind.WARNING, Measure.Kind.DISCONNECT, Measure.Kind.COLLECTION],
-        measures__status__in=[
-            Measure.Status.ASSIGNED, Measure.Status.RUNNING, Measure.Status.PAUSED, Measure.Status.DONE,
-        ],
-    )
-    senior = owing.annotate(shown_group=Coalesce("debt_group_manual", "debt_group")).filter(shown_group__gte=2)
-    open_call = [Measure.Status.ASSIGNED, Measure.Status.RUNNING, Measure.Status.PAUSED]
-    stale = list(dict.fromkeys(
-        senior.filter(measures__kind=Measure.Kind.CALL, measures__status__in=open_call)
-        .exclude(covered)
-        .order_by("-shown_group", "pk")
-        .values_list("pk", flat=True)[:2000]
-    ))
+    # Открытый автообзвон — текущий шаг цепочки, а не ошибка старшей группы.
+    # Повторно гоняем только сорвавшийся обзвон: вдруг номер уже появился.
     retry = list(
-        senior.filter(measures__kind=Measure.Kind.CALL, measures__status=Measure.Status.FAILED)
-        .exclude(covered)
-        .order_by("-shown_group", "pk")
+        owing.filter(measures__kind=Measure.Kind.CALL, measures__status=Measure.Status.FAILED)
+        .order_by("pk")
         .values_list("pk", flat=True)
         .distinct()[:2000]
     )
-    ordered = list(dict.fromkeys([*stale, *ids, *retry]))[:2000]
+    ordered = list(dict.fromkeys([*ids, *retry]))[:2000]
     if not ordered:
         return
     from apps.nsi.services.scenario_engine import ensure_imported_runs

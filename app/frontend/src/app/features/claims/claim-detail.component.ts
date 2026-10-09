@@ -9,6 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 
 @Component({
@@ -168,11 +169,15 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   <mat-option value="denied">Отказано в иске</mat-option>
                 </mat-select>
               </mat-form-field>
-              <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
+              @if (auth.canSkip()) {
+                <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
+              }
               <div class="actions">
                 <button mat-stroked-button (click)="save()">Сохранить иск</button>
-                <button mat-stroked-button (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
-                <button mat-stroked-button (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
+                @if (auth.canSkip()) {
+                  <button mat-stroked-button (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
+                  <button mat-stroked-button (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
+                }
               </div>
             </div>
             <div class="fields">
@@ -180,8 +185,10 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               <mat-form-field><mat-label>Статус вручную</mat-label><input matInput [(ngModel)]="opiStatus" /></mat-form-field>
               <div class="actions">
                 <button mat-stroked-button (click)="act('opi', { number: opiNumber, status: opiStatus })">Записать статус ОПИ</button>
-                <button mat-stroked-button (click)="act('move', { stage: 'opi', reason: skipReason })">Направлено в ОПИ</button>
-                <button mat-stroked-button (click)="act('move', { stage: 'opi_measures', reason: skipReason })">Меры приняты</button>
+                @if (auth.canSkip()) {
+                  <button mat-stroked-button (click)="act('move', { stage: 'opi', reason: skipReason })">Направлено в ОПИ</button>
+                  <button mat-stroked-button (click)="act('move', { stage: 'opi_measures', reason: skipReason })">Меры приняты</button>
+                }
               </div>
               <mat-form-field class="wide"><mat-label>Новый акт ОПИ</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
               <button mat-stroked-button (click)="act('acts', { title: actTitle })">Приложить акт</button>
@@ -257,6 +264,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 })
 export class ClaimDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
+  protected readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);

@@ -221,6 +221,12 @@ import {
 
           <mat-tab [label]="'Мероприятия (' + measures().length + ')'">
             <p><a routerLink="/measures">Реестр мероприятий</a></p>
+            @if (auth.canSkip()) {
+              <div class="filters">
+                <mat-form-field class="wide"><mat-label>Причина пропуска шага сценария</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
+                <button mat-stroked-button (click)="skipStep()">Пропустить текущий шаг</button>
+              </div>
+            }
             @if (!measures().length) {
               <p class="muted">По этому лицевому счёту мероприятий нет.</p>
             } @else {
@@ -669,6 +675,7 @@ import {
 export class AccountDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   protected readonly auth = inject(AuthService);
+  protected skipReason = '';
   private readonly snack = inject(MatSnackBar);
   readonly id = input.required<string>();
 
@@ -744,6 +751,23 @@ export class AccountDetailComponent implements OnInit {
       'mulct_recalc_sum', 'full_name', 'overdue_debt', 'share_mulct_summ', 'share_service_summ', 'subs_pay',
       'tarrif', 'calc_date', 'months_debt', 'supplier', 'debt_group',
     ];
+  }
+
+  protected skipStep(): void {
+    const reason = this.skipReason.trim();
+    if (!reason) {
+      this.snack.open('Укажите причину пропуска', 'OK');
+      return;
+    }
+    const id = Number(this.id());
+    this.api.skipScenarioStep(id, reason).subscribe({
+      next: () => {
+        this.skipReason = '';
+        this.snack.open('Шаг сценария пропущен', 'OK', { duration: 2500 });
+        this.api.accountMeasures(id).subscribe({ next: (page) => this.measures.set(page.results) });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   ngOnInit(): void {

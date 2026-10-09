@@ -256,6 +256,48 @@ class ScenarioDefinitionViewSet(NsiViewSet):
             "dial_mobile_weekdays": settings.dial_mobile_weekdays,
         })
 
+    @action(detail=False, methods=["get", "patch"], url_path="timeline")
+    def timeline(self, request):
+        """Сроки схемы. Чтение — всем своей схемы, запись — администратору."""
+        from apps.nsi.services.timelines import clean_step_waits, warning_wait_for
+
+        if request.method == "PATCH":
+            self._admin_only()
+        organization = request.user.organization
+        settings = CalculationSettings.load()
+        if organization is None:
+            return Response({
+                "warning_wait_days": settings.warning_wait_days,
+                "warning_wait_custom": None,
+                "central_warning_wait_days": settings.warning_wait_days,
+                "step_waits": {},
+            })
+        if request.method == "PATCH":
+            if "warning_wait_days" in request.data:
+                raw = request.data.get("warning_wait_days")
+                if raw in (None, ""):
+                    organization.warning_wait_days = None
+                else:
+                    try:
+                        days = int(raw)
+                    except (TypeError, ValueError) as exc:
+                        raise ValidationError({"warning_wait_days": "Укажите число дней"}) from exc
+                    if days < 0 or days > 3650:
+                        raise ValidationError({"warning_wait_days": "Срок — от 0 до 3650 дней"})
+                    organization.warning_wait_days = days
+            if "step_waits" in request.data:
+                try:
+                    organization.step_waits = clean_step_waits(request.data.get("step_waits"))
+                except ValueError as exc:
+                    raise ValidationError({"step_waits": str(exc)}) from exc
+            organization.save(update_fields=["warning_wait_days", "step_waits", "updated_at"])
+        return Response({
+            "warning_wait_days": warning_wait_for(organization),
+            "warning_wait_custom": organization.warning_wait_days,
+            "central_warning_wait_days": settings.warning_wait_days,
+            "step_waits": organization.step_waits or {},
+        })
+
 
 class PrintFormViewSet(NsiViewSet):
     queryset = PrintForm.objects.all()

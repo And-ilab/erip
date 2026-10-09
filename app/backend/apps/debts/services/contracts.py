@@ -449,8 +449,13 @@ def supplier_portfolio(qs) -> dict:
 
 def move_stage(user, accounts, stage: str, reason: str = "") -> None:
     """Этап карточки должника — этап всех его видимых лицевых счетов. Без основания переход не пишется."""
-    from apps.debts.models import StatusHistory
+    from rest_framework.exceptions import PermissionDenied
 
+    from apps.debts.models import StatusHistory
+    from apps.users.access import can_skip_stage
+
+    if not can_skip_stage(user):
+        raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
     if getattr(user, "contour", "") == "supplier":
         raise ValidationError({"funnel_stage": "Поставщик не меняет этап воронки"})
     if stage not in FUNNEL_RANK:
