@@ -39,7 +39,7 @@ const SLOTS: Slot[] = [
           <li [class.on]="selected() === slot.code" [class.done]="done(slot)">
             <button type="button" class="row" (click)="pick(slot.code)">
               <span class="box" [class.on]="done(slot)" aria-hidden="true"></span>
-              <span class="title">{{ slot.title }}</span>
+              <span class="title" [attr.title]="slot.title">{{ slot.title }}</span>
               <span class="state">{{ done(slot) ? 'есть' : 'нет' }}</span>
             </button>
             <span class="acts">
@@ -58,7 +58,14 @@ const SLOTS: Slot[] = [
       </ul>
       <div class="viewer">
         @if (active(); as slot) {
-          <h4>{{ slot.title }}</h4>
+          <div class="head">
+            <h4 [attr.title]="slot.title">{{ slot.title }}</h4>
+            @if (templatesFor(); as forms) {
+              @if (forms.length) {
+                <button mat-stroked-button type="button" class="create" [disabled]="busy()" (click)="createFromTemplate()">Создать</button>
+              }
+            }
+          </div>
           @if (slot.mode === 'date') {
             <p>{{ warningDate() ? 'Вручено ' + warningDate() : 'Даты вручения предупреждения нет. Без неё пакет нотариусу не уходит.' }}</p>
           }
@@ -75,18 +82,18 @@ const SLOTS: Slot[] = [
           }
           @if (templatesFor(); as forms) {
             @if (forms.length) {
-              <div class="pick">
-                <select [(ngModel)]="templateId">
+              <p class="doc-name" [attr.title]="forms.length > 1 ? templateName() : forms[0].name">{{ forms.length > 1 ? templateName() : forms[0].name }}</p>
+              @if (forms.length > 1) {
+                <select class="template" [(ngModel)]="templateId" [attr.title]="templateName()">
                   @for (form of forms; track form.id) { <option [value]="form.id">{{ form.name }}</option> }
                 </select>
-                <button mat-stroked-button type="button" [disabled]="busy()" (click)="createFromTemplate()">Создать</button>
-              </div>
+              }
             } @else if (picking()) {
               <p>Шаблона этого вида в конструкторе печатных форм нет.</p>
             }
           }
           @if (currentDoc(); as doc) {
-            <p class="meta">{{ doc.file_name }} · {{ doc.generated ? 'собран в ПМ' : 'загружен' }} · {{ doc.has_signature ? doc.signature_name : 'файл ЭЦП не приложен' }}</p>
+            <p class="meta" [attr.title]="doc.file_name">{{ doc.file_name }} · {{ doc.generated ? 'собран в ПМ' : 'загружен' }} · {{ doc.has_signature ? doc.signature_name : 'файл ЭЦП не приложен' }}</p>
             @if (doc.body) {
               <textarea rows="12" [(ngModel)]="draft"></textarea>
               <div class="acts">
@@ -110,7 +117,7 @@ const SLOTS: Slot[] = [
               <button mat-button type="button" (click)="remove(doc)">Удалить</button>
             </div>
           } @else if (slot.mode === 'doc' || slot.mode === 'scan') {
-            <p>Документа в комплекте нет. Создайте его из шаблона или загрузите PDF.</p>
+            <p class="empty">Документа в комплекте нет. Создайте его из шаблона или загрузите PDF.</p>
           }
         } @else {
           <p>Выберите пункт слева, чтобы посмотреть документ или его состояние.</p>
@@ -119,34 +126,55 @@ const SLOTS: Slot[] = [
     </div>
   `,
   styles: `
+    :host { display: block; min-width: 0; max-width: 100%; }
     h3, h4 { margin: 0 0 8px; color: var(--erip-primary-dark); }
+    .hint, .meta, .empty, .doc-name { overflow-wrap: break-word; }
     .hint, .meta { color: var(--erip-muted); font-size: 13px; }
-    .split { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); gap: 12px; margin-top: 8px; }
-    .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-    .checks li { border: 1px solid var(--erip-border); border-radius: 8px; background: #fff; padding: 6px 8px; }
+    .empty, .doc-name, .viewer p { margin: 0; }
+    .split {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 8px; min-width: 0;
+    }
+    .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .checks li {
+      border: 1px solid var(--erip-border); border-radius: 8px; background: #fff; padding: 6px 8px;
+      display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0;
+    }
     .checks li.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .row {
-      display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent;
-      text-align: left; font: inherit; cursor: pointer; padding: 2px 0;
+      display: grid; grid-template-columns: 16px minmax(0, 1fr) 2.75rem; align-items: center; column-gap: 8px;
+      width: 100%; min-width: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; padding: 2px 0;
     }
     .box {
-      width: 16px; height: 16px; border: 1.5px solid #8aa0ad; border-radius: 3px; flex: 0 0 16px; background: #fff;
+      width: 16px; height: 16px; border: 1.5px solid #8aa0ad; border-radius: 3px; background: #fff;
     }
     .box.on { background: var(--erip-success); border-color: var(--erip-success); box-shadow: inset 0 0 0 2px #fff; }
-    .title { flex: 1; font-size: 14px; }
-    .state { font-size: 12px; color: var(--erip-muted); }
-    .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+    .title { min-width: 0; font-size: 14px; overflow-wrap: break-word; line-height: 1.3; }
+    .state { font-size: 12px; color: var(--erip-muted); text-align: right; white-space: nowrap; }
+    .checks .acts {
+      display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; min-width: 0; margin: 0 0 2px 24px;
+    }
+    .viewer .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
     .acts button, .acts label {
       border: 0; background: transparent; color: var(--erip-link); font: inherit; font-size: 12px; cursor: pointer; padding: 0;
+      white-space: nowrap;
     }
     .acts input[type="file"] { display: none; }
-    .viewer { border: 1px solid var(--erip-border); border-radius: 8px; padding: 12px; background: #fff; min-height: 180px; }
-    .viewer textarea, .viewer select, .pick select {
-      width: 100%; box-sizing: border-box; font: inherit; border: 1px solid var(--erip-border); border-radius: 6px; padding: 8px;
+    .viewer {
+      border: 1px solid var(--erip-border); border-radius: 8px; padding: 12px; background: #fff; min-height: 180px;
+      min-width: 0; max-width: 100%; box-sizing: border-box;
+      display: flex; flex-direction: column; align-items: stretch; gap: 8px;
     }
-    .pick { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-    .pick select { width: auto; flex: 1; }
-    @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+    .viewer > button { align-self: flex-start; }
+    .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; max-width: 100%; }
+    .head h4 { margin: 0; flex: 1 1 auto; min-width: min(100%, max-content); overflow-wrap: break-word; }
+    .create { flex: 0 0 auto; }
+    .doc-name { font-size: 14px; line-height: 1.35; }
+    .viewer textarea, .template, .viewer .acts select {
+      box-sizing: border-box; font: inherit; border: 1px solid var(--erip-border); border-radius: 6px; padding: 8px; max-width: 100%;
+    }
+    .viewer textarea, .template { display: block; width: 100%; min-width: 0; }
+    .viewer .acts select { width: auto; }
+    @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
   `,
 })
 export class ClaimChecklistComponent implements OnInit {
@@ -214,6 +242,11 @@ export class ClaimChecklistComponent implements OnInit {
     const slot = this.active();
     if (!slot?.formKind) return [];
     return this.forms().filter((form) => form.doc_kind === slot.formKind);
+  }
+
+  protected templateName(): string {
+    const id = Number(this.templateId);
+    return this.templatesFor()?.find((form) => form.id === id)?.name || '';
   }
 
   protected openTemplates(slot: Slot, event: Event): void {

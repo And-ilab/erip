@@ -237,8 +237,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     h2, h3 { margin: 0 0 4px; color: var(--erip-primary-dark); }
     .muted, .hint { color: var(--erip-muted); }
     .stage { background: var(--erip-claim-soft); color: var(--erip-claim); border-radius: 999px; padding: 4px 10px; font-size: 13px; }
-    .split { display: grid; grid-template-columns: 1fr 260px; gap: 20px; margin-top: 12px; }
-    .form, .fields { display: flex; flex-direction: column; gap: 8px; }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; margin-top: 12px; min-width: 0; }
+    .form, .fields { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
     .sums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .sums div { background: var(--erip-bg); border-radius: 8px; padding: 8px 10px; }
     .sums span { display: block; color: var(--erip-muted); font-size: 12px; }
