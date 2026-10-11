@@ -1,4 +1,4 @@
-import { MoneyComponent } from '../../core/money.component';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -15,6 +15,7 @@ import { hideColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
+import { DomainFilterComponent, DomainRule, contractDomainFields, parseDomain } from '../domain-filter.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -103,8 +104,9 @@ const COLUMN_LABELS: Record<string, string> = {
   selector: 'app-contracts-list',
   standalone: true,
   imports: [
-    ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent,
+    ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
+    DomainFilterComponent,
   ],
   template: `
     <div class="registry">
@@ -147,6 +149,9 @@ const COLUMN_LABELS: Record<string, string> = {
             }
             @if (groupBy.value) {
               <button type="button" class="fchip" (click)="clearGroupByChip($event)">Группировать по: {{ groupByLabel(groupBy.value) }} ×</button>
+            }
+            @if (domain()) {
+              <button type="button" class="fchip" (click)="clearDomain($event)">Условие ×</button>
             }
             <input
               [formControl]="search"
@@ -278,9 +283,9 @@ const COLUMN_LABELS: Record<string, string> = {
           <table mat-table [dataSource]="summary()?.suppliers ?? []">
             <ng-container matColumnDef="name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.name }}</td></ng-container>
             <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
-            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="obligation(r.principal, r.penalty)" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Сумма задолженности <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="obligation(r.principal, r.penalty)" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="measures"><th mat-header-cell *matHeaderCellDef>Мероприятия</th><td mat-cell *matCellDef="let r" class="actions">{{ actionLine(r.measures) }}</td></ng-container>
             <ng-container matColumnDef="claims"><th mat-header-cell *matHeaderCellDef>Претензионно-исковые действия</th><td mat-cell *matCellDef="let r" class="actions">{{ actionLine(r.claims) }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="supplierColumns"></tr>
@@ -309,9 +314,9 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="rating_label"><th mat-header-cell *matHeaderCellDef>Рейтинг должника</th><td mat-cell *matCellDef="let r">@if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> }</td></ng-container>
             <ng-container matColumnDef="funnel_stage"><th mat-header-cell *matHeaderCellDef>Этап воронки взыскания</th><td mat-cell *matCellDef="let r">{{ stageLabel(r.funnel_stage || '') }}</td></ng-container>
             <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
-            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Суммарный долг по всем услугам ЛС</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Суммарный долг по всем услугам ЛС <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.debt_group }}</td></ng-container>
             <ng-container matColumnDef="assigned_name"><th mat-header-cell *matHeaderCellDef>Закреплённый специалист</th><td mat-cell *matCellDef="let r">{{ short(r.assigned_name) }}</td></ng-container>
             <ng-container matColumnDef="ownership_type_name"><th mat-header-cell *matHeaderCellDef>Тип собственности</th><td mat-cell *matCellDef="let r">{{ short(r.ownership_type_name) }}</td></ng-container>
@@ -357,11 +362,11 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ short(r.shot_name) }}</td></ng-container>
             <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
             <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Наименование схемы</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
-            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Остаток задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Остаток пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="obligation_total"><th mat-header-cell *matHeaderCellDef>Суммарный долг по услуге</th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation_total" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма задолженности</th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_principal" /></td></ng-container>
-            <ng-container matColumnDef="initial_penalty"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_penalty" /></td></ng-container>
+            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Остаток задолженности <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Остаток пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="obligation_total"><th mat-header-cell *matHeaderCellDef>Суммарный долг по услуге <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation_total" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма задолженности <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_principal" /></td></ng-container>
+            <ng-container matColumnDef="initial_penalty"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_penalty" /></td></ng-container>
             <ng-container matColumnDef="period_balances"><th mat-header-cell *matHeaderCellDef>Остатки задолженности и пени по периодам</th><td mat-cell *matCellDef="let r">{{ periodText(r) }}</td></ng-container>
             <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период возникновения долга</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
             <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения по договору</th><td mat-cell *matCellDef="let r">{{ r.repayment_due_on }}</td></ng-container>
@@ -392,36 +397,51 @@ const COLUMN_LABELS: Record<string, string> = {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <div class="name">{{ card.payer || 'Без наименования' }}</div>
-                    @if (canMove()) {
-                      <button type="button" class="stage-btn" (click)="openStage($event, card)">Сменить этап воронки</button>
-                    }
-                    <div class="line">{{ personId(card) }} · {{ card.ls_count }} ЛС · {{ card.services_debt_count ?? card.service_count || 0 }} усл.</div>
+                    <div class="line">
+                      <span tabindex="0" title="Идентификатор">{{ personId(card) }}</span>
+                      · <span tabindex="0" title="Лицевые счета">{{ card.ls_count }}</span>
+                      · <span tabindex="0" title="Услуги с задолженностью">{{ card.services_debt_count ?? card.service_count || 0 }}</span>
+                    </div>
                     @if (card.service_name) {
-                      <div class="line">{{ short(card.service_name) }}</div>
+                      <div class="line" tabindex="0" title="Услуга">{{ short(card.service_name) }}</div>
                     }
                     @if (card.address) {
-                      <div class="line">{{ street(card.address) }}</div>
+                      <div class="line" tabindex="0" title="Адрес">{{ street(card.address) }}</div>
                     }
                     <div class="group-line">
                       @if (card.rating_label) {
-                        <span class="rating-badge r{{ card.rating_label[0] }}" title="Рейтинг должника">{{ card.rating_label }}</span>
+                        <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
                       }
-                      <span>Группа задолженности {{ card.debt_group || '—' }}@if (card.category) { · {{ card.category }} }</span>
+                      @if (card.debt_group) {
+                        <span class="group-badge g{{ card.debt_group }}" tabindex="0" title="Группа задолженности {{ card.debt_group }}">{{ card.debt_group }}</span>
+                      }
+                      @if (card.category) { <span tabindex="0" title="Категория">{{ card.category }}</span> }
                     </div>
-                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ card.assigned_name }}</div> }
                     @if (card.ownership_type_name || card.housing_object) {
                       <div class="line">
-                        @if (card.ownership_type_name) { Тип собственности: {{ short(card.ownership_type_name) }} }
+                        @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
                         @if (card.ownership_type_name && card.housing_object) { · }
-                        @if (card.housing_object) { Тип объекта жилфонда: {{ short(card.housing_object) }} }
+                        @if (card.housing_object) { <span tabindex="0" title="Тип объекта жилфонда">{{ short(card.housing_object) }}</span> }
                       </div>
                     }
-                    <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
-                    <div class="money">
-                      <div>Сумма задолженности <app-money [value]="card.obligation" [blank]="false" /></div>
-                      <small>Сумма основного долга <app-money [value]="card.principal" [blank]="false" /> · Сумма пени <app-money [value]="card.penalty" [blank]="false" /></small>
+                    <div class="line">
+                      <span tabindex="0" title="Кол-во месяцев долга">{{ card.months_debt ?? '—' }}</span>
+                      · <span tabindex="0" title="Проживающих">{{ card.subj_count ?? '—' }}</span>
+                      · <span tabindex="0" title="Зарегистрированных">{{ card.registered_count ?? '—' }}</span>
                     </div>
-                    <div class="foot"><span class="when">{{ cardMark(card) }}</span></div>
+                    <div class="money">
+                      <span tabindex="0" title="Сумма задолженности"><app-money [value]="card.obligation" [blank]="false" [sign]="false" /></span>
+                      <small>
+                        <span tabindex="0" title="Сумма основного долга"><app-money [value]="card.principal" [blank]="false" [sign]="false" /></span>
+                        · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="card.penalty" [blank]="false" [sign]="false" /></span>
+                      </small>
+                    </div>
+                    <div class="foot">
+                      <span class="when">{{ cardMark(card) }}</span>
+                      @if (initials(card.assigned_name); as who) {
+                        <span class="who" [style.background]="avatarColor(card.assigned_name)" tabindex="0" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
+                      }
+                    </div>
                   </article>
                 }
                 </div>
@@ -516,64 +536,11 @@ const COLUMN_LABELS: Record<string, string> = {
       </div>
 
       @if (customOpen()) {
-        <div class="backdrop" (click)="customOpen.set(false)">
-          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Пользовательский фильтр">
-            <h3>Добавить пользовательский фильтр</h3>
-            <p class="hint">Дополнительное условие к уже выбранным фильтрам. Базовые поля доступны всем ролям.</p>
-            <div class="filters">
-              <mat-form-field>
-                <mat-label>Поле</mat-label>
-                <mat-select [formControl]="customField">
-                  <mat-option value="group">Группа задолженности</mat-option>
-                  <mat-option value="category">Категория</mat-option>
-                  <mat-option value="stage">Этап воронки взыскания</mat-option>
-                  <mat-option value="specialist">Закреплённый специалист</mat-option>
-                  <mat-option value="ownership">Тип собственности</mat-option>
-                  <mat-option value="housing">Тип объекта жилфонда</mat-option>
-                  <mat-option value="months">Кол-во месяцев долга</mat-option>
-                  <mat-option value="residents">Кол-во проживающих</mat-option>
-                  @if (auth.showServiceOrg()) {
-                    <mat-option value="billing">Обслуживающая организация</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-              @if (customField.value === 'specialist') {
-                <mat-form-field>
-                  <mat-label>Значение</mat-label>
-                  <mat-select [formControl]="customValue">
-                    @for (item of specialists(); track item.name) {
-                      <mat-option [value]="item.name">{{ item.name }}</mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
-              } @else if (customField.value === 'billing' || customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
-                <mat-form-field>
-                  <mat-label>Значение</mat-label>
-                  <input matInput [formControl]="customValue" />
-                </mat-form-field>
-              } @else {
-                <mat-form-field>
-                  <mat-label>Значение</mat-label>
-                  <mat-select [formControl]="customValue">
-                    @if (customField.value === 'group') {
-                      @for (g of groupNumbers; track g) { <mat-option [value]="'' + g">Группа {{ g }}</mat-option> }
-                    }
-                    @if (customField.value === 'category') {
-                      @for (item of categories(); track item.id) { <mat-option [value]="'' + item.id">{{ item.name }}</mat-option> }
-                    }
-                    @if (customField.value === 'stage') {
-                      @for (item of stages; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
-                    }
-                  </mat-select>
-                </mat-form-field>
-              }
-            </div>
-            <div class="dialog-actions">
-              <button mat-flat-button color="primary" type="button" (click)="addCustom()">Добавить</button>
-              <button mat-stroked-button type="button" (click)="customOpen.set(false)">Отмена</button>
-            </div>
-          </div>
-        </div>
+        <app-domain-filter
+          [fields]="contractFields"
+          [domain]="domain()"
+          (apply)="applyDomain($event)"
+          (cancel)="customOpen.set(false)" />
       }
 
       @if (reasonOpen()) {
@@ -730,7 +697,14 @@ const COLUMN_LABELS: Record<string, string> = {
     .k-card.g5 .group-line { color: #c62828; } .k-card.g5 .letter { background: #c62828; }
     .k-card.g6 .group-line { color: #7f1d1d; } .k-card.g6 .letter { background: #7f1d1d; }
     .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; }
+    .k-card .money > span, .k-card .money small { display: block; }
     .k-card .money small { font-weight: 400; color: #6b7280; }
+    .k-card .money .amount-danger { color: var(--erip-danger); }
+    .k-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+    .k-card .who {
+      width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700;
+      display: grid; place-items: center; flex: 0 0 26px;
+    }
     .muted { color: var(--erip-muted); font-size: 12px; }
     .backdrop {
       position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
@@ -783,6 +757,8 @@ export class ContractsListComponent implements OnInit {
   protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('suppliers');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
+  protected readonly contractFields = contractDomainFields();
+  protected readonly domain = signal<DomainRule | null>(null);
   protected readonly persons = signal<ContractPerson[]>([]);
   protected readonly rows = signal<AccountService[]>([]);
   protected readonly kanban = signal<{ stage: string; title: string; total: number; cards: ContractPerson[] }[]>([]);
@@ -1044,6 +1020,18 @@ export class ContractsListComponent implements OnInit {
   clearGroupByChip(event: Event): void {
     event.stopPropagation();
     this.groupBy.setValue('');
+  }
+
+  protected applyDomain(rule: DomainRule | null): void {
+    this.domain.set(rule);
+    this.customOpen.set(false);
+    this.reload();
+  }
+
+  protected clearDomain(event: Event): void {
+    event.stopPropagation();
+    this.domain.set(null);
+    this.reload();
   }
 
   addCustom(): void {
@@ -1474,6 +1462,18 @@ export class ContractsListComponent implements OnInit {
     return 'срок не задан';
   }
 
+  protected initials(name: string | undefined): string {
+    const parts = (name || '').split(/\s+/).filter(Boolean);
+    return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
+  }
+
+  protected avatarColor(name: string | undefined): string {
+    const palette = ['#2e7d32', '#7c3aed', '#ea580c', '#c62828', '#1d4ed8', '#0f766e'];
+    let hash = 0;
+    for (const char of name || '') hash = (hash + char.charCodeAt(0)) % palette.length;
+    return palette[hash];
+  }
+
   protected street(address: string): string {
     const lower = address.toLowerCase();
     const marks = ['ул.', 'ул ', 'пр-т', 'пр.', 'просп', 'пер.', 'б-р', 'тракт', 'пл.', 'ш.'];
@@ -1518,6 +1518,7 @@ export class ContractsListComponent implements OnInit {
     const raw = String(query['debt_group__in'] ?? '');
     this.groups.setValue(raw ? raw.split(',').map(Number).filter((item) => item > 0) : [], { emitEvent: false });
     this.groupBy.setValue(String(query['group_by'] ?? ''), { emitEvent: false });
+    this.domain.set(parseDomain(query['domain']));
     this.panelOpen.set(false);
     if (this.groupBy.value) this.showGrouped();
     else this.reload();
@@ -1599,6 +1600,7 @@ export class ContractsListComponent implements OnInit {
       period_to: this.periodTo.value,
       provider_id: this.provider.value || null,
       group_by: this.groupBy.value,
+      domain: this.domain() ? JSON.stringify(this.domain()) : null,
     };
   }
 }

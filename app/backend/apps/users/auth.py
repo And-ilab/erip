@@ -134,6 +134,10 @@ class PasswordChangeView(APIView):
             raise ValidationError({"new_password": list(exc.messages)}) from exc
         request.user.set_password(new_password)
         request.user.save(update_fields=["password"])
+        from apps.audit.models import AuditLog
+        from apps.audit.services import record_action
+
+        record_action(request, AuditLog.Action.UPDATE, request.user, after={"password": "changed"})
         refresh = request.COOKIES.get(settings.AUTH_COOKIE_NAME, "")
         if refresh:
             try:

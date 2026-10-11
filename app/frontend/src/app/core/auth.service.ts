@@ -95,9 +95,9 @@ export class AuthService {
   }
 
   changePassword(oldPassword: string, newPassword: string): Observable<void> {
-    return this.http.post('/api/v1/auth/password/', { old_password: oldPassword, new_password: newPassword }, {
-      responseType: 'text',
-    }).pipe(map(() => undefined));
+    return this.http.post('/api/v1/auth/password/', {
+      old_password: oldPassword, new_password: newPassword,
+    }, { observe: 'response' }).pipe(map(() => undefined));
   }
 
   logout(): void {

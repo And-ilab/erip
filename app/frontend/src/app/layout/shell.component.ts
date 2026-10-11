@@ -34,6 +34,9 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
       <span class="org">{{ orgLabel() }}</span>
       <span class="user">{{ auth.me()?.display_name }}</span>
       <span class="avatar" [matTooltip]="auth.me()?.display_name ?? ''">{{ initials() }}</span>
+      <a mat-icon-button routerLink="/password" matTooltip="Настройки: смена пароля" aria-label="Настройки, смена пароля">
+        <mat-icon>settings</mat-icon>
+      </a>
       <button mat-icon-button (click)="auth.logout()" matTooltip="Выход"><mat-icon>logout</mat-icon></button>
     </mat-toolbar>
 

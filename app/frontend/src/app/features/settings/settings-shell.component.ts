@@ -9,7 +9,7 @@ import { AuthService } from '../../core/auth.service';
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <div class="page">
-      <nav class="subnav">
+      <nav class="tabs" aria-label="Настройка">
         <a routerLink="rules" routerLinkActive="on">Правила рейтинга и групп</a>
         @if (auth.canManageTemplates()) {
           <a routerLink="directory" routerLinkActive="on">Организации и пользователи</a>
@@ -20,12 +20,17 @@ import { AuthService } from '../../core/auth.service';
     </div>
   `,
   styles: `
-    .subnav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-    .subnav a {
-      padding: 8px 14px; border-radius: 8px; background: #fff; border: 1px solid var(--erip-border);
-      color: var(--erip-primary-dark); text-decoration: none; font-weight: 600;
+    .tabs {
+      display: flex; gap: 0; flex-wrap: wrap; border-bottom: 1px solid var(--erip-border); margin-bottom: 16px;
     }
-    .subnav a.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
+    .tabs a {
+      padding: 10px 16px; margin-bottom: -1px; text-decoration: none; font-weight: 600;
+      color: var(--erip-muted); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0;
+      background: transparent;
+    }
+    .tabs a.on {
+      color: var(--erip-primary-dark); background: #fff; border-color: var(--erip-border);
+    }
   `,
 })
 export class SettingsShellComponent {

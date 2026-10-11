@@ -110,7 +110,8 @@ def save_package(case: ClaimCase, data: dict) -> ClaimPackage:
 def generate_application(case: ClaimCase) -> ClaimPackageDocument:
     package = _ensure(case)
     name = f"zayavlenie-{_safe_token(case.account.client_account)}.pdf"
-    payload = render_text_pdf(_application_lines(case, package))
+    lines = _application_lines(case, package)
+    payload = render_text_pdf(lines)
     if len(payload) > MAX_FILE_BYTES:
         raise ClaimBlocked("Заявление больше 15 МБ")
     document = package.documents.filter(doc_type="application").first()
@@ -127,10 +128,111 @@ def generate_application(case: ClaimCase) -> ClaimPackageDocument:
         document.signer = "applicant"
         document.generated = True
         document.doc_type = "application"
+    document.body = "\n".join(lines)
     document.pdf.save(name, ContentFile(payload), save=False)
     document.save()
     _invalidate(package)
     return document
+
+
+_FORM_DOC = {
+    "writ": "application",
+    "application": "application",
+    "calculation": "debt_calculation",
+    "debt_calculation": "debt_calculation",
+    "proxy": "proxy",
+    "warrant": "proxy",
+    "warning": "other_document",
+}
+
+
+def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
+    """PDF из печатной формы. В кабинет БНП не отправляется: это локальная сборка."""
+    from apps.nsi.services.scenarios import fill_account_text
+
+    form = _visible_form(user, form_id)
+    doc_type = _FORM_DOC.get(form.doc_kind)
+    if doc_type is None:
+        raise ClaimBlocked("Этот вид печатной формы не входит в комплект исполнительной надписи")
+    package = _ensure(case)
+    tariff = "" if case.notary_tariff is None else str(case.notary_tariff)
+    warning = case.warning_delivered_on.isoformat() if case.warning_delivered_on else ""
+    text = fill_account_text(form.body, case.account, tariff=tariff, warning_date=warning)
+    return _save_generated(package, doc_type, text, f"{form.code}-{_safe_token(case.account.client_account)}.pdf")
+
+
+def update_document_text(case: ClaimCase, doc_id: int, body: str) -> ClaimPackageDocument:
+    package = stored_package(case)
+    document = package.documents.filter(pk=doc_id).first() if package is not None else None
+    if document is None:
+        raise ClaimBlocked("Документ не из этого пакета")
+    text = (body or "").strip()
+    if not text:
+        raise ClaimBlocked("Текст документа пустой")
+    if len(text) > 20000:
+        raise ClaimBlocked("Текст длиннее 20000 символов")
+    _write_pdf(document, text)
+    document.generated = True
+    document.save()
+    _invalidate(package)
+    return document
+
+
+def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str) -> ClaimPackageDocument:
+    payload_name = name[:180]
+    if doc_type == "other_document":
+        document = package.documents.filter(doc_type=doc_type, generated=True).first()
+    elif doc_type in REQUIRED_DOCS:
+        document = package.documents.filter(doc_type=doc_type).first()
+    else:
+        document = None
+    kind = "sgn" if document and document.signature_name.lower().endswith(".pdf.sgn") else "p7s"
+    if document is None:
+        document = ClaimPackageDocument(
+            organization=package.organization, package=package, doc_type=doc_type, file_name=payload_name,
+            signature_name=_signature_name(payload_name, kind), signer=_signer(doc_type), generated=True,
+        )
+    else:
+        _drop_signature(document)
+        clash = package.documents.exclude(pk=document.pk).filter(file_name=payload_name)
+        if clash.exists():
+            payload_name = f"{document.pk}-{payload_name}"[:180]
+        document.file_name = payload_name
+        document.signature_name = _signature_name(payload_name, kind)
+        document.signer = _signer(doc_type)
+        document.doc_type = doc_type
+        document.generated = True
+    _write_pdf(document, text)
+    document.save()
+    _invalidate(package)
+    return document
+
+
+def _write_pdf(document: ClaimPackageDocument, text: str) -> None:
+    payload = render_text_pdf(text.splitlines() or [""])
+    if len(payload) > MAX_FILE_BYTES:
+        raise ClaimBlocked("Документ больше 15 МБ")
+    _drop_signature(document)
+    document.body = text
+    document.pdf.save(document.file_name, ContentFile(payload), save=False)
+
+
+def _visible_form(user, form_id):
+    from django.db.models import Q
+
+    from apps.nsi.models import PrintForm
+
+    try:
+        pk = int(form_id)
+    except (TypeError, ValueError) as exc:
+        raise ClaimBlocked("Укажите печатную форму") from exc
+    qs = PrintForm.objects.filter(is_active=True, pk=pk)
+    if not getattr(user, "is_superadmin", False):
+        qs = qs.filter(Q(organization__isnull=True) | Q(organization_id=getattr(user, "organization_id", None)))
+    form = qs.first()
+    if form is None:
+        raise ClaimBlocked("Печатная форма не найдена")
+    return form
 
 
 def store_document(
@@ -397,6 +499,7 @@ def _document_payload(doc: ClaimPackageDocument, labels: dict) -> dict:
         "has_pdf": bool(doc.pdf),
         "has_signature": bool(doc.signature),
         "generated": doc.generated,
+        "body": doc.body or "",
         "size": size,
     }
 

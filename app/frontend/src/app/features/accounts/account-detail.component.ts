@@ -71,7 +71,7 @@ import {
                 }
               </div>
               <div class="sum-block">
-                <span class="k">Суммарная задолженность по всем ЛС</span>
+                <span class="k">Суммарная задолженность по всем ЛС <app-byn-sign /></span>
                 <b class="sum">
                   <app-money [value]="portfolioTotal()" [blank]="false" />
                   <span class="penalty-note">(в т.ч. пеня <app-money [value]="portfolioPenalty()" [blank]="false" />)</span>
@@ -322,9 +322,9 @@ import {
                   <dt>Входящее сальдо</dt><dd><app-money [value]="a.balance_in" [blank]="false" /></dd>
                   <dt>Итого начислено</dt><dd><app-money [value]="a.total_calc_sum" [blank]="false" /></dd>
                   <dt>Распределенная оплата</dt><dd><app-money [value]="a.pay_sum" [blank]="false" /></dd>
-                  <dt>Сумма основного долга</dt><dd class="money-line"><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="principalTotal()" [blank]="false" /></button></dd>
-                  <dt>Сумма пени</dt><dd class="money-line amount-danger"><app-money [value]="penaltyTotal()" [blank]="false" /></dd>
-                  <dt>Сумма задолженности</dt><dd class="money-line"><app-money [value]="obligationTotal()" [blank]="false" /></dd>
+                  <dt>Сумма основного долга <app-byn-sign /></dt><dd class="money-line"><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="principalTotal()" [blank]="false" /></button></dd>
+                  <dt>Сумма пени <app-byn-sign /></dt><dd class="money-line amount-danger"><app-money [value]="penaltyTotal()" [blank]="false" /></dd>
+                  <dt>Сумма задолженности <app-byn-sign /></dt><dd class="money-line"><app-money [value]="obligationTotal()" [blank]="false" /></dd>
                   <dt>Обновлено из АИС</dt><dd>{{ a.ais_updated_at | date: 'dd.MM.yyyy HH:mm' }}</dd>
                   <dt>Операционная дата</dt><dd>{{ a.operational_date | date: 'dd.MM.yyyy' }}</dd>
                   <dt>Рейтинг должника</dt><dd>{{ a.rating_label || '—' }}</dd>
@@ -368,15 +368,15 @@ import {
             <p class="muted tab-note">Колонки совпадают с файлом услуг. «Кол-во месяцев долга» — то же число, что «Кол-во периодов долга»: сколько разных месяцев долга пришло из АИС. «Поставщик услуги» — краткое имя. «Группа задолженности» считает ПМ, в файле её нет.</p>
             <div class="list-pane service-pane"><table mat-table [dataSource]="services()">
               <ng-container matColumnDef="report_group_id"><th mat-header-cell *matHeaderCellDef>ID группы отчёта</th><td mat-cell *matCellDef="let s">{{ s.report_group_id ?? '—' }}</td></ng-container>
-              <ng-container matColumnDef="netting_mulct_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет пени</th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_mulct_sum" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="netting_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет по услуге</th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_sum" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="calc_sum"><th mat-header-cell *matHeaderCellDef>Всего начислено</th><td mat-cell *matCellDef="let s"><app-money [value]="s.calc_sum" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="balance_in"><th mat-header-cell *matHeaderCellDef>Входящее сальдо без пени</th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_in" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="balance_mulct_in"><th mat-header-cell *matHeaderCellDef>Входящее сальдо пени</th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_mulct_in" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="netting_mulct_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_mulct_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="netting_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет по услуге <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="calc_sum"><th mat-header-cell *matHeaderCellDef>Всего начислено <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.calc_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="balance_in"><th mat-header-cell *matHeaderCellDef>Входящее сальдо без пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_in" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="balance_mulct_in"><th mat-header-cell *matHeaderCellDef>Входящее сальдо пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_mulct_in" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="start_date"><th mat-header-cell *matHeaderCellDef>Дата начала действия услуги (Дата с)</th><td mat-cell *matCellDef="let s">{{ (s.start_date | date: 'dd.MM.yyyy') || '—' }}</td></ng-container>
               <ng-container matColumnDef="stop_date"><th mat-header-cell *matHeaderCellDef>Дата окончания действия услуги (Дата по)</th><td mat-cell *matCellDef="let s">{{ (s.stop_date | date: 'dd.MM.yyyy') || '—' }}</td></ng-container>
-              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени</th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0"><app-money [value]="s.balance_mulct_out" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями</th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_out" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо пени <app-byn-sign /></th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0"><app-money [value]="s.balance_mulct_out" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Исходящее сальдо с пенями <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_out" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="service_list_id"><th mat-header-cell *matHeaderCellDef>Код договора на услугу (ID Договора)</th><td mat-cell *matCellDef="let s">{{ s.service_list_id }}</td></ng-container>
               <ng-container matColumnDef="ais_account_id"><th mat-header-cell *matHeaderCellDef>Код ЛС (ID ЛС)</th><td mat-cell *matCellDef="let s">{{ s.ais_account_id }}</td></ng-container>
               <ng-container matColumnDef="calculation_id"><th mat-header-cell *matHeaderCellDef>Код операции расчета (ID Расчёта)</th><td mat-cell *matCellDef="let s">{{ s.calculation_id ?? '—' }}</td></ng-container>
@@ -385,7 +385,7 @@ import {
               <ng-container matColumnDef="service_id"><th mat-header-cell *matHeaderCellDef>Код услуги (ID Услуги)</th><td mat-cell *matCellDef="let s">{{ s.service_id }}</td></ng-container>
               <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Кол-во периодов долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Краткое наименование поставщика</th><td mat-cell *matCellDef="let s">{{ s.shot_name || '—' }}</td></ng-container>
-              <ng-container matColumnDef="calc_priv_sum"><th mat-header-cell *matHeaderCellDef>Льгота</th><td mat-cell *matCellDef="let s"><app-money [value]="s.calc_priv_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="calc_priv_sum"><th mat-header-cell *matHeaderCellDef>Льгота <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.calc_priv_sum" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th>
                 <td mat-cell *matCellDef="let s">
                   @if (!auth.showSupplier()) {
@@ -396,16 +396,16 @@ import {
                 </td>
               </ng-container>
               <ng-container matColumnDef="service_name_report"><th mat-header-cell *matHeaderCellDef>Наименование услуги в извещении для дополнительных</th><td mat-cell *matCellDef="let s">{{ s.service_name_report || '—' }}</td></ng-container>
-              <ng-container matColumnDef="calc_result_sum"><th mat-header-cell *matHeaderCellDef>Начислено</th><td mat-cell *matCellDef="let s"><app-money [value]="s.calc_result_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="calc_result_sum"><th mat-header-cell *matHeaderCellDef>Начислено <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.calc_result_sum" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="spent_fact"><th mat-header-cell *matHeaderCellDef>Начислено (количество)</th><td mat-cell *matCellDef="let s">{{ s.spent_fact ?? '—' }}</td></ng-container>
-              <ng-container matColumnDef="mulct_sum"><th mat-header-cell *matHeaderCellDef>Начислено пени</th><td mat-cell *matCellDef="let s"><app-money [value]="s.mulct_sum" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="recalc_sum"><th mat-header-cell *matHeaderCellDef>Перерасчёт</th><td mat-cell *matCellDef="let s"><app-money [value]="s.recalc_sum" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="mulct_recalc_sum"><th mat-header-cell *matHeaderCellDef>Перерасчет по пене</th><td mat-cell *matCellDef="let s"><app-money [value]="s.mulct_recalc_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="mulct_sum"><th mat-header-cell *matHeaderCellDef>Начислено пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.mulct_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="recalc_sum"><th mat-header-cell *matHeaderCellDef>Перерасчёт <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.recalc_sum" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="mulct_recalc_sum"><th mat-header-cell *matHeaderCellDef>Перерасчет по пене <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.mulct_recalc_sum" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="full_name"><th mat-header-cell *matHeaderCellDef>Полное наименование поставщика</th><td mat-cell *matCellDef="let s">{{ s.full_name || '—' }}</td></ng-container>
-              <ng-container matColumnDef="overdue_debt"><th mat-header-cell *matHeaderCellDef>Просроченная задолженность</th><td mat-cell *matCellDef="let s"><app-money [value]="s.overdue_debt" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="share_mulct_summ"><th mat-header-cell *matHeaderCellDef>Распределённая оплата пени в текущем опер. периоде</th><td mat-cell *matCellDef="let s"><app-money [value]="s.share_mulct_summ" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="share_service_summ"><th mat-header-cell *matHeaderCellDef>Распределённая оплата услуг в текущем опер. периоде</th><td mat-cell *matCellDef="let s"><app-money [value]="s.share_service_summ" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="subs_pay"><th mat-header-cell *matHeaderCellDef>Субсидия (сумма субсидии)</th><td mat-cell *matCellDef="let s"><app-money [value]="s.subs_pay" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="overdue_debt"><th mat-header-cell *matHeaderCellDef>Просроченная задолженность <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.overdue_debt" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="share_mulct_summ"><th mat-header-cell *matHeaderCellDef>Распределённая оплата пени в текущем опер. периоде <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.share_mulct_summ" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="share_service_summ"><th mat-header-cell *matHeaderCellDef>Распределённая оплата услуг в текущем опер. периоде <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.share_service_summ" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="subs_pay"><th mat-header-cell *matHeaderCellDef>Субсидия (сумма субсидии) <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.subs_pay" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="tarrif"><th mat-header-cell *matHeaderCellDef>Тариф</th><td mat-cell *matCellDef="let s">{{ s.tarrif ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="calc_date"><th mat-header-cell *matHeaderCellDef>Фактическая дата выполнения расчета (Дата расчёта)</th><td mat-cell *matCellDef="let s">{{ (s.calc_date | date: 'dd.MM.yyyy') || '—' }}</td></ng-container>
               <ng-container matColumnDef="months_debt"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period ?? '—' }}</td></ng-container>
@@ -422,8 +422,8 @@ import {
             <div class="list-pane"><table mat-table [dataSource]="payments()">
               <ng-container matColumnDef="pay_date"><th mat-header-cell *matHeaderCellDef>Дата оплаты</th><td mat-cell *matCellDef="let p">{{ p.pay_date | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Услуга - Наименование</th><td mat-cell *matCellDef="let p">{{ p.service_name }}</td></ng-container>
-              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг по квитанции</th><td mat-cell *matCellDef="let p" class="amount-paid"><app-money [value]="p.pay_service_summ" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="pay_mulct_summ"><th mat-header-cell *matHeaderCellDef>Оплата пени по квитанции</th><td mat-cell *matCellDef="let p"><app-money [value]="p.pay_mulct_summ" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="pay_service_summ"><th mat-header-cell *matHeaderCellDef>Оплата услуг по квитанции <app-byn-sign /></th><td mat-cell *matCellDef="let p" class="amount-paid"><app-money [value]="p.pay_service_summ" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="pay_mulct_summ"><th mat-header-cell *matHeaderCellDef>Оплата пени по квитанции <app-byn-sign /></th><td mat-cell *matCellDef="let p"><app-money [value]="p.pay_mulct_summ" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="bank_name"><th mat-header-cell *matHeaderCellDef>Банк - Наименование</th><td mat-cell *matCellDef="let p">{{ p.bank_name }}</td></ng-container>
               <ng-container matColumnDef="payment_type_display"><th mat-header-cell *matHeaderCellDef>Тип оплаты</th><td mat-cell *matCellDef="let p">{{ p.payment_type_display }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="paymentColumns"></tr>
@@ -436,8 +436,8 @@ import {
             <div class="list-pane"><table mat-table [dataSource]="balances()">
               <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
-              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Остаток основного долга</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Остаток пени</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Остаток основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Остаток пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
               <tr mat-header-row *matHeaderRowDef="balanceColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: balanceColumns"></tr>
             </table></div>
@@ -465,9 +465,9 @@ import {
               <ng-container matColumnDef="title"><th mat-header-cell *matHeaderCellDef>Наименование</th><td mat-cell *matCellDef="let r">{{ r.title }}</td></ng-container>
               <ng-container matColumnDef="started_on"><th mat-header-cell *matHeaderCellDef>Начало</th><td mat-cell *matCellDef="let r">{{ r.started_on | date: 'dd.MM.yyyy' }}</td></ng-container>
               <ng-container matColumnDef="ended_on"><th mat-header-cell *matHeaderCellDef>Окончание</th><td mat-cell *matCellDef="let r">{{ r.ended_on | date: 'dd.MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг</th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" /></td></ng-container>
-              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня</th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" /></td></ng-container>
-              <ng-container matColumnDef="paid_principal"><th mat-header-cell *matHeaderCellDef>Оплата</th><td mat-cell *matCellDef="let r"><app-money [value]="r.paid_principal" /></td></ng-container>
+              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" /></td></ng-container>
+              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" /></td></ng-container>
+              <ng-container matColumnDef="paid_principal"><th mat-header-cell *matHeaderCellDef>Оплата <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.paid_principal" /></td></ng-container>
               <tr mat-header-row *matHeaderRowDef="workColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: workColumns"></tr>
             </table></div>
@@ -534,7 +534,7 @@ import {
             <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Состав долга">
               <h3>Кому должен лицевой счёт {{ a.client_account }}</h3>
               <div class="list-pane"><table class="shares">
-                <thead><tr><th>Краткое наименование поставщика</th><th>Исходящее сальдо с пенями</th><th>Исходящее сальдо пени</th><th>Итого</th></tr></thead>
+                <thead><tr><th>Краткое наименование поставщика</th><th>Исходящее сальдо с пенями <app-byn-sign /></th><th>Исходящее сальдо пени <app-byn-sign /></th><th>Итого <app-byn-sign /></th></tr></thead>
                 <tbody>
                   @for (row of shares(); track row.provider_name + row.principal + row.penalty) {
                     <tr>

@@ -164,25 +164,49 @@ def layout_of(form: PrintForm) -> dict:
     }
 
 
-def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") -> PrintedDocument:
-    services = ", ".join(
-        account.services.exclude(service_name="").values_list("service_name", flat=True)[:8]
-    ) or "—"
+def placeholder_values(account, tariff: str = "", warning_date: str = "") -> dict:
+    """Подстановки печатной формы. Только поля, которые уже есть у лицевого счёта и его услуг."""
+    from decimal import Decimal
+
+    service_rows = list(account.services.all())
+    names = [row.service_name for row in service_rows if row.service_name][:8]
+    penalty = sum((row.balance_mulct_out or Decimal("0")) for row in service_rows)
     last = account.payments.exclude(pay_date=None).order_by("-pay_date").values_list("pay_date", flat=True).first()
-    values = {
+    started = account.debt_started_on
+    return {
         "fio": account.short_fio or "—",
         "account": account.client_account,
         "amount": "" if account.balance_out is None else str(account.balance_out),
+        "penalty": str(penalty),
         "address": account.account_address or "—",
-        "services": services,
+        "services": ", ".join(names) or "—",
         "last_payment": last.isoformat() if last else "нет",
         "organization": account.organization.name,
         "due_days": str(warning_wait_for(account.organization)),
         "tariff": tariff or "—",
+        "debt_group": str(account.debt_group_manual or account.debt_group or "—"),
+        "rating": account.rating or "—",
+        "months_debt": "—" if account.months_debt is None else str(account.months_debt),
+        "personal_id": account.payer_identifier or "—",
+        "unp": account.payer_unp or "—",
+        "warning_date": warning_date or "—",
+        "debt_started": started.isoformat() if started else "—",
     }
-    text = form.body
+
+
+def apply_placeholders(text: str, values: dict) -> str:
+    rendered = text or ""
     for key, value in values.items():
-        text = text.replace("{" + key + "}", value)
+        rendered = rendered.replace("{" + key + "}", str(value))
+    return rendered
+
+
+def fill_account_text(template: str, account, *, tariff: str = "", warning_date: str = "") -> str:
+    return apply_placeholders(template, placeholder_values(account, tariff=tariff, warning_date=warning_date))
+
+
+def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") -> PrintedDocument:
+    text = fill_account_text(form.body, account, tariff=tariff)
     lines = _document_lines(form, text)
     payload = _pdf_bytes(
         lines, font_size=form.font_size or 12, indent_mm=form.indent_mm or 0, outdent_mm=form.outdent_mm or 0,

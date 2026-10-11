@@ -54,6 +54,7 @@ class AccountFilter(django_filters.FilterSet):
     inheritance_case = django_filters.BooleanFilter(field_name="inheritance_case")
     territory = django_filters.NumberFilter(method="filter_territory")
     scope = django_filters.CharFilter(method="filter_scope")
+    domain = django_filters.CharFilter(method="filter_domain")
 
     class Meta:
         model = Account
@@ -95,6 +96,11 @@ class AccountFilter(django_filters.FilterSet):
             return claims_population(queryset)
         return queryset
 
+    def filter_domain(self, queryset, name, value):
+        from apps.debts.services.filter_domain import apply_account_domain
+
+        return apply_account_domain(queryset, value)
+
 
 class ContractFilter(django_filters.FilterSet):
     debt_group = django_filters.NumberFilter(method="filter_effective_group")
@@ -111,6 +117,7 @@ class ContractFilter(django_filters.FilterSet):
     period_from = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="gte")
     period_to = django_filters.DateFilter(field_name="debt_started_on", lookup_expr="lte")
     inheritance_case = django_filters.BooleanFilter(field_name="account__inheritance_case")
+    domain = django_filters.CharFilter(method="filter_domain")
 
     class Meta:
         model = AccountService
@@ -146,6 +153,11 @@ class ContractFilter(django_filters.FilterSet):
             condition |= Q(account__provider_id=int(text))
         return queryset.filter(condition)
 
+    def filter_domain(self, queryset, name, value):
+        from apps.debts.services.filter_domain import apply_contract_domain
+
+        return apply_contract_domain(queryset, value)
+
 
 class MeasureFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search")
@@ -155,6 +167,7 @@ class MeasureFilter(django_filters.FilterSet):
     rating = django_filters.CharFilter(method="filter_rating")
     rating__in = django_filters.BaseInFilter(method="filter_ratings")
     funnel_stage = django_filters.CharFilter(method="filter_stage")
+    domain = django_filters.CharFilter(method="filter_domain")
 
     class Meta:
         model = Measure
@@ -201,6 +214,11 @@ class MeasureFilter(django_filters.FilterSet):
 
     def filter_stage(self, queryset, name, value):
         return queryset.filter(accounts__funnel_stage=value).distinct()
+
+    def filter_domain(self, queryset, name, value):
+        from apps.debts.services.filter_domain import apply_measure_domain
+
+        return apply_measure_domain(queryset, value)
 
     def filter_period(self, queryset, name, value):
         parsed = parse_month(value)

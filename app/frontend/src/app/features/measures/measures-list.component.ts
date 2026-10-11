@@ -761,6 +761,7 @@ export class MeasuresListComponent implements OnInit {
     if (this.filter.ratings.length) query['rating__in'] = this.filter.ratings.join(',');
     if (this.filter.stage) query['funnel_stage'] = this.filter.stage;
     if (this.filter.kind) query['kind'] = this.filter.kind;
+    if (this.filter.domain) query['domain'] = JSON.stringify(this.filter.domain);
     return query;
   }
 

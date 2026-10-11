@@ -10,8 +10,6 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DialSettings, MessageTemplate } from '../../core/models';
-import { TemplatesComponent } from '../templates/templates.component';
-
 const ACTIONS = [
   { id: 'call', label: 'Автообзвон' },
   { id: 'manual_call', label: 'Ручной звонок' },
@@ -29,19 +27,14 @@ const ACTIONS = [
   standalone: true,
   imports: [
     FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule, TemplatesComponent,
+    MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
     <div>
       <header class="head">
         <div>
           <h2>Сценарии и шаблоны</h2>
-          <p>Сценарий, тексты сообщений, печатные формы и обзвон. Уже запущенный счёт остаётся на своей версии сценария.</p>
-          <p class="jumps">
-            <a href="#scenario">Сценарий</a>
-            <a href="#messages">Шаблоны сообщений</a>
-            <a href="#forms">Печатные формы</a>
-          </p>
+          <p>Последовательность мероприятий. Тексты сообщений и печатные формы — на соседних вкладках. Уже запущенный счёт остаётся на своей версии сценария.</p>
           @if (current()) {
             <mat-form-field class="name"><mat-label>Название сценария</mat-label><input matInput [(ngModel)]="name" /></mat-form-field>
           }
@@ -200,93 +193,6 @@ const ACTIONS = [
           </section>
         }
       }
-
-      <app-templates (changed)="loadMessageTemplates()" />
-
-      <section class="forms" id="forms">
-        <h3>Печатные формы</h3>
-        <p class="muted">Макет — страница из блоков. Порядок, шрифт, отступ и выступ видны сразу. Документ запоминает версию шаблона.</p>
-        <div class="picker list-pane">
-          @for (form of forms(); track form.id) {
-            <button type="button" [class.on]="print()?.id === form.id" (click)="selectForm(form)">{{ form.name }} <small>v{{ form.version }}</small></button>
-          }
-          <button mat-stroked-button (click)="newForm()">+ Макет</button>
-        </div>
-        <div class="line">
-          <mat-form-field><mat-label>Код</mat-label><input matInput [(ngModel)]="formCode" /></mat-form-field>
-          <mat-form-field><mat-label>Название</mat-label><input matInput [(ngModel)]="formName" /></mat-form-field>
-          <mat-form-field><mat-label>Вид</mat-label>
-            <mat-select [(ngModel)]="formKind">
-              <mat-option value="warning">Предупреждение</mat-option>
-              <mat-option value="act">Акт</mat-option>
-              <mat-option value="writ">Исполнительная надпись</mat-option>
-              <mat-option value="claim">Иск</mat-option>
-              <mat-option value="writeoff">Акт списания</mat-option>
-              <mat-option value="disconnect">Заказ-наряд на отключение</mat-option>
-            </mat-select>
-          </mat-form-field>
-          <mat-form-field><mat-label>Адресат</mat-label>
-            <mat-select [(ngModel)]="formAddressee">
-              <mat-option value="debtor">Должник</mat-option>
-              <mat-option value="supplier">Поставщик услуги</mat-option>
-              <mat-option value="district">Администрация района, ст. 137</mat-option>
-            </mat-select>
-          </mat-form-field>
-        </div>
-        <div class="line">
-          <mat-form-field><mat-label>Шрифт, пт</mat-label><input matInput type="number" [(ngModel)]="formFont" /></mat-form-field>
-          <mat-form-field><mat-label>Отступ, мм</mat-label><input matInput type="number" [(ngModel)]="formIndent" /></mat-form-field>
-          <mat-form-field><mat-label>Выступ, мм</mat-label><input matInput type="number" [(ngModel)]="formOutdent" /></mat-form-field>
-        </div>
-        <div class="tokens">
-          @for (token of printTokens; track token) {
-            <button type="button" (click)="insertToken(token)">{{ '{' + token + '}' }}</button>
-          }
-        </div>
-        <div class="sheet" [style.font-size.pt]="formFont || 12" [style.padding-left.mm]="formIndent || 0">
-          @for (block of formBlocks; track block; let i = $index) {
-            <article class="block">
-              <header>
-                <span>{{ blockTitle(block) }}</span>
-                <button type="button" (click)="moveBlock(i, -1)" [disabled]="i === 0">Выше</button>
-                <button type="button" (click)="moveBlock(i, 1)" [disabled]="i === formBlocks.length - 1">Ниже</button>
-              </header>
-              @switch (block) {
-                @case ('logo') { <input [(ngModel)]="formLogo" placeholder="Логотип" /> }
-                @case ('requisites') { <textarea rows="2" [(ngModel)]="formRequisites" placeholder="Реквизиты"></textarea> }
-                @case ('signatory') { <input [(ngModel)]="formSignatory" placeholder="Подпись уполномоченного" /> }
-                @case ('body') {
-                  <textarea rows="5" [(ngModel)]="formBody" [style.text-indent.mm]="-(formOutdent || 0)" placeholder="Текст с переменными"></textarea>
-                }
-              }
-            </article>
-          }
-        </div>
-        <div class="actions">
-          <button mat-flat-button color="primary" (click)="saveForm()">Сохранить макет</button>
-          <mat-form-field class="grow"><mat-label>ID счетов через запятую</mat-label><input matInput [(ngModel)]="renderAccounts" /></mat-form-field>
-          <button mat-stroked-button (click)="render()">Собрать PDF</button>
-        </div>
-        @if (rendered()) { <pre>{{ rendered() }}</pre> }
-        @if (printDocs().length) {
-          <div class="rev">
-            @for (doc of printDocs(); track doc.id) {
-              <button mat-stroked-button (click)="downloadDoc(doc.id)">PDF ЛС {{ doc.account }} · v{{ doc.version }}</button>
-            }
-            @if (printBatch()) { <button mat-stroked-button (click)="downloadPackage()">Пакет PDF</button> }
-          </div>
-        }
-        @if (print()?.revisions?.length) {
-          <h4>Версии макета</h4>
-          <p class="muted">Уже собранный документ остаётся на версии, которой его печатали.</p>
-          @for (rev of print()?.revisions; track rev.version) {
-            <div class="rev">
-              <span>v{{ rev.version }}</span>
-              <button mat-stroked-button (click)="restoreForm(rev.version)" [disabled]="rev.version === print()?.version">Вернуть текст новой версией</button>
-            </div>
-          }
-        }
-      </section>
 
       <section class="forms">
         <h3>Обзвон</h3>

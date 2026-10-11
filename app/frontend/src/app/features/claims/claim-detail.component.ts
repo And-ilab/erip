@@ -9,6 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
+import { ClaimChecklistComponent } from './claim-checklist.component';
 import { ClaimPackageComponent } from './claim-package.component';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
@@ -18,7 +19,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   standalone: true,
   imports: [
     FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimPackageComponent,
+    MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimChecklistComponent, ClaimPackageComponent,
   ],
   template: `
     <div class="case">
@@ -53,9 +54,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </ul>
               }
               <div class="sums">
-                <div><span>Исходящее сальдо с пенями</span><b><app-money [value]="row.balance_out" /></b></div>
-                <div><span>Исходящее сальдо пени</span><b><app-money [value]="row.penalty" /></b></div>
-                <div><span>Нотариальный тариф</span><b><app-money [value]="tariff || null" /></b></div>
+                <div><span>Исходящее сальдо с пенями <app-byn-sign /></span><b><app-money [value]="row.balance_out" /></b></div>
+                <div><span>Исходящее сальдо пени <app-byn-sign /></span><b><app-money [value]="row.penalty" /></b></div>
+                <div><span>Нотариальный тариф <app-byn-sign /></span><b><app-money [value]="tariff || null" /></b></div>
                 <div class="total"><span>Итого</span><b><app-money [value]="grand(row)" [blank]="false" /></b></div>
               </div>
               <p class="hint">Долг и пеня приходят из АИС и в этой форме не меняются. Тариф вносит специалист, пока его не считает АИС.</p>
@@ -75,6 +76,12 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               <mat-form-field class="wide"><mat-label>Нотариальная контора</mat-label>
                 <input matInput value="Справочник контор ещё не подключён" disabled />
               </mat-form-field>
+              <app-claim-checklist
+                [claimId]="row.id"
+                [pack]="row.package || null"
+                [warningDate]="warningDate"
+                [tariff]="tariff"
+                (changed)="replace($event)" />
               <h3>Пакет для личного кабинета БНП</h3>
               @if (row.package) {
                 <app-claim-package [claimId]="row.id" [pack]="row.package" (changed)="replace($event)" />

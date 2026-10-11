@@ -4,6 +4,9 @@ import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
 import { SavedFilter } from '../core/models';
+import {
+  DomainFilterComponent, DomainRule, accountDomainFields, measureDomainFields, parseDomain,
+} from './domain-filter.component';
 
 export interface RegistryFilterQuery {
   q: string;
@@ -13,6 +16,7 @@ export interface RegistryFilterQuery {
   period: string;
   kind?: string;
   groupBy?: string;
+  domain?: DomainRule | null;
 }
 
 export interface RegistryChoice {
@@ -46,7 +50,7 @@ const STAGES = [
 @Component({
   selector: 'app-registry-filter',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, DomainFilterComponent],
   template: `
     <div class="search-wrap" (click)="$event.stopPropagation()">
       <div class="search" (click)="panelOpen.set(true)">
@@ -67,6 +71,9 @@ const STAGES = [
         }
         @if (groupBy && groupBy !== 'status') {
           <button type="button" class="fchip" (click)="clearGroupBy($event)">Группировать по: {{ choiceLabel(groupChoices, groupBy) }} ×</button>
+        }
+        @if (domain) {
+          <button type="button" class="fchip" (click)="clearDomain($event)">Условие ×</button>
         }
         <input [formControl]="search" [placeholder]="placeholder" (focus)="panelOpen.set(true)" />
         @if (showMonth) {
@@ -131,54 +138,11 @@ const STAGES = [
       }
     </div>
     @if (customOpen()) {
-      <div class="backdrop" (click)="customOpen.set(false)">
-        <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Пользовательский фильтр">
-          <h3>Добавить пользовательский фильтр</h3>
-          <p>Соответствует всем из следующих условий.</p>
-          <div class="rule">
-            <span>Группа задолженности</span>
-            <span class="op">равно</span>
-            <span class="values">
-              @for (g of groupNumbers; track g) {
-                <button type="button" class="pill" [class.on]="draftGroups.includes(g)" (click)="draftToggleGroup(g)">{{ g }}</button>
-              }
-            </span>
-          </div>
-          <div class="rule">
-            <span>Рейтинг должника</span>
-            <span class="op">равно</span>
-            <span class="values">
-              @for (letter of letters; track letter) {
-                <button type="button" class="pill" [class.on]="draftRatings.includes(letter)" (click)="draftToggleRating(letter)">{{ letter }}</button>
-              }
-            </span>
-          </div>
-          @if (showStage) {
-            <div class="rule">
-              <span>Этап воронки</span>
-              <span class="op">равно</span>
-              <select [value]="draftStage" (change)="draftStage = selectValue($event)">
-                <option value="">Любой</option>
-                @for (item of stages; track item.id) { <option [value]="item.id">{{ item.label }}</option> }
-              </select>
-            </div>
-          }
-          @if (showKind) {
-            <div class="rule">
-              <span>Вид мероприятия</span>
-              <span class="op">равно</span>
-              <select [value]="draftKind" (change)="draftKind = selectValue($event)">
-                <option value="">Любой</option>
-                @for (item of kinds; track item.id) { <option [value]="item.id">{{ item.label }}</option> }
-              </select>
-            </div>
-          }
-          <div class="dialog-actions">
-            <button type="button" class="primary" (click)="applyDraft()">Добавить</button>
-            <button type="button" (click)="customOpen.set(false)">Отмена</button>
-          </div>
-        </div>
-      </div>
+      <app-domain-filter
+        [fields]="domainFields"
+        [domain]="domain"
+        (apply)="applyDraft($event)"
+        (cancel)="customOpen.set(false)" />
     }
   `,
   styles: `
@@ -293,10 +257,10 @@ export class RegistryFilterComponent implements OnInit {
   protected period = '';
   protected kind = '';
   protected groupBy = '';
-  protected draftGroups: number[] = [];
-  protected draftRatings: string[] = [];
-  protected draftStage = '';
-  protected draftKind = '';
+  protected domain: DomainRule | null = null;
+  protected get domainFields() {
+    return this.showKind ? measureDomainFields() : accountDomainFields();
+  }
 
   ngOnInit(): void {
     this.api.savedFilters(this.target).subscribe({
@@ -367,36 +331,19 @@ export class RegistryFilterComponent implements OnInit {
 
   protected openCustom(event: Event): void {
     event.stopPropagation();
-    this.draftGroups = [...this.groups];
-    this.draftRatings = [...this.ratings];
-    this.draftStage = this.stage;
-    this.draftKind = this.kind;
     this.panelOpen.set(false);
     this.customOpen.set(true);
   }
 
-  protected draftToggleGroup(group: number): void {
-    this.draftGroups = this.draftGroups.includes(group)
-      ? this.draftGroups.filter((item) => item !== group)
-      : [...this.draftGroups, group].sort();
-  }
-
-  protected draftToggleRating(letter: string): void {
-    this.draftRatings = this.draftRatings.includes(letter)
-      ? this.draftRatings.filter((item) => item !== letter)
-      : [...this.draftRatings, letter];
-  }
-
-  protected selectValue(event: Event): string {
-    return (event.target as HTMLSelectElement).value;
-  }
-
-  protected applyDraft(): void {
-    this.groups = [...this.draftGroups];
-    this.ratings = [...this.draftRatings];
-    this.stage = this.draftStage;
-    this.kind = this.draftKind;
+  protected applyDraft(rule: DomainRule | null): void {
+    this.domain = rule;
     this.customOpen.set(false);
+    this.emit();
+  }
+
+  protected clearDomain(event: Event): void {
+    event.stopPropagation();
+    this.domain = null;
     this.emit();
   }
 
@@ -456,6 +403,7 @@ export class RegistryFilterComponent implements OnInit {
         period: query.period,
         kind: query.kind || '',
         groupBy: query.groupBy || '',
+        domain: query.domain ? JSON.stringify(query.domain) : '',
       },
     }).subscribe({
       next: (row) => {
@@ -474,6 +422,7 @@ export class RegistryFilterComponent implements OnInit {
     this.period = String(query['period'] || '');
     this.kind = String(query['kind'] || '');
     this.groupBy = String(query['groupBy'] || '');
+    this.domain = parseDomain(query['domain']);
     this.month.setValue(this.period, { emitEvent: false });
     this.panelOpen.set(false);
     this.emit();
@@ -488,6 +437,7 @@ export class RegistryFilterComponent implements OnInit {
       period: this.period,
       kind: this.kind,
       groupBy: this.groupBy,
+      domain: this.domain,
     };
   }
 

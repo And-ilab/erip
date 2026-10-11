@@ -20,6 +20,7 @@ import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
+import { DomainFilterComponent, DomainRule, accountDomainFields, parseDomain } from '../domain-filter.component';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -94,7 +95,7 @@ interface GroupSection {
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
-    CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent,
+    CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent, DomainFilterComponent,
   ],
   template: `
     <div class="registry">
@@ -134,6 +135,9 @@ interface GroupSection {
             }
             @if (territoryName()) {
               <button type="button" class="fchip" (click)="clearTerritoryChip($event)">{{ territoryName() }} ×</button>
+            }
+            @if (domain()) {
+              <button type="button" class="fchip" (click)="clearDomain($event)">Условие ×</button>
             }
             <input
               [formControl]="search"
@@ -446,29 +450,37 @@ interface GroupSection {
                   <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                    @if (canMove()) {
-                      <button type="button" class="stage-btn" (click)="openStage($event, card)">Сменить этап воронки</button>
-                    }
-                    <div class="line">Номер ЛС {{ card.client_account }}@if (card.account_address) { · {{ short(street(card.account_address)) }} }</div>
+                    <div class="line">
+                      <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
+                      @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ short(street(card.account_address)) }}</span> }
+                    </div>
                     <div class="group-line">
                       @if (card.rating_label) {
-                        <span class="rating-badge r{{ card.rating_label[0] }}" title="Рейтинг должника">{{ card.rating_label }}</span>
+                        <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
                       }
-                      @if (card.effective_group) { <span>Группа задолженности {{ card.effective_group }}</span> }
+                      @if (card.effective_group) {
+                        <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                      }
                     </div>
-                    <div class="line one-line">{{ short(card.scenario_brief) === '—' ? 'Сценарий не назначен' : short(card.scenario_brief) }}</div>
-                    @if (card.assigned_name) { <div class="line">Закреплённый специалист: {{ short(card.assigned_name) }}</div> }
+                    <div class="line one-line" tabindex="0" title="Сценарий">{{ short(card.scenario_brief) === '—' ? 'Сценарий не назначен' : short(card.scenario_brief) }}</div>
                     @if (card.ownership_type_name || card.acc_category_full) {
                       <div class="line">
-                        @if (card.ownership_type_name) { Тип собственности: {{ short(card.ownership_type_name) }} }
+                        @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
                         @if (card.ownership_type_name && card.acc_category_full) { · }
-                        @if (card.acc_category_full) { Тип объекта жилфонда: {{ short(card.acc_category_full) }} }
+                        @if (card.acc_category_full) { <span tabindex="0" title="Тип объекта жилфонда">{{ short(card.acc_category_full) }}</span> }
                       </div>
                     }
-                    <div class="line">Кол-во месяцев долга {{ card.months_debt ?? '—' }} · проживающих {{ card.subj_count ?? '—' }} · зарегистрированных {{ card.registered_count ?? '—' }}</div>
+                    <div class="line">
+                      <span tabindex="0" title="Кол-во месяцев долга">{{ card.months_debt ?? '—' }}</span>
+                      · <span tabindex="0" title="Проживающих">{{ card.subj_count ?? '—' }}</span>
+                      · <span tabindex="0" title="Зарегистрированных">{{ card.registered_count ?? '—' }}</span>
+                    </div>
                     <div class="money">
-                      <div>Сумма задолженности <app-money [value]="card.obligation_total" [blank]="false" /></div>
-                      <small>Сумма основного долга <app-money [value]="card.debt_total" [blank]="false" /> · Сумма пени <app-money [value]="card.mulct_total" [blank]="false" /></small>
+                      <span tabindex="0" title="Сумма задолженности"><app-money [value]="card.obligation_total" [blank]="false" [sign]="false" /></span>
+                      <small>
+                        <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
+                        · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></span>
+                      </small>
                     </div>
                     <div class="foot">
                       @if (mark(card); as note) {
@@ -501,61 +513,11 @@ interface GroupSection {
       </div>
 
       @if (customOpen()) {
-        <div class="backdrop" (click)="customOpen.set(false)">
-          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Пользовательский фильтр">
-            <h3>Добавить пользовательский фильтр</h3>
-            <p class="muted">Дополнительное условие к уже выбранным фильтрам. Базовые поля доступны всем ролям.</p>
-            <div class="filters">
-              <mat-form-field>
-                <mat-label>Поле</mat-label>
-                <mat-select [formControl]="customField">
-                  <mat-option value="group">Группа задолженности</mat-option>
-                  <mat-option value="rating">Рейтинг должника</mat-option>
-                  <mat-option value="stage">Этап воронки взыскания</mat-option>
-                  <mat-option value="specialist">Закреплённый специалист</mat-option>
-                  <mat-option value="ownership">Тип собственности</mat-option>
-                  <mat-option value="housing">Тип объекта жилфонда</mat-option>
-                  <mat-option value="months">Кол-во месяцев долга</mat-option>
-                  <mat-option value="residents">Кол-во проживающих</mat-option>
-                </mat-select>
-              </mat-form-field>
-              @if (customField.value === 'specialist') {
-                <mat-form-field>
-                  <mat-label>Значение</mat-label>
-                  <mat-select [formControl]="customValue">
-                    @for (item of specialists(); track item.name) {
-                      <mat-option [value]="item.name">{{ item.name }}</mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
-              } @else if (customField.value === 'ownership' || customField.value === 'housing' || customField.value === 'months' || customField.value === 'residents') {
-                <mat-form-field>
-                  <mat-label>Значение</mat-label>
-                  <input matInput [formControl]="customValue" />
-                </mat-form-field>
-              } @else {
-              <mat-form-field>
-                <mat-label>Значение</mat-label>
-                <mat-select [formControl]="customValue">
-                  @if (customField.value === 'group') {
-                    @for (g of groups; track g) { <mat-option [value]="'' + g">Группа {{ g }}</mat-option> }
-                  }
-                  @if (customField.value === 'rating') {
-                    @for (letter of letters; track letter) { <mat-option [value]="letter">{{ letter }}</mat-option> }
-                  }
-                  @if (customField.value === 'stage') {
-                    @for (item of stages; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
-                  }
-                </mat-select>
-              </mat-form-field>
-              }
-            </div>
-            <div class="dialog-actions">
-              <button mat-flat-button color="primary" type="button" (click)="addCustom()">Добавить</button>
-              <button mat-stroked-button type="button" (click)="customOpen.set(false)">Отмена</button>
-            </div>
-          </div>
-        </div>
+        <app-domain-filter
+          [fields]="accountFields"
+          [domain]="domain()"
+          (apply)="applyDomain($event)"
+          (cancel)="customOpen.set(false)" />
       }
 
       @if (reasonOpen()) {
@@ -720,7 +682,9 @@ interface GroupSection {
     .k-card.g5 .letter, .k-card.g5 .group-line { color: #c62828; } .k-card.g5 .letter { background: #c62828; color: #fff; }
     .k-card.g6 .letter, .k-card.g6 .group-line { color: #7f1d1d; } .k-card.g6 .letter { background: #7f1d1d; color: #fff; }
     .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; color: #1f2933; }
+    .k-card .money > span, .k-card .money small { display: block; }
     .k-card .money small { font-weight: 400; color: #6b7280; }
+    .k-card .money .amount-danger { color: var(--erip-danger); }
     .k-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 26px; }
     .k-card .when { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; }
     .k-card .cal { width: 14px; height: 14px; flex: 0 0 14px; }
@@ -786,6 +750,8 @@ export class AccountsListComponent implements OnInit {
   protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map' | 'charts'>('list');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
+  protected readonly accountFields = accountDomainFields();
+  protected readonly domain = signal<DomainRule | null>(null);
   protected readonly measureOpen = signal(false);
   protected readonly mapQuery = signal<Record<string, string | number | null>>({});
   protected readonly territoryId = signal<number | null>(null);
@@ -1035,6 +1001,18 @@ export class AccountsListComponent implements OnInit {
   clearTerritoryChip(event: Event): void {
     event.stopPropagation();
     this.clearTerritory();
+  }
+
+  protected applyDomain(rule: DomainRule | null): void {
+    this.domain.set(rule);
+    this.customOpen.set(false);
+    this.onFilter();
+  }
+
+  protected clearDomain(event: Event): void {
+    event.stopPropagation();
+    this.domain.set(null);
+    this.onFilter();
   }
 
   addCustom(): void {
@@ -1507,6 +1485,7 @@ export class AccountsListComponent implements OnInit {
     this.periodFrom.setValue(String(item.query['period_from'] ?? ''), { emitEvent: false });
     this.periodTo.setValue(String(item.query['period_to'] ?? ''), { emitEvent: false });
     this.groupBy.setValue(String(item.query['group_by'] ?? ''), { emitEvent: false });
+    this.domain.set(parseDomain(item.query['domain']));
     this.panelOpen.set(false);
     if (this.groupBy.value) this.showGrouped();
     else this.reload(1);
@@ -1726,6 +1705,7 @@ export class AccountsListComponent implements OnInit {
       period_from: this.periodFrom.value,
       period_to: this.periodTo.value,
       group_by: this.groupBy.value,
+      domain: this.domain() ? JSON.stringify(this.domain()) : null,
       territory: this.territoryId(),
     };
   }

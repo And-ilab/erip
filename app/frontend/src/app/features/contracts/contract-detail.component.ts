@@ -11,7 +11,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 
 import { ApiService, errorMessage } from '../../core/api.service';
-import { MoneyComponent } from '../../core/money.component';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail,
@@ -28,7 +28,7 @@ import {
   selector: 'app-contract-detail',
   standalone: true,
   imports: [
-    DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MoneyComponent,
+    DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
@@ -65,10 +65,10 @@ import {
               @if (auth.showSupplier()) {
                 <dt>Полное наименование поставщика</dt><dd>{{ c.full_name || c.shot_name }}</dd>
               }
-              <dt>Первоначальный долг</dt><dd><app-money [value]="c.initial_principal" [blank]="false" /></dd>
-              <dt>Первоначальная пеня</dt><dd><app-money [value]="c.initial_penalty" [blank]="false" /></dd>
-              <dt>Исходящее сальдо с пенями</dt><dd><b><app-money [value]="c.balance_out" [blank]="false" /></b></dd>
-              <dt>Исходящее сальдо пени</dt><dd><app-money [value]="c.balance_mulct_out" [blank]="false" /></dd>
+              <dt>Первоначальный долг <app-byn-sign /></dt><dd><app-money [value]="c.initial_principal" [blank]="false" /></dd>
+              <dt>Первоначальная пеня <app-byn-sign /></dt><dd><app-money [value]="c.initial_penalty" [blank]="false" /></dd>
+              <dt>Исходящее сальдо с пенями <app-byn-sign /></dt><dd><b><app-money [value]="c.balance_out" [blank]="false" /></b></dd>
+              <dt>Исходящее сальдо пени <app-byn-sign /></dt><dd><app-money [value]="c.balance_mulct_out" [blank]="false" /></dd>
               <dt>Возникновение</dt><dd>{{ c.debt_started_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Срок погашения</dt><dd>{{ c.repayment_due_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Последняя оплата</dt><dd>{{ c.last_payment_date | date: 'dd.MM.yyyy' }}</dd>

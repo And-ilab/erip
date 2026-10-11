@@ -598,7 +598,7 @@ export class ApiService {
   }
 
   printForms(): Observable<Page<PrintFormRow>> {
-    return this.http.get<Page<PrintFormRow>>(`${this.base}/nsi/print-forms/`);
+    return this.http.get<Page<PrintFormRow>>(`${this.base}/nsi/print-forms/`, { params: { page_size: 200 } });
   }
 
   savePrintForm(row: Partial<PrintFormRow>): Observable<PrintFormRow> {
@@ -753,6 +753,7 @@ export interface BnpDocument {
   has_pdf: boolean;
   has_signature: boolean;
   generated: boolean;
+  body: string;
   size: number;
 }
 

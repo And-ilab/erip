@@ -20,10 +20,12 @@ from .services.bnp_package import (
     delete_document,
     form_package,
     generate_application,
+    generate_from_form,
     manifest_bytes,
     open_document,
     save_package,
     store_document,
+    update_document_text,
 )
 from .services.claims import (
     add_act,
@@ -109,6 +111,18 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     def package_application(self, request, pk=None):
         generate_application(self._case(pk))
         record_action(request, AuditLog.Action.UPDATE, self._case(pk))
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="package/from-template")
+    def package_from_template(self, request, pk=None):
+        generate_from_form(self._case(pk), request.user, request.data.get("form"))
+        record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"form": request.data.get("form")})
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path=r"package/documents/(?P<doc_id>[0-9]+)/text")
+    def package_document_text(self, request, pk=None, doc_id=None):
+        update_document_text(self._case(pk), int(doc_id), str(request.data.get("body") or ""))
+        record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"document": doc_id})
         return Response(case_payload(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="package/form")

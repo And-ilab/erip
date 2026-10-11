@@ -61,8 +61,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
                     <th>Адрес ЛС запросом (Адрес)</th>
                     <th>Группа</th>
                     <th>Рейтинг</th>
-                    <th>Исходящее сальдо с пенями</th>
-                    <th>Исходящее сальдо пени</th>
+                    <th>Исходящее сальдо с пенями <app-byn-sign /></th>
+                    <th>Исходящее сальдо пени <app-byn-sign /></th>
                     <th>Этап</th>
                     <th>Дело</th>
                   </tr>
@@ -103,27 +103,23 @@ import { RegistryViewsComponent } from '../registry-views.component';
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                          [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                   <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                  @if (canMove()) {
-                    <button type="button" class="more" aria-label="Сменить этап" (click)="toggleStage($event, card.id)">
-                      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.2 2.8 7.2 8.8M7 3.5H3.5v9h9V9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-                    </button>
-                  }
-                  @if (stageMenu() === card.id) {
-                    <div class="stage-menu" (click)="$event.stopPropagation()">
-                      @for (item of caseStages; track item.id) {
-                        <button type="button" [class.on]="(card.claim_stage || 'queue') === item.id" (click)="move(card, item.id)">{{ item.label }}</button>
-                      }
-                    </div>
-                  }
-                  <div class="line">ЛС {{ card.client_account }}@if (card.account_address) { · {{ street(card.account_address || '') }} }</div>
+                  <div class="line">
+                    <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
+                    @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ street(card.account_address || '') }}</span> }
+                  </div>
                   <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
-                  @if (card.effective_group) {
-                    <div class="group-line">
-                      <span class="letter">{{ letter(card.rating_label) }}</span>
-                      <span>Группа {{ card.effective_group }}</span>
-                    </div>
-                  }
-                  <div class="money"><app-money [value]="card.debt_total" [blank]="false" /> <small>+ пени <app-money [value]="card.mulct_total" [blank]="false" /></small></div>
+                  <div class="group-line">
+                    @if (card.rating_label) {
+                      <span class="rating-badge r{{ letter(card.rating_label) }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
+                    }
+                    @if (card.effective_group) {
+                      <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                    }
+                  </div>
+                  <div class="money">
+                    <span tabindex="0" title="Исходящее сальдо с пенями"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
+                    <small class="amount-danger" tabindex="0" title="Исходящее сальдо пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></small>
+                  </div>
                   <div class="foot">
                     @if (mark(card); as note) {
                       <span class="when">
@@ -132,7 +128,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       </span>
                     } @else { <span></span> }
                     @if (initials(card.assigned_name); as who) {
-                      <span class="who" [style.background]="avatarColor(card.assigned_name)">{{ who }}</span>
+                      <span class="who" [style.background]="avatarColor(card.assigned_name)" tabindex="0" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
                     }
                   </div>
                 </article>
@@ -333,7 +329,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-card.g5 .letter, .k-card.g5 .group-line { color: #c62828; } .k-card.g5 .letter { background: #c62828; color: #fff; }
     .k-card.g6 .letter, .k-card.g6 .group-line { color: #7f1d1d; } .k-card.g6 .letter { background: #7f1d1d; color: #fff; }
     .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; color: #1f2933; }
+    .k-card .money > span, .k-card .money small { display: block; }
     .k-card .money small { font-weight: 400; color: #6b7280; }
+    .k-card .money .amount-danger { color: var(--erip-danger); }
     .k-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 26px; }
     .k-card .when { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; }
     .k-card .cal { width: 14px; height: 14px; flex: 0 0 14px; }
@@ -912,6 +910,7 @@ export class ClaimsBoardComponent implements OnInit {
     if (this.filter.ratings.length === 1) params['rating'] = this.filter.ratings[0];
     else if (this.filter.ratings.length) params['rating__in'] = this.filter.ratings.join(',');
     if (this.filter.stage) params['funnel_stage'] = this.filter.stage;
+    if (this.filter.domain) params['domain'] = JSON.stringify(this.filter.domain);
     return params;
   }
 

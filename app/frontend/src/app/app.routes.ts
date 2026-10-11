@@ -44,8 +44,8 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),
       },
-      { path: 'templates', redirectTo: 'settings/work', pathMatch: 'full' },
-      { path: 'scenarios', redirectTo: 'settings/work', pathMatch: 'full' },
+      { path: 'templates', redirectTo: 'settings/work/messages', pathMatch: 'full' },
+      { path: 'scenarios', redirectTo: 'settings/work/scenario', pathMatch: 'full' },
       {
         path: 'claims',
         loadComponent: () => import('./features/claims/claims-board.component').then((m) => m.ClaimsBoardComponent),
@@ -72,7 +72,22 @@ export const routes: Routes = [
           },
           {
             path: 'work',
-            loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
+            loadComponent: () => import('./features/settings/settings-work.component').then((m) => m.SettingsWorkComponent),
+            children: [
+              { path: '', pathMatch: 'full', redirectTo: 'scenario' },
+              {
+                path: 'scenario',
+                loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
+              },
+              {
+                path: 'messages',
+                loadComponent: () => import('./features/templates/templates.component').then((m) => m.TemplatesComponent),
+              },
+              {
+                path: 'forms',
+                loadComponent: () => import('./features/settings/print-forms.component').then((m) => m.PrintFormsComponent),
+              },
+            ],
           },
         ],
       },

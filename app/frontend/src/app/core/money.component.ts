@@ -24,8 +24,11 @@ export function formatMoney(
     </svg>
   `,
   styles: `
-    :host { display: inline-block; line-height: 0; vertical-align: -0.12em; }
-    svg { width: 0.82em; height: 1em; display: block; }
+    :host {
+      display: inline-block; flex: 0 0 auto; width: 0.7em; min-width: 0.7em; height: 0.78em;
+      line-height: 0; vertical-align: -0.06em; margin-left: 0.2em; font-size: inherit;
+    }
+    svg { width: 100%; height: 100%; display: block; }
   `,
 })
 export class BynSignComponent {}
@@ -53,7 +56,7 @@ export class MoneyComponent {
   /** Пустое значение — прочерк без знака. Ноль остаётся суммой. */
   readonly blank = input(true);
   /** Знак валюты у числа. В реестре ЛС валюту показывает заголовок столбца. */
-  readonly sign = input(true);
+  readonly sign = input(false);
   /** Крупные суммы на графиках: «12,5 тыс.» и знак. */
   readonly compact = input(false);
 

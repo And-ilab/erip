@@ -1,5 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -7,6 +7,13 @@ import { MatInputModule } from '@angular/material/input';
 
 import { errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+
+function passwordsMatch(control: AbstractControl): { mismatch: true } | null {
+  const next = control.get('newPassword')?.value;
+  const again = control.get('confirmPassword')?.value;
+  if (!next || !again || next === again) return null;
+  return { mismatch: true };
+}
 
 @Component({
   selector: 'app-password',
@@ -26,6 +33,11 @@ import { AuthService } from '../../core/auth.service';
               <mat-label>Новый пароль</mat-label>
               <input matInput type="password" formControlName="newPassword" autocomplete="new-password" />
             </mat-form-field>
+            <mat-form-field class="full">
+              <mat-label>Новый пароль ещё раз</mat-label>
+              <input matInput type="password" formControlName="confirmPassword" autocomplete="new-password" />
+            </mat-form-field>
+            @if (form.hasError('mismatch')) { <p class="status-failed">Пароли не совпадают</p> }
             @if (error()) { <p class="status-failed">{{ error() }}</p> }
             <button mat-flat-button color="primary" [disabled]="form.invalid || loading()">Сохранить</button>
           </form>
@@ -48,7 +60,8 @@ export class PasswordComponent {
   protected readonly form = this.fb.nonNullable.group({
     oldPassword: ['', Validators.required],
     newPassword: ['', [Validators.required, Validators.minLength(8)]],
-  });
+    confirmPassword: ['', Validators.required],
+  }, { validators: [passwordsMatch] });
 
   submit(): void {
     if (this.form.invalid || this.loading()) return;
