@@ -102,20 +102,22 @@ import { RegistryViewsComponent } from '../registry-views.component';
               @for (card of laneCards(lane); track card.id) {
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                          [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                  <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
+                  <div class="card-head">
+                    <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
+                    @if (card.effective_group) {
+                      <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                    }
+                  </div>
                   <div class="line">
                     <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
                     @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ street(card.account_address || '') }}</span> }
                   </div>
                   <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
-                  <div class="group-line">
-                    @if (card.rating_label) {
+                  @if (card.rating_label) {
+                    <div class="group-line">
                       <span class="rating-badge r{{ letter(card.rating_label) }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                    }
-                    @if (card.effective_group) {
-                      <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
-                    }
-                  </div>
+                    </div>
+                  }
                   <div class="money">
                     <span tabindex="0" title="Исходящее сальдо с пенями"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
                     <small class="amount-danger" tabindex="0" title="Исходящее сальдо пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></small>
@@ -288,7 +290,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
-    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; padding-right: 18px; color: #1f2933; }
+    .k-card .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; flex: 1; min-width: 0; color: #1f2933; }
+    .k-card .card-head .group-badge { flex: 0 0 auto; }
     .k-card .more {
       position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; border: 0;
       background: transparent; color: #9aa3ad; cursor: pointer;

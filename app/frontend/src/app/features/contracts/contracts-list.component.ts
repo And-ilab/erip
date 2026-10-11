@@ -396,7 +396,12 @@ const COLUMN_LABELS: Record<string, string> = {
                 @for (card of column.cards; track card.sample_id) {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                    <div class="name">{{ card.payer || 'Без наименования' }}</div>
+                    <div class="card-head">
+                      <div class="name">{{ card.payer || 'Без наименования' }}</div>
+                      @if (card.debt_group) {
+                        <span class="group-badge g{{ card.debt_group }}" tabindex="0" title="Группа задолженности {{ card.debt_group }}">{{ card.debt_group }}</span>
+                      }
+                    </div>
                     <div class="line">
                       <span tabindex="0" title="Идентификатор">{{ personId(card) }}</span>
                       · <span tabindex="0" title="Лицевые счета">{{ card.ls_count }}</span>
@@ -408,15 +413,14 @@ const COLUMN_LABELS: Record<string, string> = {
                     @if (card.address) {
                       <div class="line" tabindex="0" title="Адрес">{{ street(card.address) }}</div>
                     }
-                    <div class="group-line">
-                      @if (card.rating_label) {
-                        <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                      }
-                      @if (card.debt_group) {
-                        <span class="group-badge g{{ card.debt_group }}" tabindex="0" title="Группа задолженности {{ card.debt_group }}">{{ card.debt_group }}</span>
-                      }
-                      @if (card.category) { <span tabindex="0" title="Категория">{{ card.category }}</span> }
-                    </div>
+                    @if (card.rating_label || card.category) {
+                      <div class="group-line">
+                        @if (card.rating_label) {
+                          <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
+                        }
+                        @if (card.category) { <span tabindex="0" title="Категория">{{ card.category }}</span> }
+                      </div>
+                    }
                     @if (card.ownership_type_name || card.housing_object) {
                       <div class="line">
                         @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
@@ -664,7 +668,9 @@ const COLUMN_LABELS: Record<string, string> = {
     .k-card[draggable="true"] { cursor: grab; }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
     .k-card.picked { background: #e7f4f1; }
-    .k-card .name { padding-right: 148px; }
+    .k-card .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .k-card .card-head .name { flex: 1; min-width: 0; }
+    .k-card .card-head .group-badge { flex: 0 0 auto; }
     .k-card .stage-btn {
       position: absolute; top: 8px; right: 8px; border: 1px solid #d8dce0; background: #fff;
       color: var(--erip-primary); border-radius: 4px; font-size: 11px; line-height: 1.2;
