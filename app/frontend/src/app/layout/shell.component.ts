@@ -117,7 +117,6 @@ export class ShellComponent {
       items.push({ link: '/imports', label: 'Загрузка АИС', icon: 'upload_file' });
     }
     items.push(
-      { link: '/password', label: 'Смена пароля', icon: 'lock' },
       { link: '/notifications', label: 'Оповещения', icon: 'notifications' },
     );
     if (this.auth.isSuperadmin()) {
