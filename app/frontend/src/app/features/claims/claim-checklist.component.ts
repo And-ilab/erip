@@ -1,10 +1,14 @@
-import { Component, OnDestroy, OnInit, inject, input, output, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, effect, inject, input, output, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 
+import { DateFieldComponent } from '../../core/date-field.component';
 import { ApiService, BlankPenaltyRow, BlankPeriodPair, BlankResident, BlankSection, BlankServiceRow, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
 import { SheetBlock, SheetEditor, bodyBlock, normalizeBlock } from '../settings/document-flow';
 import { OfficialSheetComponent } from '../settings/official-sheet.component';
@@ -37,14 +41,12 @@ const COURT: Slot[] = [
 @Component({
   selector: 'app-claim-checklist',
   standalone: true,
-  imports: [FormsModule, ReactiveFormsModule, MatButtonModule, MatSnackBarModule, PrintSheetComponent, OfficialSheetComponent],
+  imports: [
+    FormsModule, ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule,
+    MatSnackBarModule, DateFieldComponent, PrintSheetComponent, OfficialSheetComponent,
+  ],
   template: `
-    <h3>Комплект документов</h3>
-    <p class="hint">
-      Подпись комплекта ставится один раз кнопкой «Подписать и направить», не у каждого файла.
-      Просмотр PDF открывается здесь и не скачивается. Файл PDF не больше 15 МБ.
-    </p>
-    <div class="split">
+    <div class="split" [attr.data-slot]="selected()">
       <ul class="checks">
         @for (slot of visibleSlots(); track slot.code) {
           <li [class.on]="selected() === slot.code" [class.done]="done(slot)" [class.need]="needed(slot) && !done(slot)">
@@ -53,17 +55,6 @@ const COURT: Slot[] = [
               <span class="title" [attr.title]="slot.title">{{ slot.title }}</span>
               <span class="state">{{ done(slot) ? 'есть' : 'нет' }}</span>
             </button>
-            <span class="acts">
-              @if (slot.formKind) {
-                <button type="button" (click)="openTemplates(slot, $event)">Из шаблона</button>
-              }
-              @if (slot.docType && slot.mode !== 'date' && slot.mode !== 'ais') {
-                <label>Загрузить<input type="file" accept="application/pdf,.pdf" (change)="onPdf(slot, $event)" /></label>
-              }
-              @if (slot.mode === 'ais') {
-                <button type="button" (click)="openTemplates(slot, $event)">Создать документ</button>
-              }
-            </span>
           </li>
         }
       </ul>
@@ -74,19 +65,28 @@ const COURT: Slot[] = [
             @if (formsOf(slot).length) {
               <button mat-stroked-button type="button" class="create" [disabled]="busy()" (click)="createFromTemplate(slot)">Создать</button>
             }
+            @if (slot.docType && slot.mode !== 'date' && slot.mode !== 'ais') {
+              <label class="upload">Загрузить PDF<input type="file" accept="application/pdf,.pdf" (change)="onPdf(slot, $event)" /></label>
+            }
           </div>
+          @if (scope() === 'court') { <ng-content /> }
           @if (slot.mode === 'date') {
-            <p [class.need]="!warningDate()">{{ warningDate() ? 'Вручено ' + warningDate() : 'Даты вручения предупреждения нет. Календарь — в поле над комплектом. Без даты пакет не подписывается.' }}</p>
+            <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate()" (valueChange)="warningDateChange.emit($event)" />
           }
           @if (slot.mode === 'tariff') {
-            <p [class.need]="!(tariff() && +tariff() > 0)">{{ tariff() && +tariff() > 0 ? 'Тариф внесён: ' + tariff() : 'Нотариальный тариф ещё не указан. Его считает АИС, пока поле можно заполнить в деле.' }}</p>
+            <mat-form-field [class.need]="!(tariff() && +tariff() > 0)" subscriptSizing="dynamic">
+              <mat-label>Нотариальный тариф *</mat-label>
+              <input matInput [ngModel]="tariff()" (ngModelChange)="tariffChange.emit($event)" />
+            </mat-form-field>
+            <mat-checkbox [ngModel]="withdrawn()" (ngModelChange)="withdrawnChange.emit($event)">Заявление отозвано</mat-checkbox>
+            <p class="meta">Тариф считает АИС. Отзыв заявления обнуляет тариф при сохранении дела.</p>
           }
           @if (slot.mode === 'ais') {
             @for (debt of pack()?.debts || []; track $index) {
               <p>{{ debt.source === 'penalty' ? 'Пеня' : 'Исходящее сальдо' }}: {{ debt.amount }} {{ debt.currency }}</p>
             }
             @if (!(pack()?.debts || []).length) {
-              <p>Суммы появятся после сохранения состава пакета. ПМ берёт их из АИС и не правит.</p>
+              <p>Сумм из АИС на деле пока нет. ПМ их не вводит.</p>
             }
           }
           @if (formsOf(slot).length > 1) {
@@ -100,7 +100,6 @@ const COURT: Slot[] = [
             <p class="meta" [attr.title]="doc.file_name">{{ doc.file_name }} · {{ doc.generated ? 'собран в ПМ' : 'загружен' }}</p>
             <div class="acts">
               <button type="button" (click)="viewPdf(doc)">Просмотреть</button>
-              <button type="button" (click)="viewPdf(doc)">PDF</button>
               <button type="button" (click)="startEdit(doc)">Редактировать</button>
               <button type="button" (click)="openEditor(doc)">Открыть в конструкторе</button>
               <button type="button" (click)="remove(doc)">Удалить</button>
@@ -148,7 +147,11 @@ const COURT: Slot[] = [
     </div>
   `,
   styles: `
-    :host { display: block; min-width: 0; max-width: 100%; }
+    :host { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; max-width: 100%; }
+    .upload {
+      border: 0; background: transparent; color: var(--erip-link); font: inherit; font-size: 13px; cursor: pointer;
+    }
+    .upload input { display: none; }
     .sheet-edit { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 12px; align-items: start; }
     .parts { display: flex; flex-direction: column; gap: 6px; }
     .part {
@@ -168,9 +171,10 @@ const COURT: Slot[] = [
     .hint, .meta { color: var(--erip-muted); font-size: 13px; }
     .empty, .doc-name, .viewer p { margin: 0; }
     .split {
-      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 8px; min-width: 0;
+      display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 12px;
+      flex: 1; min-height: 0; min-width: 0; align-items: stretch;
     }
-    .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow: auto; }
     .checks li {
       border: 1px solid var(--erip-border); border-radius: 8px; background: #fff; padding: 6px 8px;
       display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0;
@@ -178,7 +182,7 @@ const COURT: Slot[] = [
     .checks li.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .checks li.need { border-color: #c62828; }
     .need { color: #c62828; }
-    .sheet { width: 100%; height: 420px; border: 0; border-radius: 6px; background: #f4f6f8; }
+    .sheet { width: 100%; height: min(420px, 46vh); border: 0; border-radius: 6px; background: #f4f6f8; }
     .row {
       display: grid; grid-template-columns: 16px minmax(0, 1fr) 2.75rem; align-items: center; column-gap: 8px;
       width: 100%; min-width: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; padding: 2px 0;
@@ -199,8 +203,8 @@ const COURT: Slot[] = [
     }
     .acts input[type="file"] { display: none; }
     .viewer {
-      border: 1px solid var(--erip-border); border-radius: 8px; padding: 12px; background: #fff; min-height: 180px;
-      min-width: 0; max-width: 100%; box-sizing: border-box;
+      border: 1px solid var(--erip-border); border-radius: 8px; padding: 12px; background: #fff;
+      min-width: 0; max-width: 100%; min-height: 0; box-sizing: border-box; overflow: auto;
       display: flex; flex-direction: column; align-items: stretch; gap: 8px;
     }
     .viewer > button { align-self: flex-start; }
@@ -213,7 +217,7 @@ const COURT: Slot[] = [
     }
     .template { display: block; width: 100%; min-width: 0; }
     .viewer .acts select { width: auto; }
-    @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); overflow: auto; } }
   `,
 })
 export class ClaimChecklistComponent implements OnInit, OnDestroy {
@@ -221,8 +225,14 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   readonly pack = input<ClaimPackage | null>(null);
   readonly warningDate = input('');
   readonly tariff = input('');
-  readonly stage = input('');
+  readonly withdrawn = input(false);
+  readonly scope = input<'notary' | 'court'>('notary');
+  readonly lawsuitKind = input('');
+  readonly focus = input('');
   readonly changed = output<ClaimCase>();
+  readonly warningDateChange = output<string>();
+  readonly tariffChange = output<string>();
+  readonly withdrawnChange = output<boolean>();
 
   private readonly api = inject(ApiService);
   private readonly snack = inject(MatSnackBar);
@@ -250,8 +260,43 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected templateId: number | null = null;
   private rawUrl = '';
+  private lastKind = '';
+  private lastFocus = '';
+
+  constructor() {
+    effect(() => {
+      const slots = this.visibleSlots();
+      const kind = this.lawsuitKind();
+      const focus = this.focus();
+      const prefer = this.courtSlot(kind);
+      const current = this.selected();
+      if (focus && focus !== this.lastFocus && slots.some((slot) => slot.code === focus)) {
+        this.lastFocus = focus;
+        this.pick(focus);
+        return;
+      }
+      this.lastFocus = focus;
+      if (this.scope() === 'court' && kind !== this.lastKind && prefer && slots.some((slot) => slot.code === prefer)) {
+        this.lastKind = kind;
+        this.pick(prefer);
+        return;
+      }
+      this.lastKind = kind;
+      if (!slots.some((slot) => slot.code === current)) {
+        this.selected.set(prefer || slots[0]?.code || '');
+      }
+    }, { allowSignalWrites: true });
+  }
+
+  private keepSelection(): void {
+    const slots = this.visibleSlots();
+    if (slots.some((slot) => slot.code === this.selected())) return;
+    const prefer = this.scope() === 'court' ? (this.courtSlot(this.lawsuitKind()) || 'lawsuit') : 'application';
+    this.selected.set(slots.some((slot) => slot.code === prefer) ? prefer : (slots[0]?.code || ''));
+  }
 
   ngOnInit(): void {
+    this.keepSelection();
     this.api.printForms().subscribe({
       next: (page) => this.forms.set(page.results),
       error: () => this.forms.set([]),
@@ -263,12 +308,19 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   protected visibleSlots(): Slot[] {
-    const court = ['refused', 'lawsuit', 'court'].includes(this.stage());
-    return court ? [...this.slots, ...COURT] : this.slots;
+    return this.scope() === 'court' ? COURT : this.slots;
   }
 
   protected needed(slot: Slot): boolean {
+    if (this.scope() === 'court') return slot.code === this.courtSlot(this.lawsuitKind());
     return ['warning', 'tariff', 'application', 'ais', 'proxy'].includes(slot.code);
+  }
+
+  private courtSlot(kind: string): string {
+    if (kind === 'collection') return 'lawsuit';
+    if (kind.startsWith('eviction')) return 'eviction';
+    if (kind.startsWith('alienation')) return 'alienation';
+    return '';
   }
 
   protected active(): Slot | undefined {
@@ -325,11 +377,6 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   protected formsOf(slot: Slot | undefined): PrintFormRow[] {
     if (!slot?.formKind) return [];
     return this.forms().filter((form) => form.doc_kind === slot.formKind);
-  }
-
-  protected openTemplates(slot: Slot, event: Event): void {
-    event.stopPropagation();
-    this.pick(slot.code);
   }
 
   protected createFromTemplate(slot: Slot): void {

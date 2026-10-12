@@ -11,6 +11,7 @@ import {
   ApiService, BnpDebt, BnpDebtor, BnpDocument, ClaimCase, ClaimPackage, errorMessage,
 } from '../../core/api.service';
 
+/** С карточки дела не показывается: должник и суммы берутся из лицевого счёта при сборке архива. */
 @Component({
   selector: 'app-claim-package',
   standalone: true,

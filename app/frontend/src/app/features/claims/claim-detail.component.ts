@@ -11,7 +11,6 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { DateFieldComponent } from '../../core/date-field.component';
 import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
 import { ClaimChecklistComponent } from './claim-checklist.component';
-import { ClaimPackageComponent } from './claim-package.component';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 
@@ -20,324 +19,330 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   standalone: true,
   imports: [
     FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimChecklistComponent, ClaimPackageComponent,
+    MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimChecklistComponent,
     DateFieldComponent,
   ],
   template: `
     <div class="case">
       @if (claim(); as row) {
-        <section class="sheet">
-          <header>
-            <div>
-              <h2>{{ row.short_fio || 'Должник не указан' }}</h2>
-              <p>ЛС {{ row.client_account }} · {{ row.account_address || 'Адрес не указан' }}</p>
-              <p class="muted">Группа {{ row.debt_group || '—' }} · рейтинг {{ row.rating || '—' }}</p>
-            </div>
-            <span class="stage">{{ row.stage_label }}</span>
-          </header>
-          @if (row.debt_group != null && row.debt_group < 3) {
-            <p class="banner">Группа {{ row.debt_group }} ведётся предупреждением и приостановлением услуг. Исполнительная надпись включается с группы 3. <a routerLink="/measures">Реестр мероприятий</a></p>
+        <header>
+          <div>
+            <a class="back" routerLink="/claims">К списку</a>
+            <h2>{{ row.short_fio || 'Должник не указан' }}</h2>
+            <p>ЛС {{ row.client_account }} · {{ row.account_address || 'Адрес не указан' }}</p>
+            <p class="muted">Группа {{ row.debt_group || '—' }} · рейтинг {{ row.rating || '—' }}</p>
+          </div>
+          <span class="stage">{{ row.stage_label }}</span>
+        </header>
+        @if (row.debt_group != null && row.debt_group < 3) {
+          <p class="banner">Группа {{ row.debt_group }} ведётся в мероприятиях. Исполнительная надпись — с группы 3. <a routerLink="/measures">Реестр мероприятий</a></p>
+        }
+        <nav class="tabs">
+          @for (item of tabs; track item.id) {
+            <button type="button" [class.on]="tab() === item.id" (click)="setTab(item.id)">{{ item.label }}</button>
           }
-          @if (row.debt_group === 3) {
-            <p class="hint">Группа 3: пакет нотариусу или в суд, учёт решения, ОПИ, нотариальный тариф и госпошлина. Долг и пеня из АИС здесь не правятся.</p>
-          }
-          @if ((row.debt_group || 0) >= 4) {
-            <p class="banner">Группа {{ row.debt_group }}: помимо взыскания доступны выселение (ст. 80, 86, 87 ЖК) и отчуждение (ст. 137 ЖК). Шаги идут последовательно, где этого требует закон.</p>
-          }
-          <p class="actions">
-            <button mat-stroked-button type="button" (click)="openWrit()">Форма исполнительной надписи</button>
-            <a mat-button routerLink="/claims">К списку</a>
-          </p>
-          <div class="split">
-            <div class="form">
-              @if ((row.blockers || []).length) {
-                <ul class="blockers">
-                  @for (item of row.blockers; track $index) { <li>{{ item }}</li> }
-                </ul>
-              }
-              @if (row.writ_checklist?.length) {
-                <h3>Чек-лист надписи</h3>
-                <p class="hint">Порядок и обязательность заданы в конструкторе сценариев. Обязательный пункт без выполнения блокирует направление нотариусу.</p>
-                <ol class="writ-list">
-                  @for (item of row.writ_checklist; track item.code) {
-                    <li [class.met]="item.met" [class.need]="!item.met && item.mandatory" [class.skip]="!item.met && !item.mandatory">
-                      <strong>{{ item.order }}. {{ item.name }}</strong>
-                      <span>{{ item.met ? 'выполнено' : (item.mandatory ? 'обязательно' : 'можно пропустить') }}</span>
-                      <p>{{ item.criteria }}</p>
-                      @if (!item.met && item.gap) { <p class="gap">{{ item.gap }}</p> }
-                    </li>
+        </nav>
+        <div class="work">
+          <div class="pane">
+            @switch (tab()) {
+              @case ('pack') {
+                <app-claim-checklist
+                  [claimId]="row.id"
+                  [pack]="row.package || null"
+                  [warningDate]="warningDate"
+                  [tariff]="tariff"
+                  [withdrawn]="withdrawn"
+                  scope="notary"
+                  [focus]="focusSlot()"
+                  (warningDateChange)="warningDate = $event"
+                  (tariffChange)="tariff = $event"
+                  (withdrawnChange)="withdrawn = $event"
+                  (changed)="replace($event)" />
+                <div class="bar">
+                  <button mat-flat-button color="primary" type="button" (click)="formPackage()">Собрать архив</button>
+                  <button mat-flat-button type="button" (click)="saveThenSend()">Подписать и направить</button>
+                  @if (row.package?.has_archive) {
+                    <button mat-stroked-button type="button" (click)="downloadArchive()">Скачать архив</button>
                   }
-                </ol>
+                </div>
+                @if (sendGaps(row).length) {
+                  <ul class="blockers">
+                    @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
+                  </ul>
+                }
                 @if (needsSkip(row)) {
                   <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="checklistSkip" /></mat-form-field>
                 }
               }
-              <div class="sums">
-                <div><span>Исходящее сальдо с пенями <app-byn-sign /></span><b><app-money [value]="row.balance_out" /></b></div>
-                <div><span>Исходящее сальдо пени <app-byn-sign /></span><b><app-money [value]="row.penalty" /></b></div>
-                <div><span>Нотариальный тариф <app-byn-sign /></span><b><app-money [value]="tariff || null" /></b></div>
-                <div class="total"><span>Итого</span><b><app-money [value]="grand(row)" [blank]="false" /></b></div>
-              </div>
-              <p class="hint">Долг и пеня приходят из АИС и в этой форме не меняются. Тариф вносит специалист, пока его не считает АИС.</p>
-              <div class="line">
-                <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="warningDate = $event" />
-                <span class="ok" [class.miss]="!warningDate">{{ warningDate ? 'вручено' : 'обязательно' }}</span>
-              </div>
-              <div class="line">
-                <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
-                  <input matInput [(ngModel)]="tariff" />
-                  <span matTextSuffix><app-byn-sign /></span>
-                </mat-form-field>
-                <mat-checkbox [(ngModel)]="withdrawn">Заявление отозвано</mat-checkbox>
-              </div>
-              <mat-form-field class="wide"><mat-label>Нотариальная контора</mat-label>
-                <input matInput value="Справочник контор ещё не подключён" disabled />
-              </mat-form-field>
-              <app-claim-checklist
-                [claimId]="row.id"
-                [pack]="row.package || null"
-                [warningDate]="warningDate"
-                [tariff]="tariff"
-                [stage]="row.stage"
-                (changed)="replace($event)" />
-              <h3>Пакет для личного кабинета БНП</h3>
-              @if (row.package) {
-                <app-claim-package [claimId]="row.id" [pack]="row.package" (changed)="replace($event)" />
-              }
-              @if ((row.files || []).length) {
-                <ul class="files">
-                  @for (file of row.files; track file.id) {
-                    <li><b>{{ fileRole(file.role) }}</b> {{ file.name }} <span>{{ file.doc_type }}</span></li>
+              @case ('notary') {
+                <div class="sums">
+                  <div><span>Исходящее сальдо с пенями <app-byn-sign /></span><b><app-money [value]="row.balance_out" /></b></div>
+                  <div><span>Исходящее сальдо пени <app-byn-sign /></span><b><app-money [value]="row.penalty" /></b></div>
+                  <div><span>Нотариальный тариф <app-byn-sign /></span><b><app-money [value]="tariff || null" /></b></div>
+                  <div class="total"><span>Итого</span><b><app-money [value]="grand(row)" [blank]="false" /></b></div>
+                </div>
+                <p class="hint">Долг и пеня из АИС. «Взыскано» — после погашения долга, пени и тарифа.</p>
+                <div class="line">
+                  <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="warningDate = $event" />
+                  <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
+                    <input matInput [(ngModel)]="tariff" />
+                    <span matTextSuffix><app-byn-sign /></span>
+                  </mat-form-field>
+                  <mat-checkbox [(ngModel)]="withdrawn">Заявление отозвано</mat-checkbox>
+                </div>
+                @if (row.submission_mode === 'stub') {
+                  <p class="banner">В кабинет БНП пакет не уходил. Номер заглушки: {{ row.submission_id }}.</p>
+                }
+                @if (sendGaps(row).length) {
+                  <ul class="blockers">
+                    @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
+                  </ul>
+                }
+                @if (needsSkip(row)) {
+                  <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="checklistSkip" /></mat-form-field>
+                }
+                <mat-form-field class="wide"><mat-label>Комментарий к ответу нотариуса</mat-label><input matInput [(ngModel)]="note" /></mat-form-field>
+                @if ((row.files || []).length) {
+                  <mat-form-field class="wide"><mat-label>Файл карточки для отказа</mat-label>
+                    <mat-select [(ngModel)]="refusalFile">
+                      <mat-option [value]="0">Не выбран</mat-option>
+                      @for (file of row.files; track file.id) {
+                        <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+                }
+                <div class="actions">
+                  <button mat-stroked-button type="button" (click)="save()">Сохранить</button>
+                  <button mat-flat-button color="primary" type="button" (click)="saveThenSend()">Подписать и направить</button>
+                  <button mat-stroked-button type="button" (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
+                  <button mat-stroked-button type="button" (click)="refuse()">Отказ нотариуса</button>
+                  @if (row.stage === 'notary' || row.stage === 'writ_done' || row.stage === 'refused') {
+                    <button mat-stroked-button type="button" (click)="rework()">На доработку пакета</button>
                   }
-                </ul>
-              } @else {
-                <p class="hint">Файлов на карточке счёта нет. Расчёт, доверенность и скан загружаются во вкладке «Вложения».</p>
+                  @if (row.stage === 'writ_done') {
+                    <button mat-stroked-button type="button" (click)="setTab('opi')">Исполнительный документ в ОПИ</button>
+                  }
+                  @if (row.stage === 'refused') {
+                    <button mat-stroked-button type="button" (click)="setTab('court')">К иску</button>
+                  }
+                </div>
               }
-              <mat-form-field class="wide"><mat-label>Комментарий к ответу нотариуса</mat-label><input matInput [(ngModel)]="note" /></mat-form-field>
-              @if ((row.files || []).length) {
-                <mat-form-field class="wide"><mat-label>Файл карточки для отказа</mat-label>
-                  <mat-select [(ngModel)]="refusalFile">
-                    <mat-option [value]="0">Не выбран</mat-option>
-                    @for (file of row.files; track file.id) {
-                      <mat-option [value]="file.id">{{ file.name }}</mat-option>
+              @case ('court') {
+                @if ((row.debt_group || 0) >= 4) {
+                  <p class="hint">Группа {{ row.debt_group }}: в виде иска доступны выселение и отчуждение.</p>
+                }
+                <app-claim-checklist
+                  [claimId]="row.id"
+                  [pack]="row.package || null"
+                  scope="court"
+                  [lawsuitKind]="lawsuitKind"
+                  (changed)="replace($event)">
+                  <div class="fields">
+                    <mat-form-field><mat-label>Номер иска</mat-label><input matInput [(ngModel)]="lawsuitNumber" /></mat-form-field>
+                    <mat-form-field><mat-label>Вид</mat-label>
+                      <mat-select [(ngModel)]="lawsuitKind">
+                        @for (kind of row.lawsuit_kinds || []; track kind.id) {
+                          <mat-option [value]="kind.id">{{ kind.label }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Ответчик</mat-label><input matInput [(ngModel)]="defendant" /></mat-form-field>
+                    <app-date-field label="Дата подачи" [value]="lawsuitDate" (valueChange)="lawsuitDate = $event" />
+                    <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
+                    <app-date-field label="Дата вручения предупреждения" [value]="warningDate" (valueChange)="warningDate = $event" />
+                    <mat-form-field class="wide"><mat-label>Примечание</mat-label><input matInput [(ngModel)]="lawsuitNote" /></mat-form-field>
+                    @if (housingKind()) {
+                      <app-date-field label="Дата пакета на выселение" [value]="packageDate" (valueChange)="packageDate = $event" />
+                      <mat-form-field><mat-label>Ветвь выселения</mat-label>
+                        <mat-select [(ngModel)]="eviction">
+                          <mat-option value="">Нет</mat-option>
+                          <mat-option value="notice">Уведомление</mat-option>
+                          <mat-option value="lawsuit">Иск</mat-option>
+                          <mat-option value="court">Решение</mat-option>
+                          <mat-option value="enforced">Выселение / продажа</mat-option>
+                        </mat-select>
+                      </mat-form-field>
+                    }
+                    <mat-form-field><mat-label>Статус суда</mat-label>
+                      <mat-select [(ngModel)]="court">
+                        <mat-option value="">Не подано</mat-option>
+                        <mat-option value="pending">На рассмотрении</mat-option>
+                        <mat-option value="granted">Удовлетворено</mat-option>
+                        <mat-option value="denied">Отказано в иске</mat-option>
+                      </mat-select>
+                    </mat-form-field>
+                    @if (auth.canSkip()) {
+                      <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
+                    }
+                    <div class="actions">
+                      <button mat-stroked-button type="button" (click)="save()">Сохранить иск</button>
+                      @if (auth.canSkip()) {
+                        <button mat-stroked-button type="button" (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
+                        <button mat-stroked-button type="button" (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
+                      }
+                    </div>
+                  </div>
+                </app-claim-checklist>
+              }
+              @case ('opi') {
+                @if (row.opi_mode === 'manual') {
+                  <p class="banner">Статус ОПИ внесён вручную. Сервисы 3.11.01–3.11.05 не вызывались.</p>
+                }
+                @if (row.opi_mode === 'stub') {
+                  <p class="banner">Пакет проверен по регламенту ПРИС. В АИС ПРИС он не отправлялся.</p>
+                }
+                @if (row.opi_mode === 'pris') {
+                  <p class="banner">Пакет передан в АИС ПРИС. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
+                }
+                <div class="line">
+                  <mat-form-field><mat-label>Номер производства</mat-label><input matInput [(ngModel)]="opiNumber" /></mat-form-field>
+                  <mat-form-field><mat-label>Статус вручную</mat-label><input matInput [(ngModel)]="opiStatus" /></mat-form-field>
+                </div>
+                <div class="actions">
+                  <button mat-stroked-button type="button" (click)="act('opi', { number: opiNumber, status: opiStatus })">Записать статус</button>
+                  @if (auth.canSkip()) {
+                    <button mat-stroked-button type="button" (click)="act('move', { stage: 'opi', reason: skipReason })">Направлено в ОПИ</button>
+                    <button mat-stroked-button type="button" (click)="act('move', { stage: 'opi_measures', reason: skipReason })">Меры приняты</button>
+                  }
+                  <button mat-stroked-button type="button" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
+                </div>
+                <div class="line">
+                  <mat-form-field class="wide"><mat-label>Акт о невозможности взыскания</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
+                  <button mat-stroked-button type="button" (click)="act('acts', { title: actTitle })">Приложить акт</button>
+                </div>
+                <p class="hint">Актов: {{ row.acts_count }}. @for (item of row.acts; track item.id) { {{ item.title }}. }</p>
+                <div class="actions">
+                  <button mat-stroked-button type="button" (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
+                </div>
+                <details>
+                  <summary>Передача в ПРИС</summary>
+                  <p class="hint">Коды справочников 120, 201, 214, 217, 306, 309. Пустое поле в запрос не подставляется.</p>
+                  @if (row.pris?.problems?.length) {
+                    <p class="need">{{ row.pris?.problems?.join('; ') }}</p>
+                  }
+                  <div class="fields">
+                    <mat-form-field><mat-label>ОПИ, справочник 120</mat-label><input matInput [(ngModel)]="prisOpi" /></mat-form-field>
+                    <mat-form-field><mat-label>Требование, справочник 214</mat-label><input matInput [(ngModel)]="prisReq" /></mat-form-field>
+                    <mat-form-field><mat-label>Вид документа, справочник 201</mat-label><input matInput [(ngModel)]="prisDocCode" /></mat-form-field>
+                    <mat-form-field><mat-label>Номер документа</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
+                    <mat-form-field><mat-label>Дата документа</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+                    <mat-form-field><mat-label>Орган, справочник 217</mat-label><input matInput [(ngModel)]="prisOrgCode" /></mat-form-field>
+                    <mat-form-field class="wide"><mat-label>Наименование органа</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
+                    <mat-form-field><mat-label>Дата вступления в силу</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+                    <mat-form-field><mat-label>Тип населённого пункта должника, 309</mat-label><input matInput [(ngModel)]="prisNpType" /></mat-form-field>
+                    <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
+                      <mat-select [(ngModel)]="prisPdf">
+                        <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
+                        @for (file of row.files; track file.id) {
+                          <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Файл подписи</mat-label>
+                      <mat-select [(ngModel)]="prisSign">
+                        <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
+                        @for (file of row.files; track file.id) {
+                          <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>ОПФ взыскателя</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
+                    <mat-form-field><mat-label>Страна адреса, справочник 306</mat-label><input matInput [(ngModel)]="prisCountry" /></mat-form-field>
+                    <mat-form-field class="wide"><mat-label>Полный адрес взыскателя</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
+                    <mat-form-field><mat-label>Тип населённого пункта, 309</mat-label><input matInput [(ngModel)]="prisClaimNpType" /></mat-form-field>
+                    <mat-form-field><mat-label>Населённый пункт</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
+                    <mat-form-field><mat-label>Дом</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
+                    <mat-form-field><mat-label>SWIFT</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
+                    <mat-form-field><mat-label>Счёт</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
+                    <mat-form-field><mat-label>Тип счёта</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
+                  </div>
+                  <div class="actions">
+                    <button mat-flat-button color="primary" type="button" (click)="sendPris()">Передать в ПРИС</button>
+                    <button mat-stroked-button type="button" (click)="act('pris/refresh')">Обновить ход</button>
+                    <button mat-stroked-button type="button" (click)="act('pris/repay')">Передать погашения</button>
+                    <button mat-stroked-button type="button" (click)="act('ais-receipt')">Имитация выгрузки АИС</button>
+                  </div>
+                </details>
+              }
+              @case ('writeoff') {
+                <p class="hint">Актов о невозможности: {{ row.acts_count }} из 3. Списание в АИС делает учётная система. Здесь согласуется комплект.</p>
+                @if (row.acts.length) {
+                  <ul class="acts">
+                    @for (item of row.acts; track item.id) { <li>{{ item.title }}</li> }
+                  </ul>
+                }
+                <mat-form-field class="wide"><mat-label>Согласующие</mat-label>
+                  <mat-select [(ngModel)]="approvers" multiple>
+                    @for (person of row.approver_choices || []; track person.id) {
+                      <mat-option [value]="person.id">{{ person.name }}</mat-option>
                     }
                   </mat-select>
                 </mat-form-field>
-              }
-              <div class="actions">
-                <button mat-flat-button color="primary" (click)="saveThenSend()">Подписать и направить</button>
-                <button mat-stroked-button (click)="save()">Сохранить черновик</button>
-                <a mat-button routerLink="/claims">Отмена</a>
-              </div>
-              <div class="actions">
-                <button mat-stroked-button (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
-                <button mat-stroked-button (click)="refuse()">Отказ нотариуса</button>
-              </div>
-            </div>
-            <aside>
-              @if (row.submission_mode === 'stub') {
-                <p class="banner">Пакет в личный кабинет БНП не уходил. Номер заглушки: {{ row.submission_id }}.</p>
-              }
-              @if (row.opi_mode === 'manual') {
-                <p class="banner">Статус ОПИ внесён вручную. Сервисы 3.11.01–3.11.05 не вызывались.</p>
-              }
-              @if (row.opi_mode === 'stub') {
-                <p class="banner">Пакет проверен по регламенту ПРИС. В АИС ПРИС он не отправлялся: канал-заглушка.</p>
-              }
-              @if (row.opi_mode === 'pris') {
-                <p class="banner">Пакет передан в АИС ПРИС. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
-              }
-              <h3>Статус дела</h3>
-              <ol>
-                @for (item of row.stages || []; track item.id) {
-                  <li [class.now]="item.id === row.stage">{{ item.label }}</li>
+                <button mat-flat-button color="primary" type="button" (click)="act('writeoff', { approver_ids: approvers })">На согласование</button>
+                <p class="hint">Маршрут: {{ row.writeoff_status || 'не запущен' }}. {{ row.writeoff_note }}</p>
+                @for (vote of row.approvals; track vote.id) {
+                  <p>{{ vote.approver_name }}: {{ vote.decision }} {{ vote.reason }}</p>
                 }
-              </ol>
-            </aside>
+                <mat-form-field class="wide"><mat-label>Ваше решение</mat-label><input matInput [(ngModel)]="decisionReason" /></mat-form-field>
+                <div class="actions">
+                  <button mat-stroked-button type="button" (click)="act('decide', { decision: 'yes', reason: decisionReason })">Согласовать</button>
+                  <button mat-stroked-button type="button" (click)="act('decide', { decision: 'no', reason: decisionReason })">Отказать</button>
+                </div>
+              }
+            }
           </div>
-        </section>
-
-        <section class="more">
-          <h3>Иск, суд, ОПИ и списание</h3>
-          <div class="grid">
-            <div class="fields">
-              <mat-form-field><mat-label>Номер иска</mat-label><input matInput [(ngModel)]="lawsuitNumber" /></mat-form-field>
-              @if ((claim()?.debt_group || 0) >= 4) {
-                <p class="hint">Для групп 4–6 в виде иска выберите выселение или отчуждение, если есть основания.</p>
+          <aside>
+            <h3>История</h3>
+            <ul>
+              @for (event of recent(row); track $index) {
+                <li><b>{{ event.actor }}</b> {{ event.reason || event.new_stage }}</li>
+              } @empty {
+                <li class="muted">Записей пока нет</li>
               }
-              <mat-form-field><mat-label>Вид</mat-label>
-                <mat-select [(ngModel)]="lawsuitKind">
-                  @for (kind of row.lawsuit_kinds || []; track kind.id) {
-                    <mat-option [value]="kind.id">{{ kind.label }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field><mat-label>Ответчик</mat-label><input matInput [(ngModel)]="defendant" /></mat-form-field>
-              <mat-form-field class="wide"><mat-label>Примечание к иску</mat-label><input matInput [(ngModel)]="lawsuitNote" /></mat-form-field>
-              <app-date-field label="Дата подачи" [value]="lawsuitDate" (valueChange)="lawsuitDate = $event" />
-              <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
-              @if (housingKind()) {
-                <app-date-field label="Дата пакета на выселение" [value]="packageDate" (valueChange)="packageDate = $event" />
-                <mat-form-field><mat-label>Ветвь выселения</mat-label>
-                  <mat-select [(ngModel)]="eviction">
-                    <mat-option value="">Нет</mat-option>
-                    <mat-option value="notice">Уведомление</mat-option>
-                    <mat-option value="lawsuit">Иск</mat-option>
-                    <mat-option value="court">Решение</mat-option>
-                    <mat-option value="enforced">Выселение / продажа</mat-option>
-                  </mat-select>
-                </mat-form-field>
-              }
-              <mat-form-field><mat-label>Статус суда</mat-label>
-                <mat-select [(ngModel)]="court">
-                  <mat-option value="">Не подано</mat-option>
-                  <mat-option value="pending">На рассмотрении</mat-option>
-                  <mat-option value="granted">Удовлетворено</mat-option>
-                  <mat-option value="denied">Отказано в иске</mat-option>
-                </mat-select>
-              </mat-form-field>
-              @if (auth.canSkip()) {
-                <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
-              }
-              <div class="actions">
-                <button mat-stroked-button (click)="save()">Сохранить иск</button>
-                @if (auth.canSkip()) {
-                  <button mat-stroked-button (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
-                  <button mat-stroked-button (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
-                }
-              </div>
-            </div>
-            <div class="fields">
-              <mat-form-field><mat-label>Номер производства</mat-label><input matInput [(ngModel)]="opiNumber" /></mat-form-field>
-              <mat-form-field><mat-label>Статус вручную</mat-label><input matInput [(ngModel)]="opiStatus" /></mat-form-field>
-              <div class="actions">
-                <button mat-stroked-button (click)="act('opi', { number: opiNumber, status: opiStatus })">Записать статус ОПИ</button>
-                @if (auth.canSkip()) {
-                  <button mat-stroked-button (click)="act('move', { stage: 'opi', reason: skipReason })">Направлено в ОПИ</button>
-                  <button mat-stroked-button (click)="act('move', { stage: 'opi_measures', reason: skipReason })">Меры приняты</button>
-                }
-              </div>
-              <p class="hint">Коды справочников ПРИС (120, 201, 214, 217, 306, 309) вводятся вручную. Пустое поле в запрос не подставляется.</p>
-              @if (row.pris?.problems?.length) {
-                <p class="need">{{ row.pris?.problems?.join('; ') }}</p>
-              }
-              <mat-form-field><mat-label>ОПИ, справочник 120</mat-label><input matInput [(ngModel)]="prisOpi" /></mat-form-field>
-              <mat-form-field><mat-label>Требование, справочник 214</mat-label><input matInput [(ngModel)]="prisReq" /></mat-form-field>
-              <mat-form-field><mat-label>Вид документа, справочник 201</mat-label><input matInput [(ngModel)]="prisDocCode" /></mat-form-field>
-              <mat-form-field><mat-label>Номер документа</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
-              <mat-form-field><mat-label>Дата документа</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
-              <mat-form-field><mat-label>Орган, справочник 217</mat-label><input matInput [(ngModel)]="prisOrgCode" /></mat-form-field>
-              <mat-form-field class="wide"><mat-label>Наименование органа</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
-              <mat-form-field><mat-label>Дата вступления в силу</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
-              <mat-form-field><mat-label>Тип населённого пункта должника, 309</mat-label><input matInput [(ngModel)]="prisNpType" /></mat-form-field>
-              <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
-                <mat-select [(ngModel)]="prisPdf">
-                  <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
-                  @for (file of row.files; track file.id) {
-                    <mat-option [value]="file.id">{{ file.name }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field><mat-label>Файл подписи</mat-label>
-                <mat-select [(ngModel)]="prisSign">
-                  <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
-                  @for (file of row.files; track file.id) {
-                    <mat-option [value]="file.id">{{ file.name }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field><mat-label>ОПФ взыскателя</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
-              <mat-form-field><mat-label>Страна адреса, справочник 306</mat-label><input matInput [(ngModel)]="prisCountry" /></mat-form-field>
-              <mat-form-field class="wide"><mat-label>Полный адрес взыскателя</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
-              <mat-form-field><mat-label>Тип населённого пункта, 309</mat-label><input matInput [(ngModel)]="prisClaimNpType" /></mat-form-field>
-              <mat-form-field><mat-label>Населённый пункт</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
-              <mat-form-field><mat-label>Дом</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
-              <mat-form-field><mat-label>SWIFT</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
-              <mat-form-field><mat-label>Счёт</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
-              <mat-form-field><mat-label>Тип счёта</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
-              <div class="actions">
-                <button mat-flat-button color="primary" (click)="sendPris()">Передать в ПРИС</button>
-                <button mat-stroked-button (click)="act('pris/refresh')">Обновить ход производства</button>
-                <button mat-stroked-button (click)="act('pris/repay')">Передать погашения</button>
-              </div>
-              <mat-form-field class="wide"><mat-label>Новый акт ОПИ</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
-              <button mat-stroked-button (click)="act('acts', { title: actTitle })">Приложить акт</button>
-              <p>Актов: {{ row.acts_count }}. @for (item of row.acts; track item.id) { {{ item.title }}; }</p>
-              <div class="actions">
-                <button mat-stroked-button (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
-                <button mat-stroked-button (click)="act('ais-receipt')">Имитация выгрузки АИС</button>
-                <button mat-stroked-button (click)="act('move', { stage: 'recovered' })">Взыскано</button>
-              </div>
-              <mat-form-field class="wide"><mat-label>Согласующие</mat-label>
-                <mat-select [(ngModel)]="approvers" multiple>
-                  @for (person of row.approver_choices || []; track person.id) {
-                    <mat-option [value]="person.id">{{ person.name }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-              <button mat-flat-button color="primary" (click)="act('writeoff', { approver_ids: approvers })">На согласование списания</button>
-              <p>Маршрут: {{ row.writeoff_status || 'не запущен' }}. {{ row.writeoff_note }}</p>
-              @for (vote of row.approvals; track vote.id) {
-                <p>{{ vote.approver_name }}: {{ vote.decision }} {{ vote.reason }}</p>
-              }
-              <mat-form-field class="wide"><mat-label>Ваше решение, если вы согласующий</mat-label><input matInput [(ngModel)]="decisionReason" /></mat-form-field>
-              <div class="actions">
-                <button mat-stroked-button (click)="act('decide', { decision: 'yes', reason: decisionReason })">Согласовать</button>
-                <button mat-stroked-button (click)="act('decide', { decision: 'no', reason: decisionReason })">Отказать</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <h3>История</h3>
-        <ul>
-          @for (event of row.events || []; track $index) {
-            <li>{{ event.actor }}: {{ event.old_stage }} → {{ event.new_stage }}. {{ event.reason }}</li>
-          }
-        </ul>
+            </ul>
+          </aside>
+        </div>
       }
     </div>
   `,
   styles: `
-    .case { min-width: 0; }
-    .sheet, .more { background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
+    :host { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+    .case { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
     header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-    h2, h3 { margin: 0 0 4px; color: var(--erip-primary-dark); }
-    .muted, .hint { color: var(--erip-muted); }
-    .stage { background: var(--erip-claim-soft); color: var(--erip-claim); border-radius: 999px; padding: 4px 10px; font-size: 13px; }
-    .split { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; margin-top: 12px; min-width: 0; }
-    .form, .fields { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-    .sums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    h2, h3 { margin: 0; color: var(--erip-primary-dark); }
+    h2 { font-size: 20px; }
+    .back { color: var(--erip-link); font-size: 13px; text-decoration: none; }
+    .muted, .hint { color: var(--erip-muted); font-size: 13px; margin: 0; }
+    .stage { background: var(--erip-claim-soft); color: var(--erip-claim); border-radius: 999px; padding: 4px 10px; font-size: 13px; white-space: nowrap; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--erip-border); }
+    .tabs button {
+      border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; font-weight: 600;
+      color: var(--erip-muted); padding: 8px 12px; cursor: pointer;
+    }
+    .tabs button.on { color: var(--erip-primary-dark); border-bottom-color: var(--erip-primary); }
+    .work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; }
+    .pane { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; }
+    .sums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
     .sums div { background: var(--erip-bg); border-radius: 8px; padding: 8px 10px; }
     .sums span { display: block; color: var(--erip-muted); font-size: 12px; }
     .sums .total { background: var(--erip-primary-soft); }
-    .line, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .ok { color: var(--erip-success); font-size: 13px; }
-    .ok.miss, .need { color: var(--erip-danger); }
-    .pack { list-style: none; padding: 0; margin: 0; }
-    .pack li { padding: 6px 0 6px 22px; position: relative; color: var(--erip-muted); }
-    .pack li.ready { color: inherit; }
-    .pack li.ready::before { content: '●'; position: absolute; left: 0; color: var(--erip-success); }
-    .pack li:not(.ready)::before { content: '○'; position: absolute; left: 0; }
-    .files { list-style: none; padding: 0; margin: 0; }
-    .files li { padding: 4px 0; font-size: 13px; }
-    .files span { color: var(--erip-muted); margin-left: 6px; }
-    aside { background: #f7f8fa; border-radius: 10px; padding: 12px; }
-    aside ol { margin: 8px 0 0; padding-left: 18px; }
-    aside li.now { font-weight: 700; color: var(--erip-primary); }
-    .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; }
-    .blockers { color: var(--erip-warning); margin: 0; }
-    .writ-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-    .writ-list li { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px 10px; background: #fff; }
-    .writ-list li.met { border-color: var(--erip-success); }
-    .writ-list li.need { border-color: var(--erip-danger); }
-    .writ-list li.skip { border-color: var(--erip-warning); }
-    .writ-list strong { display: block; }
-    .writ-list span, .writ-list p { color: var(--erip-muted); font-size: 13px; margin: 2px 0 0; }
-    .writ-list .gap { color: var(--erip-danger); }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .line, .actions, .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
     .wide { width: 100%; }
-    @media (max-width: 900px) { .split, .grid, .sums { grid-template-columns: 1fr; } }
+    .need { color: var(--erip-danger); }
+    aside { background: #f7f8fa; border-radius: 10px; padding: 12px; min-height: 0; overflow: auto; }
+    aside ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    aside li { font-size: 13px; }
+    .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; margin: 0; }
+    .blockers { color: var(--erip-warning); margin: 0; padding-left: 18px; }
+    .acts { margin: 0; padding-left: 18px; }
+    details { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px 12px; }
+    summary { cursor: pointer; font-weight: 600; color: var(--erip-primary-dark); }
+    @media (max-width: 900px) {
+      .work, .sums { grid-template-columns: 1fr; }
+      .case { overflow: auto; }
+    }
   `,
 })
 export class ClaimDetailComponent implements OnInit {
@@ -348,6 +353,15 @@ export class ClaimDetailComponent implements OnInit {
   private readonly snack = inject(MatSnackBar);
 
   protected readonly Number = Number;
+  protected readonly tabs = [
+    { id: 'pack' as const, label: 'Комплект' },
+    { id: 'notary' as const, label: 'Нотариат' },
+    { id: 'court' as const, label: 'Суд' },
+    { id: 'opi' as const, label: 'ОПИ' },
+    { id: 'writeoff' as const, label: 'Списание' },
+  ];
+  protected readonly tab = signal<(typeof this.tabs)[number]['id']>('pack');
+  protected readonly focusSlot = signal('');
   protected readonly claim = signal<ClaimCase | null>(null);
   protected warningDate = '';
   protected tariff = '';
@@ -392,11 +406,30 @@ export class ClaimDetailComponent implements OnInit {
   protected refusalFile = 0;
 
   ngOnInit(): void {
+    this.route.queryParamMap.subscribe((params) => {
+      const tab = params.get('tab');
+      if (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'writeoff') {
+        this.tab.set(tab);
+      }
+    });
     this.route.paramMap.subscribe((params) => this.load(Number(params.get('id'))));
   }
 
-  protected openWrit(): void {
-    this.router.navigate([], { queryParams: { writ: 1 }, queryParamsHandling: 'merge' });
+  protected setTab(tab: (typeof this.tabs)[number]['id']): void {
+    this.tab.set(tab);
+    this.router.navigate([], { relativeTo: this.route, queryParams: { tab }, queryParamsHandling: 'merge' });
+  }
+
+  protected sendGaps(row: ClaimCase): string[] {
+    const fromList = (row.writ_checklist || [])
+      .filter((item) => item.mandatory && !item.met)
+      .map((item) => item.gap || item.name);
+    if (fromList.length) return fromList;
+    return (row.blockers || []).filter((item) => item.includes('вручения') || item.includes('тариф'));
+  }
+
+  protected recent(row: ClaimCase): ClaimCase['events'] {
+    return (row.events || []).slice(-8).reverse();
   }
 
   protected grand(row: ClaimCase): number {
@@ -410,25 +443,28 @@ export class ClaimDetailComponent implements OnInit {
     return ['eviction_80', 'eviction_86', 'eviction_87', 'alienation_137'].includes(this.lawsuitKind);
   }
 
-  protected hasFile(row: ClaimCase, role: string): boolean {
-    return (row.files || []).some((file) => file.role === role);
-  }
-
-  protected fileRole(role: string): string {
-    if (role === 'calculation') return 'Расчёт';
-    if (role === 'warrant') return 'Доверенность';
-    if (role === 'scan') return 'Скан';
-    return 'Файл';
-  }
-
   protected refuse(): void {
     if (!this.note.trim() && !this.refusalFile) {
       this.snack.open('Нужен комментарий или файл с карточки счёта', 'OK');
       return;
     }
-    this.act('notary-result', {
+    const row = this.claim();
+    if (!row) return;
+    this.api.claimAction(row.id, 'notary-result', {
       result: 'refused', note: this.note, attachment_id: this.refusalFile || null,
+    }).subscribe({
+      next: (next) => {
+        this.apply(next);
+        this.setTab('court');
+        this.snack.open(next.stage_label, 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
+  }
+
+  protected rework(): void {
+    this.act('move', { stage: 'prep', reason: this.note.trim() || 'Возврат на доработку пакета' });
+    this.setTab('pack');
   }
 
   protected replace(row: ClaimCase): void {
@@ -438,8 +474,16 @@ export class ClaimDetailComponent implements OnInit {
   protected saveThenSend(): void {
     const row = this.claim();
     if (!row) return;
-    if (!this.warningDate || !(Number(this.tariff) > 0)) {
-      this.snack.open('Заполните обязательные поля: дата вручения и нотариальный тариф', 'OK');
+    if (!this.warningDate) {
+      this.focusSlot.set('warning');
+      this.setTab('pack');
+      this.snack.open('Нужна дата вручения предупреждения', 'OK');
+      return;
+    }
+    if (!(Number(this.tariff) > 0)) {
+      this.focusSlot.set('tariff');
+      this.setTab('pack');
+      this.snack.open('Нужен нотариальный тариф', 'OK');
       return;
     }
     this.api.patchClaim(row.id, this.draft()).subscribe({
@@ -450,6 +494,60 @@ export class ClaimDetailComponent implements OnInit {
           return;
         }
         this.act('sign-and-send', { skip_reason: this.checklistSkip.trim() });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected formPackage(): void {
+    const row = this.claim();
+    const pack = row?.package;
+    if (!row || !pack) {
+      this.snack.open('Сначала приложите документы комплекта', 'OK');
+      return;
+    }
+    const housing = (pack.services || []).find((service) => service.housing);
+    const serviceId = pack.service_id || housing?.id || null;
+    const service = (pack.services || []).find((item) => item.id === serviceId);
+    const typeId = service?.debt_type_ids?.[0] || '';
+    this.api.claimAction(row.id, 'package', {
+      service_id: serviceId,
+      contact_data: pack.contact_data,
+      notification_email: pack.notification_email,
+      user_message: pack.user_message,
+      debtors: pack.debtors,
+      debts: (pack.debts || []).map((debt) => ({
+        source: debt.source,
+        typeId: debt.typeId || typeId,
+        startDate: debt.startDate || '',
+        endDate: debt.endDate || '',
+        dateAt: debt.startDate && debt.endDate ? '' : (debt.dateAt || ''),
+      })),
+    }).subscribe({
+      next: () => {
+        this.api.claimAction(row.id, 'package/form', {}).subscribe({
+          next: (next) => {
+            this.apply(next);
+            this.snack.open('Архив собран. В кабинет БНП вызов не уходит.', 'OK', { duration: 3000 });
+          },
+          error: (err) => this.snack.open(errorMessage(err), 'OK'),
+        });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected downloadArchive(): void {
+    const row = this.claim();
+    if (!row) return;
+    this.api.claimArchive(row.id).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `bnp-claim-${row.id}.zip`;
+        link.click();
+        URL.revokeObjectURL(url);
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });

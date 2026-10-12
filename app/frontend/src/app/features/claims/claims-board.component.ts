@@ -17,6 +17,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
   selector: 'app-claims-board',
+  host: { '[class.case-open]': 'caseOpen()' },
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
@@ -24,7 +25,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     DateFieldComponent,
   ],
   template: `
-    <div class="page" [class.dim]="dialog()">
+    <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()">
+      @if (!caseOpen()) {
       <div class="toolbar">
         <h2>Претензионно-исковая работа</h2>
         @if (canAdd()) {
@@ -38,20 +40,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
           placeholder="Поиск по ФИО, номеру ЛС, адресу"
           (queryChange)="onFilter($event)" />
       </div>
-      <p class="hint">
-        Нотариат — исполнительная надпись. Суд — если спор или нотариус отказал.
-        ОПИ и итог стоят в конце обеих вкладок, но дело видно только на своей ветке.
-      </p>
+      <p class="hint">Нотариат — исполнительная надпись. Суд — если спор или нотариус отказал.</p>
       <nav class="modules">
         <button type="button" [class.on]="module() === 'notary'" (click)="setModule('notary')">1. Нотариат</button>
         <button type="button" [class.on]="module() === 'court'" (click)="setModule('court')">2. Суд</button>
       </nav>
-      @if (error()) { <p class="error">{{ error() }}</p> }
+      }
+      @if (error() && !caseOpen()) { <p class="error">{{ error() }}</p> }
+      <router-outlet />
 
-      @if (mode() === 'list') {
+      @if (!caseOpen() && mode() === 'list') {
         <section class="main">
-          <router-outlet />
-          @if (!caseOpen()) {
             @if (!debtors().length) {
               <div class="empty">
                 <h2>Претензионно-исковая работа</h2>
@@ -94,11 +93,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
                 <p class="hint">Показаны первые {{ debtors().length }} из {{ debtorTotal() }}.</p>
               }
             }
-          }
         </section>
       }
 
-      @if (mode() === 'kanban') {
+      @if (!caseOpen() && mode() === 'kanban') {
         <div class="k-board">
           @for (lane of shownLanes(); track lane.id) {
             <section class="k-col" [class.drop]="dropStage() === lane.id" [attr.data-lane]="lane.id"
@@ -155,7 +153,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
         }
       }
 
-      @if (mode() === 'calendar') {
+      @if (!caseOpen() && mode() === 'calendar') {
         <app-calendar-board
           [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="false"
           captionTail="мероприятия по делам" [selectedGroups]="filter.groups"
@@ -163,7 +161,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
           (groupsChange)="applyCalendarGroups($event)" />
       }
 
-      @if (mode() === 'charts') {
+      @if (!caseOpen() && mode() === 'charts') {
         <app-analytics scope="claims" scopeLabel="Лицевые счета претензионно-исковой работы" [query]="chartQuery()" />
       }
 
@@ -264,6 +262,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     </div>
   `,
   styles: `
+    :host.case-open { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
+    .page.case { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px 16px; }
     .filters { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .searchbar { flex: 1; }
     .searchbar input {
