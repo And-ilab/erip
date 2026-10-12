@@ -1,8 +1,9 @@
 """Запуск и ведение мероприятий (ТЗ 4.2.3).
 
 Партия — одна запись Measure. По каждому ЛС — частная MeasureItem со своим статусом.
-Asterisk AMI, SMTP и Белпочта на этом этапе не вызываются: результат звонка, ошибка
-доставки и статус письма фиксирует пользователь. Задание поставщику кладётся во входящие ПМ.
+Обзвон пишет в частную строку ответ голосового адаптера. Пока адаптер — заглушка AMI,
+набор не выполняется, и это видно на карточке. SMTP и Белпочта по-прежнему не боевые.
+Задание поставщику кладётся во входящие ПМ.
 """
 
 from __future__ import annotations
@@ -691,6 +692,59 @@ def _visible_item(measure: Measure, item_id: int, accounts) -> MeasureItem:
     return item
 
 
+def write_call_result(
+    measure: Measure,
+    item: MeasureItem,
+    user,
+    data,
+    *,
+    external_call: bool | None = None,
+    provider_message_id: str = "",
+    caller_id: str = "",
+    acted_at=None,
+) -> MeasureItem:
+    """Один и тот же набор полей для заглушки AMI, боевого адаптера и ручного звонка."""
+    result = data.get("call_result")
+    if result not in CALL_DONE:
+        raise MeasureLaunchError({"call_result": "Результат: answered, no_answer, busy или bad_number"})
+    listen = data.get("listen_percent")
+    if listen not in (None, ""):
+        percent = int(listen)
+        if percent < 0 or percent > 100:
+            raise MeasureLaunchError({"listen_percent": "Доля от 0 до 100"})
+        item.listen_percent = percent
+    elif external_call is False:
+        item.listen_percent = None
+    duration = data.get("duration_sec")
+    if duration not in (None, ""):
+        item.duration_sec = int(duration)
+    note = (data.get("reason") or data.get("note") or "").strip()
+    error = (data.get("error") or "").strip()
+    old = item.status
+    item.call_result = result
+    item.status = CALL_DONE[result]
+    item.note = note[:500]
+    item.delivery_error = error[:500]
+    item.provider_message_id = (provider_message_id or "")[:64]
+    item.caller_id = (caller_id or "")[:30]
+    item.external_call = external_call
+    item.acted_by = user if getattr(user, "is_authenticated", False) else None
+    item.acted_at = acted_at or timezone.now()
+    item.save()
+    if external_call is False:
+        parts = [f"Исходящий {caller_id}" if caller_id else "Исходящий номер не задан"]
+        parts.append(item.get_call_result_display() or result)
+        if error:
+            parts.append(error)
+        parts.append("Внешний вызов не выполнялся")
+        reason = ". ".join(parts)
+    else:
+        reason = note or item.get_call_result_display()
+    log_event(measure, item, item.acted_by, old, item.status, reason)
+    rollup(measure)
+    return item
+
+
 def record_item(measure: Measure, item: MeasureItem, user, data) -> MeasureItem:
     if item.account.inheritance_case and measure.kind in AUTO_KINDS and data.get("status") != "cancelled":
         raise MeasureLaunchError({"accounts": "По ЛС открыто наследственное дело"})
@@ -704,19 +758,7 @@ def record_item(measure: Measure, item: MeasureItem, user, data) -> MeasureItem:
         item.status = MeasureItem.Status.CANCELLED
         item.note = reason[:500]
     elif measure.kind == Measure.Kind.CALL and data.get("call_result"):
-        result = data.get("call_result")
-        if result not in CALL_DONE:
-            raise MeasureLaunchError({"call_result": "Результат: answered, no_answer, busy или bad_number"})
-        if data.get("listen_percent") not in (None, ""):
-            percent = int(data.get("listen_percent"))
-            if percent < 0 or percent > 100:
-                raise MeasureLaunchError({"listen_percent": "Доля от 0 до 100"})
-            item.listen_percent = percent
-        if data.get("duration_sec") not in (None, ""):
-            item.duration_sec = int(data.get("duration_sec"))
-        item.call_result = result
-        item.status = CALL_DONE[result]
-        item.note = reason[:500]
+        return write_call_result(measure, item, user, data)
     elif data.get("status") in {MeasureItem.Status.DONE, MeasureItem.Status.FAILED}:
         item.status = data["status"]
         item.note = reason[:500]

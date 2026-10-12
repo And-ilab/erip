@@ -20,6 +20,11 @@ class DeliveryResult:
     delivered: bool
     provider_message_id: str = ""
     error: str = ""
+    call_status: str = ""
+    duration_sec: int | None = None
+    listen_percent: int | None = None
+    # False — адаптер не выходил во внешнюю систему. Боевой AMI ставит True.
+    external_call: bool = True
 
 
 class ChannelAdapter(ABC):

@@ -625,6 +625,7 @@ class MeasureItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "account", "client_account", "debtor_name", "status", "status_display",
             "phone", "call_result", "call_result_display", "duration_sec", "listen_percent",
+            "provider_message_id", "caller_id", "external_call",
             "recipient", "delivery_error", "delivery_method", "delivery_method_display",
             "delivered_on", "recipient_name", "refused", "postal_id", "postal_status",
             "suspended_on", "resumed_on", "note", "warning_item", "acted_at",
@@ -643,6 +644,7 @@ class MeasureSerializer(serializers.ModelSerializer):
     next_action = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
     account_item_status = serializers.SerializerMethodField()
+    account_call_line = serializers.SerializerMethodField()
 
     class Meta:
         model = Measure
@@ -651,7 +653,7 @@ class MeasureSerializer(serializers.ModelSerializer):
             "scenario_name", "note", "assignee", "assignee_name", "started_on", "due_on", "days",
             "time_from", "time_to", "created_at", "accounts_count", "artifact", "title",
             "debtor_name", "debtor_account", "debtor_id", "next_action", "progress",
-            "account_item_status", "needs_approval", "approval", "approval_note",
+            "account_item_status", "account_call_line", "needs_approval", "approval", "approval_note",
             "suspension_confirmed_on", "suspension_source", "resumed_on", "resume_source",
             "owner_provider_id", "owner_name",
         ]
@@ -697,15 +699,36 @@ class MeasureSerializer(serializers.ModelSerializer):
             done = qs.filter(status="done").count()
         return {"total": total or 0, "done": done or 0}
 
-    def get_account_item_status(self, obj) -> str:
+    def _account_item(self, obj):
         view = self.context.get("view")
         if getattr(view, "action", None) != "measures":
-            return ""
-        account_id = getattr(view, "kwargs", {}).get("pk")
+            return None
+        account_id = str(getattr(view, "kwargs", {}).get("pk"))
         for item in obj.items.all():
-            if str(item.account_id) == str(account_id):
-                return item.status_display if hasattr(item, "status_display") else item.get_status_display()
-        return ""
+            if str(item.account_id) == account_id:
+                return item
+        return None
+
+    def get_account_item_status(self, obj) -> str:
+        item = self._account_item(obj)
+        if item is None:
+            return ""
+        return item.status_display if hasattr(item, "status_display") else item.get_status_display()
+
+    def get_account_call_line(self, obj) -> str:
+        item = self._account_item(obj)
+        if item is None or not item.call_result:
+            return ""
+        parts = [item.get_call_result_display()]
+        if item.duration_sec is not None:
+            listen = 0 if item.listen_percent is None else item.listen_percent
+            parts.append(f"{item.duration_sec} с, прослушано {listen}%")
+        if item.caller_id:
+            parts.append(f"исходящий {item.caller_id}")
+        line = ", ".join(parts)
+        if item.external_call is False:
+            line = f"{line}. Внешний вызов не выполнялся"
+        return line
 
 
 class MeasureDetailSerializer(MeasureSerializer):

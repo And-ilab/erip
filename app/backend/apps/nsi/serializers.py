@@ -57,8 +57,28 @@ class ScenarioDefinitionSerializer(serializers.ModelSerializer):
         fields = [
             "id", "organization", "name", "status", "version", "steps", "based_on", "is_active", "revisions",
             "call_legal", "dial_mobile_from_day", "dial_mobile_weekdays",
+            "call_from_day", "weekday_from", "weekday_to", "weekend_from", "weekend_to",
         ]
         read_only_fields = ["is_active", "status", "version", "organization", "revisions"]
+
+    def validate_call_from_day(self, value):
+        if value is None:
+            return 27
+        if value < 27 or value > 31:
+            raise serializers.ValidationError("Старт обзвона не раньше 27-го и не позже 31-го")
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        for start_key, end_key, label in (
+            ("weekday_from", "weekday_to", "Будни"),
+            ("weekend_from", "weekend_to", "Выходные"),
+        ):
+            start = attrs.get(start_key, getattr(self.instance, start_key, None))
+            end = attrs.get(end_key, getattr(self.instance, end_key, None))
+            if start and end and start >= end:
+                raise serializers.ValidationError({end_key: f"{label}: время «по» должно быть позже «с»"})
+        return attrs
 
     def get_revisions(self, obj) -> list[dict]:
         return [

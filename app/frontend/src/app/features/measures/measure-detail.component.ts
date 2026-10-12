@@ -290,8 +290,17 @@ const DELIVERY_METHODS = [
                         <td>{{ item.phone || '—' }}</td>
                         <td>
                           {{ item.call_result_display || '—' }}
+                          @if (item.external_call === false) {
+                            <div>Внешний вызов не выполнялся</div>
+                          }
+                          @if (item.caller_id) {
+                            <div class="muted">Исходящий {{ item.caller_id }}</div>
+                          }
                           @if (item.duration_sec !== null) {
                             <div class="muted">{{ item.duration_sec }} с, прослушано {{ item.listen_percent ?? 0 }}%</div>
+                          }
+                          @if (item.provider_message_id) {
+                            <div class="muted">{{ item.provider_message_id }}</div>
                           }
                         </td>
                       }

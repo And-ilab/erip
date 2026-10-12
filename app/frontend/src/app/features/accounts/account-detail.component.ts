@@ -252,7 +252,10 @@ import {
                       </td>
                       <td><span class="action-dot {{ row.status }}"></span>{{ row.next_action || '—' }}</td>
                       <td><span class="status-pill {{ row.status }}">{{ row.status === 'failed' ? 'Ошибка' : row.status_display }}</span></td>
-                      <td>{{ row.account_item_status || '—' }}</td>
+                      <td>
+                        {{ row.account_item_status || '—' }}
+                        @if (row.account_call_line) { <div>{{ row.account_call_line }}</div> }
+                      </td>
                     </tr>
                   }
                 </tbody>

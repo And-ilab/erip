@@ -436,6 +436,7 @@ export interface MeasureRow {
   time_to?: string | null;
   progress?: { total: number; done: number };
   account_item_status?: string;
+  account_call_line?: string;
   needs_approval?: boolean;
   approval?: '' | 'pending' | 'approved' | 'rejected';
   approval_note?: string;
@@ -462,6 +463,9 @@ export interface MeasureItemRow {
   call_result_display: string;
   duration_sec: number | null;
   listen_percent: number | null;
+  provider_message_id?: string;
+  caller_id?: string;
+  external_call?: boolean | null;
   recipient: string;
   delivery_error: string;
   delivery_method: string;

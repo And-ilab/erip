@@ -21,6 +21,15 @@ from apps.nsi.services.writ_checklist import ChecklistInvalid, default_checklist
 ACTIONS = {
     "call", "sms", "email", "messenger", "warning", "disconnect", "writ", "lawsuit", "manual_call",
 }
+# Частоты читает прогон обзвона. Группа 3 реже групп 1–2, группы 4–6 — один раз.
+CALL_REPEAT = {
+    "1": {"every_days": 1},
+    "2": {"every_days": 1},
+    "3": {"every_days": 3},
+    "4": {"once": True},
+    "5": {"once": True},
+    "6": {"once": True},
+}
 EXCLUSIVE = {"call", "disconnect", "writ"}
 VARIABLES = ("fio", "account", "amount", "address", "services", "last_payment", "organization", "due_days", "tariff")
 
@@ -63,6 +72,8 @@ def check_steps(steps: list[dict]) -> list[str]:
                 raise ScenarioInvalid(str(exc.detail)) from exc
         else:
             step.pop("checklist", None)
+        if action == "call" and step.get("repeat") is not None:
+            _check_repeat(step.get("repeat"))
     by_order: dict[int, list[str]] = {}
     for step in steps:
         by_order.setdefault(step["order"], []).append(step["action"])
@@ -76,6 +87,21 @@ def check_steps(steps: list[dict]) -> list[str]:
         if not any(other.get("order", 0) > step["order"] for other in steps):
             raise ScenarioInvalid(f"Тупик: шаг {step['order']} ({step['action']}) никуда не ведёт")
     return warnings
+
+
+def _check_repeat(repeat) -> None:
+    if not isinstance(repeat, dict):
+        raise ScenarioInvalid("Частота обзвона задаётся по группам")
+    for key, rule in repeat.items():
+        if str(key) not in {"1", "2", "3", "4", "5", "6"}:
+            raise ScenarioInvalid("Группа частоты — число от 1 до 6")
+        if not isinstance(rule, dict):
+            raise ScenarioInvalid("Правило частоты — объект")
+        if rule.get("once"):
+            continue
+        days = rule.get("every_days")
+        if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+            raise ScenarioInvalid("Интервал обзвона — число дней от 1")
 
 
 def publish(scenario: ScenarioDefinition, user, *, apply_to_running: bool = False) -> tuple[list[str], int]:
@@ -115,6 +141,11 @@ def copy_scenario(scenario: ScenarioDefinition, user) -> ScenarioDefinition:
         call_legal=scenario.call_legal,
         dial_mobile_from_day=scenario.dial_mobile_from_day,
         dial_mobile_weekdays=scenario.dial_mobile_weekdays,
+        call_from_day=scenario.call_from_day,
+        weekday_from=scenario.weekday_from,
+        weekday_to=scenario.weekday_to,
+        weekend_from=scenario.weekend_from,
+        weekend_to=scenario.weekend_to,
     )
 
 
@@ -362,7 +393,10 @@ def _work_kind(doc_kind: str) -> str:
 # Цепочка должника идёт по порядку. Срок перед шагом задаёт сценарий или схема.
 # Отключение в типовой ряд не входит: его запускает администратор после предупреждения.
 STANDARD_STEPS = [
-    {"order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False},
+    {
+        "order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False,
+        "repeat": copy.deepcopy(CALL_REPEAT),
+    },
     {"order": 2, "action": "email", "wait_days": 0, "template": "Уведомление", "terminal": False},
     {"order": 3, "action": "warning", "wait_days": 0, "template": "Предупреждение", "terminal": False},
     {
@@ -430,6 +464,18 @@ def _fill_missing_checklist(steps: list[dict]) -> bool:
     return changed
 
 
+def _fill_standard_repeat(scenario: ScenarioDefinition, steps: list[dict]) -> bool:
+    """Только типовой шаг «Автообзвон». Чужой сценарий и старый шаблон не переписываются."""
+    if scenario.organization_id is not None or scenario.name != "Стандартное взыскание":
+        return False
+    changed = False
+    for step in steps:
+        if step.get("action") == "call" and step.get("template") == "Автообзвон" and not step.get("repeat"):
+            step["repeat"] = copy.deepcopy(CALL_REPEAT)
+            changed = True
+    return changed
+
+
 def ensure_standard_scenario() -> None:
     scenario = ScenarioDefinition.objects.filter(organization=None, name="Стандартное взыскание").first()
     if scenario is None:
@@ -440,13 +486,17 @@ def ensure_standard_scenario() -> None:
     else:
         upgrade_legacy_scenario(scenario)
     steps = [dict(step) for step in (scenario.steps or [])]
-    if _fill_missing_checklist(steps):
+    changed = _fill_missing_checklist(steps)
+    changed = _fill_standard_repeat(scenario, steps) or changed
+    if changed:
         scenario.steps = steps
         scenario.save(update_fields=["steps", "updated_at"])
     current = scenario.revisions.filter(version=scenario.version).first()
     if current is not None:
         revision_steps = [dict(step) for step in (current.steps or [])]
-        if _fill_missing_checklist(revision_steps):
+        revision_changed = _fill_missing_checklist(revision_steps)
+        revision_changed = _fill_standard_repeat(scenario, revision_steps) or revision_changed
+        if revision_changed:
             current.steps = revision_steps
             current.save(update_fields=["steps"])
     if not scenario.revisions.filter(version=scenario.version).exists():

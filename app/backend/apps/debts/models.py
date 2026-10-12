@@ -687,6 +687,14 @@ class MeasureItem(AisRecord):
     call_result = models.CharField("Результат звонка", max_length=20, choices=CallResult.choices, blank=True)
     duration_sec = models.PositiveIntegerField("Длительность, с", null=True, blank=True)
     listen_percent = models.PositiveSmallIntegerField("Доля прослушивания, %", null=True, blank=True)
+    provider_message_id = models.CharField("Идентификатор отправления", max_length=64, blank=True)
+    caller_id = models.CharField("Исходящий номер", max_length=30, blank=True)
+    external_call = models.BooleanField(
+        "Внешний вызов выполнен",
+        null=True,
+        blank=True,
+        help_text="Пусто — результат внёс человек. Ложь — адаптер не выходил во внешнюю систему.",
+    )
     recipient = models.CharField("Адресат", max_length=250, blank=True)
     delivery_error = models.CharField("Ошибка доставки", max_length=500, blank=True)
     notification_id = models.PositiveIntegerField("Оповещение", null=True, blank=True)

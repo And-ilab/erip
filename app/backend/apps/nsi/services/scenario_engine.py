@@ -336,8 +336,11 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
         "call_legal": resolve_call_legal(account, scenario),
     }
     if kind == Measure.Kind.CALL:
-        data["time_from"] = "09:00"
-        data["time_to"] = "18:00"
+        from apps.debts.services.autocall import call_window
+
+        start, end = call_window(scenario, timezone.localdate())
+        data["time_from"] = start.strftime("%H:%M")
+        data["time_to"] = end.strftime("%H:%M")
         groups = [int(item) for item in (step.get("groups") or [])]
         if groups:
             data["group_from"] = min(groups)
