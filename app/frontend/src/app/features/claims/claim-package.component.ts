@@ -76,7 +76,7 @@ import {
     <button mat-button type="button" (click)="addDebtor()">Добавить солидарного должника</button>
 
     <h4>Задолженность</h4>
-    @for (debt of debts; track debt.source) {
+    @for (debt of debts; track $index) {
       <div class="person">
         <mat-form-field>
           <mat-label>Тип задолженности</mat-label>
@@ -140,14 +140,14 @@ import {
       <input type="file" accept="application/pdf,.pdf" (change)="onPdf(extraType, $event)" />
     </div>
 
-    @if (pack().problems.length) {
+    @if ((pack().problems || []).length) {
       <ul class="blockers">
-        @for (problem of pack().problems; track problem) { <li>{{ problem }}</li> }
+        @for (problem of pack().problems; track $index) { <li>{{ problem }}</li> }
       </ul>
     }
-    @if (pack().send_blockers.length) {
+    @if ((pack().send_blockers || []).length) {
       <ul class="blockers">
-        @for (problem of pack().send_blockers; track problem) { <li>{{ problem }}</li> }
+        @for (problem of pack().send_blockers; track $index) { <li>{{ problem }}</li> }
       </ul>
     } @else if (pack().formed_at) {
       <p class="ok">Пакет собран. Подпись ставится один раз кнопкой «Подписать и направить». Направление в кабинет остаётся заглушкой.</p>
@@ -189,8 +189,8 @@ export class ClaimPackageComponent {
       this.contact = pack.contact_data;
       this.email = pack.notification_email;
       this.message = pack.user_message;
-      this.debtors = pack.debtors.map((row) => ({ ...row }));
-      this.debts = pack.debts.map((row) => ({
+      this.debtors = (pack.debtors || []).map((row) => ({ ...row }));
+      this.debts = (pack.debts || []).map((row) => ({
         ...row,
         startDate: row.startDate || '',
         endDate: row.endDate || '',

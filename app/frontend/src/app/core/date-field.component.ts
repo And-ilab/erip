@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -12,7 +12,7 @@ import { MatInputModule } from '@angular/material/input';
   template: `
     <mat-form-field class="compact" [class.need]="required() && !value()" subscriptSizing="dynamic">
       <mat-label>{{ label() }}@if (required()) { * }</mat-label>
-      <input matInput [matDatepicker]="picker" [ngModel]="asDate()" (ngModelChange)="commit($event)" />
+      <input matInput [matDatepicker]="picker" [ngModel]="parsed()" (ngModelChange)="commit($event)" />
       <mat-datepicker-toggle matIconSuffix [for]="picker" />
       <mat-datepicker #picker />
       @if (required() && !value()) { <mat-hint>обязательно</mat-hint> }
@@ -30,20 +30,25 @@ export class DateFieldComponent {
   readonly value = input('');
   readonly valueChange = output<string>();
 
-  protected asDate(): Date | null {
-    const raw = this.value();
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw || '');
-    if (!match) return null;
-    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  }
+  /** Один и тот же объект, пока строка даты не изменилась. Новый Date на каждый цикл вешает страницу. */
+  protected readonly parsed = computed(() => parseIsoDate(this.value()));
 
   protected commit(value: Date | null): void {
-    if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
-      this.valueChange.emit('');
-      return;
-    }
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
-    this.valueChange.emit(`${value.getFullYear()}-${month}-${day}`);
+    const next = formatIsoDate(value);
+    if (next === (this.value() || '')) return;
+    this.valueChange.emit(next);
   }
+}
+
+function parseIsoDate(raw: string | null | undefined): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw || '');
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function formatIsoDate(value: Date | null): string {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return '';
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${value.getFullYear()}-${month}-${day}`;
 }

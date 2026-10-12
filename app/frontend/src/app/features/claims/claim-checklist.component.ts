@@ -79,7 +79,7 @@ const COURT: Slot[] = [
             <p [class.need]="!(tariff() && +tariff() > 0)">{{ tariff() && +tariff() > 0 ? 'Тариф внесён: ' + tariff() : 'Нотариальный тариф ещё не указан. Его считает АИС, пока поле можно заполнить в деле.' }}</p>
           }
           @if (slot.mode === 'ais') {
-            @for (debt of pack()?.debts || []; track debt.source) {
+            @for (debt of pack()?.debts || []; track $index) {
               <p>{{ debt.source === 'penalty' ? 'Пеня' : 'Исходящее сальдо' }}: {{ debt.amount }} {{ debt.currency }}</p>
             }
             @if (!(pack()?.debts || []).length) {
@@ -241,7 +241,7 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
     if (slot.mode === 'scan') return rows.find((doc) => !doc.generated) || null;
     if (slot.code === 'calc-file') return rows.find((doc) => !doc.generated) || null;
     if (slot.code === 'warning') return rows.find((doc) => doc.generated) || null;
-    if (slot.code === 'ais') return rows.find((doc) => doc.generated) || rows[0] || null;
+    if (slot.code === 'ais') return rows.find((doc) => doc.generated) || null;
     return rows[0] || null;
   }
 
@@ -327,7 +327,9 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
     input.value = '';
     if (!file || !slot.docType) return;
     this.selected.set(slot.code);
-    const existing = slot.mode === 'scan' || slot.code === 'calc-file' ? undefined : this.docs(slot.docType)[0]?.id;
+    const existing = slot.mode === 'scan' || slot.code === 'calc-file'
+      ? this.documentFor(slot.code)?.id
+      : this.docs(slot.docType)[0]?.id;
     this.api.uploadClaimDocument(this.claimId(), slot.docType, file, null, 'p7s', existing).subscribe({
       next: (row) => this.changed.emit(row),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),

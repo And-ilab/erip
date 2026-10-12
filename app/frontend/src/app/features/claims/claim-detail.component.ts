@@ -50,9 +50,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
           </p>
           <div class="split">
             <div class="form">
-              @if (row.blockers.length) {
+              @if ((row.blockers || []).length) {
                 <ul class="blockers">
-                  @for (item of row.blockers; track item) { <li>{{ item }}</li> }
+                  @for (item of row.blockers; track $index) { <li>{{ item }}</li> }
                 </ul>
               }
               <div class="sums">
@@ -87,7 +87,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               @if (row.package) {
                 <app-claim-package [claimId]="row.id" [pack]="row.package" (changed)="replace($event)" />
               }
-              @if (row.files.length) {
+              @if ((row.files || []).length) {
                 <ul class="files">
                   @for (file of row.files; track file.id) {
                     <li><b>{{ fileRole(file.role) }}</b> {{ file.name }} <span>{{ file.doc_type }}</span></li>
@@ -97,7 +97,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 <p class="hint">Файлов на карточке счёта нет. Расчёт, доверенность и скан загружаются во вкладке «Вложения».</p>
               }
               <mat-form-field class="wide"><mat-label>Комментарий к ответу нотариуса</mat-label><input matInput [(ngModel)]="note" /></mat-form-field>
-              @if (row.files.length) {
+              @if ((row.files || []).length) {
                 <mat-form-field class="wide"><mat-label>Файл карточки для отказа</mat-label>
                   <mat-select [(ngModel)]="refusalFile">
                     <mat-option [value]="0">Не выбран</mat-option>
@@ -150,6 +150,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </mat-select>
               </mat-form-field>
               <mat-form-field><mat-label>Ответчик</mat-label><input matInput [(ngModel)]="defendant" /></mat-form-field>
+              <mat-form-field class="wide"><mat-label>Примечание к иску</mat-label><input matInput [(ngModel)]="lawsuitNote" /></mat-form-field>
               <app-date-field label="Дата подачи" [value]="lawsuitDate" (valueChange)="lawsuitDate = $event" />
               <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
               @if (housingKind()) {
@@ -224,7 +225,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 
         <h3>История</h3>
         <ul>
-          @for (event of row.events; track event.at + event.reason) {
+          @for (event of row.events || []; track $index) {
             <li>{{ event.actor }}: {{ event.old_stage }} → {{ event.new_stage }}. {{ event.reason }}</li>
           }
         </ul>
@@ -278,6 +279,7 @@ export class ClaimDetailComponent implements OnInit {
   protected tariff = '';
   protected withdrawn = false;
   protected note = '';
+  protected lawsuitNote = '';
   protected lawsuitNumber = '';
   protected lawsuitKind = '';
   protected defendant = '';
@@ -380,6 +382,7 @@ export class ClaimDetailComponent implements OnInit {
       warning_delivered_on: this.warningDate || null,
       notary_tariff: this.tariff || null,
       application_withdrawn: this.withdrawn,
+      notary_note: this.note,
       lawsuit_number: this.lawsuitNumber,
       lawsuit_kind: this.lawsuitKind,
       defendant_name: this.defendant,
@@ -389,7 +392,7 @@ export class ClaimDetailComponent implements OnInit {
       court_status: this.court,
       skip_reason: this.skipReason,
       eviction_stage: this.eviction,
-      lawsuit_note: this.note,
+      lawsuit_note: this.lawsuitNote,
     };
   }
 
@@ -416,6 +419,7 @@ export class ClaimDetailComponent implements OnInit {
     this.opiNumber = row.opi_number;
     this.opiStatus = row.opi_status;
     this.eviction = row.eviction_stage;
-    this.note = row.notary_note || row.lawsuit_note;
+    this.note = row.notary_note || '';
+    this.lawsuitNote = row.lawsuit_note || '';
   }
 }
