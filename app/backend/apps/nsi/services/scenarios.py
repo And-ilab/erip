@@ -161,6 +161,7 @@ def layout_of(form: PrintForm) -> dict:
         "requisites": form.requisites,
         "signatory": form.signatory,
         "doc_kind": form.doc_kind,
+        "blocks": list(form.blocks or []),
     }
 
 
@@ -206,11 +207,15 @@ def fill_account_text(template: str, account, *, tariff: str = "", warning_date:
 
 
 def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") -> PrintedDocument:
+    from apps.debts.services.artifacts import render_layout_pdf
+    from apps.nsi.services.form_layout import blocks_of, fill_blocks
+
     text = fill_account_text(form.body, account, tariff=tariff)
-    lines = _document_lines(form, text)
-    payload = _pdf_bytes(
-        lines, font_size=form.font_size or 12, indent_mm=form.indent_mm or 0, outdent_mm=form.outdent_mm or 0,
-    )
+    filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
+    for block in filled:
+        if block["key"] == "body":
+            block["text"] = text
+    payload = render_layout_pdf(filled, font_size=form.font_size or 12)
     document = PrintedDocument(
         form=form, version=form.version, account=account, addressee=form.addressee or "debtor",
         body=text, batch=batch,
@@ -286,12 +291,12 @@ def restore_print(form: PrintForm, version: int) -> PrintForm:
     for key, value in (revision.layout or {}).items():
         if key in {
             "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
-            "logo_text", "requisites", "signatory",
+            "logo_text", "requisites", "signatory", "blocks",
         }:
             setattr(form, key, value)
     form.save(update_fields=[
         "body", "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
-        "logo_text", "requisites", "signatory", "updated_at",
+        "logo_text", "requisites", "signatory", "blocks", "updated_at",
     ])
     remember_print_version(form, previous, previous_layout)
     return form

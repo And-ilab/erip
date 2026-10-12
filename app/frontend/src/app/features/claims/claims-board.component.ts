@@ -5,6 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
+import { DateFieldComponent } from '../../core/date-field.component';
 import { ApiService, AssignedAccount, ClaimCase, Named, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
@@ -20,6 +21,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
+    DateFieldComponent,
   ],
   template: `
     <div class="page" [class.dim]="dialog()">
@@ -37,9 +39,13 @@ import { RegistryViewsComponent } from '../registry-views.component';
           (queryChange)="onFilter($event)" />
       </div>
       <p class="hint">
-        С группы 3: исполнительная надпись, иск и ОПИ.
-        Канбан собран в пять колонок по 2–3 этапа. Карточку переносят левой кнопкой или выбирают точный этап значком.
+        Нотариат — исполнительная надпись, более короткий путь. Суд — если спор или нотариус отказал.
+        ОПИ взыскивает деньги в конце цепочки, это не отдельный модуль.
       </p>
+      <nav class="modules">
+        <button type="button" [class.on]="module() === 'notary'" (click)="setModule('notary')">1. Нотариат</button>
+        <button type="button" [class.on]="module() === 'court'" (click)="setModule('court')">2. Суд</button>
+      </nav>
       @if (error()) { <p class="error">{{ error() }}</p> }
 
       @if (mode() === 'list') {
@@ -94,7 +100,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (mode() === 'kanban') {
         <div class="k-board">
-          @for (lane of lanes; track lane.id) {
+          @for (lane of shownLanes(); track lane.id) {
             <section class="k-col" [class.drop]="dropStage() === lane.id" [attr.data-lane]="lane.id"
                      (dragover)="allowDrop($event, lane.id)" (dragleave)="clearDrop(lane.id)" (drop)="dropOnLane($event, lane)">
               <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane) }}</b></h3>
@@ -104,8 +110,15 @@ import { RegistryViewsComponent } from '../registry-views.component';
                          [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                   <div class="card-head">
                     <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                    @if (card.effective_group) {
-                      <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                    @if (card.rating_label || card.effective_group) {
+                      <div class="card-marks">
+                        @if (card.rating_label) {
+                          <span class="rating-badge r{{ letter(card.rating_label) }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
+                        }
+                        @if (card.effective_group) {
+                          <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                        }
+                      </div>
                     }
                   </div>
                   <div class="line">
@@ -113,10 +126,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
                     @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ street(card.account_address || '') }}</span> }
                   </div>
                   <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
-                  @if (card.rating_label) {
-                    <div class="group-line">
-                      <span class="rating-badge r{{ letter(card.rating_label) }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                    </div>
+                  @if (module() === 'notary' && canMove() && courtFrom(card)) {
+                    <button type="button" class="court" (click)="toCourt($event, card)">{{ courtFrom(card) }}</button>
                   }
                   <div class="money">
                     <span tabindex="0" title="Исходящее сальдо с пенями"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
@@ -205,9 +216,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <label>Период задолженности
               <input [value]="periodText()" readonly />
             </label>
-            <label [class.miss]="sendTried() && !warningDate">Дата вручения предупреждения
-              <input type="date" [(ngModel)]="warningDate" name="warning" />
-            </label>
+            <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="warningDate = $event" />
             <p class="check" [class.ok]="!!warningDate">
               {{ warningDate ? 'Вручено — условие чек-листа выполнено' : 'Нет даты вручения предупреждения' }}
             </p>
@@ -274,11 +283,23 @@ import { RegistryViewsComponent } from '../registry-views.component';
       font-size: 13px; font-weight: 600; color: #243140;
     }
     .k-col h3 b { font-weight: 600; color: #8b95a1; }
-    .k-col[data-lane="pack"] h3 { border-bottom-color: #2e7d32; }
-    .k-col[data-lane="notary"] h3 { border-bottom-color: #7c3aed; }
-    .k-col[data-lane="court"] h3 { border-bottom-color: #e0a106; }
-    .k-col[data-lane="opi"] h3 { border-bottom-color: #f08c2e; }
-    .k-col[data-lane="finish"] h3 { border-bottom-color: #6b7280; }
+    .modules { display: flex; gap: 8px; margin: 0 0 12px; }
+    .modules button {
+      border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; font-weight: 600;
+      color: var(--erip-muted); padding: 6px 2px; cursor: pointer;
+    }
+    .modules button.on { color: var(--erip-primary-dark); border-bottom-color: var(--erip-primary); }
+    .k-col[data-lane="prep"] h3 { border-bottom-color: #2e7d32; }
+    .k-col[data-lane="sent"] h3 { border-bottom-color: #7c3aed; }
+    .k-col[data-lane="done"] h3 { border-bottom-color: #1f9d55; }
+    .k-col[data-lane="refused"] h3 { border-bottom-color: #c62828; }
+    .k-col[data-lane="lawsuit"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-lane="decision"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-lane="opi"] h3, .k-col[data-lane="finish"] h3 { border-bottom-color: #94a3b8; }
+    .court {
+      margin-top: 6px; border: 1px solid var(--erip-border); background: #fff; border-radius: 999px;
+      font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; color: var(--erip-primary);
+    }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
       border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
@@ -292,7 +313,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
     .k-card .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
     .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; flex: 1; min-width: 0; color: #1f2933; }
-    .k-card .card-head .group-badge { flex: 0 0 auto; }
+    .k-card .card-head .card-marks { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
     .k-card .more {
       position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; border: 0;
       background: transparent; color: #9aa3ad; cursor: pointer;
@@ -415,11 +436,19 @@ export class ClaimsBoardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
-  protected readonly lanes = [
-    { id: 'pack', label: 'Пакет', stages: ['queue', 'prep', 'notary'], entry: 'prep' },
-    { id: 'notary', label: 'Ответ нотариуса', stages: ['writ_done', 'refused'], entry: 'writ_done' },
-    { id: 'court', label: 'Суд', stages: ['lawsuit', 'court'], entry: 'lawsuit' },
-    { id: 'opi', label: 'ОПИ', stages: ['opi', 'opi_measures'], entry: 'opi' },
+  protected readonly module = signal<'notary' | 'court'>('notary');
+  protected readonly notaryLanes = [
+    { id: 'prep', label: 'Подготовка пакета', stages: ['queue', 'prep'], entry: 'prep' },
+    { id: 'sent', label: 'Направлено нотариусу', stages: ['notary'], entry: 'notary' },
+    { id: 'done', label: 'Надпись совершена', stages: ['writ_done'], entry: 'writ_done' },
+    { id: 'refused', label: 'Отказ', stages: ['refused'], entry: 'refused' },
+    { id: 'opi', label: 'Дальше: ОПИ', stages: ['opi', 'opi_measures'], entry: 'opi' },
+    { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'], entry: 'recovered' },
+  ];
+  protected readonly courtLanes = [
+    { id: 'lawsuit', label: 'Исковое заявление', stages: ['lawsuit'], entry: 'lawsuit' },
+    { id: 'decision', label: 'Судебное решение', stages: ['court'], entry: 'court' },
+    { id: 'opi', label: 'Дальше: ОПИ', stages: ['opi', 'opi_measures'], entry: 'opi' },
     { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'], entry: 'recovered' },
   ];
   protected readonly caseStages = [
@@ -482,6 +511,8 @@ export class ClaimsBoardComponent implements OnInit {
     this.route.queryParamMap.subscribe((params) => {
       if (params.get('writ') === '1') this.openFromRoute();
     });
+    const module = this.route.snapshot.queryParamMap.get('module');
+    if (module === 'court' || module === 'notary') this.module.set(module);
     this.query.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe((value) => this.lookup(value));
     const account = this.route.snapshot.queryParamMap.get('account');
     if (account) {
@@ -495,6 +526,28 @@ export class ClaimsBoardComponent implements OnInit {
 
   protected canAdd(): boolean {
     return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected shownLanes(): { id: string; label: string; stages: string[]; entry: string }[] {
+    return this.module() === 'court' ? this.courtLanes : this.notaryLanes;
+  }
+
+  protected setModule(module: 'notary' | 'court'): void {
+    this.module.set(module);
+    this.router.navigate([], { relativeTo: this.route, queryParams: { module }, queryParamsHandling: 'merge' });
+  }
+
+  protected courtFrom(card: AccountRow): string {
+    const stage = card.claim_stage || 'queue';
+    if (stage === 'refused') return 'В суд';
+    if (stage === 'queue' || stage === 'prep') return 'Спор: в суд';
+    return '';
+  }
+
+  protected toCourt(event: Event, card: AccountRow): void {
+    event.stopPropagation();
+    this.setModule('court');
+    this.move(card, 'lawsuit');
   }
 
   protected boardEmpty(): boolean {

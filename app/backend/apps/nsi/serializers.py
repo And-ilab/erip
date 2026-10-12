@@ -78,9 +78,37 @@ class PrintFormSerializer(serializers.ModelSerializer):
         model = PrintForm
         fields = [
             "id", "organization", "code", "name", "doc_kind", "addressee", "body", "font_size", "indent_mm",
-            "outdent_mm", "block_order", "logo_text", "requisites", "signatory", "version", "is_active", "revisions",
+            "outdent_mm", "block_order", "logo_text", "requisites", "signatory", "blocks", "version",
+            "is_active", "revisions",
         ]
         read_only_fields = ["is_active", "version", "organization", "revisions"]
+
+    def validate(self, attrs):
+        blocks = attrs.get("blocks", serializers.empty)
+        if blocks is serializers.empty:
+            return attrs
+        from .services.form_layout import apply_blocks, clean_blocks
+
+        try:
+            cleaned = clean_blocks(blocks)
+        except ValueError as exc:
+            raise serializers.ValidationError({"blocks": str(exc)}) from exc
+        attrs["blocks"] = cleaned
+
+        class _Probe:
+            body = ""
+            logo_text = ""
+            requisites = ""
+            signatory = ""
+            blocks = []
+
+        probe = _Probe()
+        apply_blocks(probe, cleaned)
+        attrs["body"] = probe.body
+        attrs["logo_text"] = probe.logo_text
+        attrs["requisites"] = probe.requisites
+        attrs["signatory"] = probe.signatory
+        return attrs
 
     def get_revisions(self, obj) -> list[dict]:
         return [

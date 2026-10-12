@@ -8,6 +8,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
+import { DateFieldComponent } from '../../core/date-field.component';
 import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
 import { ClaimChecklistComponent } from './claim-checklist.component';
 import { ClaimPackageComponent } from './claim-package.component';
@@ -20,6 +21,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   imports: [
     FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimChecklistComponent, ClaimPackageComponent,
+    DateFieldComponent,
   ],
   template: `
     <div class="case">
@@ -61,13 +63,11 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               </div>
               <p class="hint">Долг и пеня приходят из АИС и в этой форме не меняются. Тариф вносит специалист, пока его не считает АИС.</p>
               <div class="line">
-                <mat-form-field><mat-label>Дата вручения предупреждения</mat-label>
-                  <input matInput type="date" [(ngModel)]="warningDate" />
-                </mat-form-field>
-                <span class="ok" [class.miss]="!warningDate">{{ warningDate ? 'вручено' : 'нет даты' }}</span>
+                <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="warningDate = $event" />
+                <span class="ok" [class.miss]="!warningDate">{{ warningDate ? 'вручено' : 'обязательно' }}</span>
               </div>
               <div class="line">
-                <mat-form-field><mat-label>Нотариальный тариф</mat-label>
+                <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
                   <input matInput [(ngModel)]="tariff" />
                   <span matTextSuffix><app-byn-sign /></span>
                 </mat-form-field>
@@ -81,6 +81,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 [pack]="row.package || null"
                 [warningDate]="warningDate"
                 [tariff]="tariff"
+                [stage]="row.stage"
                 (changed)="replace($event)" />
               <h3>Пакет для личного кабинета БНП</h3>
               @if (row.package) {
@@ -107,7 +108,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </mat-form-field>
               }
               <div class="actions">
-                <button mat-flat-button color="primary" (click)="saveThenSend()">Направить нотариусу</button>
+                <button mat-flat-button color="primary" (click)="saveThenSend()">Подписать и направить</button>
                 <button mat-stroked-button (click)="save()">Сохранить черновик</button>
                 <a mat-button routerLink="/claims">Отмена</a>
               </div>
@@ -149,10 +150,10 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </mat-select>
               </mat-form-field>
               <mat-form-field><mat-label>Ответчик</mat-label><input matInput [(ngModel)]="defendant" /></mat-form-field>
-              <mat-form-field><mat-label>Дата подачи</mat-label><input matInput type="date" [(ngModel)]="lawsuitDate" /></mat-form-field>
+              <app-date-field label="Дата подачи" [value]="lawsuitDate" (valueChange)="lawsuitDate = $event" />
               <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
               @if (housingKind()) {
-                <mat-form-field><mat-label>Дата пакета на выселение</mat-label><input matInput type="date" [(ngModel)]="packageDate" /></mat-form-field>
+                <app-date-field label="Дата пакета на выселение" [value]="packageDate" (valueChange)="packageDate = $event" />
                 <mat-form-field><mat-label>Ветвь выселения</mat-label>
                   <mat-select [(ngModel)]="eviction">
                     <mat-option value="">Нет</mat-option>
@@ -245,7 +246,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .sums .total { background: var(--erip-primary-soft); }
     .line, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .ok { color: var(--erip-success); font-size: 13px; }
-    .ok.miss { color: var(--erip-danger); }
+    .ok.miss, .need { color: var(--erip-danger); }
     .pack { list-style: none; padding: 0; margin: 0; }
     .pack li { padding: 6px 0 6px 22px; position: relative; color: var(--erip-muted); }
     .pack li.ready { color: inherit; }
@@ -340,10 +341,14 @@ export class ClaimDetailComponent implements OnInit {
   protected saveThenSend(): void {
     const row = this.claim();
     if (!row) return;
+    if (!this.warningDate || !(Number(this.tariff) > 0)) {
+      this.snack.open('Заполните обязательные поля: дата вручения и нотариальный тариф', 'OK');
+      return;
+    }
     this.api.patchClaim(row.id, this.draft()).subscribe({
       next: (next) => {
         this.apply(next);
-        this.act('send-notary');
+        this.act('sign-and-send');
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });

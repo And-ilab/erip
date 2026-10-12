@@ -161,6 +161,7 @@ class PrintForm(TimeStampedModel, SoftDeleteModel):
     logo_text = models.CharField("Логотип", max_length=250, blank=True)
     requisites = models.TextField("Реквизиты", blank=True)
     signatory = models.CharField("Подпись уполномоченного", max_length=250, blank=True)
+    blocks = models.JSONField("Блоки макета", default=list, blank=True)
     version = models.PositiveIntegerField("Версия", default=1)
 
     class Meta:

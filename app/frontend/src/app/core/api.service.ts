@@ -509,8 +509,9 @@ export class ApiService {
     return this.http.delete<ClaimCase>(`${this.base}/claims/${id}/package/documents/${docId}/`);
   }
 
-  claimPackageFile(id: number, docId: number, kind: 'pdf' | 'signature'): Observable<Blob> {
-    return this.http.get(`${this.base}/claims/${id}/package/documents/${docId}/${kind}/`, { responseType: 'blob' });
+  claimPackageFile(id: number, docId: number, kind: 'pdf' | 'signature', inline = false): Observable<Blob> {
+    const params = inline ? { inline: '1' } : undefined;
+    return this.http.get(`${this.base}/claims/${id}/package/documents/${docId}/${kind}/`, { params, responseType: 'blob' });
   }
 
   claimManifest(id: number): Observable<Blob> {
@@ -595,6 +596,18 @@ export class ApiService {
 
   debtorCategories(): Observable<Page<{ id: number; name: string }>> {
     return this.http.get<Page<{ id: number; name: string }>>(`${this.base}/nsi/debtor-categories/`, { params: { page_size: 100 } });
+  }
+
+  previewPrintForm(body: object): Observable<Blob> {
+    return this.http.post(`${this.base}/nsi/print-forms/preview/`, body, { responseType: 'blob' });
+  }
+
+  recognizePrintForm(file: File): Observable<{ recognized: boolean; note: string; name: string; blocks: PrintFormBlock[] }> {
+    const data = new FormData();
+    data.append('file', file, file.name);
+    return this.http.post<{ recognized: boolean; note: string; name: string; blocks: PrintFormBlock[] }>(
+      `${this.base}/nsi/print-forms/recognize/`, data,
+    );
   }
 
   printForms(): Observable<Page<PrintFormRow>> {
@@ -754,6 +767,7 @@ export interface BnpDocument {
   has_signature: boolean;
   generated: boolean;
   body: string;
+  layout?: { blocks?: PrintFormBlock[] };
   size: number;
 }
 
@@ -836,6 +850,19 @@ export interface ScenarioRow {
   revisions?: VersionRow[];
 }
 
+export interface PrintFormBlock {
+  key: string;
+  title: string;
+  enabled: boolean;
+  align: 'left' | 'center' | 'right';
+  bold: boolean;
+  italic: boolean;
+  font_size: number;
+  text: string;
+  columns: { title: string; width: number }[];
+  rows: string[][];
+}
+
 export interface PrintFormRow {
   id: number;
   code: string;
@@ -850,6 +877,7 @@ export interface PrintFormRow {
   logo_text?: string;
   requisites?: string;
   signatory?: string;
+  blocks?: PrintFormBlock[];
   version: number;
   organization: number | null;
   revisions?: VersionRow[];

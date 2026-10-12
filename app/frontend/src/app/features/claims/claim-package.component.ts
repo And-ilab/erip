@@ -6,6 +6,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
+import { DateFieldComponent } from '../../core/date-field.component';
 import {
   ApiService, BnpDebt, BnpDebtor, BnpDocument, ClaimCase, ClaimPackage, errorMessage,
 } from '../../core/api.service';
@@ -13,7 +14,7 @@ import {
 @Component({
   selector: 'app-claim-package',
   standalone: true,
-  imports: [FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatSnackBarModule],
+  imports: [FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatSnackBarModule, DateFieldComponent],
   template: `
     <p class="hint">
       Пункт перечня выбирается здесь. Для задолженности за ЖКУ в справочнике отмечены услуги 571, 572 и 576.
@@ -86,9 +87,9 @@ import {
             }
           </mat-select>
         </mat-form-field>
-        <mat-form-field><mat-label>С</mat-label><input matInput type="date" [(ngModel)]="debt.startDate" /></mat-form-field>
-        <mat-form-field><mat-label>По</mat-label><input matInput type="date" [(ngModel)]="debt.endDate" /></mat-form-field>
-        <mat-form-field><mat-label>Либо одна дата</mat-label><input matInput type="date" [(ngModel)]="debt.dateAt" /></mat-form-field>
+        <app-date-field label="С" [value]="debt.startDate || ''" (valueChange)="debt.startDate = $event" />
+        <app-date-field label="По" [value]="debt.endDate || ''" (valueChange)="debt.endDate = $event" />
+        <app-date-field label="Либо одна дата" [value]="debt.dateAt || ''" (valueChange)="debt.dateAt = $event" />
         <span class="tag">{{ debt.source === 'penalty' ? 'Пеня' : 'Исходящее сальдо' }} {{ debt.amount }} {{ debt.currency }}</span>
         @if (debts.length > 1) {
           <button mat-button type="button" (click)="removeDebt(debt.source)">Убрать</button>

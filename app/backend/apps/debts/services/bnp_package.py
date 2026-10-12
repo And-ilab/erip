@@ -143,22 +143,89 @@ _FORM_DOC = {
     "proxy": "proxy",
     "warrant": "proxy",
     "warning": "other_document",
+    "lawsuit": "lawsuit",
+    "eviction": "eviction",
+    "alienation": "alienation",
 }
+COURT_DOCS = ("lawsuit", "eviction", "alienation")
 
 
 def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     """PDF из печатной формы. В кабинет БНП не отправляется: это локальная сборка."""
-    from apps.nsi.services.scenarios import fill_account_text
+    from apps.nsi.services.form_layout import blocks_of, fill_blocks
+    from apps.nsi.services.scenarios import fill_account_text, placeholder_values
 
     form = _visible_form(user, form_id)
     doc_type = _FORM_DOC.get(form.doc_kind)
     if doc_type is None:
-        raise ClaimBlocked("Этот вид печатной формы не входит в комплект исполнительной надписи")
+        raise ClaimBlocked("Этот вид печатной формы не входит в комплект")
     package = _ensure(case)
     tariff = "" if case.notary_tariff is None else str(case.notary_tariff)
     warning = case.warning_delivered_on.isoformat() if case.warning_delivered_on else ""
+    values = placeholder_values(case.account, tariff=tariff, warning_date=warning)
     text = fill_account_text(form.body, case.account, tariff=tariff, warning_date=warning)
-    return _save_generated(package, doc_type, text, f"{form.code}-{_safe_token(case.account.client_account)}.pdf")
+    blocks = fill_blocks(blocks_of(form), values)
+    for block in blocks:
+        if block["key"] == "body":
+            block["text"] = text
+    document = _save_generated(
+        package, doc_type, text, f"{form.code}-{_safe_token(case.account.client_account)}.pdf", blocks,
+    )
+    document.layout = {"blocks": blocks, "form": form.id, "version": form.version}
+    document.save(update_fields=["layout", "updated_at"])
+    return document
+
+
+def update_document_layout(case: ClaimCase, doc_id: int, body: str, blocks) -> ClaimPackageDocument:
+    from apps.nsi.services.form_layout import clean_blocks
+
+    package = stored_package(case)
+    document = package.documents.filter(pk=doc_id).first() if package is not None else None
+    if document is None:
+        raise ClaimBlocked("Документ не из этого пакета")
+    try:
+        cleaned = clean_blocks(blocks)
+    except ValueError as exc:
+        raise ClaimBlocked(str(exc)) from exc
+    text = (body or next((block["text"] for block in cleaned if block["key"] == "body"), "")).strip()
+    if not text:
+        raise ClaimBlocked("Текст документа пустой")
+    if len(text) > 20000:
+        raise ClaimBlocked("Текст длиннее 20000 символов")
+    _write_pdf(document, text, cleaned)
+    document.generated = True
+    document.layout = {"blocks": cleaned}
+    document.save()
+    _invalidate(package)
+    return document
+
+
+def stamp_package_signatures(case: ClaimCase) -> ClaimPackage:
+    """Одна отметка на весь комплект. Это не ЭЦП ГосСУОК и не отправка в кабинет."""
+    package = stored_package(case)
+    if package is None:
+        raise ClaimBlocked("Сначала соберите документы комплекта")
+    docs = [doc for doc in package.documents.all() if doc.pdf and doc.doc_type in OUTGOING_DOCS]
+    if not docs:
+        raise ClaimBlocked("В комплекте нет PDF для подписи")
+    mark = "STUB-PACKAGE-SIGNATURE\nЛокальная отметка пакета. ЭЦП ГосСУОК не проверялась.\n".encode()
+    for doc in docs:
+        doc.signer = _signer(doc.doc_type)
+        doc.signature_name = _signature_name(doc.file_name, "p7s")
+        doc.signature.save(doc.signature_name, ContentFile(mark), save=False)
+        doc.save()
+    return package
+
+
+def sign_and_send(case: ClaimCase, user) -> ClaimCase:
+    from apps.debts.services.claims import _require_notary_fields, send_to_notary
+
+    _require_notary_fields(case)
+    package = stored_package(case)
+    if package is None or not package.formed_at:
+        form_package(case, user)
+    stamp_package_signatures(case)
+    return send_to_notary(case, user)
 
 
 def update_document_text(case: ClaimCase, doc_id: int, body: str) -> ClaimPackageDocument:
@@ -178,11 +245,11 @@ def update_document_text(case: ClaimCase, doc_id: int, body: str) -> ClaimPackag
     return document
 
 
-def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str) -> ClaimPackageDocument:
+def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str, blocks=None) -> ClaimPackageDocument:
     payload_name = name[:180]
     if doc_type == "other_document":
         document = package.documents.filter(doc_type=doc_type, generated=True).first()
-    elif doc_type in REQUIRED_DOCS:
+    elif doc_type in REQUIRED_DOCS or doc_type in COURT_DOCS:
         document = package.documents.filter(doc_type=doc_type).first()
     else:
         document = None
@@ -202,18 +269,26 @@ def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str) 
         document.signer = _signer(doc_type)
         document.doc_type = doc_type
         document.generated = True
-    _write_pdf(document, text)
+    _write_pdf(document, text, blocks)
     document.save()
     _invalidate(package)
     return document
 
 
-def _write_pdf(document: ClaimPackageDocument, text: str) -> None:
-    payload = render_text_pdf(text.splitlines() or [""])
+def _write_pdf(document: ClaimPackageDocument, text: str, blocks=None) -> None:
+    from apps.debts.services.artifacts import render_layout_pdf
+
+    if blocks:
+        payload = render_layout_pdf(blocks)
+    else:
+        payload = render_text_pdf(text.splitlines() or [""])
     if len(payload) > MAX_FILE_BYTES:
         raise ClaimBlocked("Документ больше 15 МБ")
     _drop_signature(document)
+    _drop_other_signatures(document)
     document.body = text
+    if blocks is not None:
+        document.layout = {"blocks": blocks}
     document.pdf.save(document.file_name, ContentFile(payload), save=False)
 
 
@@ -500,6 +575,7 @@ def _document_payload(doc: ClaimPackageDocument, labels: dict) -> dict:
         "has_signature": bool(doc.signature),
         "generated": doc.generated,
         "body": doc.body or "",
+        "layout": doc.layout or {},
         "size": size,
     }
 
@@ -616,6 +692,8 @@ def _problems(case: ClaimCase, package: ClaimPackage) -> list[str]:
         if code not in present:
             problems.append(f"Нет документа «{labels.get(code, code)}»")
     for doc in package.documents.all():
+        if doc.doc_type not in OUTGOING_DOCS:
+            continue
         problems.extend(_file_problems(doc))
     return problems
 
@@ -714,7 +792,7 @@ def _manifest(case: ClaimCase, package: ClaimPackage) -> dict:
                     "detachedSign": True,
                 }
                 for doc in docs
-                if doc.pdf
+                if doc.pdf and doc.doc_type in OUTGOING_DOCS
             ],
         }],
     }
@@ -841,6 +919,16 @@ def _read(uploaded) -> bytes:
     if hasattr(uploaded, "seek"):
         uploaded.seek(0)
     return uploaded.read()
+
+
+def _drop_other_signatures(document: ClaimPackageDocument) -> None:
+    if not document.package_id:
+        return
+    for other in document.package.documents.exclude(pk=document.pk):
+        if not other.signature:
+            continue
+        _drop_signature(other)
+        other.save(update_fields=["signature", "updated_at"])
 
 
 def _drop_signature(document: ClaimPackageDocument) -> None:

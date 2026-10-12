@@ -1,7 +1,9 @@
-import { Component, OnInit, inject, input, output, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { Router } from '@angular/router';
 
 import { ApiService, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
 
@@ -23,6 +25,12 @@ const SLOTS: Slot[] = [
   { code: 'scan', title: 'Скан постановления или отказа', docType: 'other_document', formKind: null, mode: 'scan' },
 ];
 
+const COURT: Slot[] = [
+  { code: 'lawsuit', title: 'Исковое заявление о взыскании', docType: 'lawsuit', formKind: 'lawsuit', mode: 'doc' },
+  { code: 'eviction', title: 'Исковое заявление о выселении', docType: 'eviction', formKind: 'eviction', mode: 'doc' },
+  { code: 'alienation', title: 'Исковое заявление об отчуждении', docType: 'alienation', formKind: 'alienation', mode: 'doc' },
+];
+
 @Component({
   selector: 'app-claim-checklist',
   standalone: true,
@@ -30,13 +38,13 @@ const SLOTS: Slot[] = [
   template: `
     <h3>Комплект документов</h3>
     <p class="hint">
-      Сборка PDF из шаблона выполняется в ПМ и в кабинет БНП не отправляется. ЭЦП ГосСУОК здесь не проверяется.
-      Файл PDF не больше 15 МБ. Рядом с пунктом — состояние и действия.
+      Подпись комплекта ставится один раз кнопкой «Подписать и направить», не у каждого файла.
+      Просмотр PDF открывается здесь и не скачивается. Файл PDF не больше 15 МБ.
     </p>
     <div class="split">
       <ul class="checks">
-        @for (slot of slots; track slot.code) {
-          <li [class.on]="selected() === slot.code" [class.done]="done(slot)">
+        @for (slot of visibleSlots(); track slot.code) {
+          <li [class.on]="selected() === slot.code" [class.done]="done(slot)" [class.need]="needed(slot) && !done(slot)">
             <button type="button" class="row" (click)="pick(slot.code)">
               <span class="box" [class.on]="done(slot)" aria-hidden="true"></span>
               <span class="title" [attr.title]="slot.title">{{ slot.title }}</span>
@@ -93,29 +101,16 @@ const SLOTS: Slot[] = [
             }
           }
           @if (currentDoc(); as doc) {
-            <p class="meta" [attr.title]="doc.file_name">{{ doc.file_name }} · {{ doc.generated ? 'собран в ПМ' : 'загружен' }} · {{ doc.has_signature ? doc.signature_name : 'файл ЭЦП не приложен' }}</p>
-            @if (doc.body) {
-              <textarea rows="12" [(ngModel)]="draft"></textarea>
-              <div class="acts">
-                <button mat-stroked-button type="button" [disabled]="busy()" (click)="saveText(doc)">Сохранить текст</button>
-                <button mat-button type="button" (click)="download(doc, 'pdf')">Смотреть PDF</button>
-              </div>
-              <p class="hint">Сохранение заново собирает PDF. Приложенный файл ЭЦП снимается: подпись была к прежнему файлу.</p>
-            } @else {
-              <p>Текст загруженного PDF в редакторе не разбирается. Можно заменить файл или скачать его.</p>
-              <button mat-button type="button" (click)="download(doc, 'pdf')">Смотреть PDF</button>
-            }
+            <p class="meta" [attr.title]="doc.file_name">{{ doc.file_name }} · {{ doc.generated ? 'собран в ПМ' : 'загружен' }}</p>
             <div class="acts">
-              <select [ngModel]="kindOf(doc)" (ngModelChange)="setKind(doc, $event)">
-                <option value="p7s">.pdf.p7s</option>
-                <option value="sgn">.pdf.sgn</option>
-              </select>
-              <label>ЭЦП <input type="file" accept=".p7s,.sgn,.pdf.p7s,.pdf.sgn" (change)="onSign(doc, $event)" /></label>
-              @if (doc.has_signature) {
-                <button mat-button type="button" (click)="download(doc, 'signature')">Скачать ЭЦП</button>
-              }
-              <button mat-button type="button" (click)="remove(doc)">Удалить</button>
+              <button type="button" (click)="viewPdf(doc)">Просмотреть</button>
+              <button type="button" (click)="viewPdf(doc)">PDF</button>
+              <button type="button" (click)="openEditor(doc)">Редактировать</button>
+              <button type="button" (click)="remove(doc)">Удалить</button>
             </div>
+            @if (pdfUrl(); as url) {
+              <iframe class="sheet" title="Просмотр PDF" [src]="url"></iframe>
+            }
           } @else if (slot.mode === 'doc' || slot.mode === 'scan') {
             <p class="empty">Документа в комплекте нет. Создайте его из шаблона или загрузите PDF.</p>
           }
@@ -140,6 +135,8 @@ const SLOTS: Slot[] = [
       display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0;
     }
     .checks li.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .checks li.need { border-color: #c62828; }
+    .sheet { width: 100%; height: 420px; border: 0; border-radius: 6px; background: #f4f6f8; }
     .row {
       display: grid; grid-template-columns: 16px minmax(0, 1fr) 2.75rem; align-items: center; column-gap: 8px;
       width: 100%; min-width: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; padding: 2px 0;
@@ -177,29 +174,46 @@ const SLOTS: Slot[] = [
     @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
   `,
 })
-export class ClaimChecklistComponent implements OnInit {
+export class ClaimChecklistComponent implements OnInit, OnDestroy {
   readonly claimId = input.required<number>();
   readonly pack = input<ClaimPackage | null>(null);
   readonly warningDate = input('');
   readonly tariff = input('');
+  readonly stage = input('');
   readonly changed = output<ClaimCase>();
 
   private readonly api = inject(ApiService);
   private readonly snack = inject(MatSnackBar);
+  private readonly router = inject(Router);
+  private readonly sanitizer = inject(DomSanitizer);
 
   protected readonly slots = SLOTS;
   protected readonly selected = signal('application');
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly busy = signal(false);
   protected readonly picking = signal(false);
+  protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected templateId: number | null = null;
-  protected draft = '';
+  private rawUrl = '';
 
   ngOnInit(): void {
     this.api.printForms().subscribe({
       next: (page) => this.forms.set(page.results),
       error: () => this.forms.set([]),
     });
+  }
+
+  ngOnDestroy(): void {
+    this.revoke();
+  }
+
+  protected visibleSlots(): Slot[] {
+    const court = ['refused', 'lawsuit', 'court'].includes(this.stage());
+    return court ? [...this.slots, ...COURT] : this.slots;
+  }
+
+  protected needed(slot: Slot): boolean {
+    return ['warning', 'tariff', 'application', 'ais', 'proxy'].includes(slot.code);
   }
 
   protected active(): Slot | undefined {
@@ -234,7 +248,7 @@ export class ClaimChecklistComponent implements OnInit {
   protected pick(code: string): void {
     this.selected.set(code);
     this.picking.set(false);
-    this.draft = this.documentFor(code)?.body || '';
+    this.pdfUrl.set(null);
   }
 
   protected templatesFor(): PrintFormRow[] | null {
@@ -259,17 +273,40 @@ export class ClaimChecklistComponent implements OnInit {
 
   protected createFromTemplate(): void {
     if (!this.templateId) return;
+    const formId = this.templateId;
     this.busy.set(true);
-    this.api.claimAction(this.claimId(), 'package/from-template', { form: this.templateId }).subscribe({
+    this.api.claimAction(this.claimId(), 'package/from-template', { form: formId }).subscribe({
       next: (row) => {
         this.busy.set(false);
         this.picking.set(false);
         this.changed.emit(row);
         const type = this.active()?.docType;
-        this.draft = row.package?.documents.find((doc) => doc.doc_type === type && doc.body)?.body || '';
-        this.snack.open('Документ собран из шаблона. В кабинет БНП он не отправлен.', 'OK', { duration: 3000 });
+        const doc = row.package?.documents.find((item) => item.doc_type === type);
+        this.openEditor(doc || null, formId);
       },
       error: (err) => this.fail(err),
+    });
+  }
+
+  protected openEditor(doc: BnpDocument | null, formId = this.templateId): void {
+    this.router.navigate(['/settings/work/forms'], {
+      queryParams: {
+        claim: this.claimId(),
+        doc: doc?.id || null,
+        form: formId || null,
+        pane: 'layout',
+      },
+    });
+  }
+
+  protected viewPdf(doc: BnpDocument): void {
+    this.api.claimPackageFile(this.claimId(), doc.id, 'pdf', true).subscribe({
+      next: (blob) => {
+        this.revoke();
+        this.rawUrl = URL.createObjectURL(blob);
+        this.pdfUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(this.rawUrl));
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }
 
@@ -281,39 +318,6 @@ export class ClaimChecklistComponent implements OnInit {
     this.selected.set(slot.code);
     const existing = slot.mode === 'scan' || slot.code === 'calc-file' ? undefined : this.docs(slot.docType)[0]?.id;
     this.api.uploadClaimDocument(this.claimId(), slot.docType, file, null, 'p7s', existing).subscribe({
-      next: (row) => {
-        this.draft = '';
-        this.changed.emit(row);
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
-  }
-
-  protected saveText(doc: BnpDocument): void {
-    this.busy.set(true);
-    this.api.claimAction(this.claimId(), `package/documents/${doc.id}/text`, { body: this.draft }).subscribe({
-      next: (row) => {
-        this.busy.set(false);
-        this.changed.emit(row);
-        this.snack.open('Текст сохранён, PDF собран заново', 'OK', { duration: 2500 });
-      },
-      error: (err) => this.fail(err),
-    });
-  }
-
-  protected onSign(doc: BnpDocument, event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = '';
-    if (!file) return;
-    this.api.uploadClaimDocument(this.claimId(), doc.doc_type, null, file, this.kindOf(doc), doc.id).subscribe({
-      next: (row) => this.changed.emit(row),
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
-  }
-
-  protected setKind(doc: BnpDocument, kind: string): void {
-    this.api.uploadClaimDocument(this.claimId(), doc.doc_type, null, null, kind, doc.id).subscribe({
       next: (row) => this.changed.emit(row),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -321,30 +325,9 @@ export class ClaimChecklistComponent implements OnInit {
 
   protected remove(doc: BnpDocument): void {
     this.api.deleteClaimDocument(this.claimId(), doc.id).subscribe({
-      next: (row) => {
-        this.draft = '';
-        this.changed.emit(row);
-      },
+      next: (row) => this.changed.emit(row),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
-  }
-
-  protected download(doc: BnpDocument, kind: 'pdf' | 'signature'): void {
-    this.api.claimPackageFile(this.claimId(), doc.id, kind).subscribe({
-      next: (blob) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = kind === 'pdf' ? doc.file_name : doc.signature_name;
-        link.click();
-        URL.revokeObjectURL(url);
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
-  }
-
-  protected kindOf(doc: BnpDocument): string {
-    return doc.signature_name.endsWith('.pdf.sgn') ? 'sgn' : 'p7s';
   }
 
   private docs(type: string): BnpDocument[] {
@@ -354,5 +337,10 @@ export class ClaimChecklistComponent implements OnInit {
   private fail(err: unknown): void {
     this.busy.set(false);
     this.snack.open(errorMessage(err), 'OK');
+  }
+
+  private revoke(): void {
+    if (this.rawUrl) URL.revokeObjectURL(this.rawUrl);
+    this.rawUrl = '';
   }
 }

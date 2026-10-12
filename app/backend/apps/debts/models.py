@@ -894,6 +894,7 @@ class ClaimPackageDocument(AisRecord):
     signer = models.CharField("Кто подписывает", max_length=20, default="applicant")
     generated = models.BooleanField("Собран в ПМ", default=False)
     body = models.TextField("Текст документа", blank=True)
+    layout = models.JSONField("Макет документа", default=dict, blank=True)
     pdf = models.FileField("PDF", upload_to="claims/bnp/%Y/%m/", blank=True)
     signature = models.FileField("ЭЦП", upload_to="claims/bnp/%Y/%m/", blank=True)
 

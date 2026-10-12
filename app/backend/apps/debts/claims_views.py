@@ -24,7 +24,9 @@ from .services.bnp_package import (
     manifest_bytes,
     open_document,
     save_package,
+    sign_and_send,
     store_document,
+    update_document_layout,
     update_document_text,
 )
 from .services.claims import (
@@ -35,10 +37,10 @@ from .services.claims import (
     decide_writeoff,
     move_case,
     notary_result,
-    stage_is_skip,
     open_case,
     record_opi,
     send_to_notary,
+    stage_is_skip,
     start_writeoff,
     update_case,
 )
@@ -125,6 +127,14 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"document": doc_id})
         return Response(case_payload(self._case(pk), with_choices=True))
 
+    @action(detail=True, methods=["post"], url_path=r"package/documents/(?P<doc_id>[0-9]+)/layout")
+    def package_document_layout(self, request, pk=None, doc_id=None):
+        update_document_layout(
+            self._case(pk), int(doc_id), str(request.data.get("body") or ""), request.data.get("blocks") or [],
+        )
+        record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"document": doc_id, "layout": True})
+        return Response(case_payload(self._case(pk), with_choices=True))
+
     @action(detail=True, methods=["post"], url_path="package/form")
     def package_form(self, request, pk=None):
         case = form_package(self._case(pk), request.user)
@@ -166,7 +176,19 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     def package_file(self, request, pk=None, doc_id=None, kind="pdf"):
         field, name = open_document(self._case(pk), int(doc_id), kind)
         content_type = "application/pdf" if kind == "pdf" else "application/octet-stream"
-        return FileResponse(field.open("rb"), as_attachment=True, filename=name, content_type=content_type)
+        inline = kind == "pdf" and request.query_params.get("inline") == "1"
+        return FileResponse(
+            field.open("rb"), as_attachment=not inline, filename=name, content_type=content_type,
+        )
+
+    @action(detail=True, methods=["post"], url_path="sign-and-send")
+    def sign_send(self, request, pk=None):
+        case = sign_and_send(self._case(pk), request.user)
+        record_action(
+            request, AuditLog.Action.UPDATE, case,
+            after={"submission_id": case.submission_id, "mode": "stub", "signed": "package"},
+        )
+        return Response(case_payload(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="send-notary")
     def send_notary(self, request, pk=None):
