@@ -7,7 +7,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
-import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, errorMessage } from '../../core/api.service';
+import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, WritChecklistItem, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DialSettings, MessageTemplate } from '../../core/models';
 const ACTIONS = [
@@ -21,6 +21,17 @@ const ACTIONS = [
   { id: 'writ', label: 'Исполнительная надпись' },
   { id: 'lawsuit', label: 'Иск' },
 ];
+
+const LOCKED_WRIT = ['warning', 'voluntary', 'package', 'tariff'];
+
+function defaultWritChecklist(): WritChecklistItem[] {
+  return [
+    { code: 'warning', order: 1, name: 'Предупреждение вручено', criteria: 'Есть дата вручения предупреждения или уведомления', mandatory: true, locked: true },
+    { code: 'voluntary', order: 2, name: 'Срок добровольной оплаты истёк', criteria: 'С даты вручения прошло не меньше срока, заданного для схемы', mandatory: true, locked: true },
+    { code: 'package', order: 3, name: 'Пакет документов', criteria: 'Сформирован пакет на исполнительную надпись', mandatory: true, locked: true },
+    { code: 'tariff', order: 4, name: 'Нотариальный тариф', criteria: 'Тариф из АИС больше нуля, заявление не отозвано', mandatory: true, locked: true },
+  ];
+}
 
 @Component({
   selector: 'app-scenarios',
@@ -133,7 +144,7 @@ const ACTIONS = [
               <h4>Действие</h4>
               <div class="line">
                 <mat-form-field><mat-label>Мера</mat-label>
-                  <mat-select [(ngModel)]="step.action">
+                  <mat-select [ngModel]="step.action" (ngModelChange)="onAction(step, $event)">
                     @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
                   </mat-select>
                 </mat-form-field>
@@ -153,6 +164,31 @@ const ACTIONS = [
               <mat-checkbox [(ngModel)]="step.auto_complete">Считать выполненным при успешной отправке</mat-checkbox>
               @if (step.action === 'messenger') {
                 <p class="banner">Мессенджер в сценарии есть, сообщение не отправляется.</p>
+              }
+              @if (step.action === 'writ') {
+                <h4>Чек-лист исполнительной надписи</h4>
+                <p class="muted">Название, порядок и критерий приёмки. Обязательный этап блокирует направление нотариусу. Пропуск — только с записанной причиной. Дату вручения, срок оплаты, пакет и тариф убрать нельзя.</p>
+                @for (item of step.checklist || []; track item.code; let index = $index) {
+                  <div class="check">
+                    <div class="line">
+                      <span class="ord">{{ item.order }}</span>
+                      <mat-form-field class="grow"><mat-label>Название</mat-label><input matInput [(ngModel)]="item.name" /></mat-form-field>
+                      <button mat-button type="button" (click)="moveCheck(step, index, -1)" [disabled]="index === 0">Выше</button>
+                      <button mat-button type="button" (click)="moveCheck(step, index, 1)" [disabled]="index === (step.checklist || []).length - 1">Ниже</button>
+                      @if (!item.locked) {
+                        <button mat-button type="button" (click)="removeCheck(step, index)">Убрать</button>
+                      }
+                    </div>
+                    <mat-form-field class="wide"><mat-label>Критерий приёмки</mat-label><textarea matInput rows="2" [(ngModel)]="item.criteria"></textarea></mat-form-field>
+                    <mat-checkbox [(ngModel)]="item.mandatory" [disabled]="!!item.locked">Обязательный этап</mat-checkbox>
+                    @if (!item.mandatory) {
+                      <p class="muted">Этот этап можно перескочить. При направлении нотариусу специалист записывает причину.</p>
+                    }
+                  </div>
+                }
+                @if (!hasDisconnect(step)) {
+                  <button mat-stroked-button type="button" (click)="addDisconnect(step)">+ Этап «Отключение услуг»</button>
+                }
               }
               <h4>Переход</h4>
               <mat-checkbox [(ngModel)]="step.blocks_next">Обязателен для перехода</mat-checkbox>
@@ -267,6 +303,8 @@ const ACTIONS = [
     .mode { background: var(--erip-success-soft); color: var(--erip-success); border-radius: 999px; padding: 2px 8px; }
     .mode.hand { background: var(--erip-warn-kind-soft); color: var(--erip-warn-kind); }
     .pane { display: flex; flex-direction: column; gap: 8px; }
+    .check { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .ord { font-weight: 700; color: var(--erip-primary-dark); min-width: 1.5rem; }
     .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; }
     .assign, .forms, .history { margin-top: 16px; }
     .history, .rev { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -452,6 +490,56 @@ export class ScenariosComponent implements OnInit {
     return this.actions.find((action) => action.id === id)?.label || id;
   }
 
+  protected onAction(step: ScenarioStep, action: string): void {
+    step.action = action;
+    if (action === 'writ') step.checklist = this.checksOf(step);
+  }
+
+  protected moveCheck(step: ScenarioStep, index: number, delta: number): void {
+    const list = [...(step.checklist || [])];
+    const next = index + delta;
+    if (next < 0 || next >= list.length) return;
+    const [item] = list.splice(index, 1);
+    list.splice(next, 0, item);
+    list.forEach((row, place) => { row.order = place + 1; });
+    step.checklist = list;
+  }
+
+  protected removeCheck(step: ScenarioStep, index: number): void {
+    const item = step.checklist?.[index];
+    if (!item || item.locked) return;
+    step.checklist = (step.checklist || []).filter((_, place) => place !== index)
+      .map((row, place) => ({ ...row, order: place + 1 }));
+  }
+
+  protected addDisconnect(step: ScenarioStep): void {
+    if (this.hasDisconnect(step)) return;
+    const list = [...(step.checklist || [])];
+    list.push({
+      code: 'disconnect',
+      order: list.length + 1,
+      name: 'Отключение услуг',
+      criteria: 'Услуги отключены. Неприменимый этап пропускается с записанной причиной',
+      mandatory: false,
+      locked: false,
+    });
+    step.checklist = list;
+  }
+
+  protected hasDisconnect(step: ScenarioStep): boolean {
+    return (step.checklist || []).some((item) => item.code === 'disconnect');
+  }
+
+  private checksOf(step: ScenarioStep): WritChecklistItem[] {
+    const raw = step.checklist?.length ? step.checklist : defaultWritChecklist();
+    return raw.map((item, index) => ({
+      ...item,
+      order: item.order || index + 1,
+      locked: LOCKED_WRIT.includes(item.code),
+      mandatory: LOCKED_WRIT.includes(item.code) ? true : item.mandatory !== false,
+    }));
+  }
+
   protected isAuto(id: string): boolean {
     return id === 'call' || id === 'sms' || id === 'email' || id === 'messenger';
   }
@@ -467,6 +555,7 @@ export class ScenariosComponent implements OnInit {
       previous_action: step.previous_action || '',
       require_status: step.require_status || '',
       blocks_next: step.blocks_next !== false,
+      checklist: step.action === 'writ' ? this.checksOf(step) : undefined,
     }));
     this.bindTemplateIds();
     this.scenarioCall = row.call_legal == null ? 'inherit' : row.call_legal ? 'yes' : 'no';
@@ -491,7 +580,9 @@ export class ScenariosComponent implements OnInit {
 
   protected addStep(): void {
     const order = this.steps.reduce((max, step) => Math.max(max, step.order), 0) + 1;
-    this.steps = [...this.steps.map((step) => ({ ...step, terminal: false })), { order, action: 'writ', wait_days: 0, terminal: true }];
+    this.steps = [...this.steps.map((step) => ({ ...step, terminal: false })), {
+      order, action: 'writ', wait_days: 0, terminal: true, checklist: defaultWritChecklist(),
+    }];
     this.picked.set(this.steps.length - 1);
   }
 
@@ -670,6 +761,17 @@ export class ScenariosComponent implements OnInit {
       auto_complete: Boolean(step.auto_complete),
       blocks_next: step.blocks_next !== false,
       terminal: Boolean(step.terminal),
+      ...(step.action === 'writ' ? { checklist: this.cleanChecks(step) } : {}),
+    }));
+  }
+
+  private cleanChecks(step: ScenarioStep): WritChecklistItem[] {
+    return this.checksOf(step).map((item, index) => ({
+      code: item.code,
+      name: (item.name || '').trim(),
+      order: index + 1,
+      criteria: (item.criteria || '').trim(),
+      mandatory: LOCKED_WRIT.includes(item.code) ? true : Boolean(item.mandatory),
     }));
   }
 

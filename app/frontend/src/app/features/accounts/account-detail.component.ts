@@ -11,7 +11,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
 import { MatTabsModule } from '@angular/material/tabs';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { finalize, forkJoin } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
@@ -485,10 +485,10 @@ import {
               <div class="alert" [class.warning]="!checksReady()" [class.success]="checksReady()">
                 <mat-icon>{{ checksReady() ? 'check_circle' : 'flag' }}</mat-icon>
                 <span class="spacer">
-                  {{ checksReady() ? 'Все пункты выполнены' : 'Пакет на исполнительную надпись недоступен до выполнения всех пунктов чек-листа' }}
+                  {{ checksReady() ? 'Все пункты подготовки отмечены. Пакет собирается в деле.' : 'Пакет собирается в деле взыскания: чек-лист сценария, шаблоны и архив для БНП.' }}
                 </span>
                 @if (auth.canWrite()) {
-                  <button mat-flat-button [disabled]="!checksReady()" (click)="addWorkPack()">Сформировать пакет документов</button>
+                  <button mat-flat-button (click)="openWritCase()">Открыть дело и пакет</button>
                 }
                 <a mat-stroked-button [routerLink]="['/claims']" [queryParams]="{ account: account()?.id }">Дело взыскания</a>
               </div>
@@ -674,6 +674,7 @@ import {
 })
 export class AccountDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
   protected readonly auth = inject(AuthService);
   protected skipReason = '';
   private readonly snack = inject(MatSnackBar);
@@ -1207,11 +1208,11 @@ export class AccountDetailComponent implements OnInit {
     return rows.length > 0 && rows.every((row) => row.done);
   }
 
-  addWorkPack(): void {
+  openWritCase(): void {
     const a = this.account();
     if (!a) return;
-    this.api.saveWork({ account: a.id, kind: 'writ', title: 'Пакет документов на исполнительную надпись' }).subscribe({
-      next: () => this.snack.open('Пакет добавлен во вкладку «Работа с задолженностью»', 'OK', { duration: 4000 }),
+    this.api.openClaim(a.id).subscribe({
+      next: (row) => this.router.navigate(['/claims', row.id]),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }

@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
+import zipfile
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -69,6 +71,7 @@ def package_payload(case: ClaimCase) -> dict:
             "documents": [],
             "problems": [],
             "manifest": {},
+            "has_archive": False,
             "send_blockers": ["Сначала сформируйте пакет для личного кабинета БНП"],
             **catalog,
         })
@@ -86,6 +89,7 @@ def package_payload(case: ClaimCase) -> dict:
         "documents": [_document_payload(doc, labels) for doc in package.documents.all()],
         "problems": list(package.problems or []),
         "manifest": package.manifest if package.formed_at else {},
+        "has_archive": bool(package.archive),
         "send_blockers": send_blockers(case, package),
         **catalog,
     }
@@ -217,15 +221,62 @@ def stamp_package_signatures(case: ClaimCase) -> ClaimPackage:
     return package
 
 
-def sign_and_send(case: ClaimCase, user) -> ClaimCase:
+def sign_and_send(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
     from apps.debts.services.claims import _require_notary_fields, send_to_notary
 
-    _require_notary_fields(case)
+    _require_notary_fields(case, skip_reason, defer=frozenset({"package"}))
     package = stored_package(case)
     if package is None or not package.formed_at:
         form_package(case, user)
     stamp_package_signatures(case)
-    return send_to_notary(case, user)
+    write_archive(case)
+    return send_to_notary(case, user, skip_reason)
+
+
+def write_archive(case: ClaimCase) -> ClaimPackage:
+    """Zip манифеста, PDF и файлов отметки. В кабинет БНП архив не отправляется."""
+    package = stored_package(case)
+    if package is None or not package.formed_at:
+        raise ClaimBlocked("Сначала сформируйте пакет")
+    package.manifest = _manifest(case, package)
+    package.save(update_fields=["manifest", "updated_at"])
+    buffer = io.BytesIO()
+    used: set[str] = set()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", manifest_bytes(case))
+        used.add("manifest.json")
+        for doc in package.documents.all():
+            if not doc.pdf or doc.doc_type not in OUTGOING_DOCS:
+                continue
+            _put_zip(archive, used, doc.file_name, doc.pdf)
+            if doc.signature:
+                _put_zip(archive, used, doc.signature_name, doc.signature)
+    filename = f"bnp-claim-{case.pk}.zip"
+    if package.archive:
+        package.archive.delete(save=False)
+    package.archive.save(filename, ContentFile(buffer.getvalue()), save=True)
+    return package
+
+
+def open_archive(case: ClaimCase):
+    package = stored_package(case)
+    if package is None or not package.archive:
+        raise ClaimBlocked("Архив для портала БНП ещё не собран")
+    name = package.archive.name.rsplit("/", 1)[-1]
+    return package.archive, name
+
+
+def _put_zip(archive: zipfile.ZipFile, used: set[str], name: str, field) -> None:
+    safe = (name or "file").replace("\\", "/").split("/")[-1]
+    if safe in used:
+        safe = f"{len(used)}-{safe}"
+    used.add(safe)
+    field.open("rb")
+    try:
+        payload = field.read()
+    finally:
+        field.close()
+    archive.writestr(safe, payload)
 
 
 def update_document_text(case: ClaimCase, doc_id: int, body: str) -> ClaimPackageDocument:
@@ -247,7 +298,7 @@ def update_document_text(case: ClaimCase, doc_id: int, body: str) -> ClaimPackag
 
 def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str, blocks=None) -> ClaimPackageDocument:
     payload_name = name[:180]
-    if doc_type == "other_document":
+    if doc_type in {"other_document", "debt_calculation"}:
         document = package.documents.filter(doc_type=doc_type, generated=True).first()
     elif doc_type in REQUIRED_DOCS or doc_type in COURT_DOCS:
         document = package.documents.filter(doc_type=doc_type).first()
@@ -315,8 +366,8 @@ def store_document(
 ) -> ClaimPackageDocument:
     package = _ensure(case)
     doc_type = (doc_type or "").strip()
-    if doc_type not in OUTGOING_DOCS:
-        raise ClaimBlocked("Этот тип документа в исходящий пакет не входит")
+    if doc_type not in OUTGOING_DOCS and doc_type not in COURT_DOCS:
+        raise ClaimBlocked("Этот тип документа в комплект не входит")
     if signature_kind not in {"p7s", "sgn"}:
         raise ClaimBlocked("Формат ЭЦП: p7s или sgn")
     document = _find_document(package, doc_type, doc_id)
@@ -465,6 +516,8 @@ def _ensure(case: ClaimCase) -> ClaimPackage:
 
 
 def _invalidate(package: ClaimPackage) -> None:
+    if package.archive:
+        package.archive.delete(save=False)
     package.formed_at = None
     package.manifest = {}
     package.problems = []
@@ -617,6 +670,8 @@ def _normalize_debts(account: Account, raw) -> list[dict]:
         start = _iso(item.get("startDate"), "startDate")
         end = _iso(item.get("endDate"), "endDate")
         at = _iso(item.get("dateAt"), "dateAt")
+        if start and end and at:
+            raise ClaimBlocked("У строки задолженности укажите либо период, либо одну дату")
         rows.append(_debt_row(account, source, str(item.get("typeId") or "").strip(), at or "", start or "", end or ""))
     return rows
 
@@ -867,7 +922,9 @@ def _find_document(package: ClaimPackage, doc_type: str, doc_id) -> ClaimPackage
         if document is None:
             raise ClaimBlocked("Документ не из этого пакета")
         return document
-    if doc_type in REQUIRED_DOCS:
+    if doc_type == "debt_calculation":
+        return package.documents.filter(doc_type=doc_type, generated=False).first()
+    if doc_type in REQUIRED_DOCS or doc_type in COURT_DOCS:
         return package.documents.filter(doc_type=doc_type).first()
     return None
 

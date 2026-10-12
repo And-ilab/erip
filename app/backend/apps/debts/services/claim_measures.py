@@ -28,6 +28,12 @@ def sync_claim_measure(case: ClaimCase) -> Measure:
     note = (case.notary_note or case.skip_reason or label)[:500]
     measure = Measure.objects.filter(accounts=account, source_action="claim").order_by("id").first()
     if measure is None:
+        measure = (
+            Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION, source_action="writ")
+            .order_by("id")
+            .first()
+        )
+    if measure is None:
         measure = Measure.objects.create(
             organization=account.organization,
             kind=Measure.Kind.COLLECTION,

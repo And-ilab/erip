@@ -230,6 +230,85 @@ def test_collection_executor_is_the_pinned_billing_specialist(org_a, specialist_
 
 
 @pytest.mark.django_db
+def test_writ_step_opens_one_case_and_fills_templates(org_a, specialist_a):
+    from apps.debts.models import ClaimCase, ClaimPackageDocument, TaskCheck
+    from apps.nsi.models import ScenarioDefinition, ScenarioRevision
+    from apps.nsi.services.scenario_engine import advance_account
+    from apps.nsi.services.writ_checklist import default_checklist
+
+    account = _with_group(org_a, 8401, 5, 14)
+    steps = [
+        {"order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False},
+        {
+            "order": 2, "action": "writ", "wait_days": 0, "terminal": True,
+            "template": "Исполнительная надпись", "checklist": default_checklist(),
+        },
+    ]
+    scenario = ScenarioDefinition.objects.create(
+        organization=org_a, name="Надпись", status=ScenarioDefinition.Status.ACTIVE, version=1, steps=steps,
+    )
+    ScenarioRevision.objects.create(scenario=scenario, version=1, steps=steps)
+    today = timezone.localdate()
+    call = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.CALL, status=Measure.Status.DONE, template_name="Автообзвон",
+        started_on=today, due_on=today, source_scenario=scenario, source_version=1, source_step=1, source_action="call",
+    )
+    call.accounts.add(account)
+    MeasureItem.objects.create(
+        organization=org_a, measure=call, account=account, status=MeasureItem.Status.DONE,
+    )
+    AccountScenarioRun.objects.create(organization=org_a, account=account, scenario=scenario, version=1)
+    advance_account(account)
+
+    rows = list(Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION))
+    assert len(rows) == 1
+    writ = rows[0]
+    assert writ.source_action == "writ"
+    assert writ.source_step == 2
+    case = ClaimCase.objects.get(account=account)
+    assert case.stage == "prep"
+    titles = list(TaskCheck.objects.filter(task__measure=writ).order_by("id").values_list("title", flat=True))
+    assert titles == [item["name"] for item in default_checklist()]
+    kinds = set(
+        ClaimPackageDocument.objects.filter(package__case=case, generated=True).values_list("doc_type", flat=True)
+    )
+    assert {"application", "debt_calculation", "proxy"} <= kinds
+
+
+@pytest.mark.django_db
+def test_writ_step_reuses_the_open_claim_measure(api, org_a, specialist_a):
+    from apps.nsi.models import ScenarioDefinition, ScenarioRevision
+    from apps.nsi.services.scenario_engine import advance_account
+
+    account = _with_group(org_a, 8402, 5, 14)
+    opened = api(specialist_a).post("/api/v1/claims/", {"account": account.id}, format="json")
+    assert opened.status_code == 201, opened.content
+    steps = [
+        {"order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False},
+        {"order": 2, "action": "writ", "wait_days": 0, "terminal": True, "template": "Исполнительная надпись"},
+    ]
+    scenario = ScenarioDefinition.objects.create(
+        organization=org_a, name="Позже", status=ScenarioDefinition.Status.ACTIVE, version=1, steps=steps,
+    )
+    ScenarioRevision.objects.create(scenario=scenario, version=1, steps=steps)
+    today = timezone.localdate()
+    call = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.CALL, status=Measure.Status.DONE, template_name="Автообзвон",
+        started_on=today, due_on=today, source_scenario=scenario, source_version=1, source_step=1, source_action="call",
+    )
+    call.accounts.add(account)
+    MeasureItem.objects.create(
+        organization=org_a, measure=call, account=account, status=MeasureItem.Status.DONE,
+    )
+    AccountScenarioRun.objects.create(organization=org_a, account=account, scenario=scenario, version=1)
+    advance_account(account)
+    rows = list(Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION))
+    assert len(rows) == 1
+    assert rows[0].source_action == "writ"
+    assert rows[0].source_scenario_id == scenario.id
+
+
+@pytest.mark.django_db
 def test_collection_without_a_specialist_is_assigned_not_failed(org_a):
     from apps.nsi.services.scenario_engine import ensure_imported_run
 

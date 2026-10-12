@@ -58,6 +58,30 @@ def test_package_uses_ais_amount_and_names_the_signature(api, specialist_a, acco
 
 
 @pytest.mark.django_db
+def test_sign_and_send_saves_the_bnp_archive_on_disk(api, specialist_a, account_a):
+    import io
+    import zipfile
+
+    case_id = _ready(api, specialist_a, account_a)
+    _formed_package(api, specialist_a, account_a, case_id)
+    sent = api(specialist_a).post(f"/api/v1/claims/{case_id}/sign-and-send/", {}, format="json")
+    assert sent.status_code == 200, sent.content
+    body = sent.json()
+    assert body["submission_mode"] == "stub"
+    assert body["package"]["has_archive"] is True
+    downloaded = api(specialist_a).get(f"/api/v1/claims/{case_id}/package/archive/")
+    assert downloaded.status_code == 200
+    raw = b"".join(downloaded.streaming_content)
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        names = archive.namelist()
+        manifest = archive.read("manifest.json")
+    assert "manifest.json" in names
+    assert any(name.endswith(".pdf") for name in names)
+    assert any(name.endswith(".p7s") for name in names)
+    assert b".pdf.p7s" in manifest
+
+
+@pytest.mark.django_db
 def test_send_stays_a_stub_until_the_package_and_signatures_exist(api, specialist_a, account_a):
     case_id = _ready(api, specialist_a, account_a)
     blocked = api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
@@ -131,6 +155,71 @@ def test_new_tariff_drops_the_formed_package(api, specialist_a, account_a):
     assert patched.json()["package"]["formed_at"] is None
 
 
+@pytest.mark.django_db
+def test_calculation_template_and_upload_keep_both_files(api, specialist_a, account_a):
+    from apps.nsi.models import PrintForm
+
+    call_command("loaddata", "bnp_dictionaries", verbosity=0)
+    case_id = _ready(api, specialist_a, account_a)
+    api(specialist_a).post(f"/api/v1/claims/{case_id}/package/", _composition(), format="json")
+    form = PrintForm.objects.get(code="notary-calculation")
+    created = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/package/from-template/", {"form": form.id}, format="json",
+    )
+    assert created.status_code == 200, created.content
+    uploaded = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/package/documents/",
+        {"doc_type": "debt_calculation", "pdf": SimpleUploadedFile("raschet-ais.pdf", b"%PDF-1.4")},
+        format="multipart",
+    )
+    assert uploaded.status_code == 200, uploaded.content
+    docs = [item for item in uploaded.json()["package"]["documents"] if item["doc_type"] == "debt_calculation"]
+    assert len(docs) == 2
+    assert {item["generated"] for item in docs} == {True, False}
+    assert any(item["file_name"] == "raschet-ais.pdf" for item in docs)
+
+    again = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/package/from-template/", {"form": form.id}, format="json",
+    )
+    assert again.status_code == 200, again.content
+    docs = [item for item in again.json()["package"]["documents"] if item["doc_type"] == "debt_calculation"]
+    assert len(docs) == 2
+    assert any(item["file_name"] == "raschet-ais.pdf" and item["generated"] is False for item in docs)
+
+
+@pytest.mark.django_db
+def test_debt_row_rejects_period_together_with_a_single_date(api, specialist_a, account_a):
+    call_command("loaddata", "bnp_dictionaries", verbosity=0)
+    case_id = _ready(api, specialist_a, account_a)
+    body = _composition()
+    body["debts"] = [{
+        "source": "balance", "typeId": "dolg_9_3",
+        "startDate": "2026-01-01", "endDate": "2026-03-01", "dateAt": "2026-02-01",
+    }]
+    saved = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/", body, format="json")
+    assert saved.status_code == 400
+    assert "период" in saved.content.decode()
+
+
+@pytest.mark.django_db
+def test_lawsuit_file_stays_out_of_the_bnp_manifest(api, specialist_a, account_a):
+    case_id = _ready(api, specialist_a, account_a)
+    _formed_package(api, specialist_a, account_a, case_id)
+    uploaded = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/package/documents/",
+        {"doc_type": "lawsuit", "pdf": SimpleUploadedFile("isk.pdf", b"%PDF-1.4")},
+        format="multipart",
+    )
+    assert uploaded.status_code == 200, uploaded.content
+    names = [item["doc_type"] for item in uploaded.json()["package"]["documents"]]
+    assert "lawsuit" in names
+    formed = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/form/", {}, format="json")
+    assert formed.status_code == 200, formed.content
+    manifest_types = [item["docType"] for item in formed.json()["package"]["manifest"]["applications"][0]["docs"]]
+    assert "lawsuit" not in manifest_types
+
+
+@pytest.mark.django_db
 def test_changed_ais_amount_blocks_the_stub_send(api, specialist_a, account_a):
     case_id = _ready(api, specialist_a, account_a)
     _formed_package(api, specialist_a, account_a, case_id)

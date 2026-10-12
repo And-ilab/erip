@@ -39,8 +39,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
           (queryChange)="onFilter($event)" />
       </div>
       <p class="hint">
-        Нотариат — исполнительная надпись, более короткий путь. Суд — если спор или нотариус отказал.
-        ОПИ взыскивает деньги в конце цепочки, это не отдельный модуль.
+        Нотариат — исполнительная надпись. Суд — если спор или нотариус отказал.
+        ОПИ и итог стоят в конце обеих вкладок, но дело видно только на своей ветке.
       </p>
       <nav class="modules">
         <button type="button" [class.on]="module() === 'notary'" (click)="setModule('notary')">1. Нотариат</button>
@@ -173,6 +173,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <h2>Добавление исполнительной надписи</h2>
             <p class="hint">
               Пакет собирается из шаблона и вложений. Переход «Направлено нотариусу» возможен только с датой вручения предупреждения и нотариальным тарифом.
+              Названия, порядок и обязательность этапов задаёт чек-лист шага «Исполнительная надпись» в конструкторе сценариев.
               Дальше пакет собирается на карточке: манифест, PDF и файлы ЭЦП .pdf.sgn / .pdf.p7s. В личный кабинет БНП отправка не идёт.
             </p>
 
@@ -535,6 +536,7 @@ export class ClaimsBoardComponent implements OnInit {
   protected setModule(module: 'notary' | 'court'): void {
     this.module.set(module);
     this.router.navigate([], { relativeTo: this.route, queryParams: { module }, queryParamsHandling: 'merge' });
+    this.refreshView();
   }
 
   protected courtFrom(card: AccountRow): string {
@@ -546,8 +548,9 @@ export class ClaimsBoardComponent implements OnInit {
 
   protected toCourt(event: Event, card: AccountRow): void {
     event.stopPropagation();
-    this.setModule('court');
-    this.move(card, 'lawsuit');
+    const stage = card.claim_stage || 'queue';
+    const reason = stage === 'refused' ? 'Отказ нотариуса' : 'Спор о праве';
+    this.moveIds([card.id], 'lawsuit', reason, () => this.setModule('court'));
   }
 
   protected boardEmpty(): boolean {
@@ -640,13 +643,14 @@ export class ClaimsBoardComponent implements OnInit {
     this.moveIds([card.id], stage);
   }
 
-  private moveIds(ids: number[], stage: string): void {
+  private moveIds(ids: number[], stage: string, reason = '', done?: () => void): void {
     const pending = this.board().flatMap((column) => column.cards).filter((card) => ids.includes(card.id));
     const step = (): void => {
       const card = pending.shift();
       if (!card) {
         this.selected.set(new Set());
-        this.loadBoard();
+        if (done) done();
+        else this.loadBoard();
         return;
       }
       if ((card.claim_stage || 'queue') === stage) {
@@ -659,7 +663,7 @@ export class ClaimsBoardComponent implements OnInit {
         return;
       }
       const moved = (claimId: number): void => {
-        this.api.claimAction(claimId, 'move', { stage }).subscribe({
+        this.api.claimAction(claimId, 'move', { stage, reason }).subscribe({
           next: () => step(),
           error: (err) => {
             this.snack.open(errorMessage(err), 'OK');
@@ -968,6 +972,7 @@ export class ClaimsBoardComponent implements OnInit {
     else if (this.filter.ratings.length) params['rating__in'] = this.filter.ratings.join(',');
     if (this.filter.stage) params['funnel_stage'] = this.filter.stage;
     if (this.filter.domain) params['domain'] = JSON.stringify(this.filter.domain);
+    params['claim_module'] = this.module();
     return params;
   }
 

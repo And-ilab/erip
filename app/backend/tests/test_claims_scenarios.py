@@ -6,9 +6,9 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 
-from apps.debts.models import AccountScenarioRun, Attachment, DebtWorkItem, Measure
-from apps.nsi.services.scenario_engine import step_template_name
+from apps.debts.models import AccountScenarioRun, Attachment, ClaimCase, ClaimEvent, DebtWorkItem, Measure
 from apps.notifications.models import MessageTemplate
+from apps.nsi.services.scenario_engine import step_template_name
 
 from .conftest import make_account
 
@@ -573,6 +573,57 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
 
 
 @pytest.mark.django_db
+def test_second_open_returns_the_same_case(api, specialist_a, account_a):
+    first = api(specialist_a).post("/api/v1/claims/", {"account": account_a.id}, format="json")
+    second = api(specialist_a).post("/api/v1/claims/", {"account": account_a.id}, format="json")
+    assert first.status_code == 201, first.content
+    assert second.status_code == 201, second.content
+    assert first.json()["id"] == second.json()["id"]
+    assert ClaimCase.objects.filter(account=account_a).count() == 1
+
+
+@pytest.mark.django_db
+def test_notary_note_does_not_replace_the_lawsuit_note(api, specialist_a, account_a):
+    case_id = _ready(api, specialist_a, account_a)
+    saved = api(specialist_a).patch(
+        f"/api/v1/claims/{case_id}/",
+        {"notary_note": "Ждём постановление", "lawsuit_note": "Иск о взыскании"},
+        format="json",
+    )
+    assert saved.status_code == 200, saved.content
+    assert saved.json()["notary_note"] == "Ждём постановление"
+    assert saved.json()["lawsuit_note"] == "Иск о взыскании"
+
+
+@pytest.mark.django_db
+def test_opi_card_stays_on_one_branch(api, specialist_a, org_a):
+    writ = make_account(org_a, 7101, client_account="00007101", debt_group=3)
+    court = make_account(org_a, 7102, client_account="00007102", debt_group=3)
+    writ_case = ClaimCase.objects.create(organization=org_a, account=writ, stage=ClaimCase.Stage.OPI)
+    ClaimEvent.objects.create(case=writ_case, old_stage="writ_done", new_stage="opi", reason="Направлено в ОПИ")
+    court_case = ClaimCase.objects.create(organization=org_a, account=court, stage=ClaimCase.Stage.OPI)
+    ClaimEvent.objects.create(case=court_case, old_stage="lawsuit", new_stage="court", reason="Решение суда")
+    ClaimEvent.objects.create(case=court_case, old_stage="court", new_stage="opi", reason="Направлено в ОПИ")
+
+    def ids(module):
+        columns = api(specialist_a).get(
+            "/api/v1/accounts/kanban/", {"scope": "claims", "claim_module": module},
+        ).json()
+        return {card["id"] for column in columns for card in column["cards"]}
+
+    notary_ids = ids("notary")
+    court_ids = ids("court")
+    assert writ.id in notary_ids
+    assert writ.id not in court_ids
+    assert court.id in court_ids
+    assert court.id not in notary_ids
+
+    listed = api(specialist_a).get("/api/v1/accounts/", {"scope": "claims", "claim_module": "court", "page_size": 50})
+    assert {row["id"] for row in listed.json()["results"]} >= {court.id}
+    assert writ.id not in {row["id"] for row in listed.json()["results"]}
+
+
+@pytest.mark.django_db
 def test_scenario_step_keeps_the_template_after_rename(org_a):
     template = MessageTemplate.objects.create(
         organization=org_a, code="remind", name="Старое имя", channel="sms", body="Текст",
@@ -582,3 +633,147 @@ def test_scenario_step_keeps_the_template_after_rename(org_a):
     template.save(update_fields=["name"])
     assert step_template_name({"template_id": template.id, "template": "Старое имя"}, "Сценарий") == "Новое имя"
     assert step_template_name({"template": "Как записано"}, "Сценарий") == "Как записано"
+
+
+def _checklist_with_disconnect(*, mandatory: bool) -> list[dict]:
+    from apps.nsi.services.writ_checklist import default_checklist
+
+    rows = default_checklist()
+    rows.append({
+        "code": "disconnect",
+        "order": len(rows) + 1,
+        "name": "Отключение услуг",
+        "criteria": "Услуги отключены или этап неприменим",
+        "mandatory": mandatory,
+    })
+    return rows
+
+
+def _publish_writ(api, admin, account, checklist: list[dict]):
+    created = api(admin).post(
+        "/api/v1/nsi/scenarios/",
+        {
+            "name": "Надпись с чек-листом",
+            "steps": [
+                {"order": 1, "action": "warning", "wait_days": 0, "terminal": False},
+                {"order": 2, "action": "writ", "wait_days": 0, "terminal": True, "checklist": checklist},
+            ],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    scenario_id = created.json()["id"]
+    published = api(admin).post(f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {}, format="json")
+    assert published.status_code == 200, published.content
+    from apps.nsi.models import ScenarioDefinition
+
+    scenario = ScenarioDefinition.objects.get(pk=scenario_id)
+    AccountScenarioRun.objects.create(
+        organization=account.organization, account=account, scenario=scenario, version=scenario.version,
+    )
+    return scenario_id
+
+
+@pytest.mark.django_db
+def test_writ_step_gets_the_legal_checklist_and_keeps_a_skippable_stage(api, admin_a):
+    created = api(admin_a).post(
+        "/api/v1/nsi/scenarios/",
+        {"name": "Без чек-листа", "steps": [{"order": 1, "action": "writ", "terminal": True}]},
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    codes = [item["code"] for item in created.json()["steps"][0]["checklist"]]
+    assert codes == ["warning", "voluntary", "package", "tariff"]
+    assert all(item["mandatory"] for item in created.json()["steps"][0]["checklist"])
+
+    dropped = api(admin_a).post(
+        "/api/v1/nsi/scenarios/",
+        {
+            "name": "Без тарифа",
+            "steps": [{
+                "order": 1, "action": "writ", "terminal": True,
+                "checklist": [item for item in created.json()["steps"][0]["checklist"] if item["code"] != "tariff"],
+            }],
+        },
+        format="json",
+    )
+    assert dropped.status_code == 400
+    assert "тариф" in dropped.content.decode().lower()
+
+    optional = api(admin_a).post(
+        "/api/v1/nsi/scenarios/",
+        {
+            "name": "С пропуском",
+            "steps": [{
+                "order": 1, "action": "writ", "terminal": True,
+                "checklist": _checklist_with_disconnect(mandatory=False),
+            }],
+        },
+        format="json",
+    )
+    assert optional.status_code == 201, optional.content
+    saved = optional.json()["steps"][0]["checklist"]
+    assert [item["code"] for item in saved][-1] == "disconnect"
+    assert saved[-1]["mandatory"] is False
+
+    forced = dict(saved[0])
+    forced["mandatory"] = False
+    rows = [forced, *saved[1:]]
+    rejected = api(admin_a).patch(
+        f"/api/v1/nsi/scenarios/{optional.json()['id']}/",
+        {"steps": [{"order": 1, "action": "writ", "terminal": True, "checklist": rows}]},
+        format="json",
+    )
+    assert rejected.status_code == 400
+    assert "пропуск" in rejected.content.decode().lower()
+
+
+@pytest.mark.django_db
+def test_notary_follows_the_scenario_checklist(api, specialist_a, admin_a, account_a):
+    from django.utils import timezone
+
+    opened = api(specialist_a).post("/api/v1/claims/", {"account": account_a.id}, format="json")
+    assert opened.status_code == 201, opened.content
+    checklist = opened.json()["writ_checklist"]
+    assert [item["code"] for item in checklist] == ["warning", "voluntary", "package", "tariff"]
+    assert checklist[0]["met"] is False
+
+    _publish_writ(api, admin_a, account_a, _checklist_with_disconnect(mandatory=True))
+    case_id = _ready(api, specialist_a, account_a)
+    _formed_package(api, specialist_a, account_a, case_id)
+    blocked = api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
+    assert blocked.status_code == 400
+    assert "отключен" in blocked.content.decode().lower()
+
+    measure = Measure.objects.create(
+        organization=account_a.organization, kind=Measure.Kind.DISCONNECT, status=Measure.Status.DONE,
+    )
+    measure.accounts.add(account_a)
+    sent = api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
+    assert sent.status_code == 200, sent.content
+    assert sent.json()["stage"] == "notary"
+
+    other = make_account(account_a.organization, 1002, client_account="00001002", debt_group=3)
+    _publish_writ(api, admin_a, other, _checklist_with_disconnect(mandatory=False))
+    other_id = _ready(api, specialist_a, other)
+    _formed_package(api, specialist_a, other, other_id)
+    needs_reason = api(specialist_a).post(f"/api/v1/claims/{other_id}/send-notary/", {}, format="json")
+    assert needs_reason.status_code == 400
+    assert "причин" in needs_reason.content.decode().lower()
+    skipped = api(specialist_a).post(
+        f"/api/v1/claims/{other_id}/send-notary/",
+        {"skip_reason": "Отключение технически невозможно"},
+        format="json",
+    )
+    assert skipped.status_code == 200, skipped.content
+    assert skipped.json()["skip_reason"] == "Отключение технически невозможно"
+    assert any("Пропуск:" in item["reason"] for item in skipped.json()["events"])
+
+    fresh = make_account(account_a.organization, 1003, client_account="00001003", debt_group=3)
+    fresh_id = _ready(api, specialist_a, fresh)
+    today = timezone.localdate().isoformat()
+    api(specialist_a).patch(f"/api/v1/claims/{fresh_id}/", {"warning_delivered_on": today}, format="json")
+    early = api(specialist_a).post(f"/api/v1/claims/{fresh_id}/send-notary/", {}, format="json")
+    assert early.status_code == 400
+    assert "истёк" in early.content.decode().lower()
+

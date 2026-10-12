@@ -361,6 +361,11 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
     actor = User.objects.filter(pk=user).first() if user else None
     if actor is None:
         actor = User.objects.filter(organization_id=account.organization_id, is_active=True).order_by("id").first()
+    if action == "writ":
+        adopted = _adopt_claim_measure(account, run, step)
+        if adopted is not None:
+            _open_writ_case(account, actor)
+            return adopted
     result = launch_measure(actor, [account], services, data)
     measure = result["measure"]
     measure.source_scenario = scenario
@@ -371,7 +376,42 @@ def _launch(account: Account, run: AccountScenarioRun, step: dict) -> Measure:
     measure.save(update_fields=[
         "source_scenario", "source_version", "source_step", "source_action", "auto_complete", "updated_at",
     ])
+    if action == "writ":
+        _open_writ_case(account, actor)
     return measure
+
+
+def _adopt_claim_measure(account: Account, run: AccountScenarioRun, step: dict) -> Measure | None:
+    """Дело, открытое раньше шага, остаётся той же строкой взыскания."""
+    closed = {Measure.Status.DONE, Measure.Status.CANCELLED}
+    measure = (
+        Measure.objects.filter(accounts=account, source_action="claim", kind=Measure.Kind.COLLECTION)
+        .exclude(status__in=closed)
+        .order_by("id")
+        .first()
+    )
+    if measure is None:
+        return None
+    measure.source_scenario = run.scenario
+    measure.source_version = run.version
+    measure.source_step = step.get("order")
+    measure.source_action = "writ"
+    measure.scenario_name = run.scenario.name
+    measure.save(update_fields=[
+        "source_scenario", "source_version", "source_step", "source_action", "scenario_name", "updated_at",
+    ])
+    return measure
+
+
+def _open_writ_case(account: Account, actor) -> None:
+    from apps.debts.services.claims import ClaimBlocked, open_case
+    from apps.debts.services.writ_flow import fill_writ_templates
+
+    try:
+        case = open_case(account, actor)
+    except ClaimBlocked:
+        return
+    fill_writ_templates(case, actor)
 
 
 def _remember_blocked(account: Account, run: AccountScenarioRun, step: dict, reason: str) -> None:

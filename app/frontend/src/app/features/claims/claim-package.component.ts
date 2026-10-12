@@ -20,7 +20,8 @@ import {
       Пункт перечня выбирается здесь. Для задолженности за ЖКУ в справочнике отмечены услуги 571, 572 и 576.
       Суммы подставляет АИС: исходящее сальдо лицевого счёта и, отдельной строкой, пеня. ПМ их не правит.
       Документы комплекта смотрят и правят в списке выше. Подпись ставится один раз кнопкой «Подписать и направить»,
-      когда пакет уже собран. В кабинет БНП этот вызов не передаёт пакет и ЭЦП ГосСУОК не проверяет.
+      когда пакет уже собран: на диск кладётся zip с манифестом, PDF и файлами отметки.
+      В кабинет БНП этот вызов не передаёт пакет и ЭЦП ГосСУОК не проверяет.
     </p>
 
     <mat-form-field class="wide">
@@ -105,6 +106,9 @@ import {
       <button mat-flat-button color="primary" type="button" [disabled]="busy" (click)="form()">Сформировать пакет</button>
       @if (pack().formed_at) {
         <button mat-button type="button" (click)="downloadManifest()">Скачать манифест</button>
+      }
+      @if (pack().has_archive) {
+        <button mat-button type="button" (click)="downloadArchive()">Скачать архив для БНП</button>
       }
     </div>
 
@@ -305,6 +309,10 @@ export class ClaimPackageComponent {
 
   protected downloadManifest(): void {
     this.saveBlob(this.api.claimManifest(this.claimId()), `bnp-claim-${this.claimId()}.json`);
+  }
+
+  protected downloadArchive(): void {
+    this.saveBlob(this.api.claimArchive(this.claimId()), `bnp-claim-${this.claimId()}.zip`);
   }
 
   private persist(next: (row: ClaimCase) => void): void {

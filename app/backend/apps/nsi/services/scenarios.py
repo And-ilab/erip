@@ -1,5 +1,6 @@
 """Конструктор сценариев и печатных форм (ТЗ 4.2.5). Мессенджер в шаге не отправляет сообщения."""
 
+import copy
 import uuid
 
 from django.core.files.base import ContentFile
@@ -15,6 +16,7 @@ from apps.nsi.models import (
     ScenarioRevision,
 )
 from apps.nsi.services.timelines import warning_wait_for
+from apps.nsi.services.writ_checklist import ChecklistInvalid, default_checklist, normalize_checklist
 
 ACTIONS = {
     "call", "sms", "email", "messenger", "warning", "disconnect", "writ", "lawsuit", "manual_call",
@@ -54,6 +56,13 @@ def check_steps(steps: list[dict]) -> list[str]:
         org_kind = step.get("org_kind") or "any"
         if org_kind not in {"any", "billing", "supplier"}:
             raise ScenarioInvalid("Тип организации: любая, начисляющая или поставщик")
+        if action == "writ":
+            try:
+                step["checklist"] = normalize_checklist(step.get("checklist"))
+            except ChecklistInvalid as exc:
+                raise ScenarioInvalid(str(exc.detail)) from exc
+        else:
+            step.pop("checklist", None)
     by_order: dict[int, list[str]] = {}
     for step in steps:
         by_order.setdefault(step["order"], []).append(step["action"])
@@ -330,7 +339,10 @@ STANDARD_STEPS = [
     {"order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False},
     {"order": 2, "action": "email", "wait_days": 0, "template": "Уведомление", "terminal": False},
     {"order": 3, "action": "warning", "wait_days": 0, "template": "Предупреждение", "terminal": False},
-    {"order": 4, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись", "terminal": False},
+    {
+        "order": 4, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись", "terminal": False,
+        "checklist": default_checklist(),
+    },
     {"order": 5, "action": "lawsuit", "wait_days": 0, "template": "Исковое заявление", "terminal": True},
 ]
 
@@ -374,12 +386,22 @@ def upgrade_legacy_scenario(scenario: ScenarioDefinition | None) -> None:
     if scenario is None:
         return
     if _is_stock_chain(scenario.steps):
-        scenario.steps = STANDARD_STEPS
+        scenario.steps = copy.deepcopy(STANDARD_STEPS)
         scenario.save(update_fields=["steps", "updated_at"])
     for revision in scenario.revisions.all():
         if _is_stock_chain(revision.steps):
-            revision.steps = STANDARD_STEPS
+            revision.steps = copy.deepcopy(STANDARD_STEPS)
             revision.save(update_fields=["steps"])
+
+
+def _fill_missing_checklist(steps: list[dict]) -> bool:
+    """Шаг надписи без чек-листа получает законный набор. Уже записанный список не трогается."""
+    changed = False
+    for step in steps:
+        if step.get("action") == "writ" and not step.get("checklist"):
+            step["checklist"] = default_checklist()
+            changed = True
+    return changed
 
 
 def ensure_standard_scenario() -> None:
@@ -387,9 +409,19 @@ def ensure_standard_scenario() -> None:
     if scenario is None:
         scenario = ScenarioDefinition.objects.create(
             organization=None, name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE,
-            version=1, steps=STANDARD_STEPS,
+            version=1, steps=copy.deepcopy(STANDARD_STEPS),
         )
     else:
         upgrade_legacy_scenario(scenario)
+    steps = [dict(step) for step in (scenario.steps or [])]
+    if _fill_missing_checklist(steps):
+        scenario.steps = steps
+        scenario.save(update_fields=["steps", "updated_at"])
+    current = scenario.revisions.filter(version=scenario.version).first()
+    if current is not None:
+        revision_steps = [dict(step) for step in (current.steps or [])]
+        if _fill_missing_checklist(revision_steps):
+            current.steps = revision_steps
+            current.save(update_fields=["steps"])
     if not scenario.revisions.filter(version=scenario.version).exists():
         ScenarioRevision.objects.create(scenario=scenario, version=scenario.version, steps=scenario.steps)

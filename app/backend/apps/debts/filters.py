@@ -54,6 +54,7 @@ class AccountFilter(django_filters.FilterSet):
     inheritance_case = django_filters.BooleanFilter(field_name="inheritance_case")
     territory = django_filters.NumberFilter(method="filter_territory")
     scope = django_filters.CharFilter(method="filter_scope")
+    claim_module = django_filters.CharFilter(method="filter_claim_module")
     domain = django_filters.CharFilter(method="filter_domain")
 
     class Meta:
@@ -95,6 +96,13 @@ class AccountFilter(django_filters.FilterSet):
 
             return claims_population(queryset)
         return queryset
+
+    def filter_claim_module(self, queryset, name, value):
+        if self.data.get("scope") != "claims":
+            return queryset
+        from apps.debts.services.claims import claims_on_module
+
+        return claims_on_module(queryset, value)
 
     def filter_domain(self, queryset, name, value):
         from apps.debts.services.filter_domain import apply_account_domain
