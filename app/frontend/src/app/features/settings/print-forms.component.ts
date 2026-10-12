@@ -47,6 +47,8 @@ const TOKENS = [
         <div class="panes">
           <button type="button" [class.on]="pane() === 'layout'" (click)="pane.set('layout')">Макет</button>
           <button type="button" [class.on]="pane() === 'pdf'" (click)="showPdf()">PDF</button>
+          <button type="button" (click)="stepForm(-1)">← Назад</button>
+          <button type="button" (click)="stepForm(1)">Вперёд →</button>
         </div>
         @if (pane() === 'layout') {
           <div class="line">
@@ -143,11 +145,13 @@ const TOKENS = [
             }
           </div>
         } @else {
-          <p class="muted">Предпросмотр собран в ПМ. Файл не скачивается.</p>
+          <h3 class="preview-title">Предпросмотр</h3>
+          <p class="doc-title">{{ name || current()?.name || 'Документ' }}</p>
+          @if (pdfReady()) { <p class="ok">Предпросмотр PDF обновлён</p> }
           @if (pdfUrl(); as url) {
             <iframe class="sheet" title="Предпросмотр PDF" [src]="url"></iframe>
           } @else {
-            <p>Предпросмотр появится здесь.</p>
+            <p class="muted">Предпросмотр появится здесь.</p>
           }
         }
       </section>
@@ -200,7 +204,10 @@ const TOKENS = [
       position: absolute; right: 2px; bottom: 2px; width: 12px; height: 12px; cursor: nwse-resize;
       border-right: 2px solid var(--erip-primary); border-bottom: 2px solid var(--erip-primary);
     }
-    iframe.sheet { width: 100%; height: 640px; border: 1px solid var(--erip-border); border-radius: 8px; }
+    .preview-title { margin: 12px 0 2px; font-size: 16px; color: #1f2933; }
+    .doc-title { margin: 0 0 8px; color: var(--erip-muted); }
+    .ok { margin: 0 0 8px; padding: 8px 12px; border-radius: 6px; background: #e7f6ec; color: #1b7f4e; }
+    iframe.sheet { width: 100%; height: 720px; border: 0; border-radius: 0; background: #525659; }
     @media (max-width: 900px) { .layout, .work { grid-template-columns: 1fr; } }
   `,
 })
@@ -214,6 +221,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected readonly current = signal<PrintFormRow | null>(null);
   protected readonly pane = signal<'layout' | 'pdf'>('layout');
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
+  protected readonly pdfReady = signal(false);
   protected readonly note = signal('');
   protected readonly tokens = TOKENS;
   protected readonly kinds = [
@@ -251,6 +259,11 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // #region agent log
+    window.addEventListener('securitypolicyviolation', (event) => {
+      fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'dd5978' }, body: JSON.stringify({ sessionId: 'dd5978', runId: 'pdf-preview', hypothesisId: 'A', location: 'print-forms.component.ts:csp', message: 'csp violation', data: { directive: event.violatedDirective, blocked: event.blockedURI }, timestamp: Date.now() }) }).catch(() => {});
+    });
+    // #endregion
     this.route.queryParamMap.subscribe((params) => {
       this.claimId = Number(params.get('claim') || 0) || null;
       this.docId = Number(params.get('doc') || 0) || null;
@@ -276,6 +289,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.addressee = form.addressee || 'debtor';
     this.blocks = this.copyBlocks(form);
     this.pdfUrl.set(null);
+    this.pdfReady.set(false);
     if (this.claimId) this.fillClaim();
     else if (this.pane() === 'pdf') this.showPdf();
   }
@@ -291,6 +305,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.docId = null;
     this.pane.set('layout');
     this.pdfUrl.set(null);
+    this.pdfReady.set(false);
   }
 
   protected insert(token: string): void {
@@ -409,14 +424,30 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     });
   }
 
+  protected stepForm(delta: number): void {
+    const rows = [...this.systemForms(), ...this.ownForms()];
+    const index = rows.findIndex((form) => form.id === this.current()?.id);
+    const next = rows[index + delta];
+    if (next) this.select(next);
+  }
+
   protected showPdf(): void {
     this.pane.set('pdf');
+    this.pdfReady.set(false);
     const body = this.blocks.find((block) => block.key === 'body')?.text || '';
     this.api.previewPrintForm({ blocks: this.blocks, body }).subscribe({
       next: (blob) => {
-        this.revoke();
-        this.rawUrl = URL.createObjectURL(blob);
-        this.pdfUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(this.rawUrl));
+        blob.slice(0, 5).arrayBuffer().then((head) => {
+          const magic = String.fromCharCode(...new Uint8Array(head));
+          // #region agent log
+          fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'dd5978' }, body: JSON.stringify({ sessionId: 'dd5978', runId: 'pdf-preview', hypothesisId: 'B', location: 'print-forms.component.ts:showPdf', message: 'preview blob', data: { size: blob.size, type: blob.type, magic }, timestamp: Date.now() }) }).catch(() => {});
+          // #endregion
+          const file = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+          this.revoke();
+          this.rawUrl = URL.createObjectURL(file);
+          this.pdfUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(this.rawUrl));
+          this.pdfReady.set(magic.startsWith('%PDF'));
+        });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
