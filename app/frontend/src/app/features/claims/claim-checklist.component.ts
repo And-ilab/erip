@@ -1,11 +1,13 @@
 import { Component, OnDestroy, OnInit, inject, input, output, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 
 import { ApiService, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
+import { SheetBlock, SheetEditor, bodyBlock, normalizeBlock } from '../settings/document-flow';
+import { PrintSheetComponent } from '../settings/print-sheet.component';
 
 interface Slot {
   code: string;
@@ -34,7 +36,7 @@ const COURT: Slot[] = [
 @Component({
   selector: 'app-claim-checklist',
   standalone: true,
-  imports: [FormsModule, MatButtonModule, MatSnackBarModule],
+  imports: [FormsModule, ReactiveFormsModule, MatButtonModule, MatSnackBarModule, PrintSheetComponent],
   template: `
     <h3>Комплект документов</h3>
     <p class="hint">
@@ -103,8 +105,9 @@ const COURT: Slot[] = [
               <button type="button" (click)="remove(doc)">Удалить</button>
             </div>
             @if (editing()) {
-              <textarea rows="8" [(ngModel)]="draft"></textarea>
-              <button mat-stroked-button type="button" [disabled]="busy()" (click)="saveText(doc)">Сохранить текст</button>
+              <p class="meta">Правка на листе A4. В PDF попадает то же оформление: поля, таблица и рамки.</p>
+              <app-print-sheet [blocks]="editBlocks" [flows]="editor.flows" [form]="editor.form" selectedKey="body" />
+              <button mat-stroked-button type="button" [disabled]="busy()" (click)="saveText(doc)">Сохранить документ</button>
             }
             @if (pdfUrl(); as url) {
               <iframe class="sheet" title="Просмотр PDF" [src]="url"></iframe>
@@ -165,10 +168,10 @@ const COURT: Slot[] = [
     .head h4 { margin: 0; flex: 1 1 auto; min-width: min(100%, max-content); overflow-wrap: break-word; }
     .create { flex: 0 0 auto; }
     .doc-name { font-size: 14px; line-height: 1.35; }
-    .viewer textarea, .template, .viewer .acts select {
+    .template, .viewer .acts select {
       box-sizing: border-box; font: inherit; border: 1px solid var(--erip-border); border-radius: 6px; padding: 8px; max-width: 100%;
     }
-    .viewer textarea, .template { display: block; width: 100%; min-width: 0; }
+    .template { display: block; width: 100%; min-width: 0; }
     .viewer .acts select { width: auto; }
     @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
   `,
@@ -185,13 +188,14 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   private readonly snack = inject(MatSnackBar);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
+  protected readonly editor = new SheetEditor(inject(FormBuilder));
 
   protected readonly slots = SLOTS;
   protected readonly selected = signal('application');
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly busy = signal(false);
   protected readonly editing = signal(false);
-  protected draft = '';
+  protected editBlocks: SheetBlock[] = [];
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected templateId: number | null = null;
   private rawUrl = '';
@@ -280,19 +284,26 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   protected startEdit(doc: BnpDocument): void {
-    this.draft = doc.body || '';
+    const saved = doc.layout?.blocks;
+    this.editBlocks = saved?.length && saved.some((block) => block.key === 'body')
+      ? saved.map((block, index) => normalizeBlock(block, index))
+      : [bodyBlock(doc.body || '')];
+    this.editor.load(this.editBlocks);
     this.editing.set(true);
     this.pdfUrl.set(null);
   }
 
   protected saveText(doc: BnpDocument): void {
+    this.editor.commit(this.editBlocks, 'filled');
+    const body = this.editBlocks.find((block) => block.key === 'body')?.text
+      || this.editBlocks.map((block) => block.text).filter(Boolean).join('\n');
     this.busy.set(true);
-    this.api.claimAction(this.claimId(), `package/documents/${doc.id}/text`, { body: this.draft }).subscribe({
+    this.api.claimAction(this.claimId(), `package/documents/${doc.id}/layout`, { body, blocks: this.editBlocks }).subscribe({
       next: (row) => {
         this.busy.set(false);
         this.editing.set(false);
         this.changed.emit(row);
-        this.snack.open('Текст сохранён. Подпись комплекта снята.', 'OK', { duration: 2500 });
+        this.snack.open('Документ сохранён. Подпись комплекта снята.', 'OK', { duration: 2500 });
       },
       error: (err) => this.fail(err),
     });

@@ -1,26 +1,23 @@
-import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
 
-import { ApiService, ClaimCase, PrintFormBlock, PrintFormRow, errorMessage } from '../../core/api.service';
-
-const TOKENS = [
-  'fio', 'account', 'amount', 'penalty', 'address', 'services', 'last_payment', 'organization',
-  'due_days', 'tariff', 'debt_group', 'rating', 'months_debt', 'personal_id', 'unp', 'warning_date', 'debt_started',
-];
+import { ApiService, ClaimCase, PrintFormRow, errorMessage } from '../../core/api.service';
+import { KNOWN_TOKENS, SheetBlock, SheetEditor, normalizeBlock } from './document-flow';
+import { PrintSheetComponent } from './print-sheet.component';
 
 @Component({
   selector: 'app-print-forms',
   standalone: true,
-  imports: [FormsModule, MatButtonModule, MatSnackBarModule],
+  imports: [FormsModule, ReactiveFormsModule, MatButtonModule, MatSnackBarModule, PrintSheetComponent],
   template: `
     <header class="head">
       <div>
         <h2>Конструктор печатных форм</h2>
-        <p>Макет — блоки с флажками. PDF — как документ будет выглядеть, без скачивания. Шаблон дела остаётся своей версией.</p>
+        <p>Лист A4, как в просмотре PDF. Поле счёта на листе — подчёркнутая строка, таблица — с рамкой. Скачанный PDF повторяет этот лист.</p>
       </div>
       <button mat-stroked-button type="button" (click)="create()">+ Шаблон</button>
     </header>
@@ -49,6 +46,9 @@ const TOKENS = [
           <button type="button" [class.on]="pane() === 'pdf'" (click)="showPdf()">PDF</button>
           <button type="button" (click)="stepForm(-1)">← Назад</button>
           <button type="button" (click)="stepForm(1)">Вперёд →</button>
+          @if (pane() === 'pdf' && pdfReady()) {
+            <button type="button" (click)="downloadPdf()">Скачать PDF</button>
+          }
         </div>
         @if (pane() === 'layout') {
           <div class="line">
@@ -73,18 +73,22 @@ const TOKENS = [
               <input type="file" accept="application/pdf,.pdf,image/*" (change)="onScan($event)" />
             </label>
           </div>
-          <p class="muted">Флажок включает блок макета. Блок на листе можно перетащить, таблицу — растянуть за угол. Поля счёта дописываются в выбранный блок.</p>
+          <p class="muted">Значение в поле нужно для просмотра и для документа дела. В шаблоне остаётся метка счёта, на листе она не пишется. Блоки меняются местами стрелками.</p>
           <div class="work">
             <aside class="blocks">
               <h3>Блоки</h3>
-              @for (block of blocks; track block.key) {
-                <label class="check" [class.need]="block.key === 'body' && !block.text.trim()">
-                  <input type="checkbox" [(ngModel)]="block.enabled" /> {{ block.title }}
-                </label>
+              @for (block of orderedBlocks(); track block.key) {
+                <div class="check-row">
+                  <label class="check" [class.need]="block.key === 'body' && bodyBlank()">
+                    <input type="checkbox" [(ngModel)]="block.enabled" /> {{ block.title }}
+                  </label>
+                  <button type="button" (click)="moveBlock(block, -1)" [attr.aria-label]="'Выше'">↑</button>
+                  <button type="button" (click)="moveBlock(block, 1)" [attr.aria-label]="'Ниже'">↓</button>
+                </div>
               }
               <div class="tokens">
                 @for (token of tokens; track token) {
-                  <button type="button" (click)="insert(token)">{{ '{' + token + '}' }}</button>
+                  <button type="button" (click)="insert(token)">{{ labelOf(token) }}</button>
                 }
               </div>
             </aside>
@@ -103,31 +107,15 @@ const TOKENS = [
                   <label class="check"><input type="checkbox" [(ngModel)]="block.italic" /> Курсив</label>
                   <button type="button" (click)="addColumn(block)">Колонка</button>
                   @if (block.columns.length) { <button type="button" (click)="addRow(block)">Строка</button> }
+                  @if (!block.columns.length) { <button type="button" (click)="addServiceTable(block)">Таблица услуг</button> }
                 </div>
               }
-              <div class="sheet" (pointermove)="dragMove($event)" (pointerup)="dragEnd()" (pointerleave)="dragEnd()">
-                @for (block of blocks; track block.key) {
-                  @if (block.enabled) {
-                    <article class="piece" [class.on]="selectedKey === block.key" [style.left.%]="block.x" [style.top.px]="block.y" [style.width.%]="block.w" (pointerdown)="focusBlock(block)">
-                      <header (pointerdown)="dragStart($event, block, 'move')">{{ block.title }}</header>
-                      <textarea rows="4" [(ngModel)]="block.text" [style.text-align]="block.align" [style.font-size.px]="block.font_size" [style.font-weight]="block.bold ? 700 : 400" [style.font-style]="block.italic ? 'italic' : 'normal'"></textarea>
-                      @if (block.columns.length) {
-                        <div class="grid" [style.grid-template-columns]="gridOf(block)">
-                          @for (col of block.columns; track $index) {
-                            <input class="head-cell" [(ngModel)]="col.title" />
-                          }
-                          @for (row of block.rows; track $index) {
-                            @for (cell of row; track $index) {
-                              <input [(ngModel)]="row[$index]" />
-                            }
-                          }
-                        </div>
-                      }
-                      <span class="handle" (pointerdown)="dragStart($event, block, 'resize')"></span>
-                    </article>
-                  }
-                }
-              </div>
+              <app-print-sheet
+                [blocks]="blocks"
+                [flows]="editor.flows"
+                [form]="editor.form"
+                [selectedKey]="selectedKey"
+                (pick)="focusBlock($event)" />
             </div>
           </div>
           <div class="actions">
@@ -149,7 +137,7 @@ const TOKENS = [
           <p class="doc-title">{{ name || current()?.name || 'Документ' }}</p>
           @if (pdfReady()) { <p class="ok">Предпросмотр PDF обновлён</p> }
           @if (pdfUrl(); as url) {
-            <iframe class="sheet" title="Предпросмотр PDF" [src]="url"></iframe>
+            <iframe class="pdf-frame" title="Предпросмотр PDF" [src]="url"></iframe>
           } @else {
             <p class="muted">Предпросмотр появится здесь.</p>
           }
@@ -158,7 +146,7 @@ const TOKENS = [
     </div>
   `,
   styles: `
-    .head, .line, .actions, .panes, .cols { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .head, .line, .actions, .panes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .head { justify-content: space-between; margin-bottom: 12px; }
     h2, h3 { margin: 0; color: var(--erip-primary-dark); }
     h3 { margin: 12px 0 6px; font-size: 13px; }
@@ -167,7 +155,7 @@ const TOKENS = [
     .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; }
     .list, .editor { background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; min-width: 0; }
     .list { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
-    .list button, .panes button, .cols button {
+    .list button, .panes button {
       text-align: left; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
       padding: 8px 10px; cursor: pointer; font: inherit;
     }
@@ -175,9 +163,13 @@ const TOKENS = [
     .list small { display: block; color: var(--erip-muted); }
     .grow { flex: 1; }
     label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--erip-muted); }
-    input, select, textarea { font: inherit; color: inherit; border: 1px solid var(--erip-border); border-radius: 6px; padding: 6px 8px; }
-    textarea { width: 100%; box-sizing: border-box; min-height: 90px; }
+    input, select { font: inherit; color: inherit; border: 1px solid var(--erip-border); border-radius: 6px; padding: 6px 8px; }
     .check { flex-direction: row; align-items: center; color: inherit; font-size: 14px; }
+    .check-row { display: flex; gap: 4px; align-items: center; }
+    .check-row .check { flex: 1; }
+    .check-row button {
+      border: 1px solid var(--erip-border); background: #fff; border-radius: 6px; cursor: pointer; font: inherit; padding: 2px 6px;
+    }
     .scan input { font-size: 12px; }
     .tokens { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
     .tokens button {
@@ -188,26 +180,11 @@ const TOKENS = [
     .work { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; margin-top: 8px; }
     .blocks { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; }
     .tool { margin-bottom: 8px; }
-    .sheet-wrap .sheet {
-      position: relative; height: 720px; background: #f4f6f8; border: 1px solid var(--erip-border); border-radius: 8px; overflow: auto;
-    }
-    .piece {
-      position: absolute; background: #fff; border: 1px solid #d5dde3; border-radius: 6px; padding: 4px 6px 10px; box-sizing: border-box;
-    }
-    .piece.on { border-color: var(--erip-primary); box-shadow: 0 0 0 1px var(--erip-primary); }
-    .piece header { font-size: 11px; color: var(--erip-muted); cursor: grab; user-select: none; }
-    .piece textarea { width: 100%; box-sizing: border-box; min-height: 64px; border: 0; resize: vertical; }
-    .grid { display: grid; gap: 2px; }
-    .grid input { min-width: 0; font-size: 12px; }
-    .head-cell { font-weight: 700; }
-    .handle {
-      position: absolute; right: 2px; bottom: 2px; width: 12px; height: 12px; cursor: nwse-resize;
-      border-right: 2px solid var(--erip-primary); border-bottom: 2px solid var(--erip-primary);
-    }
+    .sheet-wrap { min-width: 0; }
     .preview-title { margin: 12px 0 2px; font-size: 16px; color: #1f2933; }
     .doc-title { margin: 0 0 8px; color: var(--erip-muted); }
     .ok { margin: 0 0 8px; padding: 8px 12px; border-radius: 6px; background: #e7f6ec; color: #1b7f4e; }
-    iframe.sheet { width: 100%; height: 720px; border: 0; border-radius: 0; background: #525659; }
+    .pdf-frame { width: 100%; height: min(80vh, 900px); border: 0; background: #525659; }
     @media (max-width: 900px) { .layout, .work { grid-template-columns: 1fr; } }
   `,
 })
@@ -216,14 +193,16 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   private readonly snack = inject(MatSnackBar);
   private readonly route = inject(ActivatedRoute);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly fb = inject(FormBuilder);
 
+  protected readonly editor = new SheetEditor(this.fb);
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly current = signal<PrintFormRow | null>(null);
   protected readonly pane = signal<'layout' | 'pdf'>('layout');
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected readonly pdfReady = signal(false);
   protected readonly note = signal('');
-  protected readonly tokens = TOKENS;
+  protected readonly tokens = KNOWN_TOKENS;
   protected readonly kinds = [
     { id: 'warning', label: 'Предупреждение' },
     { id: 'writ', label: 'Заявление на исполнительную надпись' },
@@ -242,13 +221,12 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected name = '';
   protected kind = 'writ';
   protected addressee = 'notary';
-  protected blocks: PrintFormBlock[] = [];
+  protected blocks: SheetBlock[] = [];
   protected selectedKey = 'body';
   protected claimId: number | null = null;
   protected docId: number | null = null;
   private requestedForm: number | null = null;
   private rawUrl = '';
-  private drag: { key: string; mode: 'move' | 'resize'; x: number; y: number; originX: number; originY: number; originW: number } | null = null;
 
   protected systemForms(): PrintFormRow[] {
     return this.forms().filter((form) => form.organization == null);
@@ -258,12 +236,41 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     return this.forms().filter((form) => form.organization != null);
   }
 
+  protected orderedBlocks(): SheetBlock[] {
+    return [...this.blocks].sort((a, b) => a.y - b.y);
+  }
+
+  protected bodyBlank(): boolean {
+    const flow = this.editor.flows.find((item) => item.key === 'body');
+    if (!flow) return true;
+    for (const node of flow.nodes) {
+      if (node.kind === 'title' && this.pieceText(node.control)) return false;
+      if (node.kind === 'fields' && node.items.length) return false;
+      if (node.kind === 'paragraph') {
+        for (const part of node.parts) {
+          if (part.kind === 'field') return false;
+          if (part.kind === 'text' && this.pieceText(part.control)) return false;
+        }
+      }
+    }
+    return !this.blocks.find((block) => block.key === 'body')?.columns.length;
+  }
+
+  private pieceText(name: string): string {
+    return String(this.editor.form.get(['pieces', name])?.value || '').trim();
+  }
+
+  protected labelOf(token: string): string {
+    const names: Record<string, string> = {
+      fio: 'Должник', account: 'Лицевой счёт', amount: 'Задолженность', penalty: 'Пеня', address: 'Адрес',
+      services: 'Услуги', last_payment: 'Оплата', organization: 'Организация', due_days: 'Срок',
+      tariff: 'Тариф', debt_group: 'Группа', rating: 'Рейтинг', months_debt: 'Месяцы',
+      personal_id: 'Идентификационный номер', unp: 'УНП', warning_date: 'Вручение', debt_started: 'Начало долга',
+    };
+    return names[token] || token;
+  }
+
   ngOnInit(): void {
-    // #region agent log
-    window.addEventListener('securitypolicyviolation', (event) => {
-      fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'dd5978' }, body: JSON.stringify({ sessionId: 'dd5978', runId: 'pdf-preview', hypothesisId: 'A', location: 'print-forms.component.ts:csp', message: 'csp violation', data: { directive: event.violatedDirective, blocked: event.blockedURI }, timestamp: Date.now() }) }).catch(() => {});
-    });
-    // #endregion
     this.route.queryParamMap.subscribe((params) => {
       this.claimId = Number(params.get('claim') || 0) || null;
       this.docId = Number(params.get('doc') || 0) || null;
@@ -288,10 +295,11 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.kind = form.doc_kind;
     this.addressee = form.addressee || 'debtor';
     this.blocks = this.copyBlocks(form);
+    this.selectedKey = 'body';
     this.pdfUrl.set(null);
     this.pdfReady.set(false);
     if (this.claimId) this.fillClaim();
-    else if (this.pane() === 'pdf') this.showPdf();
+    else this.openSheet();
   }
 
   protected create(): void {
@@ -300,69 +308,73 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.name = '';
     this.kind = 'writ';
     this.addressee = 'notary';
-    this.blocks = [this.emptyBlock('body', 'Текст', '', 12, 12)];
+    this.blocks = [normalizeBlock({ key: 'body', title: 'Текст', text: '', enabled: true }, 0)];
+    this.selectedKey = 'body';
     this.claimId = null;
     this.docId = null;
     this.pane.set('layout');
     this.pdfUrl.set(null);
     this.pdfReady.set(false);
+    this.openSheet();
   }
 
   protected insert(token: string): void {
-    const block = this.blocks.find((item) => item.key === this.selectedKey) || this.blocks.find((item) => item.key === 'body') || this.blocks[0];
-    if (block) block.text = `${block.text}{${token}}`;
+    const keep = this.currentValues();
+    this.editor.commit(this.blocks, 'template');
+    const block = this.blocks.find((item) => item.key === this.selectedKey) || this.blocks.find((item) => item.key === 'body');
+    if (!block) return;
+    const glue = block.text && !block.text.endsWith('\n') ? '\n' : '';
+    block.text = `${block.text}${glue}{${token}}`;
+    this.reopen(keep);
   }
 
-  protected chosen(): PrintFormBlock | undefined {
+  protected chosen(): SheetBlock | undefined {
     return this.blocks.find((block) => block.key === this.selectedKey && block.enabled) || this.blocks.find((block) => block.enabled);
   }
 
-  protected focusBlock(block: PrintFormBlock): void {
-    this.selectedKey = block.key;
+  protected focusBlock(key: string): void {
+    this.selectedKey = key;
   }
 
-  protected gridOf(block: PrintFormBlock): string {
-    const parts = block.columns.map((col) => `${Math.max(col.width, 8)}fr`);
-    return parts.join(' ') || '1fr';
+  protected moveBlock(block: SheetBlock, delta: number): void {
+    const keep = this.currentValues();
+    this.editor.commit(this.blocks, 'template');
+    const ordered = this.orderedBlocks();
+    const index = ordered.findIndex((item) => item.key === block.key);
+    const other = ordered[index + delta];
+    if (!other) return;
+    const y = block.y;
+    block.y = other.y;
+    other.y = y === other.y ? y + delta * 10 : y;
+    this.reopen(keep);
   }
 
-  protected dragStart(event: PointerEvent, block: PrintFormBlock, mode: 'move' | 'resize'): void {
-    event.stopPropagation();
-    this.selectedKey = block.key;
-    this.drag = { key: block.key, mode, x: event.clientX, y: event.clientY, originX: block.x, originY: block.y, originW: block.w };
-  }
-
-  protected dragMove(event: PointerEvent): void {
-    const drag = this.drag;
-    if (!drag) return;
-    const block = this.blocks.find((item) => item.key === drag.key);
-    const sheet = event.currentTarget as HTMLElement;
-    if (!block || !sheet) return;
-    if (drag.mode === 'move') {
-      block.x = clamp(drag.originX + (event.clientX - drag.x) / sheet.clientWidth * 100, 0, 70);
-      block.y = clamp(drag.originY + (event.clientY - drag.y), 0, 1600);
-    } else {
-      block.w = clamp(drag.originW + (event.clientX - drag.x) / sheet.clientWidth * 100, 24, 100);
-    }
-  }
-
-  protected dragEnd(): void {
-    this.drag = null;
-  }
-
-  @HostListener('document:pointerup')
-  protected releaseDrag(): void {
-    this.drag = null;
-  }
-
-  protected addColumn(block: PrintFormBlock): void {
+  protected addColumn(block: SheetBlock): void {
+    const keep = this.currentValues();
+    this.editor.commit(this.blocks, 'template');
     block.columns = [...block.columns, { title: `Колонка ${block.columns.length + 1}`, width: 20 }];
     block.rows = block.rows.map((row) => [...row, '']);
     if (!block.rows.length) block.rows = [block.columns.map(() => '')];
+    this.reopen(keep);
   }
 
-  protected addRow(block: PrintFormBlock): void {
+  protected addRow(block: SheetBlock): void {
+    const keep = this.currentValues();
+    this.editor.commit(this.blocks, 'template');
     block.rows = [...block.rows, block.columns.map(() => '')];
+    this.reopen(keep);
+  }
+
+  protected addServiceTable(block: SheetBlock): void {
+    const keep = this.currentValues();
+    this.editor.commit(this.blocks, 'template');
+    block.columns = [
+      { title: 'Услуга', width: 40 },
+      { title: 'Задолженность', width: 30 },
+      { title: 'Пеня', width: 30 },
+    ];
+    block.rows = [['{services}', '{amount}', '{penalty}']];
+    this.reopen(keep);
   }
 
   protected onScan(event: Event): void {
@@ -372,14 +384,14 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     if (!file) return;
     this.api.recognizePrintForm(file).subscribe({
       next: (draft) => {
-        this.blocks = draft.blocks.length ? draft.blocks.map((block, index) => ({
-          ...block, columns: block.columns || [], rows: block.rows || [],
-          x: block.x ?? 4, y: block.y ?? 12 + index * 96, w: block.w ?? 92,
-        })) : [this.emptyBlock('body', 'Текст')];
+        this.blocks = draft.blocks.length
+          ? draft.blocks.map((block, index) => normalizeBlock(block, index))
+          : [normalizeBlock({ key: 'body', title: 'Текст', text: '', enabled: true }, 0)];
         if (!this.name.trim()) this.name = draft.name;
         if (!this.code.trim()) this.code = 'scan-' + Date.now().toString().slice(-6);
         this.note.set(draft.note);
         this.pane.set('layout');
+        this.openSheet();
         this.snack.open(draft.recognized ? 'Скан разобран в макет' : 'Скан загружен как черновик', 'OK', { duration: 3000 });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
@@ -387,6 +399,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   }
 
   protected save(): void {
+    this.editor.commit(this.blocks, 'template');
     const body = this.blocks.find((block) => block.key === 'body')?.text || '';
     if (!this.code.trim() || !this.name.trim()) {
       this.snack.open('Укажите код и название', 'OK');
@@ -408,8 +421,9 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
 
   protected saveCase(): void {
     if (!this.claimId || !this.docId) return;
-    const body = this.blocks.find((block) => block.key === 'body')?.text || '';
-    this.api.claimAction(this.claimId, `package/documents/${this.docId}/layout`, { body, blocks: this.blocks }).subscribe({
+    const blocks = this.previewBlocks();
+    const body = blocks.find((block) => block.key === 'body')?.text || '';
+    this.api.claimAction(this.claimId, `package/documents/${this.docId}/layout`, { body, blocks }).subscribe({
       next: () => this.snack.open('Документ дела сохранён. Подпись пакета снята.', 'OK', { duration: 2500 }),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -434,14 +448,12 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected showPdf(): void {
     this.pane.set('pdf');
     this.pdfReady.set(false);
-    const body = this.blocks.find((block) => block.key === 'body')?.text || '';
-    this.api.previewPrintForm({ blocks: this.blocks, body }).subscribe({
+    const blocks = this.previewBlocks();
+    const body = blocks.find((block) => block.key === 'body')?.text || '';
+    this.api.previewPrintForm({ blocks, body }).subscribe({
       next: (blob) => {
         blob.slice(0, 5).arrayBuffer().then((head) => {
           const magic = String.fromCharCode(...new Uint8Array(head));
-          // #region agent log
-          fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'dd5978' }, body: JSON.stringify({ sessionId: 'dd5978', runId: 'pdf-preview', hypothesisId: 'B', location: 'print-forms.component.ts:showPdf', message: 'preview blob', data: { size: blob.size, type: blob.type, magic }, timestamp: Date.now() }) }).catch(() => {});
-          // #endregion
           const file = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
           this.revoke();
           this.rawUrl = URL.createObjectURL(file);
@@ -451,6 +463,14 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
+  }
+
+  protected downloadPdf(): void {
+    if (!this.rawUrl) return;
+    const link = document.createElement('a');
+    link.href = this.rawUrl;
+    link.download = `${(this.code || 'document').trim() || 'document'}.pdf`;
+    link.click();
   }
 
   private reload(selectId?: number): void {
@@ -471,70 +491,68 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.api.claim(this.claimId).subscribe({
       next: (claim) => {
         const saved = claim.package?.documents.find((doc) => doc.id === this.docId)?.layout?.blocks;
-        if (saved?.length) this.blocks = saved.map((block, index) => ({
-          ...block,
-          columns: [...(block.columns || [])],
-          rows: (block.rows || []).map((row) => [...row]),
-          x: block.x ?? 4,
-          y: block.y ?? 12 + index * 96,
-          w: block.w ?? 92,
-        }));
-        else this.blocks = this.blocks.map((block) => ({ ...block, text: this.fillText(block.text, claim) }));
-        if (this.pane() === 'pdf') this.showPdf();
+        if (saved?.length) this.blocks = saved.map((block, index) => normalizeBlock(block, index));
+        this.openSheet(claim);
       },
-      error: () => this.note.set('Дело не найдено, макет открыт без подстановки'),
+      error: () => {
+        this.note.set('Дело не найдено, макет открыт без подстановки');
+        this.openSheet();
+      },
     });
   }
 
-  private fillText(text: string, claim: ClaimCase): string {
-    const map: Record<string, string> = {
-      fio: claim.short_fio || '—',
-      account: claim.client_account || '—',
-      address: claim.account_address || '—',
-      amount: claim.balance_out || '—',
-      penalty: claim.penalty || '—',
-      tariff: claim.notary_tariff || '—',
-      warning_date: claim.warning_delivered_on || '—',
-      debt_group: claim.debt_group == null ? '—' : String(claim.debt_group),
-      rating: claim.rating || '—',
-    };
-    let next = text;
-    for (const [key, value] of Object.entries(map)) next = next.replaceAll(`{${key}}`, value);
-    return next;
+  private openSheet(claim?: ClaimCase): void {
+    this.editor.load(this.blocks);
+    if (claim) this.editor.fillEmpty(this.claimValues(claim));
+    if (this.pane() === 'pdf') this.showPdf();
   }
 
-  private copyBlocks(form: PrintFormRow): PrintFormBlock[] {
-    if (form.blocks?.length) {
-      return form.blocks.map((block, index) => ({
-        ...block,
-        columns: (block.columns || []).map((col) => ({ ...col })),
-        rows: (block.rows || []).map((row) => [...row]),
-        x: block.x ?? 4,
-        y: block.y ?? 12 + index * 96,
-        w: block.w ?? 92,
-      }));
-    }
-    const size = form.font_size || 12;
-    const rows: PrintFormBlock[] = [this.emptyBlock('body', 'Текст', form.body, size, 160)];
-    if (form.logo_text) rows.unshift(this.emptyBlock('logo', 'Логотип', form.logo_text, size, 12));
-    if (form.requisites) rows.splice(1, 0, this.emptyBlock('requisites', 'Реквизиты', form.requisites, size, 80));
-    if (form.signatory) rows.push(this.emptyBlock('signatory', 'Подпись', form.signatory, size, 420));
-    return rows;
+  private reopen(keep: Record<string, string>): void {
+    this.editor.load(this.blocks);
+    this.editor.fillEmpty(keep);
   }
 
-  private emptyBlock(key: string, title: string, text = '', size = 12, y = 12): PrintFormBlock {
+  private currentValues(): Record<string, string> {
+    return { ...(this.editor.form.get('values')?.getRawValue() as Record<string, string> | undefined) };
+  }
+
+  private previewBlocks(): SheetBlock[] {
+    const copy = this.blocks.map((block) => ({
+      ...block,
+      columns: block.columns.map((col) => ({ ...col })),
+      rows: block.rows.map((row) => [...row]),
+    }));
+    this.editor.commit(copy, 'filled');
+    return copy;
+  }
+
+  private claimValues(claim: ClaimCase): Record<string, string> {
+    const clean = (value: string | null | undefined) => (!value || value === '—') ? '' : value;
     return {
-      key, title, enabled: true, align: 'left', bold: false, italic: false, font_size: size, text,
-      columns: [], rows: [], x: 4, y, w: 92,
+      fio: clean(claim.short_fio),
+      account: clean(claim.client_account),
+      address: clean(claim.account_address),
+      amount: clean(claim.balance_out),
+      penalty: clean(claim.penalty),
+      tariff: clean(claim.notary_tariff),
+      warning_date: clean(claim.warning_delivered_on),
+      debt_group: claim.debt_group == null ? '' : String(claim.debt_group),
+      rating: clean(claim.rating),
     };
+  }
+
+  private copyBlocks(form: PrintFormRow): SheetBlock[] {
+    if (form.blocks?.length) return form.blocks.map((block, index) => normalizeBlock(block, index));
+    const size = form.font_size || 12;
+    const rows: SheetBlock[] = [normalizeBlock({ key: 'body', title: 'Текст', text: form.body, font_size: size, y: 160 }, 2)];
+    if (form.logo_text) rows.unshift(normalizeBlock({ key: 'logo', title: 'Логотип', text: form.logo_text, font_size: size, y: 12 }, 0));
+    if (form.requisites) rows.splice(1, 0, normalizeBlock({ key: 'requisites', title: 'Реквизиты', text: form.requisites, font_size: size, y: 80 }, 1));
+    if (form.signatory) rows.push(normalizeBlock({ key: 'signatory', title: 'Подпись', text: form.signatory, font_size: size, y: 420 }, 3));
+    return rows;
   }
 
   private revoke(): void {
     if (this.rawUrl) URL.revokeObjectURL(this.rawUrl);
     this.rawUrl = '';
   }
-}
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.min(high, Math.max(low, Math.round(value)));
 }

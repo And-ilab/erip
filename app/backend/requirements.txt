@@ -6,6 +6,7 @@ psycopg[binary]>=3.1
 python-json-logger>=2.0
 httpx>=0.27
 fpdf2>=2.8
+weasyprint>=63,<64
 gunicorn>=22.0
 uvicorn>=0.30
 openpyxl>=3.1

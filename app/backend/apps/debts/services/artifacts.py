@@ -72,7 +72,18 @@ def render_text_pdf(lines: list[str]) -> bytes:
 
 
 def render_layout_pdf(blocks: list[dict], *, font_size: int = 12) -> bytes:
-    """PDF из блоков макета: выравнивание, размер, таблица. Одна гарнитура, что уже есть в системе."""
+    """PDF листа A4. WeasyPrint повторяет HTML-макет; без библиотеки остаётся fpdf2."""
+    from apps.nsi.services.form_sheet import pdf_from_html, render_form_html
+
+    rows = list(blocks or [])
+    payload = pdf_from_html(render_form_html(rows))
+    if payload:
+        return payload
+    return _render_layout_fpdf(rows, font_size=font_size)
+
+
+def _render_layout_fpdf(blocks: list[dict], *, font_size: int = 12) -> bytes:
+    """Запасной PDF, если WeasyPrint не загрузился. Одна гарнитура, что уже есть в системе."""
     font = _font_path()
     if font is None:
         lines = []
