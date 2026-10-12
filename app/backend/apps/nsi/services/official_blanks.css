@@ -48,3 +48,6 @@ td.name { font-size: 8pt; }
 .lbl { display: inline-block; min-width: 18mm; }
 .reminder .sum th, .reminder .sum td { font-size: 11pt; text-align: center; }
 .reminder table.grid th, .reminder table.grid td { font-size: 10pt; }
+.case h1 { letter-spacing: 0; font-size: 16pt; }
+.case p, .lbl-line { text-indent: 0; }
+td.tick { width: 8mm; text-align: center; }

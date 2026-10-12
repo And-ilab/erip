@@ -552,14 +552,32 @@ export class ApiService {
     return this.http.post<ScenarioAssign>(`${this.base}/nsi/scenarios/${id}/assign/`, body);
   }
 
-  scenarioCalling(): Observable<{ call_legal: boolean; dial_mobile_from_day: number; dial_mobile_weekdays: number[] }> {
-    return this.http.get<{ call_legal: boolean; dial_mobile_from_day: number; dial_mobile_weekdays: number[] }>(
-      `${this.base}/nsi/scenarios/calling/`,
-    );
+  scenarioCalling(): Observable<{
+    call_legal: boolean;
+    outgoing_numbers: string[];
+    call_recording: boolean;
+    call_transfer: boolean;
+    dial_mobile_from_day: number;
+    dial_mobile_weekdays: number[];
+  }> {
+    return this.http.get<{
+      call_legal: boolean;
+      outgoing_numbers: string[];
+      call_recording: boolean;
+      call_transfer: boolean;
+      dial_mobile_from_day: number;
+      dial_mobile_weekdays: number[];
+    }>(`${this.base}/nsi/scenarios/calling/`);
   }
 
-  saveScenarioCalling(callLegal: boolean): Observable<{ call_legal: boolean }> {
-    return this.http.patch<{ call_legal: boolean }>(`${this.base}/nsi/scenarios/calling/`, { call_legal: callLegal });
+  saveScenarioCalling(body: { call_legal: boolean; outgoing_numbers: string[] }): Observable<{
+    call_legal: boolean;
+    outgoing_numbers: string[];
+  }> {
+    return this.http.patch<{ call_legal: boolean; outgoing_numbers: string[] }>(
+      `${this.base}/nsi/scenarios/calling/`,
+      body,
+    );
   }
 
   debtGroups(): Observable<Page<DebtGroupBand>> {
@@ -804,6 +822,9 @@ export interface BnpDocument {
     pairs?: BlankPeriodPair[];
     residents?: BlankResident[];
     penalty_rows?: BlankPenaltyRow[];
+    service_rows?: BlankServiceRow[];
+    section_list?: BlankSection[];
+    sections?: Record<string, boolean>;
     show_services?: boolean;
   };
   size: number;
@@ -839,6 +860,7 @@ export interface ScenarioStep {
   groups?: number[];
   party?: string;
   org_kind?: string;
+  repeat?: Record<string, { every_days?: number; once?: boolean }>;
   require_phone?: boolean;
   debtor_category?: number | null;
   previous_action?: string;
@@ -897,6 +919,11 @@ export interface ScenarioRow {
   call_legal?: boolean | null;
   dial_mobile_from_day?: number | null;
   dial_mobile_weekdays?: number[] | null;
+  call_from_day?: number | null;
+  weekday_from?: string | null;
+  weekday_to?: string | null;
+  weekend_from?: string | null;
+  weekend_to?: string | null;
   revisions?: VersionRow[];
 }
 
@@ -952,6 +979,17 @@ export interface BlankPenaltyRow {
   penalty: string;
 }
 
+export interface BlankServiceRow {
+  id: string;
+  name: string;
+  selected: boolean;
+}
+
+export interface BlankSection {
+  id: string;
+  title: string;
+}
+
 export interface BlankData {
   blank: string;
   family: string;
@@ -960,6 +998,9 @@ export interface BlankData {
   pairs: BlankPeriodPair[];
   residents: BlankResident[];
   penalty_rows: BlankPenaltyRow[];
+  service_rows: BlankServiceRow[];
+  section_list: BlankSection[];
+  sections: Record<string, boolean>;
   show_services: boolean;
 }
 

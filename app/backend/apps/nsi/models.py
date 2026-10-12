@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -108,6 +110,15 @@ class ScenarioDefinition(TimeStampedModel, SoftDeleteModel):
         "Дни недели только мобильного", null=True, blank=True,
         help_text="Пусто — общее правило. Числа 0–6, понедельник = 0.",
     )
+    call_from_day = models.PositiveSmallIntegerField(
+        "Обзвон с этого числа месяца",
+        default=27,
+        help_text="Не раньше 27-го: 26-е — день начисления пени.",
+    )
+    weekday_from = models.TimeField("Будни, обзвон с", default=time(18, 0))
+    weekday_to = models.TimeField("Будни, обзвон по", default=time(21, 0))
+    weekend_from = models.TimeField("Выходные, обзвон с", default=time(10, 0))
+    weekend_to = models.TimeField("Выходные, обзвон по", default=time(22, 0))
 
     class Meta:
         ordering = ["name"]
@@ -167,7 +178,7 @@ class PrintForm(TimeStampedModel, SoftDeleteModel):
         max_length=40,
         blank=True,
         default="",
-        help_text="warning, reminder, notice-137, notice-80, notice-86, notice-tko, calculation",
+        help_text="warning, reminder, notice-137, notice-80, notice-86, notice-tko, calculation, writ, proxy, lawsuit, eviction, alienation",
     )
     version = models.PositiveIntegerField("Версия", default=1)
 

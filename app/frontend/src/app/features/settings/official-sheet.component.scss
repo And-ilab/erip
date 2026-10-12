@@ -91,3 +91,13 @@ td { font-size: 9pt; }
 .people th, .people td { font-size: 7pt; }
 .sum td { font-weight: 700; }
 .reminder .sum th, .reminder .sum td { font-size: 11pt; text-align: center; }
+.case h1 { letter-spacing: 0; font-size: 16pt; }
+.case p, .lbl-line { text-indent: 0; }
+.lbl-line { margin: 0 0 2mm; }
+td.tick { width: 8mm; text-align: center; }
+button.tick {
+  width: 18px; height: 18px; border: 1px solid #c5ced6; border-radius: 3px;
+  background: #fff; color: transparent; font: inherit; font-size: 13px; line-height: 1;
+  cursor: pointer; padding: 0;
+}
+button.tick.on { background: #2e9b57; border-color: #2e9b57; color: #fff; }

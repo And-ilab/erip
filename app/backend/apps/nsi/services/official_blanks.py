@@ -14,8 +14,15 @@ from pathlib import Path
 
 _CSS = Path(__file__).with_name("official_blanks.css").read_text(encoding="utf-8")
 
-BLANKS = ("warning", "reminder", "notice-137", "notice-80", "notice-86", "notice-tko", "calculation")
-EDITABLE = {"organization", "locality", "date", "doc_number", "phone", "hours", "warning_date"}
+BLANKS = (
+    "warning", "reminder", "notice-137", "notice-80", "notice-86", "notice-tko", "calculation",
+    "writ", "proxy", "lawsuit", "eviction", "alienation",
+)
+EDITABLE = {
+    "organization", "locality", "date", "doc_number", "phone", "hours", "warning_date",
+    "note", "representative",
+}
+CASE_BLANKS = {"writ", "proxy", "lawsuit", "eviction", "alienation"}
 _MONTHS = (
     "", "январь", "февраль", "март", "апрель", "май", "июнь",
     "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
@@ -110,6 +117,8 @@ def family_of(blank: str) -> str:
         return "calculation"
     if blank.startswith("notice"):
         return "notice"
+    if blank in CASE_BLANKS:
+        return "case"
     return ""
 
 
@@ -145,6 +154,9 @@ def empty_context(blank: str) -> dict:
         "pairs": [],
         "residents": [],
         "penalty_rows": [],
+        "service_rows": [],
+        "section_list": _section_list(blank),
+        "sections": {row["id"]: True for row in _section_list(blank)},
         "show_services": blank != "notice-tko",
     }
 
@@ -166,11 +178,10 @@ def blank_context(blank: str, values: dict | None = None, periods: list | None =
 
 
 def context_for_account(account, tariff: str = "", warning_date: str = "") -> dict:
-    """Поля одного лицевого счёта для бланка. Тариф заявления в расчётном бланке не печатается."""
+    """Поля одного лицевого счёта для бланка. Сумму долга бланк берёт из сальдо, тариф — из дела."""
     from apps.nsi.services.scenarios import placeholder_values
 
-    del tariff  # сумма бланка — сальдо АИС, не нотариальный тариф
-    raw = placeholder_values(account, warning_date=warning_date)
+    raw = placeholder_values(account, tariff=tariff, warning_date=warning_date)
     letterhead, locality, address_org, unp, bik, bank_account = _organization_bits(account)
     penalty = _dec(raw.get("penalty"))
     total = _dec(account.balance_out)
@@ -214,7 +225,18 @@ def context_for_account(account, tariff: str = "", warning_date: str = "") -> di
         "warning_date": _date(warning_date) or _clean(raw.get("warning_date")),
         "debt_started": _date(account.debt_started_on),
         "total_sentence": "",
+        "period_from": "",
+        "period_to": "",
+        "duty": "",
+        "filed_on": "",
+        "note": "",
+        "representative": "",
+        "kind": "",
+        "tariff": tariff or "",
     }
+    period_from, period_to = _debt_span(account)
+    values["period_from"] = period_from
+    values["period_to"] = period_to
     ctx = blank_context("warning", values=values, periods=groups, residents=residents)
     ctx["values"] = {key: values.get(key, "") for key in _VALUE_KEYS}
     ctx["values"]["total_sentence"] = total_sentence(ctx["values"])
@@ -224,10 +246,14 @@ def context_for_account(account, tariff: str = "", warning_date: str = "") -> di
         for group in groups
     ]
     ctx["residents"] = residents
+    ctx["service_rows"] = _service_lines(account)
     return ctx
 
 
-def context_for_blank(blank: str, account=None, *, warning_date: str = "", overrides: dict | None = None) -> dict:
+def context_for_blank(
+    blank: str, account=None, *, warning_date: str = "", overrides: dict | None = None,
+    extras: dict | None = None, sections: dict | None = None, service_rows=None,
+) -> dict:
     if not known(blank):
         raise ValueError("Такого бланка нет")
     if account is None:
@@ -239,6 +265,7 @@ def context_for_blank(blank: str, account=None, *, warning_date: str = "", overr
         ctx["pairs"] = base["pairs"]
         ctx["residents"] = base["residents"]
         ctx["penalty_rows"] = base["penalty_rows"]
+        ctx["service_rows"] = base["service_rows"]
         if blank == "notice-tko":
             ctx["values"]["amount"] = _tko_amount(account)
             ctx["values"]["services"] = "обращение с твердыми коммунальными отходами"
@@ -249,9 +276,14 @@ def context_for_blank(blank: str, account=None, *, warning_date: str = "", overr
             ctx["values"]["penalty"] = money_text(penalty)
             ctx["values"]["total"] = money_text(principal + penalty)
             ctx["values"]["amount"] = ctx["values"]["total"]
+    _apply_named(ctx, extras, _EXTRA_KEYS)
     _apply_overrides(ctx, overrides)
+    _apply_sections(ctx, sections)
+    ctx["service_rows"] = _merge_service_rows(ctx.get("service_rows") or [], service_rows)
     if blank == "calculation":
         ctx["values"]["total_sentence"] = total_sentence(ctx["values"])
+    if family_of(blank) == "case" and not ctx["values"].get("kind"):
+        ctx["values"]["kind"] = ctx["copy"].get("kind") or ""
     return ctx
 
 
@@ -264,6 +296,9 @@ def payload_of(ctx: dict) -> dict:
         "pairs": ctx["pairs"],
         "residents": ctx["residents"],
         "penalty_rows": ctx["penalty_rows"],
+        "service_rows": ctx.get("service_rows") or [],
+        "section_list": ctx.get("section_list") or [],
+        "sections": ctx.get("sections") or {},
         "show_services": ctx["show_services"],
     }
 
@@ -282,6 +317,8 @@ def render_official_body(blank: str, ctx: dict) -> str:
         return _html_reminder(ctx)
     if family == "calculation":
         return _html_calculation(ctx)
+    if family == "case":
+        return _html_case(blank, ctx)
     return ""
 
 
@@ -369,28 +406,35 @@ def money_text(value) -> str:
 
 def _html_warning(ctx: dict) -> str:
     copy = ctx["copy"]
-    return (
-        '<article class="page warning">'
-        f'{_letterhead(ctx)}'
-        f'<p class="meta">{_slot(ctx, "date")}, № {_slot(ctx, "doc_number")}</p>'
+    head = f'{_letterhead(ctx)}<p class="meta">{_slot(ctx, "date")}, № {_slot(ctx, "doc_number")}</p>'
+    addressee = (
         '<p class="addressee">'
         f'{escape(copy["addressee_prefix"])} {_slot(ctx, "fio")},<br>'
         f'{escape(copy["living"])}<br>{_slot(ctx, "address")}</p>'
-        f'<h1>{escape(copy["title"])}</h1>'
-        "<p>"
+    )
+    body = (
+        f'<h1>{escape(copy["title"])}</h1><p>'
         f'{escape(copy["before_amount"])} {_slot(ctx, "amount")} {escape(copy["after_amount"])} '
         f'{_slot(ctx, "due_days")} {escape(copy["after_days"])} {_slot(ctx, "services")} '
         f'{escape(copy["law"])}</p>'
         f'<p>{escape(copy["p2_before"])} {_slot(ctx, "organization")} {escape(copy["p2_after"])}</p>'
         f'<p class="phone">{escape(copy["phone_label"])} {_slot(ctx, "phone")}</p>'
+    )
+    sign = (
         '<div class="signs">'
         f'<div><div>{escape(copy["handed"])}</div><div class="sign-line"></div>'
         f'<div class="hint">{escape(copy["handed_sign"])}</div></div>'
         f'<div><div>{escape(copy["received"])}</div><div class="sign-line"></div>'
         f'<div class="hint">{escape(copy["received_sign"])} {_slot(ctx, "fio")}</div></div>'
-        "</div>"
-        f'<p class="stamp">{escape(copy["stamp"])}</p>'
-        "</article>"
+        f'</div><p class="stamp">{escape(copy["stamp"])}</p>'
+    )
+    return (
+        '<article class="page warning">'
+        + _part(ctx, "head", head)
+        + _part(ctx, "addressee", addressee)
+        + _part(ctx, "body", body)
+        + _part(ctx, "sign", sign)
+        + "</article>"
     )
 
 
@@ -400,23 +444,27 @@ def _html_notice(blank: str, ctx: dict) -> str:
     if blank != "notice-tko":
         services = f'{_slot(ctx, "services")} '
     second = f'<p>{escape(copy["p2"])}</p>' if copy.get("p2") else ""
-    return (
-        '<article class="page notice">'
-        '<p class="addressee">'
-        f'{_slot(ctx, "fio")}<br>{_slot(ctx, "address")}</p>'
-        f'<h1>{escape(copy["title"])}</h1>'
-        "<p>"
+    addressee = f'<p class="addressee">{_slot(ctx, "fio")}<br>{_slot(ctx, "address")}</p>'
+    body = (
+        f'<h1>{escape(copy["title"])}</h1><p>'
         f'{escape(copy["before_amount"])} {services}{escape(copy["mid_amount"])} '
-        f'{_slot(ctx, "amount")} {escape(copy["after_amount"])}</p>'
-        f"{second}"
-        "<p>"
+        f'{_slot(ctx, "amount")} {escape(copy["after_amount"])}</p>{second}<p>'
         f'{escape(copy["contact_before"])} {_slot(ctx, "organization")} {escape(copy["contact_mid"])} '
         f'{_slot(ctx, "address_org")} {escape(copy["hours_label"])} {_slot(ctx, "hours")}, '
         f'{escape(copy["phone_label"])} {_slot(ctx, "phone")}.</p>'
-        f'{_letterhead(ctx)}'
-        f'<p class="meta">{_slot(ctx, "date")}, {escape(copy["out_label"])}{_slot(ctx, "doc_number")}</p>'
-        f'<p class="stamp">{escape(copy["stamp"])}</p>'
-        "</article>"
+    )
+    foot = (
+        f'{_letterhead(ctx)}<p class="meta">{_slot(ctx, "date")}, {escape(copy["out_label"])}'
+        f'{_slot(ctx, "doc_number")}</p>'
+    )
+    sign = f'<p class="stamp">{escape(copy["stamp"])}</p>'
+    return (
+        '<article class="page notice">'
+        + _part(ctx, "addressee", addressee)
+        + _part(ctx, "body", body)
+        + _part(ctx, "head", foot)
+        + _part(ctx, "sign", sign)
+        + "</article>"
     )
 
 
@@ -433,8 +481,7 @@ def _html_reminder(ctx: dict) -> str:
     )
     if not body:
         body = "<tr><td></td><td></td><td></td></tr>"
-    return (
-        '<article class="page reminder">'
+    head = (
         f'<p class="meta">{escape(copy["issued"])} {_slot(ctx, "date")}</p>'
         f'<p><span class="lbl">{escape(copy["where"])}</span> {_slot(ctx, "address")}</p>'
         f'<p><span class="lbl">{escape(copy["whom"])}</span> {_slot(ctx, "fio")}</p>'
@@ -443,10 +490,14 @@ def _html_reminder(ctx: dict) -> str:
         f'{escape(copy["area_label"])} {_slot(ctx, "area")} {escape(copy["area_unit"])} '
         f'{escape(copy["live_label"])} {_slot(ctx, "residents_count")} {escape(copy["live_unit"])}</p>'
         f'<p>{escape(copy["sender"])} {_slot(ctx, "address_org")}</p>'
+    )
+    lead = (
         f'<h1>{escape(copy["title"])}</h1>'
         "<p>"
         f'{escape(copy["on_date"])} {_slot(ctx, "as_of")} {escape(copy["debt_text"])} '
         f'{_slot(ctx, "months_debt")}</p>'
+    )
+    table = (
         '<table class="sum"><thead><tr>'
         f'<th>{escape(copy["debt"])}</th><th>{escape(copy["mulct"])}</th><th>{escape(copy["grand"])}</th>'
         "</tr></thead><tbody><tr>"
@@ -458,11 +509,21 @@ def _html_reminder(ctx: dict) -> str:
         '<table class="grid"><thead><tr>'
         f'<th>{escape(copy["month"])}</th><th>{escape(copy["debt"])}</th><th>{escape(copy["mulct"])}</th>'
         f"</tr></thead><tbody>{body}</tbody></table>"
+    )
+    tail = (
         "<p>"
         f'{escape(copy["pay_before"])} {_slot(ctx, "due_date")} {escape(copy["pay_after"])}</p>'
         f'<p class="phone">{escape(copy["phone_label"])} {_slot(ctx, "phone")}</p>'
-        f'<p>{_slot(ctx, "address_org")}</p>'
-        "</article>"
+    )
+    sign = f'<p>{_slot(ctx, "address_org")}</p>'
+    return (
+        '<article class="page reminder">'
+        + _part(ctx, "head", head)
+        + _part(ctx, "body", lead)
+        + _part(ctx, "table", table)
+        + _part(ctx, "body", tail)
+        + _part(ctx, "sign", sign)
+        + "</article>"
     )
 
 
@@ -479,18 +540,21 @@ def _html_calculation(ctx: dict) -> str:
     people = "".join(_resident_html(row) for row in (ctx.get("residents") or []))
     if not people:
         people = "<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>"
-    return (
-        '<article class="page calculation">'
+    head = (
         "<h1>"
         f'{escape(copy["title_before"])} {_slot(ctx, "account")} '
         f'{escape(copy["title_after"])} {_slot(ctx, "as_of")}</h1>'
         f"{_letterhead(ctx)}"
+    )
+    requisites = (
         f'<p>{escape(copy["agent_label"])} {escape(copy["agent"])}</p>'
         f'<p>{escape(copy["bank_label"])} {_slot(ctx, "bank")}</p>'
         "<p>"
         f'{escape(copy["bik_label"])} {_slot(ctx, "bik")} {escape(copy["acc_label"])} {_slot(ctx, "bank_account")}</p>'
         f'<p>{escape(copy["unp_label"])} {_slot(ctx, "unp")}</p>'
         f'<p class="reg">{escape(copy["reg_label"])} {_slot(ctx, "doc_number")}</p>'
+    )
+    payer = (
         '<table class="payer"><tbody>'
         "<tr>"
         f'<th>{escape(copy["payer"])}</th><td>{_slot(ctx, "fio")}</td>'
@@ -504,8 +568,9 @@ def _html_calculation(ctx: dict) -> str:
         f'<th>{escape(copy["space"])}</th><td>{_slot(ctx, "area")}/{_slot(ctx, "living_area")}</td>'
         "</tr></tbody></table>"
         f'<p>{escape(copy["duty"])} {_slot(ctx, "duty_from")}</p>'
-        f"{pairs}"
-        f'<p class="total">{escape(values.get("total_sentence") or "")}</p>'
+    )
+    table = f"{pairs}<p class=\"total\">{escape(values.get('total_sentence') or '')}</p>"
+    people_html = (
         f'<p class="sub">{escape(copy["people"])}</p>'
         '<table class="grid people"><thead><tr>'
         f'<th>{escape(copy["arrived"])}</th><th>{escape(copy["left"])}</th>'
@@ -513,12 +578,118 @@ def _html_calculation(ctx: dict) -> str:
         f'<th>{escape(copy["person"])}</th><th>{escape(copy["birthday"])}</th>'
         f'<th>{escape(copy["relation"])}</th>'
         f"</tr></thead><tbody>{people}</tbody></table>"
+    )
+    close = (
         "<p>"
         f'{escape(copy["after_hand"])} {_slot(ctx, "warning_date")} {escape(copy["close"])}</p>'
+    )
+    sign = (
         '<div class="signs">'
         '<div><div class="sign-line"></div><div class="hint">(должность) (подпись) (И.О.Фамилия)</div></div>'
         '<div><div class="sign-line"></div><div class="hint">(должность) (подпись) (И.О.Фамилия)</div></div>'
-        "</div></article>"
+        "</div>"
+    )
+    return (
+        '<article class="page calculation">'
+        + _part(ctx, "head", head)
+        + _part(ctx, "requisites", requisites)
+        + _part(ctx, "payer", payer)
+        + _part(ctx, "table", table)
+        + _part(ctx, "people", people_html)
+        + _part(ctx, "close", close)
+        + _part(ctx, "sign", sign)
+        + "</article>"
+    )
+
+
+def _html_case(blank: str, ctx: dict) -> str:
+    copy = ctx["copy"]
+    mode = copy.get("mode") or "claim"
+    head = (
+        f'<h1>{escape(copy["title"])}</h1>'
+        '<table class="payer"><tbody><tr>'
+        f'<th>{escape(copy["number_label"])}</th><td>{_slot(ctx, "doc_number")}</td>'
+        f'<th>{escape(copy["account_label"])}</th><td>{_slot(ctx, "account")}</td>'
+        "</tr></tbody></table>"
+    )
+    period = (
+        '<table class="payer"><tbody><tr>'
+        f'<th>{escape(copy["from_label"])}</th><td>{_slot(ctx, "period_from")}</td>'
+        f'<th>{escape(copy["to_label"])}</th><td>{_slot(ctx, "period_to")}</td>'
+        "</tr></tbody></table>"
+    )
+    person = (
+        f'<p class="lbl-line"><span class="lbl">{escape(copy["person_label"])}</span> {_slot(ctx, "fio")}</p>'
+        f'<p class="lbl-line"><span class="lbl">{escape(copy["address_label"])}</span> {_slot(ctx, "address")}</p>'
+    )
+    if mode == "proxy":
+        person += (
+            f'<p class="lbl-line"><span class="lbl">{escape(copy["grantor_label"])}</span> {_slot(ctx, "organization")}</p>'
+            f'<p class="lbl-line"><span class="lbl">{escape(copy["rep_label"])}</span> {_slot(ctx, "representative")}</p>'
+            f'<p>{escape(copy["powers"])}</p>'
+        )
+    rows = "".join(_service_row_html(row) for row in (ctx.get("service_rows") or []))
+    if not rows:
+        rows = "<tr><td></td><td></td><td></td></tr>"
+    services = (
+        f'<p class="sub">{escape(copy["services_title"])}</p>'
+        '<table class="grid"><thead><tr>'
+        f'<th></th><th>{escape(copy["col_id"])}</th><th>{escape(copy["col_name"])}</th>'
+        f'</tr></thead><tbody>{rows}</tbody></table>'
+    )
+    sums = (
+        '<table class="payer"><tbody>'
+        f'<tr><th>{escape(copy["debt_label"])}</th><td>{_slot(ctx, "principal")}</td>'
+        f'<th>{escape(copy["penalty_label"])}</th><td>{_slot(ctx, "penalty")}</td></tr>'
+        "</tbody></table>"
+    )
+    warning_row = (
+        f'<tr><th>{escape(copy["warning_label"])}</th><td>{_slot(ctx, "warning_date")}</td>'
+        f'<th>{escape(copy["days_label"])}</th><td>{_slot(ctx, "due_days")}</td></tr>'
+    )
+    if mode == "writ":
+        extra = (
+            f'<tr><th>{escape(copy["tariff_label"])}</th>'
+            f'<td colspan="3">{_slot(ctx, "tariff")}</td></tr>'
+        )
+    elif mode == "proxy":
+        extra = ""
+    else:
+        extra = (
+            f'<tr><th>{escape(copy["kind_label"])}</th>'
+            f'<td>{escape(ctx["values"].get("kind") or copy.get("kind") or "")}</td>'
+            f'<th>{escape(copy["duty_label"])}</th><td>{_slot(ctx, "duty")}</td></tr>'
+            f'<tr><th>{escape(copy["filed_label"])}</th>'
+            f'<td colspan="3">{_slot(ctx, "filed_on")}</td></tr>'
+        )
+    requisites = f'<table class="payer"><tbody>{warning_row}{extra}</tbody></table>'
+    note = f'<p class="lbl-line"><span class="lbl">{escape(copy["note_label"])}</span> {_slot(ctx, "note")}</p>'
+    sign = (
+        '<div class="signs"><div><div class="sign-line"></div>'
+        f'<div class="hint">{escape(copy["sign_hint"])}</div></div></div>'
+    )
+    return (
+        '<article class="page case">'
+        + _part(ctx, "head", head)
+        + _part(ctx, "period", period)
+        + _part(ctx, "person", person)
+        + _part(ctx, "services", services)
+        + _part(ctx, "sums", sums)
+        + _part(ctx, "requisites", requisites)
+        + _part(ctx, "note", note)
+        + _part(ctx, "sign", sign)
+        + "</article>"
+    )
+
+
+def _service_row_html(row: dict) -> str:
+    mark = "✓" if row.get("selected") else ""
+    return (
+        "<tr>"
+        f'<td class="tick">{escape(mark)}</td>'
+        f'<td>{escape(str(row.get("id") or ""))}</td>'
+        f'<td class="name">{escape(str(row.get("name") or ""))}</td>'
+        "</tr>"
     )
 
 
@@ -587,6 +758,8 @@ def _wrap(body: str) -> str:
 
 def _copy(blank: str) -> dict:
     shared = {"country": "Республика Беларусь"}
+    if blank in CASE_BLANKS:
+        return _case_copy(blank)
     if blank == "warning":
         return {
             **shared,
@@ -686,6 +859,153 @@ def _copy(blank: str) -> dict:
         "out_label": "исх. №",
         "stamp": "М.П.",
     }
+
+
+def _case_copy(blank: str) -> dict:
+    titles = {
+        "writ": "Исполнительная надпись",
+        "proxy": "Доверенность",
+        "lawsuit": "Исковое заявление",
+        "eviction": "Исковое заявление",
+        "alienation": "Исковое заявление",
+    }
+    kinds = {
+        "lawsuit": "На взыскание задолженности",
+        "eviction": "На выселение в соответствии со ст. 80 ЖК",
+        "alienation": "Понуждение к отчуждению жилого помещения (ст. 137 ЖК)",
+    }
+    mode = "proxy" if blank == "proxy" else "writ" if blank == "writ" else "claim"
+    return {
+        "title": titles[blank],
+        "mode": mode,
+        "kind": kinds.get(blank, ""),
+        "number_label": "Номер",
+        "account_label": "Лицевой счёт",
+        "from_label": "Начало периода долга",
+        "to_label": "Окончание периода долга",
+        "person_label": "Должник" if blank == "proxy" else "ФИО ответчика",
+        "address_label": "Адрес",
+        "grantor_label": "Доверитель",
+        "rep_label": "Представитель",
+        "services_title": "Услуги",
+        "col_id": "ID",
+        "col_name": "Услуга",
+        "debt_label": "Долг по услугам",
+        "penalty_label": "Долг по пене",
+        "kind_label": "Вид иска",
+        "tariff_label": "Нотариальный тариф",
+        "duty_label": "Госпошлина",
+        "warning_label": "Дата вручения предупреждения",
+        "days_label": "Дней на погашение",
+        "filed_label": "Дата подачи иска",
+        "note_label": "Примечание",
+        "sign_hint": "Подпись уполномоченного",
+        "powers": (
+            "Доверитель уполномочивает представителя действовать от имени организации "
+            "по задолженности этого лицевого счёта, в том числе при обращении за исполнительной надписью."
+        ),
+    }
+
+
+def _section_list(blank: str) -> list[dict]:
+    family = family_of(blank)
+    if family == "case":
+        rows = (
+            ("head", "Номер и лицевой счёт"),
+            ("period", "Период долга"),
+            ("person", "Ответчик"),
+            ("services", "Услуги"),
+            ("sums", "Суммы"),
+            ("requisites", "Вид документа и даты"),
+            ("note", "Примечание"),
+            ("sign", "Подпись"),
+        )
+    elif family == "calculation":
+        rows = (
+            ("head", "Заголовок и шапка"),
+            ("requisites", "Реквизиты"),
+            ("payer", "Плательщик"),
+            ("table", "Таблица услуг"),
+            ("people", "Зарегистрированные"),
+            ("close", "Оговорка"),
+            ("sign", "Подписи"),
+        )
+    elif family == "reminder":
+        rows = (
+            ("head", "Куда и кому"),
+            ("body", "Текст"),
+            ("table", "Долг и пени"),
+            ("sign", "Адрес отправителя"),
+        )
+    else:
+        rows = (
+            ("head", "Шапка"),
+            ("addressee", "Адресат"),
+            ("body", "Текст"),
+            ("sign", "Подписи"),
+        )
+    return [{"id": key, "title": title} for key, title in rows]
+
+
+def _part(ctx: dict, section: str, html: str) -> str:
+    flags = ctx.get("sections")
+    if isinstance(flags, dict) and section in flags and not flags[section]:
+        return ""
+    return html
+
+
+def _apply_named(ctx: dict, source: dict | None, keys: set[str]) -> None:
+    if not isinstance(source, dict):
+        return
+    for key in keys:
+        if key not in source:
+            continue
+        text = str(source.get(key) or "").strip()
+        if text and key in ctx["values"]:
+            ctx["values"][key] = text[:500]
+
+
+def _apply_sections(ctx: dict, sections: dict | None) -> None:
+    if not isinstance(sections, dict):
+        return
+    for row in ctx.get("section_list") or []:
+        if row["id"] in sections:
+            ctx["sections"][row["id"]] = bool(sections[row["id"]])
+
+
+def _merge_service_rows(current: list, posted) -> list:
+    if not isinstance(posted, list):
+        return current
+    flags = {}
+    for row in posted:
+        if isinstance(row, dict) and row.get("id") is not None:
+            flags[str(row["id"])] = bool(row.get("selected"))
+    if not flags:
+        return current
+    return [
+        {**row, "selected": flags.get(str(row["id"]), bool(row.get("selected")))}
+        for row in current
+    ]
+
+
+def _service_lines(account) -> list[dict]:
+    rows = []
+    for service in account.services.all():
+        penalty = service.balance_mulct_out or Decimal("0")
+        outgoing = service.balance_out or Decimal("0")
+        rows.append({
+            "id": str(service.service_id),
+            "name": service.service_name or str(service.service_id),
+            "selected": outgoing != 0 or penalty != 0,
+        })
+    return rows
+
+
+def _debt_span(account) -> tuple[str, str]:
+    periods = list(account.debt_periods.order_by("period").values_list("period", flat=True))
+    if periods:
+        return _date(periods[0]), _date(periods[-1])
+    return _date(account.debt_started_on), _date(account.operational_date)
 
 
 def _organization_bits(account) -> tuple[str, str, str, str, str, str]:
@@ -944,6 +1264,12 @@ _VALUE_KEYS = (
     "fio", "address", "account", "amount", "penalty", "principal", "total", "services",
     "due_days", "months_debt", "as_of", "due_date", "area", "living_area", "rooms",
     "residents_count", "registered_count", "tenants", "beneficiaries", "ownership",
-    "duty_from", "unp", "bank", "bik", "bank_account", "warning_date", "debt_started",
-    "total_sentence",
+    "duty_from", "unp", "bank", "bik", "bank_account",     "warning_date", "debt_started",
+    "total_sentence", "period_from", "period_to", "duty", "filed_on", "note",
+    "representative", "kind", "tariff",
 )
+
+_EXTRA_KEYS = {
+    "doc_number", "tariff", "duty", "filed_on", "note", "kind", "fio",
+    "period_from", "period_to", "representative", "warning_date",
+}

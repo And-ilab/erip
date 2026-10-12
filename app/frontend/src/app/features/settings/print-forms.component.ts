@@ -5,7 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
 
-import { ApiService, BlankData, BlankPenaltyRow, BlankPeriodPair, BlankResident, ClaimCase, PrintFormRow, errorMessage } from '../../core/api.service';
+import { ApiService, BlankData, BlankPenaltyRow, BlankPeriodPair, BlankResident, BlankSection, BlankServiceRow, ClaimCase, PrintFormRow, errorMessage } from '../../core/api.service';
 import { KNOWN_TOKENS, SheetBlock, SheetEditor, normalizeBlock } from './document-flow';
 import { OfficialSheetComponent } from './official-sheet.component';
 import { PrintSheetComponent } from './print-sheet.component';
@@ -18,7 +18,7 @@ import { PrintSheetComponent } from './print-sheet.component';
     <header class="head">
       <div>
         <h2>Конструктор печатных форм</h2>
-        <p>Бланки предупреждения, напоминания, уведомлений и расчёта повторяют образцы АИС. Статичный текст бланка не меняется, подставляются поля лицевого счёта. Остальные макеты собираются на том же листе A4.</p>
+        <p>Бланки предупреждения, напоминания, уведомлений, расчёта, доверенности, исполнительной надписи и исков повторяют образцы АИС. Статичный текст не меняется, подставляются поля лицевого счёта. Части листа включаются слева.</p>
       </div>
       <button mat-stroked-button type="button" (click)="create()">+ Шаблон</button>
     </header>
@@ -74,54 +74,42 @@ import { PrintSheetComponent } from './print-sheet.component';
               <input type="file" accept="application/pdf,.pdf,image/*" (change)="onScan($event)" />
             </label>
           </div>
-          <p class="muted">Значение в поле нужно для просмотра и для документа дела. В шаблоне остаётся метка счёта, на листе она не пишется. Блоки меняются местами стрелками.</p>
           @if (blank()) {
-            <p class="muted">Статичный текст как в образце. Дата, номер, телефон и шапка правятся здесь. Суммы, услуги и периоды долга берутся из карточки лицевого счёта.</p>
-            <app-official-sheet
-              [family]="sheetFamily"
-              [copy]="sheetCopy"
-              [values]="sheetValues"
-              [pairs]="sheetPairs"
-              [residents]="sheetResidents"
-              [penaltyRows]="sheetPenalty"
-              [showServices]="sheetServices" />
-          }
-          <div class="work" [hidden]="!!blank()">
-            <aside class="blocks">
-              <h3>Блоки</h3>
-              @for (block of orderedBlocks(); track block.key) {
-                <div class="check-row">
-                  <label class="check" [class.need]="block.key === 'body' && bodyBlank()">
-                    <input type="checkbox" [(ngModel)]="block.enabled" /> {{ block.title }}
-                  </label>
-                  <button type="button" (click)="moveBlock(block, -1)" [attr.aria-label]="'Выше'">↑</button>
-                  <button type="button" (click)="moveBlock(block, 1)" [attr.aria-label]="'Ниже'">↓</button>
-                </div>
-              }
-              <div class="tokens">
-                @for (token of tokens; track token) {
-                  <button type="button" (click)="insert(token)">{{ labelOf(token) }}</button>
+            <p class="muted">Статичный текст как в образце. Дата, номер, телефон и примечание правятся на листе. Суммы, услуги и периоды долга берутся из карточки лицевого счёта.</p>
+            <div class="work">
+              <aside class="parts">
+                <h3>Блоки</h3>
+                @for (part of sheetParts; track part.id) {
+                  <button type="button" class="part" [class.on]="sectionOn(part.id)" (click)="toggleSection(part.id)">
+                    <span class="mark">{{ sectionOn(part.id) ? '✓' : '' }}</span>
+                    <span>{{ part.title }}</span>
+                  </button>
                 }
-              </div>
-            </aside>
-            <div class="sheet-wrap">
-              @if (chosen(); as block) {
-                <div class="line tool">
-                  <label>Шрифт, пт <input type="number" min="8" max="24" [(ngModel)]="block.font_size" /></label>
-                  <label>Выравнивание
-                    <select [(ngModel)]="block.align">
-                      <option value="left">Слева</option>
-                      <option value="center">По центру</option>
-                      <option value="right">Справа</option>
-                    </select>
-                  </label>
-                  <label class="check"><input type="checkbox" [(ngModel)]="block.bold" /> Жирный</label>
-                  <label class="check"><input type="checkbox" [(ngModel)]="block.italic" /> Курсив</label>
-                  <button type="button" (click)="addColumn(block)">Колонка</button>
-                  @if (block.columns.length) { <button type="button" (click)="addRow(block)">Строка</button> }
-                  @if (!block.columns.length) { <button type="button" (click)="addServiceTable(block)">Таблица услуг</button> }
-                </div>
-              }
+              </aside>
+              <app-official-sheet
+                [family]="sheetFamily"
+                [copy]="sheetCopy"
+                [values]="sheetValues"
+                [pairs]="sheetPairs"
+                [residents]="sheetResidents"
+                [penaltyRows]="sheetPenalty"
+                [serviceRows]="sheetServiceRows"
+                [sections]="sectionMap"
+                [showServices]="sheetServices"
+                (serviceToggle)="toggleService($event)" />
+            </div>
+          } @else {
+            <p class="muted">Отмеченные блоки попадают на лист. Текст правится прямо в документе.</p>
+            <div class="work">
+              <aside class="parts">
+                <h3>Блоки</h3>
+                @for (block of orderedBlocks(); track block.key) {
+                  <button type="button" class="part" [class.on]="block.enabled" (click)="block.enabled = !block.enabled">
+                    <span class="mark">{{ block.enabled ? '✓' : '' }}</span>
+                    <span>{{ block.title }}</span>
+                  </button>
+                }
+              </aside>
               <app-print-sheet
                 [blocks]="blocks"
                 [flows]="editor.flows"
@@ -129,7 +117,7 @@ import { PrintSheetComponent } from './print-sheet.component';
                 [selectedKey]="selectedKey"
                 (pick)="focusBlock($event)" />
             </div>
-          </div>
+          }
           <div class="actions">
             @if (claimId && docId) {
               <button mat-flat-button color="primary" type="button" (click)="saveCase()">Сохранить в деле</button>
@@ -189,9 +177,22 @@ import { PrintSheetComponent } from './print-sheet.component';
       cursor: pointer; font: inherit; font-size: 12px;
     }
     .need { color: #c62828; }
-    .work { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; margin-top: 8px; }
-    .blocks { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; }
-    .tool { margin-bottom: 8px; }
+    .work { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 12px; margin-top: 8px; align-items: start; }
+    .parts {
+      border: 1px solid var(--erip-border); border-radius: 12px; padding: 10px; background: #fff;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .part {
+      display: flex; gap: 10px; align-items: center; width: 100%; text-align: left;
+      border: 1px solid var(--erip-border); background: #fff; border-radius: 10px;
+      padding: 8px 10px; cursor: pointer; font: inherit; color: inherit;
+    }
+    .mark {
+      width: 18px; height: 18px; flex: 0 0 18px; border: 1px solid #c5ced6; border-radius: 3px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 13px; line-height: 1; color: transparent; background: #fff;
+    }
+    .part.on .mark { background: #2e9b57; border-color: #2e9b57; color: #fff; }
     .sheet-wrap { min-width: 0; }
     .preview-title { margin: 12px 0 2px; font-size: 16px; color: #1f2933; }
     .doc-title { margin: 0 0 8px; color: var(--erip-muted); }
@@ -243,6 +244,9 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected sheetPairs: BlankPeriodPair[] = [];
   protected sheetResidents: BlankResident[] = [];
   protected sheetPenalty: BlankPenaltyRow[] = [];
+  protected sheetServiceRows: BlankServiceRow[] = [];
+  protected sheetParts: BlankSection[] = [];
+  protected sectionMap: Record<string, boolean> = {};
   protected sheetServices = true;
   private accountId: number | null = null;
   protected selectedKey = 'body';
@@ -307,6 +311,20 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.revoke();
   }
 
+  protected sectionOn(id: string): boolean {
+    return this.sectionMap[id] !== false;
+  }
+
+  protected toggleSection(id: string): void {
+    this.sectionMap = { ...this.sectionMap, [id]: !this.sectionOn(id) };
+  }
+
+  protected toggleService(id: string): void {
+    this.sheetServiceRows = this.sheetServiceRows.map((row) => (
+      row.id === id ? { ...row, selected: !row.selected } : row
+    ));
+  }
+
   protected kindLabel(id: string): string {
     return this.kinds.find((item) => item.id === id)?.label || id;
   }
@@ -338,6 +356,9 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.addressee = 'notary';
     this.blocks = [normalizeBlock({ key: 'body', title: 'Текст', text: '', enabled: true }, 0)];
     this.blank.set('');
+    this.sheetParts = [];
+    this.sectionMap = {};
+    this.sheetServiceRows = [];
     this.selectedKey = 'body';
     this.claimId = null;
     this.docId = null;
@@ -470,7 +491,8 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     if (!this.claimId || !this.docId) return;
     if (this.blank()) {
       this.api.claimAction(this.claimId, `package/documents/${this.docId}/layout`, {
-        blank: this.blank(), values: this.sheetValues, body: '', blocks: [],
+        blank: this.blank(), values: this.sheetValues, sections: this.sectionMap,
+        service_rows: this.sheetServiceRows, body: '', blocks: [],
       }).subscribe({
         next: () => this.snack.open('Документ дела сохранён. Подпись пакета снята.', 'OK', { duration: 2500 }),
         error: (err) => this.snack.open(errorMessage(err), 'OK'),
@@ -507,6 +529,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     if (this.blank()) {
       this.api.previewPrintForm({
         blank: this.blank(), values: this.sheetValues, account: this.accountId,
+        sections: this.sectionMap, service_rows: this.sheetServiceRows,
       }).subscribe({
         next: (blob) => this.showBlob(blob),
         error: (err) => this.snack.open(errorMessage(err), 'OK'),
@@ -560,6 +583,9 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.sheetResidents = data.residents || [];
     this.sheetPenalty = data.penalty_rows || [];
     this.sheetServices = data.show_services !== false;
+    this.sheetServiceRows = (data.service_rows || []).map((row) => ({ ...row }));
+    this.sheetParts = data.section_list || [];
+    this.sectionMap = { ...(data.sections || {}) };
     if (claim?.warning_delivered_on) {
       const [year, month, day] = claim.warning_delivered_on.slice(0, 10).split('-');
       if (day && month && year) this.sheetValues['warning_date'] = `${day}.${month}.${year}`;

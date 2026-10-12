@@ -1,14 +1,15 @@
 import {
-  AfterViewInit, ChangeDetectorRef, Component, ElementRef, Input, NgZone, OnChanges, OnDestroy, inject, signal, viewChild,
+  AfterViewInit, ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, NgZone, OnChanges, OnDestroy, Output, inject, signal, viewChild,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
-import { BlankPenaltyRow, BlankPeriodPair, BlankResident } from '../../core/api.service';
+import { BlankPenaltyRow, BlankPeriodPair, BlankResident, BlankServiceRow } from '../../core/api.service';
 
 const LOCKED = new Set([
   'fio', 'address', 'account', 'amount', 'penalty', 'principal', 'total', 'services',
   'due_days', 'months_debt', 'as_of', 'due_date', 'area', 'living_area', 'rooms',
+  'period_from', 'period_to', 'duty', 'filed_on', 'tariff',
   'residents_count', 'registered_count', 'tenants', 'beneficiaries', 'ownership',
   'duty_from', 'unp', 'bank', 'bik', 'bank_account', 'debt_started', 'address_org',
 ]);
@@ -27,19 +28,25 @@ const LOCKED = new Set([
             [class.notice]="family === 'notice'"
             [class.reminder]="family === 'reminder'"
             [class.calculation]="family === 'calculation'"
+            [class.case]="family === 'case'"
             [style.transform]="'scale(' + scale() + ')'">
             @if (family === 'warning') {
-              <header class="letterhead">
-                <div>{{ copy['country'] }}</div>
-                <div class="org"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'organization' }" /></div>
-                <div><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'locality' }" /></div>
-              </header>
-              <p class="meta"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'date' }" />, № <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'doc_number' }" /></p>
-              <p class="addressee">
-                {{ copy['addressee_prefix'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'fio' }" />,<br />
-                {{ copy['living'] }}<br />
-                <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'address' }" />
-              </p>
+              @if (shown('head')) {
+                <header class="letterhead">
+                  <div>{{ copy['country'] }}</div>
+                  <div class="org"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'organization' }" /></div>
+                  <div><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'locality' }" /></div>
+                </header>
+                <p class="meta"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'date' }" />, № <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'doc_number' }" /></p>
+              }
+              @if (shown('addressee')) {
+                <p class="addressee">
+                  {{ copy['addressee_prefix'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'fio' }" />,<br />
+                  {{ copy['living'] }}<br />
+                  <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'address' }" />
+                </p>
+              }
+              @if (shown('body')) {
               <h1>{{ copy['title'] }}</h1>
               <p>
                 {{ copy['before_amount'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'amount' }" />
@@ -52,6 +59,8 @@ const LOCKED = new Set([
                 {{ copy['p2_after'] }}
               </p>
               <p class="phone">{{ copy['phone_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'phone' }" /></p>
+              }
+              @if (shown('sign')) {
               <div class="signs">
                 <div>
                   <div>{{ copy['handed'] }}</div>
@@ -65,11 +74,15 @@ const LOCKED = new Set([
                 </div>
               </div>
               <p class="stamp">{{ copy['stamp'] }}</p>
+              }
             } @else if (family === 'notice') {
+              @if (shown('addressee')) {
               <p class="addressee">
                 <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'fio' }" /><br />
                 <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'address' }" />
               </p>
+              }
+              @if (shown('body')) {
               <h1>{{ copy['title'] }}</h1>
               <p>
                 {{ copy['before_amount'] }}
@@ -84,14 +97,20 @@ const LOCKED = new Set([
                 {{ copy['hours_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'hours' }" />,
                 {{ copy['phone_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'phone' }" />.
               </p>
+              }
+              @if (shown('head')) {
               <header class="letterhead">
                 <div>{{ copy['country'] }}</div>
                 <div class="org"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'organization' }" /></div>
                 <div><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'locality' }" /></div>
               </header>
               <p class="meta"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'date' }" />, {{ copy['out_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'doc_number' }" /></p>
+              }
+              @if (shown('sign')) {
               <p class="stamp">{{ copy['stamp'] }}</p>
+              }
             } @else if (family === 'reminder') {
+              @if (shown('head')) {
               <p class="meta">{{ copy['issued'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'date' }" /></p>
               <p><span class="lbl">{{ copy['where'] }}</span> <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'address' }" /></p>
               <p><span class="lbl">{{ copy['whom'] }}</span> <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'fio' }" /></p>
@@ -101,11 +120,15 @@ const LOCKED = new Set([
                 {{ copy['live_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'residents_count' }" /> {{ copy['live_unit'] }}
               </p>
               <p>{{ copy['sender'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'address_org' }" /></p>
+              }
+              @if (shown('body')) {
               <h1>{{ copy['title'] }}</h1>
               <p>
                 {{ copy['on_date'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'as_of' }" />
                 {{ copy['debt_text'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'months_debt' }" />
               </p>
+              }
+              @if (shown('table')) {
               <table class="sum">
                 <thead><tr><th>{{ copy['debt'] }}</th><th>{{ copy['mulct'] }}</th><th>{{ copy['grand'] }}</th></tr></thead>
                 <tbody><tr>
@@ -125,10 +148,16 @@ const LOCKED = new Set([
                   }
                 </tbody>
               </table>
+              }
+              @if (shown('body')) {
               <p>{{ copy['pay_before'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'due_date' }" /> {{ copy['pay_after'] }}</p>
               <p class="phone">{{ copy['phone_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'phone' }" /></p>
+              }
+              @if (shown('sign')) {
               <p><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'address_org' }" /></p>
+              }
             } @else if (family === 'calculation') {
+              @if (shown('head')) {
               <h1>
                 {{ copy['title_before'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'account' }" />
                 {{ copy['title_after'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'as_of' }" />
@@ -138,6 +167,8 @@ const LOCKED = new Set([
                 <div class="org"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'organization' }" /></div>
                 <div><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'locality' }" /></div>
               </header>
+              }
+              @if (shown('requisites')) {
               <p>{{ copy['agent_label'] }} {{ copy['agent'] }}</p>
               <p>{{ copy['bank_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'bank' }" /></p>
               <p>
@@ -146,6 +177,8 @@ const LOCKED = new Set([
               </p>
               <p>{{ copy['unp_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'unp' }" /></p>
               <p class="reg">{{ copy['reg_label'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'doc_number' }" /></p>
+              }
+              @if (shown('payer')) {
               <table class="payer">
                 <tbody>
                   <tr>
@@ -171,6 +204,8 @@ const LOCKED = new Set([
                 </tbody>
               </table>
               <p>{{ copy['duty'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'duty_from' }" /></p>
+              }
+              @if (shown('table')) {
               @for (pair of pairs; track $index) {
                 <table class="grid calc">
                   <thead>
@@ -215,6 +250,8 @@ const LOCKED = new Set([
                 </table>
               }
               <p class="total">{{ values['total_sentence'] }}</p>
+              }
+              @if (shown('people')) {
               <p class="sub">{{ copy['people'] }}</p>
               <table class="grid people">
                 <thead>
@@ -236,11 +273,115 @@ const LOCKED = new Set([
                   }
                 </tbody>
               </table>
+              }
+              @if (shown('close')) {
               <p>{{ copy['after_hand'] }} <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'warning_date' }" /> {{ copy['close'] }}</p>
+              }
+              @if (shown('sign')) {
               <div class="signs">
                 <div><div class="sign-line"></div><div class="hint">(должность) (подпись) (И.О.Фамилия)</div></div>
                 <div><div class="sign-line"></div><div class="hint">(должность) (подпись) (И.О.Фамилия)</div></div>
               </div>
+              }
+            } @else if (family === 'case') {
+              @if (shown('head')) {
+                <h1>{{ copy['title'] }}</h1>
+                <table class="payer">
+                  <tbody>
+                    <tr>
+                      <th>{{ copy['number_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'doc_number' }" /></td>
+                      <th>{{ copy['account_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'account' }" /></td>
+                    </tr>
+                  </tbody>
+                </table>
+              }
+              @if (shown('period')) {
+                <table class="payer">
+                  <tbody>
+                    <tr>
+                      <th>{{ copy['from_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'period_from' }" /></td>
+                      <th>{{ copy['to_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'period_to' }" /></td>
+                    </tr>
+                  </tbody>
+                </table>
+              }
+              @if (shown('person')) {
+                <p class="lbl-line"><span class="lbl">{{ copy['person_label'] }}</span> <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'fio' }" /></p>
+                <p class="lbl-line"><span class="lbl">{{ copy['address_label'] }}</span> <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'address' }" /></p>
+                @if (copy['mode'] === 'proxy') {
+                  <p class="lbl-line"><span class="lbl">{{ copy['grantor_label'] }}</span> <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'organization' }" /></p>
+                  <p class="lbl-line"><span class="lbl">{{ copy['rep_label'] }}</span> <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'representative' }" /></p>
+                  <p>{{ copy['powers'] }}</p>
+                }
+              }
+              @if (shown('services')) {
+                <p class="sub">{{ copy['services_title'] }}</p>
+                <table class="grid">
+                  <thead><tr><th></th><th>{{ copy['col_id'] }}</th><th>{{ copy['col_name'] }}</th></tr></thead>
+                  <tbody>
+                    @for (row of serviceRows; track row.id) {
+                      <tr>
+                        <td class="tick"><button type="button" class="tick" [class.on]="row.selected" (click)="serviceToggle.emit(row.id)">{{ row.selected ? '✓' : '' }}</button></td>
+                        <td>{{ row.id }}</td><td class="name">{{ row.name }}</td>
+                      </tr>
+                    } @empty {
+                      <tr><td></td><td></td><td></td></tr>
+                    }
+                  </tbody>
+                </table>
+              }
+              @if (shown('sums')) {
+                <table class="payer">
+                  <tbody>
+                    <tr>
+                      <th>{{ copy['debt_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: copy['mode'] === 'proxy' ? 'amount' : 'principal' }" /></td>
+                      <th>{{ copy['penalty_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'penalty' }" /></td>
+                    </tr>
+                  </tbody>
+                </table>
+              }
+              @if (shown('requisites')) {
+                <table class="payer">
+                  <tbody>
+                    <tr>
+                      <th>{{ copy['warning_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'warning_date' }" /></td>
+                      <th>{{ copy['days_label'] }}</th>
+                      <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'due_days' }" /></td>
+                    </tr>
+                    @if (copy['mode'] === 'writ') {
+                      <tr>
+                        <th>{{ copy['tariff_label'] }}</th>
+                        <td colspan="3"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'tariff' }" /></td>
+                      </tr>
+                    }
+                    @if (copy['mode'] === 'claim') {
+                      <tr>
+                        <th>{{ copy['kind_label'] }}</th>
+                        <td>{{ values['kind'] || copy['kind'] }}</td>
+                        <th>{{ copy['duty_label'] }}</th>
+                        <td><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'duty' }" /></td>
+                      </tr>
+                      <tr>
+                        <th>{{ copy['filed_label'] }}</th>
+                        <td colspan="3"><ng-container *ngTemplateOutlet="slot; context: { $implicit: 'filed_on' }" /></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+              @if (shown('note')) {
+                <p class="lbl-line"><span class="lbl">{{ copy['note_label'] }}</span> <ng-container *ngTemplateOutlet="slot; context: { $implicit: 'note' }" /></p>
+              }
+              @if (shown('sign')) {
+                <div class="signs"><div><div class="sign-line"></div><div class="hint">{{ copy['sign_hint'] }}</div></div></div>
+              }
             }
           </article>
         </div>
@@ -269,7 +410,10 @@ export class OfficialSheetComponent implements AfterViewInit, OnChanges, OnDestr
   @Input() pairs: BlankPeriodPair[] = [];
   @Input() residents: BlankResident[] = [];
   @Input() penaltyRows: BlankPenaltyRow[] = [];
+  @Input() serviceRows: BlankServiceRow[] = [];
+  @Input() sections: Record<string, boolean> = {};
   @Input() showServices = true;
+  @Output() serviceToggle = new EventEmitter<string>();
 
   protected readonly scale = signal(1);
   protected readonly stageWidth = signal(794);
@@ -291,6 +435,10 @@ export class OfficialSheetComponent implements AfterViewInit, OnChanges, OnDestr
 
   ngOnDestroy(): void {
     this.observer?.disconnect();
+  }
+
+  protected shown(id: string): boolean {
+    return this.sections?.[id] !== false;
   }
 
   protected locked(key: string): boolean {

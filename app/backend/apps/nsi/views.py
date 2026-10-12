@@ -34,6 +34,26 @@ from .serializers import (
 )
 
 
+def _outgoing_numbers(raw) -> list[str]:
+    from apps.debts.services.measures import belarus_phone
+
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list):
+        raise ValidationError({"outgoing_numbers": "Список номеров"})
+    numbers = []
+    for item in raw:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        phone = belarus_phone(text)
+        if not phone:
+            raise ValidationError({"outgoing_numbers": f"Номер не +375: {text}"})
+        if phone not in numbers:
+            numbers.append(phone)
+    return numbers
+
+
 class NsiViewSet(AuditedViewSetMixin, viewsets.ModelViewSet):
     """Централизованные справочники: читают все, редактирует суперадминистратор; удаление = деактивация."""
 
@@ -247,11 +267,24 @@ class ScenarioDefinitionViewSet(NsiViewSet):
         if organization is None:
             raise ValidationError({"organization": "У пользователя нет схемы"})
         if request.method == "PATCH":
+            if request.data.get("call_recording") or request.data.get("call_transfer"):
+                raise ValidationError({
+                    "call_recording": "Запись разговора и перевод на оператора выключены, пока Asterisk их не отдаёт",
+                })
             organization.call_legal = bool(request.data.get("call_legal"))
-            organization.save(update_fields=["call_legal", "updated_at"])
+            if "outgoing_numbers" in request.data:
+                organization.outgoing_numbers = _outgoing_numbers(request.data.get("outgoing_numbers"))
+            organization.call_recording = False
+            organization.call_transfer = False
+            organization.save(update_fields=[
+                "call_legal", "outgoing_numbers", "call_recording", "call_transfer", "updated_at",
+            ])
         settings = CalculationSettings.load()
         return Response({
             "call_legal": organization.call_legal,
+            "outgoing_numbers": organization.outgoing_numbers or [],
+            "call_recording": False,
+            "call_transfer": False,
             "dial_mobile_from_day": settings.dial_mobile_from_day,
             "dial_mobile_weekdays": settings.dial_mobile_weekdays,
         })
@@ -434,7 +467,11 @@ class PrintFormViewSet(NsiViewSet):
         blank = str(request.data.get("blank") or "")
         if blank and known(blank):
             account = _visible_account(request.user, request.data.get("account"))
-            ctx = context_for_blank(blank, account, overrides=request.data.get("values") or {})
+            ctx = context_for_blank(
+                blank, account, overrides=request.data.get("values") or {},
+                sections=request.data.get("sections") or None,
+                service_rows=request.data.get("service_rows") or None,
+            )
             payload = render_layout_pdf([], blank=blank, context=ctx)
             return FileResponse(ContentFile(payload), as_attachment=False, filename="preview.pdf", content_type="application/pdf")
 

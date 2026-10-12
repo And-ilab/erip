@@ -5,7 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 
-import { ApiService, BlankPenaltyRow, BlankPeriodPair, BlankResident, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
+import { ApiService, BlankPenaltyRow, BlankPeriodPair, BlankResident, BlankSection, BlankServiceRow, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
 import { SheetBlock, SheetEditor, bodyBlock, normalizeBlock } from '../settings/document-flow';
 import { OfficialSheetComponent } from '../settings/official-sheet.component';
 import { PrintSheetComponent } from '../settings/print-sheet.component';
@@ -107,15 +107,28 @@ const COURT: Slot[] = [
             </div>
             @if (editing()) {
               @if (editBlank) {
-                <p class="meta">Бланк образца. Статичный текст не меняется. Дата, номер и телефон правятся на листе, суммы берутся из лицевого счёта.</p>
-                <app-official-sheet
-                  [family]="sheetFamily"
-                  [copy]="sheetCopy"
-                  [values]="sheetValues"
-                  [pairs]="sheetPairs"
-                  [residents]="sheetResidents"
-                  [penaltyRows]="sheetPenalty"
-                  [showServices]="sheetServices" />
+                <p class="meta">Бланк образца. Статичный текст не меняется. Дата, номер и примечание правятся на листе, суммы берутся из лицевого счёта.</p>
+                <div class="sheet-edit">
+                  <aside class="parts">
+                    @for (part of sheetParts; track part.id) {
+                      <button type="button" class="part" [class.on]="sectionOn(part.id)" (click)="toggleSection(part.id)">
+                        <span class="mark">{{ sectionOn(part.id) ? '✓' : '' }}</span>
+                        <span>{{ part.title }}</span>
+                      </button>
+                    }
+                  </aside>
+                  <app-official-sheet
+                    [family]="sheetFamily"
+                    [copy]="sheetCopy"
+                    [values]="sheetValues"
+                    [pairs]="sheetPairs"
+                    [residents]="sheetResidents"
+                    [penaltyRows]="sheetPenalty"
+                    [serviceRows]="sheetServiceRows"
+                    [sections]="sectionMap"
+                    [showServices]="sheetServices"
+                    (serviceToggle)="toggleService($event)" />
+                </div>
               } @else {
                 <p class="meta">Правка на листе A4. В PDF попадает то же оформление: поля, таблица и рамки.</p>
                 <app-print-sheet [blocks]="editBlocks" [flows]="editor.flows" [form]="editor.form" selectedKey="body" />
@@ -136,6 +149,20 @@ const COURT: Slot[] = [
   `,
   styles: `
     :host { display: block; min-width: 0; max-width: 100%; }
+    .sheet-edit { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 12px; align-items: start; }
+    .parts { display: flex; flex-direction: column; gap: 6px; }
+    .part {
+      display: flex; gap: 10px; align-items: center; width: 100%; text-align: left;
+      border: 1px solid var(--erip-border); background: #fff; border-radius: 10px;
+      padding: 8px 10px; cursor: pointer; font: inherit; color: inherit;
+    }
+    .mark {
+      width: 18px; height: 18px; flex: 0 0 18px; border: 1px solid #c5ced6; border-radius: 3px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 13px; line-height: 1; color: transparent; background: #fff;
+    }
+    .part.on .mark { background: #2e9b57; border-color: #2e9b57; color: #fff; }
+    @media (max-width: 900px) { .sheet-edit { grid-template-columns: 1fr; } }
     h3, h4 { margin: 0 0 8px; color: var(--erip-primary-dark); }
     .hint, .meta, .empty, .doc-name { overflow-wrap: break-word; }
     .hint, .meta { color: var(--erip-muted); font-size: 13px; }
@@ -216,6 +243,9 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   protected sheetPairs: BlankPeriodPair[] = [];
   protected sheetResidents: BlankResident[] = [];
   protected sheetPenalty: BlankPenaltyRow[] = [];
+  protected sheetServiceRows: BlankServiceRow[] = [];
+  protected sheetParts: BlankSection[] = [];
+  protected sectionMap: Record<string, boolean> = {};
   protected sheetServices = true;
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected templateId: number | null = null;
@@ -278,6 +308,20 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
     if (!forms.some((form) => form.id === Number(this.templateId))) this.templateId = forms[0]?.id ?? null;
   }
 
+  protected sectionOn(id: string): boolean {
+    return this.sectionMap[id] !== false;
+  }
+
+  protected toggleSection(id: string): void {
+    this.sectionMap = { ...this.sectionMap, [id]: !this.sectionOn(id) };
+  }
+
+  protected toggleService(id: string): void {
+    this.sheetServiceRows = this.sheetServiceRows.map((row) => (
+      row.id === id ? { ...row, selected: !row.selected } : row
+    ));
+  }
+
   protected formsOf(slot: Slot | undefined): PrintFormRow[] {
     if (!slot?.formKind) return [];
     return this.forms().filter((form) => form.doc_kind === slot.formKind);
@@ -315,6 +359,9 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
       this.sheetResidents = layout.residents || [];
       this.sheetPenalty = layout.penalty_rows || [];
       this.sheetServices = layout.show_services !== false;
+      this.sheetServiceRows = (layout.service_rows || []).map((row) => ({ ...row }));
+      this.sheetParts = layout.section_list || [];
+      this.sectionMap = { ...(layout.sections || {}) };
       this.editing.set(true);
       this.pdfUrl.set(null);
       return;
@@ -333,7 +380,8 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
     if (this.editBlank) {
       this.busy.set(true);
       this.api.claimAction(this.claimId(), `package/documents/${doc.id}/layout`, {
-        blank: this.editBlank, values: this.sheetValues, body: '', blocks: [],
+        blank: this.editBlank, values: this.sheetValues, sections: this.sectionMap,
+        service_rows: this.sheetServiceRows, body: '', blocks: [],
       }).subscribe({
         next: (row) => {
           this.busy.set(false);

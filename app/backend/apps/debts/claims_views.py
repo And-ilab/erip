@@ -134,6 +134,8 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         update_document_layout(
             self._case(pk), int(doc_id), str(request.data.get("body") or ""), request.data.get("blocks") or [],
             blank=str(request.data.get("blank") or ""), values=request.data.get("values") or {},
+            sections=request.data.get("sections") or None,
+            service_rows=request.data.get("service_rows") or None,
         )
         record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"document": doc_id, "layout": True})
         return Response(case_payload(self._case(pk), with_choices=True))

@@ -154,6 +154,28 @@ _FORM_DOC = {
 COURT_DOCS = ("lawsuit", "eviction", "alienation")
 
 
+def _case_extras(case: ClaimCase, tariff: str) -> dict:
+    from apps.nsi.services.official_blanks import money_text
+
+    extras = {}
+    if tariff:
+        extras["tariff"] = money_text(tariff) or tariff
+    if case.lawsuit_number:
+        extras["doc_number"] = case.lawsuit_number
+    if case.state_duty is not None:
+        extras["duty"] = money_text(case.state_duty)
+    if case.lawsuit_filed_on:
+        extras["filed_on"] = case.lawsuit_filed_on.strftime("%d.%m.%Y")
+    if case.defendant_name:
+        extras["fio"] = case.defendant_name
+    note = case.lawsuit_note or case.notary_note
+    if note:
+        extras["note"] = note
+    if case.lawsuit_kind:
+        extras["kind"] = dict(case.LawsuitKind.choices).get(case.lawsuit_kind, case.lawsuit_kind)
+    return extras
+
+
 def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     """PDF из печатной формы. В кабинет БНП не отправляется: это локальная сборка."""
     from apps.nsi.services.form_layout import blocks_of, fill_blocks
@@ -172,7 +194,9 @@ def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     blank = (form.blank or "").strip()
     ctx = None
     if blank and known(blank):
-        ctx = context_for_blank(blank, case.account, warning_date=warning)
+        ctx = context_for_blank(
+            blank, case.account, warning_date=warning, extras=_case_extras(case, tariff),
+        )
         text = official_plaintext(blank, ctx)
     else:
         text = fill_account_text(form.body, case.account, tariff=tariff, warning_date=warning)
@@ -191,7 +215,10 @@ def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     return document
 
 
-def update_document_layout(case: ClaimCase, doc_id: int, body: str, blocks, blank: str = "", values=None) -> ClaimPackageDocument:
+def update_document_layout(
+    case: ClaimCase, doc_id: int, body: str, blocks, blank: str = "", values=None,
+    sections=None, service_rows=None,
+) -> ClaimPackageDocument:
     from apps.nsi.services.form_layout import clean_blocks
     from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext, payload_of
 
@@ -202,7 +229,11 @@ def update_document_layout(case: ClaimCase, doc_id: int, body: str, blocks, blan
     blank = (blank or "").strip()
     if blank and known(blank):
         warning = case.warning_delivered_on.isoformat() if case.warning_delivered_on else ""
-        ctx = context_for_blank(blank, case.account, warning_date=warning, overrides=values or {})
+        tariff = "" if case.notary_tariff is None else str(case.notary_tariff)
+        ctx = context_for_blank(
+            blank, case.account, warning_date=warning, extras=_case_extras(case, tariff),
+            overrides=values or {}, sections=sections, service_rows=service_rows,
+        )
         text = official_plaintext(blank, ctx)
         if len(text) > 20000:
             raise ClaimBlocked("Текст длиннее 20000 символов")

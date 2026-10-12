@@ -115,8 +115,8 @@ def test_account_context_uses_card_figures(account_a):
     account_a.save(update_fields=["acc_total_space", "account_address"])
     ServiceDebtPeriod.objects.create(
         organization=account_a.organization, account=account_a, service=account_a.services.get(),
-        period=date(2026, 3, 1), principal=Decimal("80.00"), penalty=Decimal("4.00"),
-        due_on=date(2026, 4, 25),
+            period=date(2026, 3, 1), principal=Decimal("80.00"), penalty=Decimal("4.00"),
+            due_on=date(2026, 4, 25), started_on=date(2026, 3, 1),
     )
     ctx = context_for_blank("calculation", account_a)
     assert ctx["values"]["account"] == "00001001"
@@ -131,3 +131,38 @@ def test_account_context_uses_card_figures(account_a):
     warning = context_for_blank("warning", account_a)
     assert "Газ" in warning["values"]["services"]
     assert warning["values"]["amount"] == "150.00"
+
+
+def test_case_cards_keep_their_titles_and_can_hide_a_part():
+    writ = render_official_html("writ", blank_context("writ", values={"account": "00001001", "principal": "10.00"}))
+    lawsuit = render_official_html("lawsuit", blank_context("lawsuit"))
+    eviction = render_official_html("eviction", blank_context("eviction"))
+    alienation = render_official_html("alienation", blank_context("alienation"))
+    proxy = render_official_html("proxy", blank_context("proxy"))
+    assert "Исполнительная надпись" in writ
+    assert "Нотариальный тариф" in writ
+    assert "Госпошлина" not in writ
+    assert "253.04" not in writ
+    assert "Техобслуживание по ЭОЗ" not in writ
+    assert "На взыскание задолженности" in lawsuit
+    assert "ст. 80 ЖК" in eviction
+    assert "ст. 137 ЖК" in alienation
+    assert "Доверенность" in proxy and "Представитель" in proxy
+    hidden = blank_context("lawsuit")
+    hidden["sections"]["services"] = False
+    html = render_official_html("lawsuit", hidden)
+    assert ">Услуги<" not in html
+    assert "Исковое заявление" in html
+
+
+@pytest.mark.django_db
+def test_lawsuit_lists_services_of_this_account(account_a):
+    ctx = context_for_blank("lawsuit", account_a, sections={"note": False})
+    html = render_official_html("lawsuit", ctx)
+    assert ctx["values"]["account"] == "00001001"
+    assert ctx["values"]["kind"] == "На взыскание задолженности"
+    assert ctx["service_rows"][0]["name"] == "Газ"
+    assert "Газ" in html
+    assert "Техобслуживание по ЭОЗ" not in html
+    assert "Примечание" not in html
+    assert ctx["section_list"][0]["id"] == "head"
