@@ -17,6 +17,23 @@ class Organization(TimeStampedModel, SoftDeleteModel):
         help_text="ОПФ, адрес и банковский счёт. Коды справочников 306, 308 и 309 задаёт пользователь.",
     )
     call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
+    outgoing_numbers = models.JSONField(
+        "Исходящие номера обзвона",
+        default=list,
+        blank=True,
+        help_text="Пул номеров +375. Прогон берёт следующий по кругу и передаёт его адаптеру.",
+    )
+    outgoing_cursor = models.PositiveIntegerField("Сдвиг ротации исходящих номеров", default=0)
+    call_recording = models.BooleanField(
+        "Запись разговора",
+        default=False,
+        help_text="Выключено, пока Asterisk не отдаёт запись.",
+    )
+    call_transfer = models.BooleanField(
+        "Перевод на оператора",
+        default=False,
+        help_text="Выключено, пока Asterisk не отдаёт перевод.",
+    )
     warning_wait_days = models.PositiveSmallIntegerField(
         "Дней на оплату после предупреждения", null=True, blank=True,
         help_text="Пусто — общее значение из параметров расчёта.",
