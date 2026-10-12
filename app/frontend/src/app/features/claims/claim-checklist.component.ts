@@ -68,17 +68,15 @@ const COURT: Slot[] = [
         @if (active(); as slot) {
           <div class="head">
             <h4 [attr.title]="slot.title">{{ slot.title }}</h4>
-            @if (templatesFor(); as forms) {
-              @if (forms.length) {
-                <button mat-stroked-button type="button" class="create" [disabled]="busy()" (click)="createFromTemplate()">Создать</button>
-              }
+            @if (formsOf(slot).length) {
+              <button mat-stroked-button type="button" class="create" [disabled]="busy()" (click)="createFromTemplate(slot)">Создать</button>
             }
           </div>
           @if (slot.mode === 'date') {
-            <p>{{ warningDate() ? 'Вручено ' + warningDate() : 'Даты вручения предупреждения нет. Без неё пакет нотариусу не уходит.' }}</p>
+            <p [class.need]="!warningDate()">{{ warningDate() ? 'Вручено ' + warningDate() : 'Даты вручения предупреждения нет. Календарь — в поле над комплектом. Без даты пакет не подписывается.' }}</p>
           }
           @if (slot.mode === 'tariff') {
-            <p>{{ tariff() && +tariff() > 0 ? 'Тариф внесён: ' + tariff() : 'Нотариальный тариф ещё не указан. Его считает АИС, пока поле можно заполнить в деле.' }}</p>
+            <p [class.need]="!(tariff() && +tariff() > 0)">{{ tariff() && +tariff() > 0 ? 'Тариф внесён: ' + tariff() : 'Нотариальный тариф ещё не указан. Его считает АИС, пока поле можно заполнить в деле.' }}</p>
           }
           @if (slot.mode === 'ais') {
             @for (debt of pack()?.debts || []; track debt.source) {
@@ -88,26 +86,26 @@ const COURT: Slot[] = [
               <p>Суммы появятся после сохранения состава пакета. ПМ берёт их из АИС и не правит.</p>
             }
           }
-          @if (templatesFor(); as forms) {
-            @if (forms.length) {
-              <p class="doc-name" [attr.title]="forms.length > 1 ? templateName() : forms[0].name">{{ forms.length > 1 ? templateName() : forms[0].name }}</p>
-              @if (forms.length > 1) {
-                <select class="template" [(ngModel)]="templateId" [attr.title]="templateName()">
-                  @for (form of forms; track form.id) { <option [value]="form.id">{{ form.name }}</option> }
-                </select>
-              }
-            } @else if (picking()) {
-              <p>Шаблона этого вида в конструкторе печатных форм нет.</p>
-            }
+          @if (formsOf(slot).length > 1) {
+            <select class="template" [(ngModel)]="templateId">
+              @for (form of formsOf(slot); track form.id) { <option [value]="form.id">{{ form.name }}</option> }
+            </select>
+          } @else if (formsOf(slot).length === 1) {
+            <p class="doc-name" [attr.title]="formsOf(slot)[0].name">{{ formsOf(slot)[0].name }}</p>
           }
           @if (currentDoc(); as doc) {
             <p class="meta" [attr.title]="doc.file_name">{{ doc.file_name }} · {{ doc.generated ? 'собран в ПМ' : 'загружен' }}</p>
             <div class="acts">
               <button type="button" (click)="viewPdf(doc)">Просмотреть</button>
               <button type="button" (click)="viewPdf(doc)">PDF</button>
-              <button type="button" (click)="openEditor(doc)">Редактировать</button>
+              <button type="button" (click)="startEdit(doc)">Редактировать</button>
+              <button type="button" (click)="openEditor(doc)">Открыть в конструкторе</button>
               <button type="button" (click)="remove(doc)">Удалить</button>
             </div>
+            @if (editing()) {
+              <textarea rows="8" [(ngModel)]="draft"></textarea>
+              <button mat-stroked-button type="button" [disabled]="busy()" (click)="saveText(doc)">Сохранить текст</button>
+            }
             @if (pdfUrl(); as url) {
               <iframe class="sheet" title="Просмотр PDF" [src]="url"></iframe>
             }
@@ -136,6 +134,7 @@ const COURT: Slot[] = [
     }
     .checks li.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .checks li.need { border-color: #c62828; }
+    .need { color: #c62828; }
     .sheet { width: 100%; height: 420px; border: 0; border-radius: 6px; background: #f4f6f8; }
     .row {
       display: grid; grid-template-columns: 16px minmax(0, 1fr) 2.75rem; align-items: center; column-gap: 8px;
@@ -191,7 +190,8 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   protected readonly selected = signal('application');
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly busy = signal(false);
-  protected readonly picking = signal(false);
+  protected readonly editing = signal(false);
+  protected draft = '';
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected templateId: number | null = null;
   private rawUrl = '';
@@ -217,7 +217,7 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   protected active(): Slot | undefined {
-    return this.slots.find((slot) => slot.code === this.selected());
+    return this.slotBy(this.selected());
   }
 
   protected done(slot: Slot): boolean {
@@ -235,7 +235,7 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   private documentFor(code: string): BnpDocument | null {
-    const slot = this.slots.find((item) => item.code === code);
+    const slot = this.slotBy(code);
     if (!slot?.docType) return null;
     const rows = this.docs(slot.docType);
     if (slot.mode === 'scan') return rows.find((doc) => !doc.generated) || null;
@@ -247,42 +247,52 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
 
   protected pick(code: string): void {
     this.selected.set(code);
-    this.picking.set(false);
+    this.editing.set(false);
     this.pdfUrl.set(null);
+    const forms = this.formsOf(this.slotBy(code));
+    if (!forms.some((form) => form.id === Number(this.templateId))) this.templateId = forms[0]?.id ?? null;
   }
 
-  protected templatesFor(): PrintFormRow[] | null {
-    if (!this.picking()) return null;
-    const slot = this.active();
+  protected formsOf(slot: Slot | undefined): PrintFormRow[] {
     if (!slot?.formKind) return [];
     return this.forms().filter((form) => form.doc_kind === slot.formKind);
   }
 
-  protected templateName(): string {
-    const id = Number(this.templateId);
-    return this.templatesFor()?.find((form) => form.id === id)?.name || '';
-  }
-
   protected openTemplates(slot: Slot, event: Event): void {
     event.stopPropagation();
-    this.selected.set(slot.code);
-    this.picking.set(true);
-    const forms = this.forms().filter((form) => form.doc_kind === slot.formKind);
-    this.templateId = forms[0]?.id ?? null;
+    this.pick(slot.code);
   }
 
-  protected createFromTemplate(): void {
-    if (!this.templateId) return;
-    const formId = this.templateId;
+  protected createFromTemplate(slot: Slot): void {
+    const forms = this.formsOf(slot);
+    const formId = Number(this.templateId) || forms[0]?.id;
+    if (!formId) return;
     this.busy.set(true);
     this.api.claimAction(this.claimId(), 'package/from-template', { form: formId }).subscribe({
       next: (row) => {
         this.busy.set(false);
-        this.picking.set(false);
         this.changed.emit(row);
-        const type = this.active()?.docType;
-        const doc = row.package?.documents.find((item) => item.doc_type === type);
-        this.openEditor(doc || null, formId);
+        const doc = row.package?.documents.find((item) => item.doc_type === slot.docType) || null;
+        this.openEditor(doc, formId);
+      },
+      error: (err) => this.fail(err),
+    });
+  }
+
+  protected startEdit(doc: BnpDocument): void {
+    this.draft = doc.body || '';
+    this.editing.set(true);
+    this.pdfUrl.set(null);
+  }
+
+  protected saveText(doc: BnpDocument): void {
+    this.busy.set(true);
+    this.api.claimAction(this.claimId(), `package/documents/${doc.id}/text`, { body: this.draft }).subscribe({
+      next: (row) => {
+        this.busy.set(false);
+        this.editing.set(false);
+        this.changed.emit(row);
+        this.snack.open('Текст сохранён. Подпись комплекта снята.', 'OK', { duration: 2500 });
       },
       error: (err) => this.fail(err),
     });
@@ -300,6 +310,7 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   protected viewPdf(doc: BnpDocument): void {
+    this.editing.set(false);
     this.api.claimPackageFile(this.claimId(), doc.id, 'pdf', true).subscribe({
       next: (blob) => {
         this.revoke();
@@ -328,6 +339,10 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
       next: (row) => this.changed.emit(row),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
+  }
+
+  private slotBy(code: string): Slot | undefined {
+    return [...SLOTS, ...COURT].find((slot) => slot.code === code);
   }
 
   private docs(type: string): BnpDocument[] {

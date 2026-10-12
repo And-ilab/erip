@@ -114,8 +114,13 @@ def render_layout_pdf(blocks: list[dict], *, font_size: int = 12) -> bytes:
             style += "I"
         pdf.set_font("Body", style, size)
         align = align_of.get(str(block.get("align") or "left"), "L")
+        left = pdf.l_margin + pdf.epw * int(block.get("x") or 4) / 100
+        top = 12 + int(block.get("y") or 0) * 0.22
+        span = pdf.epw * int(block.get("w") or 92) / 100
+        pdf.set_xy(left, top)
         for line in str(block.get("text") or "").splitlines() or [""]:
-            pdf.multi_cell(pdf.epw, max(size * 0.5, 6), line or " ", align=align)
+            pdf.set_x(left)
+            pdf.multi_cell(span, max(size * 0.5, 6), line or " ", align=align)
         columns = block.get("columns") or []
         rows = block.get("rows") or []
         if columns and rows:
@@ -123,21 +128,24 @@ def render_layout_pdf(blocks: list[dict], *, font_size: int = 12) -> bytes:
             total = sum(widths) or 1
             header = [str(col.get("title") or "")[:40] for col in columns]
             pdf.set_font("Body", "B", size)
-            _table_row(pdf, header, widths, total, size)
+            pdf.set_x(left)
+            _table_row(pdf, header, widths, total, size, span)
             pdf.set_font("Body", style, size)
             for row in rows:
                 cells = [str(cell)[:40] for cell in list(row)[: len(columns)]]
                 cells += [""] * (len(columns) - len(cells))
-                _table_row(pdf, cells, widths, total, size)
-        pdf.ln(2)
+                pdf.set_x(left)
+                _table_row(pdf, cells, widths, total, size, span)
     return bytes(pdf.output())
 
 
-def _table_row(pdf, cells: list[str], widths: list[int], total: int, size: int) -> None:
+def _table_row(pdf, cells: list[str], widths: list[int], total: int, size: int, span: float | None = None) -> None:
     height = max(size * 0.55, 6)
+    width_of = span if span else pdf.epw
+    left = pdf.get_x()
     for cell, width in zip(cells, widths, strict=False):
-        pdf.cell(pdf.epw * width / total, height, cell or " ", border=1)
-    pdf.ln(height)
+        pdf.cell(width_of * width / total, height, cell or " ", border=1)
+    pdf.set_xy(left, pdf.get_y() + height)
 
 
 def _font_variant(kind: str) -> Path | None:

@@ -861,6 +861,9 @@ export interface PrintFormBlock {
   text: string;
   columns: { title: string; width: number }[];
   rows: string[][];
+  x: number;
+  y: number;
+  w: number;
 }
 
 export interface PrintFormRow {

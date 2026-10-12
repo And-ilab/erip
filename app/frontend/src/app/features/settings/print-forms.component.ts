@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -50,8 +50,8 @@ const TOKENS = [
         </div>
         @if (pane() === 'layout') {
           <div class="line">
-            <label>Код <input [(ngModel)]="code" [disabled]="!!claimId" /></label>
-            <label class="grow">Название <input [(ngModel)]="name" /></label>
+            <label [class.need]="!code.trim()">Код <input [(ngModel)]="code" [disabled]="!!claimId" /></label>
+            <label class="grow" [class.need]="!name.trim()">Название <input [(ngModel)]="name" /></label>
           </div>
           <div class="line">
             <label>Вид
@@ -71,48 +71,63 @@ const TOKENS = [
               <input type="file" accept="application/pdf,.pdf,image/*" (change)="onScan($event)" />
             </label>
           </div>
-          <p class="muted">Флажок включает блок. В тексте — поля лицевого счёта. Щелчок дописывает метку в текст.</p>
-          <div class="tokens">
-            @for (token of tokens; track token) {
-              <button type="button" (click)="insert(token)">{{ '{' + token + '}' }}</button>
-            }
-          </div>
-          @for (block of blocks; track block.key) {
-            <article class="block">
-              <label class="check"><input type="checkbox" [(ngModel)]="block.enabled" /> {{ block.title }}</label>
-              <div class="line">
-                <label>Шрифт, пт <input type="number" min="8" max="24" [(ngModel)]="block.font_size" /></label>
-                <label>Выравнивание
-                  <select [(ngModel)]="block.align">
-                    <option value="left">Слева</option>
-                    <option value="center">По центру</option>
-                    <option value="right">Справа</option>
-                  </select>
+          <p class="muted">Флажок включает блок макета. Блок на листе можно перетащить, таблицу — растянуть за угол. Поля счёта дописываются в выбранный блок.</p>
+          <div class="work">
+            <aside class="blocks">
+              <h3>Блоки</h3>
+              @for (block of blocks; track block.key) {
+                <label class="check" [class.need]="block.key === 'body' && !block.text.trim()">
+                  <input type="checkbox" [(ngModel)]="block.enabled" /> {{ block.title }}
                 </label>
-                <label class="check"><input type="checkbox" [(ngModel)]="block.bold" /> Жирный</label>
-                <label class="check"><input type="checkbox" [(ngModel)]="block.italic" /> Курсив</label>
-              </div>
-              <textarea rows="6" [(ngModel)]="block.text"></textarea>
-              <div class="cols">
-                @for (col of block.columns; track $index) {
-                  <label>{{ col.title || 'Колонка' }}
-                    <input type="number" min="8" max="80" [(ngModel)]="col.width" />
-                  </label>
-                }
-                <button type="button" (click)="addColumn(block)">Колонка</button>
-              </div>
-              @if (block.columns.length) {
-                @for (row of block.rows; track $index) {
-                  <div class="cols">
-                    @for (cell of row; track $index) {
-                      <input [(ngModel)]="row[$index]" />
-                    }
-                  </div>
-                }
-                <button type="button" (click)="addRow(block)">Строка таблицы</button>
               }
-            </article>
-          }
+              <div class="tokens">
+                @for (token of tokens; track token) {
+                  <button type="button" (click)="insert(token)">{{ '{' + token + '}' }}</button>
+                }
+              </div>
+            </aside>
+            <div class="sheet-wrap">
+              @if (chosen(); as block) {
+                <div class="line tool">
+                  <label>Шрифт, пт <input type="number" min="8" max="24" [(ngModel)]="block.font_size" /></label>
+                  <label>Выравнивание
+                    <select [(ngModel)]="block.align">
+                      <option value="left">Слева</option>
+                      <option value="center">По центру</option>
+                      <option value="right">Справа</option>
+                    </select>
+                  </label>
+                  <label class="check"><input type="checkbox" [(ngModel)]="block.bold" /> Жирный</label>
+                  <label class="check"><input type="checkbox" [(ngModel)]="block.italic" /> Курсив</label>
+                  <button type="button" (click)="addColumn(block)">Колонка</button>
+                  @if (block.columns.length) { <button type="button" (click)="addRow(block)">Строка</button> }
+                </div>
+              }
+              <div class="sheet" (pointermove)="dragMove($event)" (pointerup)="dragEnd()" (pointerleave)="dragEnd()">
+                @for (block of blocks; track block.key) {
+                  @if (block.enabled) {
+                    <article class="piece" [class.on]="selectedKey === block.key" [style.left.%]="block.x" [style.top.px]="block.y" [style.width.%]="block.w" (pointerdown)="focusBlock(block)">
+                      <header (pointerdown)="dragStart($event, block, 'move')">{{ block.title }}</header>
+                      <textarea rows="4" [(ngModel)]="block.text" [style.text-align]="block.align" [style.font-size.px]="block.font_size" [style.font-weight]="block.bold ? 700 : 400" [style.font-style]="block.italic ? 'italic' : 'normal'"></textarea>
+                      @if (block.columns.length) {
+                        <div class="grid" [style.grid-template-columns]="gridOf(block)">
+                          @for (col of block.columns; track $index) {
+                            <input class="head-cell" [(ngModel)]="col.title" />
+                          }
+                          @for (row of block.rows; track $index) {
+                            @for (cell of row; track $index) {
+                              <input [(ngModel)]="row[$index]" />
+                            }
+                          }
+                        </div>
+                      }
+                      <span class="handle" (pointerdown)="dragStart($event, block, 'resize')"></span>
+                    </article>
+                  }
+                }
+              </div>
+            </div>
+          </div>
           <div class="actions">
             @if (claimId && docId) {
               <button mat-flat-button color="primary" type="button" (click)="saveCase()">Сохранить в деле</button>
@@ -165,9 +180,28 @@ const TOKENS = [
       border: 1px solid var(--erip-border); background: #fff; border-radius: 999px; padding: 2px 8px;
       cursor: pointer; font: inherit; font-size: 12px;
     }
-    .block { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
-    .sheet { width: 100%; height: 640px; border: 1px solid var(--erip-border); border-radius: 8px; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    .need { color: #c62828; }
+    .work { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; margin-top: 8px; }
+    .blocks { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; }
+    .tool { margin-bottom: 8px; }
+    .sheet-wrap .sheet {
+      position: relative; height: 720px; background: #f4f6f8; border: 1px solid var(--erip-border); border-radius: 8px; overflow: auto;
+    }
+    .piece {
+      position: absolute; background: #fff; border: 1px solid #d5dde3; border-radius: 6px; padding: 4px 6px 10px; box-sizing: border-box;
+    }
+    .piece.on { border-color: var(--erip-primary); box-shadow: 0 0 0 1px var(--erip-primary); }
+    .piece header { font-size: 11px; color: var(--erip-muted); cursor: grab; user-select: none; }
+    .piece textarea { width: 100%; box-sizing: border-box; min-height: 64px; border: 0; resize: vertical; }
+    .grid { display: grid; gap: 2px; }
+    .grid input { min-width: 0; font-size: 12px; }
+    .head-cell { font-weight: 700; }
+    .handle {
+      position: absolute; right: 2px; bottom: 2px; width: 12px; height: 12px; cursor: nwse-resize;
+      border-right: 2px solid var(--erip-primary); border-bottom: 2px solid var(--erip-primary);
+    }
+    iframe.sheet { width: 100%; height: 640px; border: 1px solid var(--erip-border); border-radius: 8px; }
+    @media (max-width: 900px) { .layout, .work { grid-template-columns: 1fr; } }
   `,
 })
 export class PrintFormsComponent implements OnInit, OnDestroy {
@@ -201,10 +235,12 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected kind = 'writ';
   protected addressee = 'notary';
   protected blocks: PrintFormBlock[] = [];
+  protected selectedKey = 'body';
   protected claimId: number | null = null;
   protected docId: number | null = null;
   private requestedForm: number | null = null;
   private rawUrl = '';
+  private drag: { key: string; mode: 'move' | 'resize'; x: number; y: number; originX: number; originY: number; originW: number } | null = null;
 
   protected systemForms(): PrintFormRow[] {
     return this.forms().filter((form) => form.organization == null);
@@ -250,7 +286,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.name = '';
     this.kind = 'writ';
     this.addressee = 'notary';
-    this.blocks = [this.emptyBlock('body', 'Текст')];
+    this.blocks = [this.emptyBlock('body', 'Текст', '', 12, 12)];
     this.claimId = null;
     this.docId = null;
     this.pane.set('layout');
@@ -258,8 +294,50 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   }
 
   protected insert(token: string): void {
-    const block = this.blocks.find((item) => item.key === 'body') || this.blocks[0];
+    const block = this.blocks.find((item) => item.key === this.selectedKey) || this.blocks.find((item) => item.key === 'body') || this.blocks[0];
     if (block) block.text = `${block.text}{${token}}`;
+  }
+
+  protected chosen(): PrintFormBlock | undefined {
+    return this.blocks.find((block) => block.key === this.selectedKey && block.enabled) || this.blocks.find((block) => block.enabled);
+  }
+
+  protected focusBlock(block: PrintFormBlock): void {
+    this.selectedKey = block.key;
+  }
+
+  protected gridOf(block: PrintFormBlock): string {
+    const parts = block.columns.map((col) => `${Math.max(col.width, 8)}fr`);
+    return parts.join(' ') || '1fr';
+  }
+
+  protected dragStart(event: PointerEvent, block: PrintFormBlock, mode: 'move' | 'resize'): void {
+    event.stopPropagation();
+    this.selectedKey = block.key;
+    this.drag = { key: block.key, mode, x: event.clientX, y: event.clientY, originX: block.x, originY: block.y, originW: block.w };
+  }
+
+  protected dragMove(event: PointerEvent): void {
+    const drag = this.drag;
+    if (!drag) return;
+    const block = this.blocks.find((item) => item.key === drag.key);
+    const sheet = event.currentTarget as HTMLElement;
+    if (!block || !sheet) return;
+    if (drag.mode === 'move') {
+      block.x = clamp(drag.originX + (event.clientX - drag.x) / sheet.clientWidth * 100, 0, 70);
+      block.y = clamp(drag.originY + (event.clientY - drag.y), 0, 1600);
+    } else {
+      block.w = clamp(drag.originW + (event.clientX - drag.x) / sheet.clientWidth * 100, 24, 100);
+    }
+  }
+
+  protected dragEnd(): void {
+    this.drag = null;
+  }
+
+  @HostListener('document:pointerup')
+  protected releaseDrag(): void {
+    this.drag = null;
   }
 
   protected addColumn(block: PrintFormBlock): void {
@@ -279,7 +357,10 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     if (!file) return;
     this.api.recognizePrintForm(file).subscribe({
       next: (draft) => {
-        this.blocks = draft.blocks.length ? draft.blocks : [this.emptyBlock('body', 'Текст')];
+        this.blocks = draft.blocks.length ? draft.blocks.map((block, index) => ({
+          ...block, columns: block.columns || [], rows: block.rows || [],
+          x: block.x ?? 4, y: block.y ?? 12 + index * 96, w: block.w ?? 92,
+        })) : [this.emptyBlock('body', 'Текст')];
         if (!this.name.trim()) this.name = draft.name;
         if (!this.code.trim()) this.code = 'scan-' + Date.now().toString().slice(-6);
         this.note.set(draft.note);
@@ -359,7 +440,14 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.api.claim(this.claimId).subscribe({
       next: (claim) => {
         const saved = claim.package?.documents.find((doc) => doc.id === this.docId)?.layout?.blocks;
-        if (saved?.length) this.blocks = saved.map((block) => ({ ...block, columns: [...(block.columns || [])], rows: (block.rows || []).map((row) => [...row]) }));
+        if (saved?.length) this.blocks = saved.map((block, index) => ({
+          ...block,
+          columns: [...(block.columns || [])],
+          rows: (block.rows || []).map((row) => [...row]),
+          x: block.x ?? 4,
+          y: block.y ?? 12 + index * 96,
+          w: block.w ?? 92,
+        }));
         else this.blocks = this.blocks.map((block) => ({ ...block, text: this.fillText(block.text, claim) }));
         if (this.pane() === 'pdf') this.showPdf();
       },
@@ -386,26 +474,36 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
 
   private copyBlocks(form: PrintFormRow): PrintFormBlock[] {
     if (form.blocks?.length) {
-      return form.blocks.map((block) => ({
+      return form.blocks.map((block, index) => ({
         ...block,
         columns: (block.columns || []).map((col) => ({ ...col })),
         rows: (block.rows || []).map((row) => [...row]),
+        x: block.x ?? 4,
+        y: block.y ?? 12 + index * 96,
+        w: block.w ?? 92,
       }));
     }
     const size = form.font_size || 12;
-    const rows: PrintFormBlock[] = [this.emptyBlock('body', 'Текст', form.body, size)];
-    if (form.logo_text) rows.unshift(this.emptyBlock('logo', 'Логотип', form.logo_text, size));
-    if (form.requisites) rows.splice(1, 0, this.emptyBlock('requisites', 'Реквизиты', form.requisites, size));
-    if (form.signatory) rows.push(this.emptyBlock('signatory', 'Подпись', form.signatory, size));
+    const rows: PrintFormBlock[] = [this.emptyBlock('body', 'Текст', form.body, size, 160)];
+    if (form.logo_text) rows.unshift(this.emptyBlock('logo', 'Логотип', form.logo_text, size, 12));
+    if (form.requisites) rows.splice(1, 0, this.emptyBlock('requisites', 'Реквизиты', form.requisites, size, 80));
+    if (form.signatory) rows.push(this.emptyBlock('signatory', 'Подпись', form.signatory, size, 420));
     return rows;
   }
 
-  private emptyBlock(key: string, title: string, text = '', size = 12): PrintFormBlock {
-    return { key, title, enabled: true, align: 'left', bold: false, italic: false, font_size: size, text, columns: [], rows: [] };
+  private emptyBlock(key: string, title: string, text = '', size = 12, y = 12): PrintFormBlock {
+    return {
+      key, title, enabled: true, align: 'left', bold: false, italic: false, font_size: size, text,
+      columns: [], rows: [], x: 4, y, w: 92,
+    };
   }
 
   private revoke(): void {
     if (this.rawUrl) URL.revokeObjectURL(this.rawUrl);
     this.rawUrl = '';
   }
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(high, Math.max(low, Math.round(value)));
 }

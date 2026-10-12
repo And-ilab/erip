@@ -19,9 +19,8 @@ import {
     <p class="hint">
       Пункт перечня выбирается здесь. Для задолженности за ЖКУ в справочнике отмечены услуги 571, 572 и 576.
       Суммы подставляет АИС: исходящее сальдо лицевого счёта и, отдельной строкой, пеня. ПМ их не правит.
-      У каждого PDF свой файл ЭЦП <b>.pdf.p7s</b> или <b>.pdf.sgn</b>. Заявление и расчёт подписывает представитель,
-      доверенность — руководитель. Сертификат ГосСУОК проверяется при настоящей отправке. Кнопка «Направить нотариусу»
-      в кабинет пакет не передаёт.
+      Документы комплекта смотрят и правят в списке выше. Подпись ставится один раз кнопкой «Подписать и направить»,
+      когда пакет уже собран. В кабинет БНП этот вызов не передаёт пакет и ЭЦП ГосСУОК не проверяет.
     </p>
 
     <mat-form-field class="wide">
@@ -109,8 +108,8 @@ import {
       }
     </div>
 
-    <h4>Документы и ЭЦП</h4>
-    <p class="hint">Обязательны заявление, расчёт задолженности и доверенность. Квитанция об оплате тарифа может быть приложена позже. Файл не больше 15 МБ.</p>
+    <h4>Документы комплекта</h4>
+    <p class="hint">Обязательны заявление, расчёт задолженности и доверенность. Файл PDF не больше 15 МБ. Просмотр — в списке выше, без скачивания.</p>
     @for (code of pack().required_docs; track code) {
       @if (missing(code)) {
         <div class="slot">
@@ -128,19 +127,7 @@ import {
         <div>
           <b>{{ doc.doc_type_label }}</b>
           <span>{{ doc.file_name }}</span>
-          <span>{{ doc.signer_label }}</span>
-          <span>{{ doc.has_signature ? doc.signature_name : 'файл ЭЦП не приложен' }}</span>
         </div>
-        <button mat-button type="button" (click)="download(doc, 'pdf')">PDF</button>
-        @if (doc.has_signature) {
-          <button mat-button type="button" (click)="download(doc, 'signature')">ЭЦП</button>
-        }
-        <select [value]="kindOf(doc)" (change)="setKind(doc, $event)">
-          <option value="p7s">.pdf.p7s</option>
-          <option value="sgn">.pdf.sgn</option>
-        </select>
-        <label>PDF <input type="file" accept="application/pdf,.pdf" (change)="onPdf(doc.doc_type, $event, doc.id)" /></label>
-        <label>ЭЦП <input type="file" accept=".p7s,.sgn,.pdf.p7s,.pdf.sgn" (change)="onSign(doc, $event)" /></label>
         <button mat-button type="button" (click)="remove(doc)">Удалить</button>
       </div>
     }
@@ -163,7 +150,7 @@ import {
         @for (problem of pack().send_blockers; track problem) { <li>{{ problem }}</li> }
       </ul>
     } @else if (pack().formed_at) {
-      <p class="ok">Пакет собран, файлы ЭЦП приложены. Направление в кабинет остаётся заглушкой.</p>
+      <p class="ok">Пакет собран. Подпись ставится один раз кнопкой «Подписать и направить». Направление в кабинет остаётся заглушкой.</p>
     }
   `,
   styles: `
@@ -243,10 +230,6 @@ export class ClaimPackageComponent {
     return this.debts.some((debt) => debt.source === 'penalty');
   }
 
-  protected kindOf(doc: BnpDocument): string {
-    return doc.signature_name.endsWith('.pdf.sgn') ? 'sgn' : 'p7s';
-  }
-
   protected addDebtor(): void {
     this.debtors = [...this.debtors, {
       personType: 'natural', personalId: '', secondName: '', firstName: '', middleName: '',
@@ -313,34 +296,11 @@ export class ClaimPackageComponent {
     input.value = '';
   }
 
-  protected onSign(doc: BnpDocument, event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    this.api.uploadClaimDocument(this.claimId(), doc.doc_type, null, file, this.kindOf(doc), doc.id).subscribe({
-      next: (row) => this.changed.emit(row),
-      error: (err) => this.fail(err),
-    });
-    input.value = '';
-  }
-
-  protected setKind(doc: BnpDocument, event: Event): void {
-    const kind = (event.target as HTMLSelectElement).value;
-    this.api.uploadClaimDocument(this.claimId(), doc.doc_type, null, null, kind, doc.id).subscribe({
-      next: (row) => this.changed.emit(row),
-      error: (err) => this.fail(err),
-    });
-  }
-
   protected remove(doc: BnpDocument): void {
     this.api.deleteClaimDocument(this.claimId(), doc.id).subscribe({
       next: (row) => this.changed.emit(row),
       error: (err) => this.fail(err),
     });
-  }
-
-  protected download(doc: BnpDocument, kind: 'pdf' | 'signature'): void {
-    this.saveBlob(this.api.claimPackageFile(this.claimId(), doc.id, kind), kind === 'pdf' ? doc.file_name : doc.signature_name);
   }
 
   protected downloadManifest(): void {

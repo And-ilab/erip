@@ -26,12 +26,12 @@ LABELS = (
 def default_blocks(form) -> list[dict]:
     size = form.font_size or 12
     rows = [
-        ("logo", "Логотип", form.logo_text or "", bool(form.logo_text)),
-        ("requisites", "Реквизиты", form.requisites or "", bool(form.requisites)),
-        ("body", "Текст", form.body or "", True),
-        ("signatory", "Подпись", form.signatory or "", bool(form.signatory)),
+        ("logo", "Логотип", form.logo_text or "", bool(form.logo_text), 12),
+        ("requisites", "Реквизиты", form.requisites or "", bool(form.requisites), 80),
+        ("body", "Текст", form.body or "", True, 160),
+        ("signatory", "Подпись", form.signatory or "", bool(form.signatory), 420),
     ]
-    return [_block(key, title, text, size, enabled) for key, title, text, enabled in rows]
+    return [_block(key, title, text, size, enabled, y) for key, title, text, enabled, y in rows]
 
 
 def blocks_of(form) -> list[dict]:
@@ -81,6 +81,9 @@ def clean_blocks(raw) -> list[dict]:
             "text": text,
             "columns": columns,
             "rows": rows,
+            "x": _span(item.get("x"), 4, 0, 70),
+            "y": _span(item.get("y"), 12 + index * 96, 0, 1600),
+            "w": _span(item.get("w"), 92, 24, 100),
         })
     if not any(block["key"] == "body" for block in cleaned):
         raise ValueError("В макете нужен блок текста")
@@ -136,12 +139,15 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
     return {
         "recognized": True,
         "note": "Черновик разложен по полям. Проверьте макет и сохраните.",
-        "blocks": [_block("body", "Текст", body, 12, True), _block("signatory", "Подпись", "{organization}", 12, True)],
+        "blocks": [
+            _block("body", "Текст", body, 12, True, 12),
+            _block("signatory", "Подпись", "{organization}", 12, True, 280),
+        ],
         "name": _title(name),
     }
 
 
-def _block(key: str, title: str, text: str, size: int, enabled: bool) -> dict:
+def _block(key: str, title: str, text: str, size: int, enabled: bool, y: int = 12) -> dict:
     return {
         "key": key,
         "title": title,
@@ -153,7 +159,18 @@ def _block(key: str, title: str, text: str, size: int, enabled: bool) -> dict:
         "text": text,
         "columns": [],
         "rows": [],
+        "x": 4,
+        "y": y,
+        "w": 92,
     }
+
+
+def _span(value, default: int, low: int, high: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+    return min(high, max(low, number))
 
 
 def _columns(raw) -> list[dict]:
