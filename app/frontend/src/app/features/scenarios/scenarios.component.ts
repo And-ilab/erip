@@ -160,6 +160,13 @@ function defaultWritChecklist(): WritChecklistItem[] {
                   </mat-select>
                 </mat-form-field>
               </div>
+              @if (step.action === 'call') {
+                <h4>Частота по группам</h4>
+                <p class="muted">Группы 1–2: один успешный дозвон в день. Группы 4 и старше — один раз. Группа 3 звонит реже: число дней берётся из этого шага.</p>
+                <mat-form-field><mat-label>Группа 3, раз в дней</mat-label>
+                  <input matInput type="number" min="1" [ngModel]="group3Days(step)" (ngModelChange)="setGroup3Days(step, $event)" />
+                </mat-form-field>
+              }
               <mat-checkbox [(ngModel)]="step.approval">Нужно согласование</mat-checkbox>
               <mat-checkbox [(ngModel)]="step.auto_complete">Считать выполненным при успешной отправке</mat-checkbox>
               @if (step.action === 'messenger') {
@@ -234,7 +241,14 @@ function defaultWritChecklist(): WritChecklistItem[] {
         <h3>Обзвон</h3>
         @if (canEdit()) {
           <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
-          <button mat-stroked-button (click)="saveCalling()">Сохранить признак схемы</button>
+          <mat-form-field class="wide"><mat-label>Исходящие номера, по одному в строке</mat-label>
+            <textarea matInput rows="3" [(ngModel)]="outgoingNumbers"></textarea>
+          </mat-form-field>
+          <p class="muted">Ротация уходит в адаптер. Пока адаптер — заглушка, номер пишется в журнал партии, набор не выполняется.</p>
+          <mat-checkbox [checked]="false" disabled>Запись разговора</mat-checkbox>
+          <mat-checkbox [checked]="false" disabled>Перевод на оператора</mat-checkbox>
+          <p class="muted">Запись и перевод выключены, пока Asterisk их не отдаёт.</p>
+          <button mat-stroked-button (click)="saveCalling()">Сохранить обзвон схемы</button>
           <h3>Сроки схемы</h3>
           <p class="muted">Пустое число дней после предупреждения берёт общее значение ({{ centralWarning }}). Ожидание шага перекрывает срок, записанный в сценарии. У каждой схемы свои числа.</p>
           <div class="line">
@@ -270,7 +284,16 @@ function defaultWritChecklist(): WritChecklistItem[] {
             </mat-form-field>
             <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="scenarioDialDay" /></mat-form-field>
           </div>
-          <p class="muted">Пустое число и пустые дни берут общее правило. Дни сценария: отметьте, в какие дни недели брать только мобильный.</p>
+          <h4>Окно обзвона сценария</h4>
+          <p class="muted">Будни — вечер, выходные — своё окно. Старт не раньше 27-го числа. Пустое число мобильного и пустые дни берут общее правило номера.</p>
+          <div class="line">
+            <mat-form-field><mat-label>Старт с числа</mat-label><input matInput type="number" min="27" max="31" [(ngModel)]="callFromDay" /></mat-form-field>
+            <mat-form-field><mat-label>Будни с</mat-label><input matInput type="time" [(ngModel)]="weekdayFrom" /></mat-form-field>
+            <mat-form-field><mat-label>Будни по</mat-label><input matInput type="time" [(ngModel)]="weekdayTo" /></mat-form-field>
+            <mat-form-field><mat-label>Выходные с</mat-label><input matInput type="time" [(ngModel)]="weekendFrom" /></mat-form-field>
+            <mat-form-field><mat-label>Выходные по</mat-label><input matInput type="time" [(ngModel)]="weekendTo" /></mat-form-field>
+          </div>
+          <p class="muted">Дни сценария: отметьте, в какие дни недели брать только мобильный.</p>
           <div class="line">
             @for (day of weekDays; track day.id) {
               <mat-checkbox [checked]="scenarioWeekdays.includes(day.id)" (change)="toggleScenarioDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
@@ -367,6 +390,12 @@ export class ScenariosComponent implements OnInit {
   protected renderAccounts = '';
   protected applyRunning = false;
   protected orgCallLegal = false;
+  protected outgoingNumbers = '';
+  protected callFromDay = 27;
+  protected weekdayFrom = '18:00';
+  protected weekdayTo = '21:00';
+  protected weekendFrom = '10:00';
+  protected weekendTo = '22:00';
   protected scenarioCall = 'inherit';
   protected scenarioDialDay: number | null = null;
   protected scenarioWeekdays: number[] = [];
@@ -398,7 +427,10 @@ export class ScenariosComponent implements OnInit {
     });
     if (this.canEdit()) {
       this.api.scenarioCalling().subscribe({
-        next: (row) => this.orgCallLegal = row.call_legal,
+        next: (row) => {
+          this.orgCallLegal = row.call_legal;
+          this.outgoingNumbers = (row.outgoing_numbers || []).join('\n');
+        },
         error: () => undefined,
       });
       this.api.scenarioTimeline().subscribe({
@@ -493,6 +525,28 @@ export class ScenariosComponent implements OnInit {
   protected onAction(step: ScenarioStep, action: string): void {
     step.action = action;
     if (action === 'writ') step.checklist = this.checksOf(step);
+    if (action === 'call' && !step.repeat) step.repeat = this.callRepeat(3);
+  }
+
+  protected group3Days(step: ScenarioStep): number {
+    const days = step.repeat?.['3']?.every_days;
+    return days && days > 0 ? days : 3;
+  }
+
+  protected setGroup3Days(step: ScenarioStep, value: number | string): void {
+    const days = Math.max(1, Number(value) || 3);
+    step.repeat = this.callRepeat(days);
+  }
+
+  private callRepeat(group3: number): ScenarioStep['repeat'] {
+    return {
+      '1': { every_days: 1 },
+      '2': { every_days: 1 },
+      '3': { every_days: group3 },
+      '4': { once: true },
+      '5': { once: true },
+      '6': { once: true },
+    };
   }
 
   protected moveCheck(step: ScenarioStep, index: number, delta: number): void {
@@ -561,6 +615,11 @@ export class ScenariosComponent implements OnInit {
     this.scenarioCall = row.call_legal == null ? 'inherit' : row.call_legal ? 'yes' : 'no';
     this.scenarioDialDay = row.dial_mobile_from_day ?? null;
     this.scenarioWeekdays = [...(row.dial_mobile_weekdays || [])];
+    this.callFromDay = row.call_from_day ?? 27;
+    this.weekdayFrom = this.hhmm(row.weekday_from, '18:00');
+    this.weekdayTo = this.hhmm(row.weekday_to, '21:00');
+    this.weekendFrom = this.hhmm(row.weekend_from, '10:00');
+    this.weekendTo = this.hhmm(row.weekend_to, '22:00');
     this.picked.set(0);
     this.warnings.set([]);
     this.runNote.set('');
@@ -762,6 +821,7 @@ export class ScenariosComponent implements OnInit {
       blocks_next: step.blocks_next !== false,
       terminal: Boolean(step.terminal),
       ...(step.action === 'writ' ? { checklist: this.cleanChecks(step) } : {}),
+      ...(step.action === 'call' ? { repeat: step.repeat || this.callRepeat(this.group3Days(step)) } : {}),
     }));
   }
 
@@ -780,14 +840,28 @@ export class ScenariosComponent implements OnInit {
       call_legal: this.scenarioCall === 'inherit' ? null : this.scenarioCall === 'yes',
       dial_mobile_from_day: this.scenarioDialDay ? Number(this.scenarioDialDay) : null,
       dial_mobile_weekdays: this.scenarioWeekdays.length ? [...this.scenarioWeekdays] : null,
+      call_from_day: Number(this.callFromDay) || 27,
+      weekday_from: this.weekdayFrom || '18:00',
+      weekday_to: this.weekdayTo || '21:00',
+      weekend_from: this.weekendFrom || '10:00',
+      weekend_to: this.weekendTo || '22:00',
     };
   }
 
   protected saveCalling(): void {
-    this.api.saveScenarioCalling(this.orgCallLegal).subscribe({
-      next: () => this.snack.open('Признак схемы сохранён', 'OK', { duration: 2000 }),
+    const numbers = this.outgoingNumbers.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    this.api.saveScenarioCalling({ call_legal: this.orgCallLegal, outgoing_numbers: numbers }).subscribe({
+      next: (row) => {
+        this.outgoingNumbers = (row.outgoing_numbers || numbers).join('\n');
+        this.snack.open('Обзвон схемы сохранён', 'OK', { duration: 2000 });
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
+  }
+
+  private hhmm(value: string | null | undefined, fallback: string): string {
+    if (!value) return fallback;
+    return value.slice(0, 5);
   }
 
   protected saveTimeline(): void {
