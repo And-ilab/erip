@@ -5,8 +5,9 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 
-import { ApiService, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
+import { ApiService, BlankPenaltyRow, BlankPeriodPair, BlankResident, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
 import { SheetBlock, SheetEditor, bodyBlock, normalizeBlock } from '../settings/document-flow';
+import { OfficialSheetComponent } from '../settings/official-sheet.component';
 import { PrintSheetComponent } from '../settings/print-sheet.component';
 
 interface Slot {
@@ -36,7 +37,7 @@ const COURT: Slot[] = [
 @Component({
   selector: 'app-claim-checklist',
   standalone: true,
-  imports: [FormsModule, ReactiveFormsModule, MatButtonModule, MatSnackBarModule, PrintSheetComponent],
+  imports: [FormsModule, ReactiveFormsModule, MatButtonModule, MatSnackBarModule, PrintSheetComponent, OfficialSheetComponent],
   template: `
     <h3>Комплект документов</h3>
     <p class="hint">
@@ -105,8 +106,20 @@ const COURT: Slot[] = [
               <button type="button" (click)="remove(doc)">Удалить</button>
             </div>
             @if (editing()) {
-              <p class="meta">Правка на листе A4. В PDF попадает то же оформление: поля, таблица и рамки.</p>
-              <app-print-sheet [blocks]="editBlocks" [flows]="editor.flows" [form]="editor.form" selectedKey="body" />
+              @if (editBlank) {
+                <p class="meta">Бланк образца. Статичный текст не меняется. Дата, номер и телефон правятся на листе, суммы берутся из лицевого счёта.</p>
+                <app-official-sheet
+                  [family]="sheetFamily"
+                  [copy]="sheetCopy"
+                  [values]="sheetValues"
+                  [pairs]="sheetPairs"
+                  [residents]="sheetResidents"
+                  [penaltyRows]="sheetPenalty"
+                  [showServices]="sheetServices" />
+              } @else {
+                <p class="meta">Правка на листе A4. В PDF попадает то же оформление: поля, таблица и рамки.</p>
+                <app-print-sheet [blocks]="editBlocks" [flows]="editor.flows" [form]="editor.form" selectedKey="body" />
+              }
               <button mat-stroked-button type="button" [disabled]="busy()" (click)="saveText(doc)">Сохранить документ</button>
             }
             @if (pdfUrl(); as url) {
@@ -196,6 +209,14 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   protected readonly busy = signal(false);
   protected readonly editing = signal(false);
   protected editBlocks: SheetBlock[] = [];
+  protected editBlank = '';
+  protected sheetFamily = '';
+  protected sheetCopy: Record<string, string> = {};
+  protected sheetValues: Record<string, string> = {};
+  protected sheetPairs: BlankPeriodPair[] = [];
+  protected sheetResidents: BlankResident[] = [];
+  protected sheetPenalty: BlankPenaltyRow[] = [];
+  protected sheetServices = true;
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected templateId: number | null = null;
   private rawUrl = '';
@@ -284,6 +305,21 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   protected startEdit(doc: BnpDocument): void {
+    const layout = doc.layout;
+    if (layout?.blank && layout.copy) {
+      this.editBlank = layout.blank;
+      this.sheetFamily = layout.family || '';
+      this.sheetCopy = { ...layout.copy };
+      this.sheetValues = { ...(layout.values || {}) };
+      this.sheetPairs = layout.pairs || [];
+      this.sheetResidents = layout.residents || [];
+      this.sheetPenalty = layout.penalty_rows || [];
+      this.sheetServices = layout.show_services !== false;
+      this.editing.set(true);
+      this.pdfUrl.set(null);
+      return;
+    }
+    this.editBlank = '';
     const saved = doc.layout?.blocks;
     this.editBlocks = saved?.length && saved.some((block) => block.key === 'body')
       ? saved.map((block, index) => normalizeBlock(block, index))
@@ -294,6 +330,21 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   protected saveText(doc: BnpDocument): void {
+    if (this.editBlank) {
+      this.busy.set(true);
+      this.api.claimAction(this.claimId(), `package/documents/${doc.id}/layout`, {
+        blank: this.editBlank, values: this.sheetValues, body: '', blocks: [],
+      }).subscribe({
+        next: (row) => {
+          this.busy.set(false);
+          this.editing.set(false);
+          this.changed.emit(row);
+          this.snack.open('Документ сохранён. Подпись комплекта снята.', 'OK', { duration: 2500 });
+        },
+        error: (err) => this.fail(err),
+      });
+      return;
+    }
     this.editor.commit(this.editBlocks, 'filled');
     const body = this.editBlocks.find((block) => block.key === 'body')?.text
       || this.editBlocks.map((block) => block.text).filter(Boolean).join('\n');

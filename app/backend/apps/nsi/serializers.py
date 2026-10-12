@@ -78,12 +78,18 @@ class PrintFormSerializer(serializers.ModelSerializer):
         model = PrintForm
         fields = [
             "id", "organization", "code", "name", "doc_kind", "addressee", "body", "font_size", "indent_mm",
-            "outdent_mm", "block_order", "logo_text", "requisites", "signatory", "blocks", "version",
-            "is_active", "revisions",
+            "outdent_mm", "block_order", "logo_text", "requisites", "signatory", "blocks", "blank",
+            "version", "is_active", "revisions",
         ]
         read_only_fields = ["is_active", "version", "organization", "revisions"]
 
     def validate(self, attrs):
+        blank = attrs.get("blank", serializers.empty)
+        if blank is not serializers.empty and blank:
+            from .services.official_blanks import known
+
+            if not known(str(blank)):
+                raise serializers.ValidationError({"blank": "Такого бланка образца нет"})
         blocks = attrs.get("blocks", serializers.empty)
         if blocks is serializers.empty:
             return attrs

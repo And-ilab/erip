@@ -410,17 +410,33 @@ class PrintFormViewSet(NsiViewSet):
         form = self.get_queryset().get(pk=form.pk)
         return Response(self.get_serializer(form).data)
 
+    @action(detail=False, methods=["get"], url_path="blank-data")
+    def blank_data(self, request):
+        from .services.official_blanks import context_for_blank, known, payload_of
+
+        blank = str(request.query_params.get("blank") or "")
+        if not known(blank):
+            raise ValidationError({"blank": "Такого бланка образца нет"})
+        account = _visible_account(request.user, request.query_params.get("account"))
+        return Response(payload_of(context_for_blank(blank, account)))
+
     @action(detail=False, methods=["post"])
     def preview(self, request):
         from django.core.files.base import ContentFile
         from django.http import FileResponse
 
-        from apps.debts.models import Account
         from apps.debts.services.artifacts import render_layout_pdf
-        from apps.users.scoping import AccessScope
 
         from .services.form_layout import clean_blocks, fill_blocks
+        from .services.official_blanks import context_for_blank, known
         from .services.scenarios import placeholder_values
+
+        blank = str(request.data.get("blank") or "")
+        if blank and known(blank):
+            account = _visible_account(request.user, request.data.get("account"))
+            ctx = context_for_blank(blank, account, overrides=request.data.get("values") or {})
+            payload = render_layout_pdf([], blank=blank, context=ctx)
+            return FileResponse(ContentFile(payload), as_attachment=False, filename="preview.pdf", content_type="application/pdf")
 
         raw = request.data.get("blocks")
         try:
@@ -431,12 +447,8 @@ class PrintFormViewSet(NsiViewSet):
             }]
         except ValueError as exc:
             raise ValidationError({"blocks": str(exc)}) from exc
-        account_id = request.data.get("account")
-        if account_id:
-            visible = AccessScope(request.user).apply(Account.objects.all(), "organization", "provider_id")
-            account = visible.filter(pk=account_id).first()
-            if account is None:
-                raise ValidationError({"account": "Лицевой счёт не найден"})
+        account = _visible_account(request.user, request.data.get("account"))
+        if account is not None:
             blocks = fill_blocks(blocks, placeholder_values(account))
         payload = render_layout_pdf(blocks)
         return FileResponse(ContentFile(payload), as_attachment=False, filename="preview.pdf", content_type="application/pdf")
@@ -452,6 +464,19 @@ class PrintFormViewSet(NsiViewSet):
             raise ValidationError({"file": "Файл больше 15 МБ"})
         draft = recognize_bytes(getattr(upload, "name", "") or "scan", upload.read())
         return Response(draft)
+
+
+def _visible_account(user, account_id):
+    if not account_id:
+        return None
+    from apps.debts.models import Account
+    from apps.users.scoping import AccessScope
+
+    visible = AccessScope(user).apply(Account.objects.all(), "organization", "provider_id")
+    account = visible.filter(pk=account_id).first()
+    if account is None:
+        raise ValidationError({"account": "Лицевой счёт не найден"})
+    return account
 
 
 def _document_payload(document) -> dict:

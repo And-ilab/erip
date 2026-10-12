@@ -171,6 +171,7 @@ def layout_of(form: PrintForm) -> dict:
         "signatory": form.signatory,
         "doc_kind": form.doc_kind,
         "blocks": list(form.blocks or []),
+        "blank": form.blank or "",
     }
 
 
@@ -218,13 +219,21 @@ def fill_account_text(template: str, account, *, tariff: str = "", warning_date:
 def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") -> PrintedDocument:
     from apps.debts.services.artifacts import render_layout_pdf
     from apps.nsi.services.form_layout import blocks_of, fill_blocks
+    from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext
 
-    text = fill_account_text(form.body, account, tariff=tariff)
-    filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
-    for block in filled:
-        if block["key"] == "body":
-            block["text"] = text
-    payload = render_layout_pdf(filled, font_size=form.font_size or 12)
+    blank = (form.blank or "").strip()
+    if blank and known(blank):
+        ctx = context_for_blank(blank, account, warning_date="")
+        text = official_plaintext(blank, ctx)
+        filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
+        payload = render_layout_pdf(filled, font_size=form.font_size or 12, blank=blank, context=ctx)
+    else:
+        text = fill_account_text(form.body, account, tariff=tariff)
+        filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
+        for block in filled:
+            if block["key"] == "body":
+                block["text"] = text
+        payload = render_layout_pdf(filled, font_size=form.font_size or 12)
     document = PrintedDocument(
         form=form, version=form.version, account=account, addressee=form.addressee or "debtor",
         body=text, batch=batch,
@@ -241,6 +250,23 @@ def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") ->
 
 def package_pdf(form: PrintForm, batch: str) -> bytes:
     documents = form.documents.filter(batch=batch).select_related("account").order_by("id")
+    blank = (form.blank or "").strip()
+    from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext, package_html, render_official_pdf
+
+    if blank and known(blank):
+        contexts = [context_for_blank(blank, document.account) for document in documents]
+        payload = render_official_pdf(blank, contexts[0]) if len(contexts) == 1 else None
+        if len(contexts) != 1:
+            from apps.nsi.services.form_sheet import pdf_from_html
+
+            payload = pdf_from_html(package_html(blank, contexts))
+        if payload:
+            return payload
+        lines = []
+        for ctx in contexts:
+            lines.extend(official_plaintext(blank, ctx).splitlines())
+            lines.append("")
+        return _pdf_bytes(lines or [""], font_size=form.font_size or 12)
     lines: list[str] = []
     for kind in block_order_of(form):
         if kind == "body":
@@ -300,12 +326,12 @@ def restore_print(form: PrintForm, version: int) -> PrintForm:
     for key, value in (revision.layout or {}).items():
         if key in {
             "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
-            "logo_text", "requisites", "signatory", "blocks",
+            "logo_text", "requisites", "signatory", "blocks", "blank",
         }:
             setattr(form, key, value)
     form.save(update_fields=[
         "body", "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
-        "logo_text", "requisites", "signatory", "blocks", "updated_at",
+        "logo_text", "requisites", "signatory", "blocks", "blank", "updated_at",
     ])
     remember_print_version(form, previous, previous_layout)
     return form

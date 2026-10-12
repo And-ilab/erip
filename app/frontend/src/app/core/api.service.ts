@@ -606,6 +606,12 @@ export class ApiService {
     return this.http.post(`${this.base}/nsi/print-forms/preview/`, body, { responseType: 'blob' });
   }
 
+  blankData(blank: string, account?: number): Observable<BlankData> {
+    const params: Record<string, string> = { blank };
+    if (account) params['account'] = String(account);
+    return this.http.get<BlankData>(`${this.base}/nsi/print-forms/blank-data/`, { params });
+  }
+
   recognizePrintForm(file: File): Observable<{ recognized: boolean; note: string; name: string; blocks: PrintFormBlock[] }> {
     const data = new FormData();
     data.append('file', file, file.name);
@@ -789,7 +795,17 @@ export interface BnpDocument {
   has_signature: boolean;
   generated: boolean;
   body: string;
-  layout?: { blocks?: PrintFormBlock[] };
+  layout?: {
+    blocks?: PrintFormBlock[];
+    blank?: string;
+    family?: string;
+    copy?: Record<string, string>;
+    values?: Record<string, string>;
+    pairs?: BlankPeriodPair[];
+    residents?: BlankResident[];
+    penalty_rows?: BlankPenaltyRow[];
+    show_services?: boolean;
+  };
   size: number;
 }
 
@@ -900,6 +916,53 @@ export interface PrintFormBlock {
   w: number;
 }
 
+export interface BlankPeriodPair {
+  left_label: string;
+  right_label: string;
+  rows: {
+    name: string;
+    l_principal: string;
+    l_penalty: string;
+    l_total: string;
+    r_principal: string;
+    r_penalty: string;
+    r_total: string;
+  }[];
+  l_principal: string;
+  l_penalty: string;
+  l_total: string;
+  r_principal: string;
+  r_penalty: string;
+  r_total: string;
+}
+
+export interface BlankResident {
+  arrived: string;
+  left: string;
+  registered: string;
+  ended: string;
+  fio: string;
+  birthday: string;
+  relation: string;
+}
+
+export interface BlankPenaltyRow {
+  month: string;
+  principal: string;
+  penalty: string;
+}
+
+export interface BlankData {
+  blank: string;
+  family: string;
+  copy: Record<string, string>;
+  values: Record<string, string>;
+  pairs: BlankPeriodPair[];
+  residents: BlankResident[];
+  penalty_rows: BlankPenaltyRow[];
+  show_services: boolean;
+}
+
 export interface PrintFormRow {
   id: number;
   code: string;
@@ -915,6 +978,7 @@ export interface PrintFormRow {
   requisites?: string;
   signatory?: string;
   blocks?: PrintFormBlock[];
+  blank?: string;
   version: number;
   organization: number | null;
   revisions?: VersionRow[];

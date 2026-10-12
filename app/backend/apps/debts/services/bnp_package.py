@@ -159,6 +159,8 @@ def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     from apps.nsi.services.form_layout import blocks_of, fill_blocks
     from apps.nsi.services.scenarios import fill_account_text, placeholder_values
 
+    from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext, payload_of
+
     form = _visible_form(user, form_id)
     doc_type = _FORM_DOC.get(form.doc_kind)
     if doc_type is None:
@@ -167,26 +169,49 @@ def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     tariff = "" if case.notary_tariff is None else str(case.notary_tariff)
     warning = case.warning_delivered_on.isoformat() if case.warning_delivered_on else ""
     values = placeholder_values(case.account, tariff=tariff, warning_date=warning)
-    text = fill_account_text(form.body, case.account, tariff=tariff, warning_date=warning)
+    blank = (form.blank or "").strip()
+    ctx = None
+    if blank and known(blank):
+        ctx = context_for_blank(blank, case.account, warning_date=warning)
+        text = official_plaintext(blank, ctx)
+    else:
+        text = fill_account_text(form.body, case.account, tariff=tariff, warning_date=warning)
     blocks = fill_blocks(blocks_of(form), values)
     for block in blocks:
         if block["key"] == "body":
             block["text"] = text
     document = _save_generated(
         package, doc_type, text, f"{form.code}-{_safe_token(case.account.client_account)}.pdf", blocks,
+        blank=blank, context=ctx,
     )
     document.layout = {"blocks": blocks, "form": form.id, "version": form.version}
+    if ctx is not None:
+        document.layout.update(payload_of(ctx))
     document.save(update_fields=["layout", "updated_at"])
     return document
 
 
-def update_document_layout(case: ClaimCase, doc_id: int, body: str, blocks) -> ClaimPackageDocument:
+def update_document_layout(case: ClaimCase, doc_id: int, body: str, blocks, blank: str = "", values=None) -> ClaimPackageDocument:
     from apps.nsi.services.form_layout import clean_blocks
+    from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext, payload_of
 
     package = stored_package(case)
     document = package.documents.filter(pk=doc_id).first() if package is not None else None
     if document is None:
         raise ClaimBlocked("Документ не из этого пакета")
+    blank = (blank or "").strip()
+    if blank and known(blank):
+        warning = case.warning_delivered_on.isoformat() if case.warning_delivered_on else ""
+        ctx = context_for_blank(blank, case.account, warning_date=warning, overrides=values or {})
+        text = official_plaintext(blank, ctx)
+        if len(text) > 20000:
+            raise ClaimBlocked("Текст длиннее 20000 символов")
+        _write_pdf(document, text, blank=blank, context=ctx)
+        document.generated = True
+        document.layout = payload_of(ctx)
+        document.save()
+        _invalidate(package)
+        return document
     try:
         cleaned = clean_blocks(blocks)
     except ValueError as exc:
@@ -296,7 +321,7 @@ def update_document_text(case: ClaimCase, doc_id: int, body: str) -> ClaimPackag
     return document
 
 
-def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str, blocks=None) -> ClaimPackageDocument:
+def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str, blocks=None, blank: str = "", context=None) -> ClaimPackageDocument:
     payload_name = name[:180]
     if doc_type in {"other_document", "debt_calculation"}:
         document = package.documents.filter(doc_type=doc_type, generated=True).first()
@@ -320,16 +345,19 @@ def _save_generated(package: ClaimPackage, doc_type: str, text: str, name: str, 
         document.signer = _signer(doc_type)
         document.doc_type = doc_type
         document.generated = True
-    _write_pdf(document, text, blocks)
+    _write_pdf(document, text, blocks, blank=blank, context=context)
     document.save()
     _invalidate(package)
     return document
 
 
-def _write_pdf(document: ClaimPackageDocument, text: str, blocks=None) -> None:
+def _write_pdf(document: ClaimPackageDocument, text: str, blocks=None, blank: str = "", context=None) -> None:
     from apps.debts.services.artifacts import render_layout_pdf
+    from apps.nsi.services.official_blanks import known
 
-    if blocks:
+    if blank and known(blank):
+        payload = render_layout_pdf(blocks or [], blank=blank, context=context)
+    elif blocks:
         payload = render_layout_pdf(blocks)
     else:
         payload = render_text_pdf(text.splitlines() or [""])

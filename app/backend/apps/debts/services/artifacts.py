@@ -71,9 +71,16 @@ def render_text_pdf(lines: list[str]) -> bytes:
     return _pdf_bytes(lines)
 
 
-def render_layout_pdf(blocks: list[dict], *, font_size: int = 12) -> bytes:
-    """PDF листа A4. WeasyPrint повторяет HTML-макет; без библиотеки остаётся fpdf2."""
+def render_layout_pdf(blocks: list[dict], *, font_size: int = 12, blank: str = "", context: dict | None = None) -> bytes:
+    """PDF листа A4. Бланк образца собирается своим HTML. Без WeasyPrint остаётся fpdf2."""
     from apps.nsi.services.form_sheet import pdf_from_html, render_form_html
+    from apps.nsi.services.official_blanks import known, official_plaintext, render_official_pdf
+
+    if blank and known(blank):
+        official = render_official_pdf(blank, context or {})
+        if official:
+            return official
+        return _pdf_bytes((official_plaintext(blank, context or {}).splitlines() or [""]), font_size=font_size)
 
     rows = list(blocks or [])
     payload = pdf_from_html(render_form_html(rows))

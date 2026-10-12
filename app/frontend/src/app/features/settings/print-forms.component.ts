@@ -5,19 +5,20 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
 
-import { ApiService, ClaimCase, PrintFormRow, errorMessage } from '../../core/api.service';
+import { ApiService, BlankData, BlankPenaltyRow, BlankPeriodPair, BlankResident, ClaimCase, PrintFormRow, errorMessage } from '../../core/api.service';
 import { KNOWN_TOKENS, SheetBlock, SheetEditor, normalizeBlock } from './document-flow';
+import { OfficialSheetComponent } from './official-sheet.component';
 import { PrintSheetComponent } from './print-sheet.component';
 
 @Component({
   selector: 'app-print-forms',
   standalone: true,
-  imports: [FormsModule, ReactiveFormsModule, MatButtonModule, MatSnackBarModule, PrintSheetComponent],
+  imports: [FormsModule, ReactiveFormsModule, MatButtonModule, MatSnackBarModule, PrintSheetComponent, OfficialSheetComponent],
   template: `
     <header class="head">
       <div>
         <h2>Конструктор печатных форм</h2>
-        <p>Лист A4, как в просмотре PDF. Поле счёта на листе — подчёркнутая строка, таблица — с рамкой. Скачанный PDF повторяет этот лист.</p>
+        <p>Бланки предупреждения, напоминания, уведомлений и расчёта повторяют образцы АИС. Статичный текст бланка не меняется, подставляются поля лицевого счёта. Остальные макеты собираются на том же листе A4.</p>
       </div>
       <button mat-stroked-button type="button" (click)="create()">+ Шаблон</button>
     </header>
@@ -74,7 +75,18 @@ import { PrintSheetComponent } from './print-sheet.component';
             </label>
           </div>
           <p class="muted">Значение в поле нужно для просмотра и для документа дела. В шаблоне остаётся метка счёта, на листе она не пишется. Блоки меняются местами стрелками.</p>
-          <div class="work">
+          @if (blank()) {
+            <p class="muted">Статичный текст как в образце. Дата, номер, телефон и шапка правятся здесь. Суммы, услуги и периоды долга берутся из карточки лицевого счёта.</p>
+            <app-official-sheet
+              [family]="sheetFamily"
+              [copy]="sheetCopy"
+              [values]="sheetValues"
+              [pairs]="sheetPairs"
+              [residents]="sheetResidents"
+              [penaltyRows]="sheetPenalty"
+              [showServices]="sheetServices" />
+          }
+          <div class="work" [hidden]="!!blank()">
             <aside class="blocks">
               <h3>Блоки</h3>
               @for (block of orderedBlocks(); track block.key) {
@@ -205,6 +217,8 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected readonly tokens = KNOWN_TOKENS;
   protected readonly kinds = [
     { id: 'warning', label: 'Предупреждение' },
+    { id: 'reminder', label: 'Напоминание' },
+    { id: 'notice', label: 'Уведомление' },
     { id: 'writ', label: 'Заявление на исполнительную надпись' },
     { id: 'calculation', label: 'Расчёт задолженности' },
     { id: 'proxy', label: 'Доверенность' },
@@ -222,6 +236,15 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected kind = 'writ';
   protected addressee = 'notary';
   protected blocks: SheetBlock[] = [];
+  protected readonly blank = signal('');
+  protected sheetFamily = '';
+  protected sheetCopy: Record<string, string> = {};
+  protected sheetValues: Record<string, string> = {};
+  protected sheetPairs: BlankPeriodPair[] = [];
+  protected sheetResidents: BlankResident[] = [];
+  protected sheetPenalty: BlankPenaltyRow[] = [];
+  protected sheetServices = true;
+  private accountId: number | null = null;
   protected selectedKey = 'body';
   protected claimId: number | null = null;
   protected docId: number | null = null;
@@ -298,8 +321,13 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.selectedKey = 'body';
     this.pdfUrl.set(null);
     this.pdfReady.set(false);
+    this.blank.set(form.blank || '');
     if (this.claimId) this.fillClaim();
-    else this.openSheet();
+    else {
+      this.accountId = null;
+      this.openSheet();
+      this.loadBlank(form);
+    }
   }
 
   protected create(): void {
@@ -309,6 +337,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.kind = 'writ';
     this.addressee = 'notary';
     this.blocks = [normalizeBlock({ key: 'body', title: 'Текст', text: '', enabled: true }, 0)];
+    this.blank.set('');
     this.selectedKey = 'body';
     this.claimId = null;
     this.docId = null;
@@ -399,6 +428,24 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   }
 
   protected save(): void {
+    if (this.blank()) {
+      const current = this.current();
+      if (!this.code.trim() || !this.name.trim()) {
+        this.snack.open('Укажите код и название', 'OK');
+        return;
+      }
+      this.api.savePrintForm({
+        id: current?.id, code: this.code.trim(), name: this.name.trim(), doc_kind: this.kind,
+        addressee: this.addressee, blank: this.blank(), body: current?.body || '',
+      }).subscribe({
+        next: (saved) => {
+          this.snack.open('Шаблон сохранён', 'OK', { duration: 2000 });
+          this.reload(saved.id);
+        },
+        error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      });
+      return;
+    }
     this.editor.commit(this.blocks, 'template');
     const body = this.blocks.find((block) => block.key === 'body')?.text || '';
     if (!this.code.trim() || !this.name.trim()) {
@@ -421,6 +468,15 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
 
   protected saveCase(): void {
     if (!this.claimId || !this.docId) return;
+    if (this.blank()) {
+      this.api.claimAction(this.claimId, `package/documents/${this.docId}/layout`, {
+        blank: this.blank(), values: this.sheetValues, body: '', blocks: [],
+      }).subscribe({
+        next: () => this.snack.open('Документ дела сохранён. Подпись пакета снята.', 'OK', { duration: 2500 }),
+        error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      });
+      return;
+    }
     const blocks = this.previewBlocks();
     const body = blocks.find((block) => block.key === 'body')?.text || '';
     this.api.claimAction(this.claimId, `package/documents/${this.docId}/layout`, { body, blocks }).subscribe({
@@ -448,19 +504,19 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected showPdf(): void {
     this.pane.set('pdf');
     this.pdfReady.set(false);
+    if (this.blank()) {
+      this.api.previewPrintForm({
+        blank: this.blank(), values: this.sheetValues, account: this.accountId,
+      }).subscribe({
+        next: (blob) => this.showBlob(blob),
+        error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      });
+      return;
+    }
     const blocks = this.previewBlocks();
     const body = blocks.find((block) => block.key === 'body')?.text || '';
     this.api.previewPrintForm({ blocks, body }).subscribe({
-      next: (blob) => {
-        blob.slice(0, 5).arrayBuffer().then((head) => {
-          const magic = String.fromCharCode(...new Uint8Array(head));
-          const file = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
-          this.revoke();
-          this.rawUrl = URL.createObjectURL(file);
-          this.pdfUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(this.rawUrl));
-          this.pdfReady.set(magic.startsWith('%PDF'));
-        });
-      },
+      next: (blob) => this.showBlob(blob),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }
@@ -471,6 +527,43 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     link.href = this.rawUrl;
     link.download = `${(this.code || 'document').trim() || 'document'}.pdf`;
     link.click();
+  }
+
+  private showBlob(blob: Blob): void {
+    blob.slice(0, 5).arrayBuffer().then((head) => {
+      const magic = String.fromCharCode(...new Uint8Array(head));
+      const file = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+      this.revoke();
+      this.rawUrl = URL.createObjectURL(file);
+      this.pdfUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(this.rawUrl));
+      this.pdfReady.set(magic.startsWith('%PDF'));
+    });
+  }
+
+  private loadBlank(form: PrintFormRow, account?: number, claim?: ClaimCase): void {
+    if (!form.blank) {
+      this.blank.set('');
+      return;
+    }
+    this.blank.set(form.blank);
+    this.api.blankData(form.blank, account).subscribe({
+      next: (data) => this.applyBlank(data, claim),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private applyBlank(data: BlankData, claim?: ClaimCase): void {
+    this.sheetFamily = data.family;
+    this.sheetCopy = data.copy || {};
+    this.sheetValues = { ...(data.values || {}) };
+    this.sheetPairs = data.pairs || [];
+    this.sheetResidents = data.residents || [];
+    this.sheetPenalty = data.penalty_rows || [];
+    this.sheetServices = data.show_services !== false;
+    if (claim?.warning_delivered_on) {
+      const [year, month, day] = claim.warning_delivered_on.slice(0, 10).split('-');
+      if (day && month && year) this.sheetValues['warning_date'] = `${day}.${month}.${year}`;
+    }
   }
 
   private reload(selectId?: number): void {
@@ -492,6 +585,9 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
       next: (claim) => {
         const saved = claim.package?.documents.find((doc) => doc.id === this.docId)?.layout?.blocks;
         if (saved?.length) this.blocks = saved.map((block, index) => normalizeBlock(block, index));
+        this.accountId = claim.account;
+        const form = this.current();
+        if (form) this.loadBlank(form, claim.account, claim);
         this.openSheet(claim);
       },
       error: () => {
