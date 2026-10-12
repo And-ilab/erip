@@ -55,6 +55,23 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   @for (item of row.blockers; track $index) { <li>{{ item }}</li> }
                 </ul>
               }
+              @if (row.writ_checklist?.length) {
+                <h3>Чек-лист надписи</h3>
+                <p class="hint">Порядок и обязательность заданы в конструкторе сценариев. Обязательный пункт без выполнения блокирует направление нотариусу.</p>
+                <ol class="writ-list">
+                  @for (item of row.writ_checklist; track item.code) {
+                    <li [class.met]="item.met" [class.need]="!item.met && item.mandatory" [class.skip]="!item.met && !item.mandatory">
+                      <strong>{{ item.order }}. {{ item.name }}</strong>
+                      <span>{{ item.met ? 'выполнено' : (item.mandatory ? 'обязательно' : 'можно пропустить') }}</span>
+                      <p>{{ item.criteria }}</p>
+                      @if (!item.met && item.gap) { <p class="gap">{{ item.gap }}</p> }
+                    </li>
+                  }
+                </ol>
+                @if (needsSkip(row)) {
+                  <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="checklistSkip" /></mat-form-field>
+                }
+              }
               <div class="sums">
                 <div><span>Исходящее сальдо с пенями <app-byn-sign /></span><b><app-money [value]="row.balance_out" /></b></div>
                 <div><span>Исходящее сальдо пени <app-byn-sign /></span><b><app-money [value]="row.penalty" /></b></div>
@@ -123,6 +140,12 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               }
               @if (row.opi_mode === 'manual') {
                 <p class="banner">Статус ОПИ внесён вручную. Сервисы 3.11.01–3.11.05 не вызывались.</p>
+              }
+              @if (row.opi_mode === 'stub') {
+                <p class="banner">Пакет проверен по регламенту ПРИС. В АИС ПРИС он не отправлялся: канал-заглушка.</p>
+              }
+              @if (row.opi_mode === 'pris') {
+                <p class="banner">Пакет передан в АИС ПРИС. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
               }
               <h3>Статус дела</h3>
               <ol>
@@ -194,6 +217,49 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   <button mat-stroked-button (click)="act('move', { stage: 'opi_measures', reason: skipReason })">Меры приняты</button>
                 }
               </div>
+              <p class="hint">Коды справочников ПРИС (120, 201, 214, 217, 306, 309) вводятся вручную. Пустое поле в запрос не подставляется.</p>
+              @if (row.pris?.problems?.length) {
+                <p class="need">{{ row.pris?.problems?.join('; ') }}</p>
+              }
+              <mat-form-field><mat-label>ОПИ, справочник 120</mat-label><input matInput [(ngModel)]="prisOpi" /></mat-form-field>
+              <mat-form-field><mat-label>Требование, справочник 214</mat-label><input matInput [(ngModel)]="prisReq" /></mat-form-field>
+              <mat-form-field><mat-label>Вид документа, справочник 201</mat-label><input matInput [(ngModel)]="prisDocCode" /></mat-form-field>
+              <mat-form-field><mat-label>Номер документа</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
+              <mat-form-field><mat-label>Дата документа</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+              <mat-form-field><mat-label>Орган, справочник 217</mat-label><input matInput [(ngModel)]="prisOrgCode" /></mat-form-field>
+              <mat-form-field class="wide"><mat-label>Наименование органа</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
+              <mat-form-field><mat-label>Дата вступления в силу</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+              <mat-form-field><mat-label>Тип населённого пункта должника, 309</mat-label><input matInput [(ngModel)]="prisNpType" /></mat-form-field>
+              <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
+                <mat-select [(ngModel)]="prisPdf">
+                  <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
+                  @for (file of row.files; track file.id) {
+                    <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field><mat-label>Файл подписи</mat-label>
+                <mat-select [(ngModel)]="prisSign">
+                  <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
+                  @for (file of row.files; track file.id) {
+                    <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field><mat-label>ОПФ взыскателя</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
+              <mat-form-field><mat-label>Страна адреса, справочник 306</mat-label><input matInput [(ngModel)]="prisCountry" /></mat-form-field>
+              <mat-form-field class="wide"><mat-label>Полный адрес взыскателя</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
+              <mat-form-field><mat-label>Тип населённого пункта, 309</mat-label><input matInput [(ngModel)]="prisClaimNpType" /></mat-form-field>
+              <mat-form-field><mat-label>Населённый пункт</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
+              <mat-form-field><mat-label>Дом</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
+              <mat-form-field><mat-label>SWIFT</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
+              <mat-form-field><mat-label>Счёт</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
+              <mat-form-field><mat-label>Тип счёта</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
+              <div class="actions">
+                <button mat-flat-button color="primary" (click)="sendPris()">Передать в ПРИС</button>
+                <button mat-stroked-button (click)="act('pris/refresh')">Обновить ход производства</button>
+                <button mat-stroked-button (click)="act('pris/repay')">Передать погашения</button>
+              </div>
               <mat-form-field class="wide"><mat-label>Новый акт ОПИ</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
               <button mat-stroked-button (click)="act('acts', { title: actTitle })">Приложить акт</button>
               <p>Актов: {{ row.acts_count }}. @for (item of row.acts; track item.id) { {{ item.title }}; }</p>
@@ -261,6 +327,14 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     aside li.now { font-weight: 700; color: var(--erip-primary); }
     .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; }
     .blockers { color: var(--erip-warning); margin: 0; }
+    .writ-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .writ-list li { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px 10px; background: #fff; }
+    .writ-list li.met { border-color: var(--erip-success); }
+    .writ-list li.need { border-color: var(--erip-danger); }
+    .writ-list li.skip { border-color: var(--erip-warning); }
+    .writ-list strong { display: block; }
+    .writ-list span, .writ-list p { color: var(--erip-muted); font-size: 13px; margin: 2px 0 0; }
+    .writ-list .gap { color: var(--erip-danger); }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .wide { width: 100%; }
     @media (max-width: 900px) { .split, .grid, .sums { grid-template-columns: 1fr; } }
@@ -277,6 +351,7 @@ export class ClaimDetailComponent implements OnInit {
   protected readonly claim = signal<ClaimCase | null>(null);
   protected warningDate = '';
   protected tariff = '';
+  protected checklistSkip = '';
   protected withdrawn = false;
   protected note = '';
   protected lawsuitNote = '';
@@ -290,6 +365,26 @@ export class ClaimDetailComponent implements OnInit {
   protected skipReason = '';
   protected opiNumber = '';
   protected opiStatus = '';
+  protected prisOpi = '';
+  protected prisReq = '';
+  protected prisDocCode = '';
+  protected prisDocNum = '';
+  protected prisDocDate = '';
+  protected prisOrgCode = '';
+  protected prisOrg = '';
+  protected prisDocDateIn = '';
+  protected prisNpType = '';
+  protected prisPdf = 0;
+  protected prisSign = 0;
+  protected prisOpf = '';
+  protected prisCountry = '';
+  protected prisAddress = '';
+  protected prisClaimNpType = '';
+  protected prisNp = '';
+  protected prisHouse = '';
+  protected prisBank = '';
+  protected prisAccount = '';
+  protected prisAccType = '';
   protected actTitle = 'Акт о невозможности взыскания';
   protected approvers: number[] = [];
   protected decisionReason = '';
@@ -350,7 +445,11 @@ export class ClaimDetailComponent implements OnInit {
     this.api.patchClaim(row.id, this.draft()).subscribe({
       next: (next) => {
         this.apply(next);
-        this.act('sign-and-send');
+        if (this.needsSkip(next) && !this.checklistSkip.trim()) {
+          this.snack.open('Пропуск этапа записывается с причиной', 'OK');
+          return;
+        }
+        this.act('sign-and-send', { skip_reason: this.checklistSkip.trim() });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -362,6 +461,38 @@ export class ClaimDetailComponent implements OnInit {
     this.api.patchClaim(row.id, this.draft()).subscribe({
       next: (next) => this.apply(next),
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected needsSkip(row: ClaimCase): boolean {
+    return (row.writ_checklist || []).some((item) => !item.met && !item.mandatory);
+  }
+
+  protected sendPris(): void {
+    this.act('pris/submit', {
+      opi: this.prisOpi,
+      req_init: this.prisReq,
+      doc_code: this.prisDocCode,
+      doc_num: this.prisDocNum,
+      doc_date: this.prisDocDate,
+      doc_org_code: this.prisOrgCode,
+      doc_org: this.prisOrg,
+      doc_date_in: this.prisDocDateIn,
+      debtor_np_type: this.prisNpType,
+      pdf_id: this.prisPdf || '',
+      signature_id: this.prisSign || '',
+      claimant: {
+        opf: this.prisOpf,
+        country: this.prisCountry,
+        full_adr: this.prisAddress,
+        np_type: this.prisClaimNpType,
+        np: this.prisNp,
+        house: this.prisHouse,
+        bank_code: this.prisBank,
+        acc_num: this.prisAccount,
+        acc_type: this.prisAccType,
+        curr_code: '933',
+      },
     });
   }
 
@@ -418,6 +549,28 @@ export class ClaimDetailComponent implements OnInit {
     this.skipReason = row.skip_reason;
     this.opiNumber = row.opi_number;
     this.opiStatus = row.opi_status;
+    const request = row.pris?.request || {};
+    const claimant = row.pris?.claimant || {};
+    this.prisOpi = String(request['opi'] || '');
+    this.prisReq = String(request['req_init'] || '');
+    this.prisDocCode = String(request['doc_code'] || '');
+    this.prisDocNum = String(request['doc_num'] || '');
+    this.prisDocDate = String(request['doc_date'] || '');
+    this.prisOrgCode = String(request['doc_org_code'] || '');
+    this.prisOrg = String(request['doc_org'] || '');
+    this.prisDocDateIn = String(request['doc_date_in'] || '');
+    this.prisNpType = String(request['debtor_np_type'] || '');
+    this.prisPdf = Number(request['pdf_id'] || 0);
+    this.prisSign = Number(request['signature_id'] || 0);
+    this.prisOpf = String(claimant['opf'] || '');
+    this.prisCountry = String(claimant['country'] || '');
+    this.prisAddress = String(claimant['full_adr'] || '');
+    this.prisClaimNpType = String(claimant['np_type'] || '');
+    this.prisNp = String(claimant['np'] || '');
+    this.prisHouse = String(claimant['house'] || '');
+    this.prisBank = String(claimant['bank_code'] || '');
+    this.prisAccount = String(claimant['acc_num'] || '');
+    this.prisAccType = String(claimant['acc_type'] || '');
     this.eviction = row.eviction_stage;
     this.note = row.notary_note || '';
     this.lawsuitNote = row.lawsuit_note || '';

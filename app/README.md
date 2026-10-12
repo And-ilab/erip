@@ -97,8 +97,8 @@ cd frontend; npm install; npm start
 ## Тесты и проверки
 
 ```bash
-cd app/backend && pytest --cov=apps        # 232 теста
-cd app/gateway && pytest --cov=app         # 37 тестов
+cd app/backend && pytest --cov=apps        # 237 тестов
+cd app/gateway && pytest --cov=app         # 41 тест
 cd app && ruff check backend gateway scripts
 cd app/frontend && npx ng build
 python scripts/smoke_e2e.py --backend http://127.0.0.1:8000 --gateway http://127.0.0.1:8001 --user admin --password admin --internal-token dev

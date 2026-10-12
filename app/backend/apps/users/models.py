@@ -10,6 +10,12 @@ class Organization(TimeStampedModel, SoftDeleteModel):
     schema_name = models.CharField("Имя схемы АИС", max_length=30, unique=True)
     name = models.CharField("Наименование", max_length=250)
     unp = models.CharField("УНП", max_length=9, blank=True)
+    pris_claimant = models.JSONField(
+        "Реквизиты взыскателя для АИС ПРИС",
+        default=dict,
+        blank=True,
+        help_text="ОПФ, адрес и банковский счёт. Коды справочников 306, 308 и 309 задаёт пользователь.",
+    )
     call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
     warning_wait_days = models.PositiveSmallIntegerField(
         "Дней на оплату после предупреждения", null=True, blank=True,

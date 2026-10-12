@@ -518,6 +518,10 @@ export class ApiService {
     return this.http.get(`${this.base}/claims/${id}/package/manifest/`, { responseType: 'blob' });
   }
 
+  claimArchive(id: number): Observable<Blob> {
+    return this.http.get(`${this.base}/claims/${id}/package/archive/`, { responseType: 'blob' });
+  }
+
   scenarios(): Observable<Page<ScenarioRow>> {
     return this.http.get<Page<ScenarioRow>>(`${this.base}/nsi/scenarios/`);
   }
@@ -696,6 +700,11 @@ export interface ClaimCase {
   opi_number: string;
   opi_status: string;
   opi_mode: string;
+  pris_cl_num?: string;
+  pris_response_id?: string;
+  pris_process_status?: string;
+  pris_process_message?: string;
+  pris?: PrisCard;
   tariff_received: boolean;
   ais_debt_cleared: boolean;
   eviction_stage: string;
@@ -707,11 +716,23 @@ export interface ClaimCase {
   acts_count: number;
   approvals: { id: number; approver_id: number; approver_name: string; decision: string; reason: string }[];
   blockers: string[];
+  writ_checklist?: WritChecklistItem[];
   events: { old_stage: string; new_stage: string; reason: string; actor: string; at: string }[];
   approver_choices?: { id: number; name: string; role: string }[];
   lawsuit_kinds?: Named[];
   stages?: Named[];
   package?: ClaimPackage;
+}
+
+export interface PrisCard {
+  problems: string[];
+  ready: boolean;
+  cl_num: string;
+  response_id: string;
+  process_status: string;
+  process_message: string;
+  request: Record<string, string | number>;
+  claimant: Record<string, string>;
 }
 
 export interface ClaimPackage {
@@ -726,6 +747,7 @@ export interface ClaimPackage {
   documents: BnpDocument[];
   problems: string[];
   manifest: { applications?: { externalId?: string }[] };
+  has_archive?: boolean;
   send_blockers: string[];
   services: BnpServiceOption[];
   debt_types: { id: string; name: string }[];
@@ -778,9 +800,21 @@ export interface BnpServiceOption {
   debt_type_ids: string[];
 }
 
+export interface WritChecklistItem {
+  code: string;
+  name: string;
+  order: number;
+  criteria: string;
+  mandatory: boolean;
+  locked?: boolean;
+  met?: boolean;
+  gap?: string;
+}
+
 export interface ScenarioStep {
   order: number;
   action: string;
+  checklist?: WritChecklistItem[];
   wait_days?: number;
   template?: string;
   template_id?: number | null;

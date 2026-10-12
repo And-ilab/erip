@@ -42,6 +42,35 @@ def claims_population(queryset: QuerySet) -> QuerySet:
     return queryset.filter(Exists(matched))
 
 
+NOTARY_STAGES = ("prep", "notary", "writ_done", "refused")
+COURT_STAGES = ("lawsuit", "court")
+SHARED_STAGES = ("opi", "opi_measures", "recovered", "impossible", "writeoff")
+
+
+def claims_on_module(queryset: QuerySet, module: str) -> QuerySet:
+    """Одна ветка — одно место на доске.
+
+    ОПИ и итог есть и у надписи, и у иска, но карточка остаётся на той ветке,
+    которая до них дошла. Вход в иск или решение суда уводит дело из нотариата.
+    """
+    if module not in {"notary", "court"}:
+        return queryset
+    court_path = ClaimEvent.objects.filter(
+        case__account_id=OuterRef("pk"),
+        new_stage__in=COURT_STAGES,
+    )
+    marked = queryset.annotate(_court_path=Exists(court_path))
+    if module == "court":
+        return marked.filter(
+            Q(claim_case__stage__in=COURT_STAGES) | Q(claim_case__stage__in=SHARED_STAGES, _court_path=True),
+        )
+    return marked.filter(
+        Q(claim_case__isnull=True)
+        | Q(claim_case__stage__in=NOTARY_STAGES)
+        | Q(claim_case__stage__in=SHARED_STAGES, _court_path=False),
+    )
+
+
 class ClaimBlocked(ServiceError):
     default_detail = "Переход по делу заблокирован"
     default_code = "claim_blocked"
@@ -49,20 +78,22 @@ class ClaimBlocked(ServiceError):
 
 def open_case(account, user) -> ClaimCase:
     existing = ClaimCase.objects.filter(account=account).first()
-    if existing is not None:
-        return existing
-    if not _claim_ready(account):
-        raise ClaimBlocked("Исполнительная надпись и иск включаются с группы 3")
-    case, created = ClaimCase.objects.get_or_create(
-        account=account,
-        defaults={"organization": account.organization, "defendant_name": account.short_fio},
-    )
-    if created:
-        _event(case, user, "", ClaimCase.Stage.PREP, "Дело открыто")
+    created = False
+    if existing is None:
+        if not _claim_ready(account):
+            raise ClaimBlocked("Исполнительная надпись и иск включаются с группы 3")
+        existing, created = ClaimCase.objects.get_or_create(
+            account=account,
+            defaults={"organization": account.organization, "defendant_name": account.short_fio},
+        )
+        if created:
+            _event(existing, user, "", ClaimCase.Stage.PREP, "Дело открыто")
     from apps.debts.services.claim_measures import sync_claim_measure
+    from apps.debts.services.writ_flow import seed_task_checks
 
-    sync_claim_measure(case)
-    return case
+    sync_claim_measure(existing)
+    seed_task_checks(existing)
+    return existing
 
 
 DATE_FIELDS = {
@@ -116,16 +147,21 @@ def stage_is_skip(case: ClaimCase, stage: str) -> bool:
     return stage not in ADJACENT.get(case.stage, set())
 
 
-def move_case(case: ClaimCase, stage: str, user, reason: str = "") -> ClaimCase:
+def move_case(case: ClaimCase, stage: str, user, reason: str = "", *, checklist_reason: str | None = None) -> ClaimCase:
     if stage not in ClaimCase.Stage.values:
         raise ClaimBlocked("Неизвестный этап")
     if stage == case.stage:
         return case
-    _guard(case, stage, reason)
+    skipping = stage_is_skip(case, stage)
+    supplied = reason if checklist_reason is None else checklist_reason
+    _guard(case, stage, reason, checklist_reason=supplied)
+    kept = case.skip_reason if getattr(case, "_checklist_skip", False) else None
     old = case.stage
     case.stage = stage
-    if reason:
+    if reason and skipping:
         case.skip_reason = reason
+    if kept:
+        case.skip_reason = kept
     if stage == ClaimCase.Stage.WRITEOFF:
         case.writeoff_note = "Акт о списании сформирован. Уведомление в АИС «Расчет-ЖКУ» ещё не выгружено."
         DebtWorkItem.objects.create(
@@ -142,13 +178,16 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "") -> ClaimCase:
     return case
 
 
-def send_to_notary(case: ClaimCase, user) -> ClaimCase:
-    _require_notary_fields(case)
+def send_to_notary(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
+    _require_notary_fields(case, skip_reason)
     from apps.debts.services.bnp_package import require_formed_package
 
     require_formed_package(case)
     case.submission_mode = "stub"
     case.submission_id = f"stub-{case.pk}"
+    note = f"Заглушка БНП, номер {case.submission_id}"
+    if skip_reason.strip():
+        note = f"{note}. Пропуск: {skip_reason.strip()}"
     case.save(update_fields=["submission_mode", "submission_id", "updated_at"])
     DebtWorkItem.objects.create(
         organization=case.organization, account=case.account, kind=DebtWorkItem.Kind.WRIT,
@@ -156,7 +195,7 @@ def send_to_notary(case: ClaimCase, user) -> ClaimCase:
         note="Пакет сформирован в ПМ. В личный кабинет БНП не отправлялся: канал-заглушка.",
         started_on=timezone.localdate(),
     )
-    return move_case(case, ClaimCase.Stage.NOTARY, user, f"Заглушка БНП, номер {case.submission_id}")
+    return move_case(case, ClaimCase.Stage.NOTARY, user, note, checklist_reason=skip_reason)
 
 
 def notary_result(case: ClaimCase, result: str, user, note: str = "", attachment_id=None) -> ClaimCase:
@@ -315,6 +354,10 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         "opi_number": case.opi_number,
         "opi_status": case.opi_status,
         "opi_mode": case.opi_mode,
+        "pris_cl_num": case.pris_cl_num,
+        "pris_response_id": case.pris_response_id,
+        "pris_process_status": case.pris_process_status,
+        "pris_process_message": case.pris_process_message,
         "tariff_received": case.tariff_received,
         "ais_debt_cleared": case.ais_debt_cleared,
         "eviction_stage": case.eviction_stage,
@@ -346,6 +389,7 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         ],
     }
     if with_choices:
+        data["writ_checklist"] = _writ_checklist(case)
         data["approver_choices"] = [
             {"id": person.pk, "name": person.display_name, "role": person.role}
             for person in User.objects.filter(organization_id=case.organization_id, is_active=True).exclude(
@@ -357,6 +401,9 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         from apps.debts.services.bnp_package import package_payload
 
         data["package"] = package_payload(case)
+        from apps.debts.services.pris_submit import pris_card
+
+        data["pris"] = pris_card(case)
     return data
 
 
@@ -412,9 +459,9 @@ def _date(value) -> str | None:
     return value.isoformat()
 
 
-def _guard(case: ClaimCase, stage: str, reason: str) -> None:
+def _guard(case: ClaimCase, stage: str, reason: str, checklist_reason: str | None = None) -> None:
     if stage == ClaimCase.Stage.NOTARY:
-        _require_notary_fields(case)
+        _require_notary_fields(case, reason if checklist_reason is None else checklist_reason)
         from apps.debts.services.bnp_package import require_formed_package
 
         require_formed_package(case)
@@ -434,11 +481,16 @@ def _guard(case: ClaimCase, stage: str, reason: str) -> None:
         raise ClaimBlocked("Такой переход записывается с причиной пропуска")
 
 
-def _require_notary_fields(case: ClaimCase) -> None:
-    if not case.warning_delivered_on:
-        raise ClaimBlocked("Нет даты вручения предупреждения")
-    if case.application_withdrawn or case.notary_tariff is None or case.notary_tariff <= 0:
-        raise ClaimBlocked("Нет нотариального тарифа")
+def _require_notary_fields(case: ClaimCase, skip_reason: str = "", *, defer: frozenset[str] = frozenset()) -> None:
+    from apps.debts.services.writ_gate import assert_writ_checklist
+
+    assert_writ_checklist(case, skip_reason, defer=defer)
+
+
+def _writ_checklist(case: ClaimCase) -> list[dict]:
+    from apps.debts.services.writ_gate import checklist_rows
+
+    return checklist_rows(case)
 
 
 def _event(case, user, old, new, reason: str) -> None:

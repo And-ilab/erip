@@ -843,6 +843,16 @@ class ClaimCase(AisRecord):
     opi_number = models.CharField("Номер производства ОПИ", max_length=50, blank=True)
     opi_status = models.CharField("Статус ОПИ", max_length=40, blank=True)
     opi_mode = models.CharField("Канал ОПИ", max_length=20, blank=True)
+    pris_cl_num = models.CharField("Идентификатор задолженности в ПРИС", max_length=80, blank=True)
+    pris_response_id = models.CharField("Идентификатор запроса ПРИС", max_length=64, blank=True)
+    pris_process_status = models.CharField("Код обработки ПРИС", max_length=10, blank=True)
+    pris_process_message = models.CharField("Ответ ПРИС", max_length=500, blank=True)
+    pris_request = models.JSONField(
+        "Реквизиты пакета ПРИС",
+        default=dict,
+        blank=True,
+        help_text="Коды справочников 120, 201, 214, 217, 309 и выбранные файлы. Пустые коды не подставляются.",
+    )
     tariff_received = models.BooleanField("Тариф поступил по выгрузке", default=False)
     ais_debt_cleared = models.BooleanField("Выгрузка показала погашение долга и пени", default=False)
     eviction_stage = models.CharField("Параллельная ветвь выселения", max_length=20, blank=True)
@@ -873,6 +883,7 @@ class ClaimPackage(AisRecord):
     manifest = models.JSONField("Манифест", default=dict, blank=True)
     problems = models.JSONField("Замечания сборки", default=list, blank=True)
     formed_at = models.DateTimeField("Пакет сформирован", null=True, blank=True)
+    archive = models.FileField("Архив для БНП", upload_to="claims/bnp-archive/%Y/%m/", blank=True)
 
     class Meta:
         verbose_name = "Пакет БНП"

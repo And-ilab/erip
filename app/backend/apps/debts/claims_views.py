@@ -22,6 +22,7 @@ from .services.bnp_package import (
     generate_application,
     generate_from_form,
     manifest_bytes,
+    open_archive,
     open_document,
     save_package,
     sign_and_send,
@@ -44,9 +45,10 @@ from .services.claims import (
     start_writeoff,
     update_case,
 )
+from .services.pris_submit import refresh_pris, repay_pris, save_pris_draft, submit_pris
 
 EDITABLE = (
-    "warning_delivered_on", "notary_tariff", "application_withdrawn", "lawsuit_number", "lawsuit_kind",
+    "warning_delivered_on", "notary_tariff", "application_withdrawn", "notary_note", "lawsuit_number", "lawsuit_kind",
     "lawsuit_filed_on", "state_duty", "defendant_name", "package_filed_on", "lawsuit_note", "court_status",
     "eviction_stage", "skip_reason",
 )
@@ -161,6 +163,11 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         record_action(request, AuditLog.Action.UPDATE, self._case(pk))
         return Response(case_payload(self._case(pk), with_choices=True))
 
+    @action(detail=True, methods=["get"], url_path="package/archive")
+    def package_archive(self, request, pk=None):
+        field, name = open_archive(self._case(pk))
+        return FileResponse(field.open("rb"), as_attachment=True, filename=name, content_type="application/zip")
+
     @action(detail=True, methods=["get"], url_path="package/manifest")
     def package_manifest(self, request, pk=None):
         case = self._case(pk)
@@ -183,7 +190,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"], url_path="sign-and-send")
     def sign_send(self, request, pk=None):
-        case = sign_and_send(self._case(pk), request.user)
+        case = sign_and_send(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
         record_action(
             request, AuditLog.Action.UPDATE, case,
             after={"submission_id": case.submission_id, "mode": "stub", "signed": "package"},
@@ -192,7 +199,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"], url_path="send-notary")
     def send_notary(self, request, pk=None):
-        case = send_to_notary(self._case(pk), request.user)
+        case = send_to_notary(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
         record_action(request, AuditLog.Action.UPDATE, case, after={"submission_id": case.submission_id, "mode": "stub"})
         return Response(case_payload(case, with_choices=True))
 
@@ -218,6 +225,30 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             self._case(pk), request.user, str(request.data.get("number") or ""), str(request.data.get("status") or ""),
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": "manual"})
+        return Response(case_payload(case, with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="pris/draft")
+    def pris_draft(self, request, pk=None):
+        case = save_pris_draft(self._case(pk), request.data)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"pris": "draft"})
+        return Response(case_payload(case, with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="pris/submit")
+    def pris_submit(self, request, pk=None):
+        case = submit_pris(self._case(pk), request.user, request.data)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"mode": case.opi_mode, "pris": case.pris_response_id})
+        return Response(case_payload(case, with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="pris/refresh")
+    def pris_refresh(self, request, pk=None):
+        case = refresh_pris(self._case(pk), request.user)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"mode": case.opi_mode, "opi": case.opi_number})
+        return Response(case_payload(case, with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="pris/repay")
+    def pris_repay(self, request, pk=None):
+        case = repay_pris(self._case(pk), request.user)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"mode": case.opi_mode, "pris": case.pris_process_status})
         return Response(case_payload(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="ais-receipt")

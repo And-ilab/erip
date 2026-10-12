@@ -1,4 +1,4 @@
-"""Проверочные эндпоинты каркаса интеграций (реальные вызовы ПРИС/БНП в MVP не выполняются)."""
+"""Интеграции ПРИС и БНП. ПРИС ходит в боевой контур только при GW_PRIS_MODE=http."""
 
 from functools import lru_cache
 
@@ -18,7 +18,13 @@ from ...integrations.pris.client import (
     StubPrisClient,
     TokenCache,
 )
-from ...integrations.pris.schemas import ByProcNumRequest, SaveDataDebtRequest
+from ...integrations.pris.schemas import (
+    ByNumDebtRequest,
+    ByProcNumRequest,
+    SaveDataDebtRequest,
+    SaveDataDebtWofeRequest,
+    SaveRepayRequest,
+)
 from ..deps import require_internal_token
 
 router = APIRouter(prefix="/integrations", tags=["Интеграции"], dependencies=[Depends(require_internal_token)])
@@ -48,18 +54,62 @@ async def pris_echo(client: PrisClient = Depends(get_pris_client)):
     return {"result": await client.echo()}
 
 
-@router.post("/pris/claimant-info", summary="ПРИС: сведения по номеру производства")
+def _pris_result(envelope, settings: Settings) -> dict:
+    payload = envelope.model_dump()
+    payload["mode"] = settings.pris_mode
+    return payload
+
+
+@router.post("/pris/claimant-info", summary="ПРИС: сведения по номеру производства (3.11.05)")
 @api_response
-async def pris_claimant_info(request: ByProcNumRequest, client: PrisClient = Depends(get_pris_client)):
+async def pris_claimant_info(
+    request: ByProcNumRequest,
+    client: PrisClient = Depends(get_pris_client),
+    settings: Settings = Depends(get_settings),
+):
     info = await client.get_by_proc_num(request)
-    return [i.model_dump() for i in info]
+    return {"mode": settings.pris_mode, "items": [item.model_dump() for item in info]}
 
 
-@router.post("/pris/save-data-debt/validate", summary="ПРИС: проверка пакета PutClaimantSaveDataDebt")
+@router.post("/pris/claimant-info-by-debt", summary="ПРИС: сведения по идентификатору задолженности (3.11.04)")
 @api_response
-async def pris_validate_package(request: SaveDataDebtRequest, client: PrisClient = Depends(get_pris_client)):
-    envelope = await client.put_save_data_debt(request)
-    return envelope.model_dump()
+async def pris_claimant_info_by_debt(
+    request: ByNumDebtRequest,
+    client: PrisClient = Depends(get_pris_client),
+    settings: Settings = Depends(get_settings),
+):
+    info = await client.get_by_num_debt(request)
+    return {"mode": settings.pris_mode, "items": [item.model_dump() for item in info]}
+
+
+@router.post("/pris/save-data-debt/validate", summary="ПРИС: PutClaimantSaveDataDebt (3.11.02)")
+@api_response
+async def pris_validate_package(
+    request: SaveDataDebtRequest,
+    client: PrisClient = Depends(get_pris_client),
+    settings: Settings = Depends(get_settings),
+):
+    return _pris_result(await client.put_save_data_debt(request), settings)
+
+
+@router.post("/pris/save-data-debt-wofe", summary="ПРИС: PutClaimantSaveDataDebtWOFE, файл .sgn")
+@api_response
+async def pris_save_wofe(
+    request: SaveDataDebtWofeRequest,
+    client: PrisClient = Depends(get_pris_client),
+    settings: Settings = Depends(get_settings),
+):
+    return _pris_result(await client.put_save_data_debt_wofe(request), settings)
+
+
+@router.post("/pris/save-repay-debt", summary="ПРИС: PutClaimantSaveRepayDebt (3.11.03)")
+@api_response
+async def pris_save_repay(
+    request: SaveRepayRequest,
+    client: PrisClient = Depends(get_pris_client),
+    settings: Settings = Depends(get_settings),
+):
+    return _pris_result(await client.put_save_repay_debt(request), settings)
 
 
 @router.post("/bnp/validate", summary="БНП: проверка манифеста заявления на исполнительную надпись")
