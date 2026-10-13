@@ -176,30 +176,3 @@ class RoleChoiceView(APIView):
         return response
 
 
-class StubRoleLoginView(APIView):
-    """Вход выбранной ролью без логина и пароля. В проде (DEBUG=False) маршрут отвечает 404."""
-
-    permission_classes = [AllowAny]
-    authentication_classes = []
-
-    def get(self, request):
-        if not settings.DEBUG:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        from apps.users.role_stub import stub_role_choices
-
-        return Response(stub_role_choices())
-
-    def post(self, request):
-        if not settings.DEBUG:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        from apps.users.role_stub import issue_stub_user
-
-        code = (request.data.get("role") if isinstance(request.data, dict) else None) or ""
-        try:
-            user = issue_stub_user(code)
-        except KeyError:
-            raise ValidationError({"role": "Неизвестная роль"}) from None
-        refresh = RefreshToken.for_user(user)
-        response = Response({"access": str(refresh.access_token)})
-        _set_refresh_cookie(response, str(refresh))
-        return response

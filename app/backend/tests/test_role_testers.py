@@ -4,7 +4,7 @@ import pytest
 from django.core.management import call_command
 from rest_framework.test import APIClient
 
-from apps.users.models import User
+from apps.users.models import ServiceOrganization, User
 from apps.users.role_testers import PASSWORD, TESTER_USERNAMES, issue_ticket
 
 pytestmark = pytest.mark.django_db
@@ -25,6 +25,11 @@ def test_seed_creates_both_logins_and_resets_the_password():
 
 
 def test_tester_picks_a_role_after_the_password(org_a, account_a):
+    account_a.services.update(provider_id=account_a.provider_id)
+    supplier_org = ServiceOrganization.objects.get(organization=org_a, provider_id=account_a.provider_id)
+    supplier_org.is_supplier = True
+    supplier_org.short_name = "Поставщик"
+    supplier_org.save(update_fields=["is_supplier", "short_name", "updated_at"])
     call_command("seed_role_testers")
     client = APIClient()
     wrong = client.post(
@@ -65,6 +70,15 @@ def test_tester_picks_a_role_after_the_password(org_a, account_a):
     assert again.status_code == 200
     assert user.contour == User.Contour.SUPPLIER
     assert user.organization_id == org_a.id
+    assert list(user.service_organizations.values_list("provider_id", flat=True)) == [account_a.provider_id]
+
+    zhes = client.post("/api/v1/auth/role-choice/", {"ticket": body["ticket"], "role": "test_zhes"}, format="json")
+    assert zhes.status_code == 200
+    user.refresh_from_db()
+    assert user.display_name == "Тест ЖЭС"
+    assert list(user.service_organizations.values_list("short_name", flat=True)) == ["Поставщик"]
+    zhes_me = client.get("/api/v1/auth/me/", HTTP_AUTHORIZATION=f"Bearer {zhes.json()['access']}")
+    assert zhes_me.json()["supplier_name"] == "Поставщик"
 
 
 def test_role_choice_rejects_a_stranger_and_a_bad_ticket(specialist_a):
