@@ -44,7 +44,7 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),
       },
-      { path: 'templates', redirectTo: 'settings/work/messages', pathMatch: 'full' },
+      { path: 'templates', redirectTo: 'settings/work/forms', pathMatch: 'full' },
       { path: 'scenarios', redirectTo: 'settings/work/scenario', pathMatch: 'full' },
       {
         path: 'claims',
@@ -79,10 +79,7 @@ export const routes: Routes = [
                 path: 'scenario',
                 loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
               },
-              {
-                path: 'messages',
-                loadComponent: () => import('./features/templates/templates.component').then((m) => m.TemplatesComponent),
-              },
+              { path: 'messages', redirectTo: '/settings/work/forms' },
               {
                 path: 'forms',
                 loadComponent: () => import('./features/settings/print-forms.component').then((m) => m.PrintFormsComponent),
