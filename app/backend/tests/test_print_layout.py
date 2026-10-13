@@ -1,5 +1,7 @@
 """Макет печатной формы и одна подпись комплекта."""
 
+from pathlib import Path
+
 import pytest
 
 from apps.debts.models import ClaimCase
@@ -14,14 +16,34 @@ from apps.nsi.services.form_layout import recognize_bytes
 from .test_claims_scenarios import _ready
 
 
-def test_scan_pdf_becomes_placeholder_draft():
+def test_text_labels_become_placeholders():
     raw = "Должник: Иванов И.И.\nЛицевой счёт: 00001001\nАдрес: ул. Примерная\n".encode()
-    draft = recognize_bytes("zayavlenie.pdf", b"%PDF-1.4\n" + raw)
+    draft = recognize_bytes("zayavlenie.txt", raw)
     assert draft["recognized"] is True
     body = next(block["text"] for block in draft["blocks"] if block["key"] == "body")
     assert "{fio}" in body
     assert "{account}" in body
     assert "{address}" in body
+
+
+def test_broken_pdf_is_not_dumped_as_text():
+    draft = recognize_bytes("zayavlenie.pdf", b"%PDF-1.4\n5 0 obj\n<< /Length 4 >>stream\nxxxx\nendstream")
+    assert draft["recognized"] is False
+    body = next(block["text"] for block in draft["blocks"] if block["key"] == "body")
+    assert body == ""
+    assert "%PDF" not in body
+
+
+def test_warning_template_pdf_is_readable():
+    found = list(Path(__file__).resolve().parents[3].glob("Шаблоны/**/Предупреждение о задолженности r99116.pdf"))
+    assert found
+    draft = recognize_bytes(found[0].name, found[0].read_bytes())
+    assert draft["recognized"] is True
+    body = next(block["text"] for block in draft["blocks"] if block["key"] == "body")
+    assert "ПРЕДУПРЕЖДЕНИЕ" in body
+    assert "В связи с наличием" in body
+    assert "%PDF" not in body
+    assert "endstream" not in body
 
 
 def test_image_scan_stays_empty_draft():

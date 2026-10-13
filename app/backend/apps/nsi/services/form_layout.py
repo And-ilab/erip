@@ -126,8 +126,7 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
             "blocks": [_block("body", "Текст", "", 12, True)],
             "name": _title(name),
         }
-    text = _pdf_text(raw) if lower.endswith(".pdf") else raw.decode("utf-8", errors="ignore")
-    text = text.replace("\x00", "").strip()
+    text = _pdf_text(raw) if lower.endswith(".pdf") else _plain(raw.decode("utf-8", errors="ignore"))
     if not text:
         return {
             "recognized": False,
@@ -241,9 +240,21 @@ def _pdf_text(raw: bytes) -> str:
         from pypdf import PdfReader
 
         reader = PdfReader(BytesIO(raw))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
+        text = "\n".join((page.extract_text() or "") for page in reader.pages)
     except Exception:
-        return raw.decode("utf-8", errors="ignore")
+        return ""
+    if "%PDF-" in text or "endstream" in text or "endobj" in text:
+        return ""
+    return _plain(text)
+
+
+def _plain(text: str) -> str:
+    lines = []
+    for line in text.replace("\x00", "").replace("\xa0", " ").splitlines():
+        clean = " ".join(line.split())
+        if clean:
+            lines.append(clean)
+    return "\n".join(lines).strip()
 
 
 def _title(name: str) -> str:
