@@ -13,15 +13,22 @@ pytestmark = pytest.mark.django_db
 def test_seed_creates_both_logins_and_resets_the_password():
     call_command("seed_role_testers")
     call_command("seed_role_testers")
-    assert User.objects.filter(username__in=TESTER_USERNAMES).count() == 2
+    assert User.objects.filter(username__in=TESTER_USERNAMES).count() == 4
     user = User.objects.get(username=TESTER_USERNAMES[0])
     user.set_password("Other-Password-1")
     user.save(update_fields=["password"])
+    roman = User.objects.get(username="roman123")
+    roman.set_password("Other-Password-1")
+    roman.save(update_fields=["password"])
     call_command("seed_role_testers")
     user.refresh_from_db()
+    roman.refresh_from_db()
     assert user.check_password(PASSWORD)
     assert user.email == user.username
     assert user.is_superuser is False
+    assert roman.check_password("1234567890")
+    assert roman.email == ""
+    assert User.objects.get(username="andrei123").check_password("1234567890")
 
 
 def test_tester_picks_a_role_after_the_password(org_a, account_a):

@@ -1,4 +1,4 @@
-"""Две учётные записи для проверки ролей. Пароль постоянный, роль выбирается после входа."""
+"""Учётные записи для проверки ролей. Пароль постоянный, роль выбирается после входа."""
 
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
@@ -6,11 +6,14 @@ from django.core.signing import BadSignature, SignatureExpired
 from apps.users.models import User
 from apps.users.role_stub import bind_role, stub_role_choices
 
-TESTER_USERNAMES = (
-    "a.poleshchuk@raschet.by",
-    "a.galdytskaya@raschet.by",
+TESTER_ACCOUNTS = (
+    ("a.poleshchuk@raschet.by", "Raschet-Test-2026"),
+    ("a.galdytskaya@raschet.by", "Raschet-Test-2026"),
+    ("roman123", "1234567890"),
+    ("andrei123", "1234567890"),
 )
-PASSWORD = "Raschet-Test-2026"
+TESTER_USERNAMES = tuple(username for username, _password in TESTER_ACCOUNTS)
+PASSWORD = TESTER_ACCOUNTS[0][1]
 TICKET_SALT = "erip-role-tester"
 TICKET_MAX_AGE = 600
 
@@ -20,19 +23,19 @@ def is_role_tester(username: str) -> bool:
 
 
 def ensure_role_testers() -> int:
-    """Создаёт обе записи и каждый раз возвращает известный пароль."""
+    """Создаёт записи и каждый раз возвращает известный пароль."""
     created = 0
-    for username in TESTER_USERNAMES:
+    for username, password in TESTER_ACCOUNTS:
         user = User.objects.filter(username__iexact=username).first()
         if user is None:
-            user = User(username=username, email=username, role=User.Role.SPECIALIST, contour=User.Contour.BILLING)
+            user = User(username=username, role=User.Role.SPECIALIST, contour=User.Contour.BILLING)
             created += 1
         user.username = username
-        user.email = username
+        user.email = username if "@" in username else ""
         user.is_active = True
         user.is_staff = False
         user.is_superuser = False
-        user.set_password(PASSWORD)
+        user.set_password(password)
         user.save()
     return created
 
