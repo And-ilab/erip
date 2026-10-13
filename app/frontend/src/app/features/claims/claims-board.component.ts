@@ -264,6 +264,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
   styles: `
     :host.case-open { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
     .page.case { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px 16px; }
+    :host.case-open:has(app-claim-checklist.file-open) { flex: 1 0 auto; height: auto; min-height: 100%; overflow: visible; }
+    .page.case:has(app-claim-checklist.file-open) { flex: none; height: auto; min-height: auto; overflow: visible; }
     .filters { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .searchbar { flex: 1; }
     .searchbar input {

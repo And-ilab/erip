@@ -10,8 +10,9 @@
   padding: 20px 16px 28px;
   overflow: auto;
   scrollbar-gutter: stable;
-  max-height: calc(100vh - 200px);
-  min-height: 360px;
+  max-height: var(--sheet-max-height, calc(100vh - 200px));
+  min-height: var(--sheet-min-height, 360px);
+  height: var(--sheet-height, auto);
   border-radius: 2px;
 }
 

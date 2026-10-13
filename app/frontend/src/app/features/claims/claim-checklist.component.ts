@@ -40,6 +40,7 @@ const COURT: Slot[] = [
 
 @Component({
   selector: 'app-claim-checklist',
+  host: { '[class.file-open]': 'editing() || pdfUrl()' },
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule,
@@ -183,6 +184,11 @@ const COURT: Slot[] = [
     .checks li.need { border-color: #c62828; }
     .need { color: #c62828; }
     .sheet { width: 100%; height: min(420px, 46vh); border: 0; border-radius: 6px; background: #f4f6f8; }
+    :host.file-open { flex: none; min-height: auto; --sheet-max-height: none; --sheet-min-height: 520px; --sheet-height: min(780px, 70vh); }
+    :host.file-open .split { flex: none; min-height: auto; align-items: start; }
+    :host.file-open .viewer { overflow: visible; min-height: auto; }
+    :host.file-open .checks { overflow: visible; }
+    :host.file-open .sheet { height: min(780px, 70vh); min-height: 520px; }
     .row {
       display: grid; grid-template-columns: 16px minmax(0, 1fr) 2.75rem; align-items: center; column-gap: 8px;
       width: 100%; min-width: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; padding: 2px 0;

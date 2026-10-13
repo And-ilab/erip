@@ -309,6 +309,11 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   styles: `
     :host { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
     .case { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+    :host:has(app-claim-checklist.file-open),
+    .case:has(app-claim-checklist.file-open),
+    .work:has(app-claim-checklist.file-open) { flex: none; height: auto; min-height: auto; }
+    .work:has(app-claim-checklist.file-open) { align-items: start; }
+    .pane:has(app-claim-checklist.file-open) { overflow: visible; height: auto; min-height: auto; }
     header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
     h2, h3 { margin: 0; color: var(--erip-primary-dark); }
     h2 { font-size: 20px; }
