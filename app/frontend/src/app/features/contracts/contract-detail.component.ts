@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,6 +11,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
+import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail,
   AccountService,
@@ -26,7 +28,7 @@ import {
   selector: 'app-contract-detail',
   standalone: true,
   imports: [
-    DatePipe, DecimalPipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule,
+    DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatCheckboxModule, MatSnackBarModule,
   ],
   template: `
@@ -42,15 +44,15 @@ import {
             <h3>{{ personTitle() }}</h3>
             <dl>
               @if (mainPerson()?.subj_legal_entity) {
-                <dt>УНП</dt><dd>{{ c.payer_unp || mainPerson()?.personal_num }}</dd>
-                <dt>Юридический адрес</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
+                <dt>Учетный номер плательщика</dt><dd>{{ c.payer_unp || mainPerson()?.personal_num }}</dd>
+                <dt>Адрес местожительства</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
                 <dt>Статус</dt><dd>{{ legalLabel() }}</dd>
               } @else {
-                <dt>ФИО</dt><dd>{{ mainPerson()?.full_name || c.payer }}</dd>
+                <dt>ФИО плательщика</dt><dd>{{ mainPerson()?.full_name || c.payer }}</dd>
                 <dt>Дата рождения</dt><dd>{{ mainPerson()?.birthday | date: 'dd.MM.yyyy' }}</dd>
-                <dt>Адрес регистрации</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
-                <dt>Место работы</dt><dd>{{ mainPerson()?.work_place_name || '—' }}</dd>
-                <dt>ИН</dt><dd>{{ c.payer_identifier }}</dd>
+                <dt>Адрес местожительства</dt><dd>{{ mainPerson()?.registration_address || c.address }}</dd>
+                <dt>Наименование предприятия</dt><dd>{{ mainPerson()?.work_place_name || '—' }}</dd>
+                <dt>Идентификационный номер паспорта</dt><dd>{{ c.payer_identifier }}</dd>
               }
               <dt>Категория</dt><dd>{{ c.category_name || '—' }}</dd>
               <dt>Рейтинг</dt><dd>{{ c.rating_label || '—' }}</dd>
@@ -58,13 +60,15 @@ import {
           </mat-card-content></mat-card>
           <mat-card><mat-card-content>
             <dl>
-              <dt>Договор</dt><dd>{{ c.service_list_id }} с {{ c.start_date | date: 'dd.MM.yyyy' }}</dd>
-              <dt>Услуга</dt><dd>{{ c.service_name }}</dd>
-              <dt>Поставщик</dt><dd>{{ c.full_name || c.shot_name }}</dd>
-              <dt>Первоначальный долг</dt><dd>{{ c.initial_principal | number: '1.2-2' }}</dd>
-              <dt>Первоначальная пеня</dt><dd>{{ c.initial_penalty | number: '1.2-2' }}</dd>
-              <dt>Остаток долга</dt><dd><b>{{ c.balance_out | number: '1.2-2' }}</b></dd>
-              <dt>Остаток пени</dt><dd>{{ c.balance_mulct_out | number: '1.2-2' }}</dd>
+              <dt>Код договора на услугу (ID Договора)</dt><dd>{{ c.service_list_id }} с {{ c.start_date | date: 'dd.MM.yyyy' }}</dd>
+              <dt>Наименование услуги</dt><dd>{{ c.service_name }}</dd>
+              @if (auth.showSupplier()) {
+                <dt>Полное наименование поставщика</dt><dd>{{ c.full_name || c.shot_name }}</dd>
+              }
+              <dt>Первоначальный долг <app-byn-sign /></dt><dd><app-money [value]="c.initial_principal" [blank]="false" /></dd>
+              <dt>Первоначальная пеня <app-byn-sign /></dt><dd><app-money [value]="c.initial_penalty" [blank]="false" /></dd>
+              <dt>Исходящее сальдо с пенями <app-byn-sign /></dt><dd><b><app-money [value]="c.balance_out" [blank]="false" /></b></dd>
+              <dt>Исходящее сальдо пени <app-byn-sign /></dt><dd><app-money [value]="c.balance_mulct_out" [blank]="false" /></dd>
               <dt>Возникновение</dt><dd>{{ c.debt_started_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Срок погашения</dt><dd>{{ c.repayment_due_on | date: 'dd.MM.yyyy' }}</dd>
               <dt>Последняя оплата</dt><dd>{{ c.last_payment_date | date: 'dd.MM.yyyy' }}</dd>
@@ -74,27 +78,36 @@ import {
           </mat-card-content></mat-card>
         </div>
 
-        <h3>Услуги этого поставщика</h3>
-        @for (service of services(); track service.id) {
-          <p>
-            <a [routerLink]="['/contracts', service.id]">{{ service.service_name }}</a>
-            · ЛС {{ service.account_number }}
-            · долг {{ service.balance_out | number: '1.2-2' }}
-            · пеня {{ service.balance_mulct_out | number: '1.2-2' }}
-            · группа {{ service.effective_group }}
-          </p>
+        <h3>{{ auth.showSupplier() ? 'Услуги этого поставщика' : 'Услуги должника' }}</h3>
+        @if (services().length) {
+          <div class="list-pane lines">
+            @for (service of services(); track service.id) {
+              <p>
+                <a [routerLink]="['/contracts', service.id]">{{ service.service_name }}</a>
+                · ЛС {{ service.account_number }}
+                · долг <app-money [value]="service.balance_out" [blank]="false" />
+                · пеня <app-money [value]="service.balance_mulct_out" [blank]="false" />
+                · группа {{ service.effective_group }}
+              </p>
+            }
+          </div>
         }
 
         <h3>Остатки по периодам</h3>
-        @for (period of periods(); track period.service_id + period.period) {
-          <p>
-            {{ period.service_name }} · {{ period.period }}
-            · долг {{ period.principal | number: '1.2-2' }}
-            · пеня {{ period.penalty | number: '1.2-2' }}
-            · срок {{ period.due_on }}
-          </p>
+        @if (periods().length) {
+          <div class="list-pane lines">
+            @for (period of periods(); track period.service_id + period.period) {
+              <p>
+                {{ period.service_name }} · {{ period.period }}
+                · долг <app-money [value]="period.principal" [blank]="false" />
+                · пеня <app-money [value]="period.penalty" [blank]="false" />
+                · срок {{ period.due_on }}
+              </p>
+            }
+          </div>
         }
 
+        @if (canEditGroup()) {
         <h3>Ручная группа этого договора</h3>
         <div class="filters">
           <mat-form-field>
@@ -107,8 +120,11 @@ import {
           <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="reason" /></mat-form-field>
           <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
         </div>
+        }
 
         <h3>Зарегистрированные лица</h3>
+        @if (people().length) {
+        <div class="list-pane lines">
         @for (person of people(); track person.id) {
           <p>
             {{ person.full_name }}
@@ -122,6 +138,7 @@ import {
             · {{ person.idler_val ? 'не занят в экономике' : '' }}
             · наследство {{ person.legacy_start_date || '—' }} / принятие {{ person.subj_heritage_date || '—' }}
           </p>
+          @if (auth.canWrite()) {
           <div class="filters">
             <mat-form-field><mat-label>Социальная категория</mat-label><input matInput [(ngModel)]="person.social_category" /></mat-form-field>
             <mat-checkbox [(ngModel)]="person.unfit_for_work">Нетрудоспособен</mat-checkbox>
@@ -136,18 +153,25 @@ import {
             </mat-form-field>
             <button mat-stroked-button (click)="savePerson(person)">Сохранить лицо</button>
           </div>
+          }
+        }
+        </div>
         }
 
         <h3>Контакты</h3>
+        @if (auth.canWrite()) {
         <div class="filters">
           <mat-form-field>
-            <mat-label>Источник обзвона</mat-label>
-            <mat-select [(ngModel)]="contactMode" (selectionChange)="saveProfile()">
-              <mat-option value="pm">Только ПМ</mat-option>
-              <mat-option value="ais">Только АИС</mat-option>
-              <mat-option value="combined">Комбинированный</mat-option>
+            <mat-label>Режим автообзвона</mat-label>
+            <mat-select [(ngModel)]="contactMode" (selectionChange)="saveMode()">
+              <mat-option value="pm">Только контакты ПМ</mat-option>
+              <mat-option value="ais">Только контакты АИС «Расчет-ЖКУ»</mat-option>
+              <mat-option value="combined">ПМ и АИС</mat-option>
             </mat-select>
           </mat-form-field>
+        </div>
+        <p class="muted">Приоритет ставит режим: выбранный источник получает 1, другой — 0. Телефон и e-mail добавляются отдельно, без источника и без приоритета.</p>
+        <div class="filters">
           <mat-form-field>
             <mat-label>Лицо</mat-label>
             <mat-select [(ngModel)]="contactPersonId">
@@ -156,31 +180,35 @@ import {
             </mat-select>
           </mat-form-field>
           <mat-form-field><mat-label>Телефон или e-mail</mat-label><input matInput [(ngModel)]="contactValue" /></mat-form-field>
-          <mat-form-field><mat-label>Приоритет</mat-label><input matInput type="number" [(ngModel)]="contactPriority" /></mat-form-field>
           <mat-form-field>
             <mat-label>Тип</mat-label>
             <mat-select [(ngModel)]="contactKind">
               <mat-option value="mobile">Мобильный</mat-option>
               <mat-option value="city">Городской</mat-option>
               <mat-option value="email">E-mail</mat-option>
-              <mat-option value="messenger">Мессенджер</mat-option>
             </mat-select>
           </mat-form-field>
-          <button mat-stroked-button (click)="addContact()">Добавить</button>
+          <button mat-stroked-button (click)="addContact()">Добавить контакт</button>
         </div>
+        }
+        @if (contacts().length) {
+        <div class="list-pane lines">
         @for (contact of contacts(); track contact.id) {
           <p>
-            {{ contact.person_name || 'счёт' }} · {{ contact.kind }} · {{ contact.value }} · приоритет {{ contact.priority }}
-            · {{ contact.source === 'ais' ? 'АИС «Расчет-ЖКУ»' : 'внесено в ПМ' }}
-            {{ contact.ais_updated_at | date: 'dd.MM.yyyy' }}
-            @if (contact.source === 'pm') {
+            {{ contact.person_name || 'счёт' }} · {{ contactKindLabel(contact.kind) }} · {{ contact.value }} · приоритет {{ contact.priority }}
+            · {{ contactSourceLabel(contact.source) }}
+            @if (contact.source === 'ais' && contact.ais_updated_at) { {{ contact.ais_updated_at | date: 'dd.MM.yyyy' }} }
+            @if (auth.canWrite() && contact.source === 'pm') {
               <button mat-button (click)="editContact(contact)">Изменить</button>
               <button mat-button (click)="removeContact(contact)">Удалить</button>
             }
           </p>
         }
+        </div>
+        }
 
         <h3>Категория, проживание, наследство</h3>
+        @if (auth.canWrite()) {
         <div class="filters">
           <mat-form-field>
             <mat-label>Категория</mat-label>
@@ -205,26 +233,56 @@ import {
           <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
           <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
         </div>
+        }
+        @if (!auth.canWrite()) {
+          <p>{{ c.category_name || 'Категория не задана' }}@if (c.inheritance_case) { · наследственное дело }</p>
+        }
 
         <h3>Мероприятия по услугам поставщика</h3>
         <p><a routerLink="/measures">Реестр мероприятий</a></p>
-        @for (measure of measures(); track measure.id) {
-          <p>
-            {{ measure.kind_display }} · {{ measure.status_display }} · срок {{ measure.due_on || '—' }}
-            @if (measure.kind === 'disconnect') {
-              <button mat-button (click)="confirm(measure, 'suspend', 'pm')">Факт приостановления, ПМ</button>
-              <button mat-button (click)="confirm(measure, 'suspend', 'ais')">По данным АИС</button>
-              <button mat-button (click)="confirm(measure, 'resume', 'pm')">Возобновление, ПМ</button>
-              <button mat-button (click)="confirm(measure, 'resume', 'ais')">Возобновление по АИС</button>
-            }
-            @if (measure.suspension_confirmed_on) { · приостановлено {{ measure.suspension_confirmed_on }} ({{ measure.suspension_source }}) }
-            @if (measure.resumed_on) { · возобновлено {{ measure.resumed_on }} ({{ measure.resume_source }}) }
-          </p>
+        @if (measures().length) {
+        <div class="list-pane">
+          <table>
+            <thead>
+              <tr>
+                <th>Мероприятие</th>
+                <th>Следующее действие</th>
+                <th>Статус</th>
+                <th>Срок</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (measure of measures(); track measure.id) {
+                <tr>
+                  <td><a [routerLink]="['/measures', measure.id]">{{ measure.title || measure.kind_display }}</a></td>
+                  <td><span class="action-dot {{ measure.status }}"></span>{{ measure.next_action || '—' }}</td>
+                  <td><span class="status-pill {{ measure.status }}">{{ measure.status === 'failed' ? 'Ошибка' : measure.status_display }}</span></td>
+                  <td>{{ measure.due_on || '—' }}</td>
+                  <td>
+                    @if (measure.kind === 'disconnect' && canConfirmSuspension()) {
+                      <button mat-button (click)="confirm(measure, 'suspend', 'pm')">Факт приостановления, ПМ</button>
+                      <button mat-button (click)="confirm(measure, 'suspend', 'ais')">По данным АИС</button>
+                      <button mat-button (click)="confirm(measure, 'resume', 'pm')">Возобновление, ПМ</button>
+                      <button mat-button (click)="confirm(measure, 'resume', 'ais')">Возобновление по АИС</button>
+                    }
+                    @if (measure.suspension_confirmed_on) { <div class="muted">приостановлено {{ measure.suspension_confirmed_on }} ({{ measure.suspension_source }})</div> }
+                    @if (measure.resumed_on) { <div class="muted">возобновлено {{ measure.resumed_on }} ({{ measure.resume_source }})</div> }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
         }
 
         <h3>История изменений</h3>
+        @if (journal().length) {
+        <div class="list-pane lines">
         @for (row of journal(); track row.id) {
           <p>{{ row.created_at | date: 'dd.MM.yyyy HH:mm' }} · {{ row.author_name || 'система' }} · {{ row.kind }} · {{ row.old_value }} → {{ row.new_value }} · {{ row.reason }}</p>
+        }
+        </div>
         }
       }
     </div>
@@ -238,6 +296,7 @@ import {
 })
 export class ContractDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
+  protected readonly auth = inject(AuthService);
   private readonly snack = inject(MatSnackBar);
   readonly id = input.required<string>();
   protected readonly contract = signal<AccountService | null>(null);
@@ -254,7 +313,6 @@ export class ContractDetailComponent implements OnInit {
   protected reason = '';
   protected contactMode = 'combined';
   protected contactValue = '';
-  protected contactPriority = 1;
   protected contactKind = 'mobile';
   protected categoryId: number | null = null;
   protected residence = '';
@@ -267,6 +325,14 @@ export class ContractDetailComponent implements OnInit {
   ngOnInit(): void {
     this.load();
     this.api.categories().subscribe((page) => this.categories.set(page.results));
+  }
+
+  protected canEditGroup(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected canConfirmSuspension(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour === 'supplier';
   }
 
   personTitle(): string {
@@ -310,12 +376,21 @@ export class ContractDetailComponent implements OnInit {
     });
   }
 
+  contactKindLabel(kind: string): string {
+    const labels: Record<string, string> = { mobile: 'Мобильный', city: 'Городской', email: 'E-mail' };
+    return labels[kind] || kind;
+  }
+
+  contactSourceLabel(source: string): string {
+    return source === 'ais' ? 'АИС «Расчет-ЖКУ»' : 'ПМ';
+  }
+
   addContact(): void {
     const account = this.account();
     if (!account || !this.contactValue.trim()) return;
     this.api.saveContact({
       account: account.id, registration: this.contactPersonId, kind: this.contactKind,
-      value: this.contactValue.trim(), priority: this.contactPriority,
+      value: this.contactValue.trim(),
     }).subscribe({
       next: () => {
         this.contactValue = '';
@@ -331,8 +406,11 @@ export class ContractDetailComponent implements OnInit {
       this.snack.open('Введите новое значение в поле контакта', 'OK');
       return;
     }
-    this.api.saveContact({ id: contact.id, kind: this.contactKind, value, priority: this.contactPriority }).subscribe({
-      next: () => this.load(),
+    this.api.saveContact({ id: contact.id, kind: contact.kind, value }).subscribe({
+      next: () => {
+        this.contactValue = '';
+        this.load();
+      },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
@@ -340,6 +418,18 @@ export class ContractDetailComponent implements OnInit {
   removeContact(contact: ContactRow): void {
     this.api.deleteContact(contact.id).subscribe({
       next: () => this.load(),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  saveMode(): void {
+    const account = this.account();
+    if (!account || (account.contact_source_mode || 'combined') === this.contactMode) return;
+    this.api.updateAccount(account.id, { contact_source_mode: this.contactMode }).subscribe({
+      next: (updated) => {
+        this.account.set(updated);
+        this.api.accountContacts(updated.id).subscribe((page) => this.contacts.set(page.results));
+      },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }

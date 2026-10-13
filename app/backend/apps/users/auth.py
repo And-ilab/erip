@@ -5,6 +5,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
@@ -54,12 +55,30 @@ class CookieTokenObtainPairView(TokenObtainPairView):
     throttle_scope = "login"
 
     def post(self, request, *args, **kwargs):
+        data = request.data if isinstance(request.data, dict) else {}
+        username = str(data.get("username") or "")
+        from apps.users.role_testers import is_role_tester
+
+        if is_role_tester(username):
+            return self._tester_gate(username.strip(), str(data.get("password") or ""))
         response = super().post(request, *args, **kwargs)
         refresh = response.data.get("refresh")
         if refresh:
             _set_refresh_cookie(response, refresh)
             response.data.pop("refresh")
         return response
+
+    def _tester_gate(self, username: str, password: str) -> Response:
+        from apps.users.models import User
+        from apps.users.role_testers import issue_ticket, role_choices
+
+        user = User.objects.filter(username__iexact=username, is_active=True).first()
+        if user is None or not user.check_password(password):
+            return Response(
+                error_body("invalid_credentials", "Неверный логин или пароль"),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return Response({"choose_role": True, "roles": role_choices(), "ticket": issue_ticket(user)})
 
 
 class CookieTokenRefreshView(APIView):
@@ -115,6 +134,10 @@ class PasswordChangeView(APIView):
             raise ValidationError({"new_password": list(exc.messages)}) from exc
         request.user.set_password(new_password)
         request.user.save(update_fields=["password"])
+        from apps.audit.models import AuditLog
+        from apps.audit.services import record_action
+
+        record_action(request, AuditLog.Action.UPDATE, request.user, after={"password": "changed"})
         refresh = request.COOKIES.get(settings.AUTH_COOKIE_NAME, "")
         if refresh:
             try:
@@ -124,4 +147,59 @@ class PasswordChangeView(APIView):
         revoke_all_refresh_tokens(request.user)
         response = Response(status=status.HTTP_204_NO_CONTENT)
         response.delete_cookie(settings.AUTH_COOKIE_NAME, path="/api/v1/auth/")
+        return response
+
+
+class RoleChoiceView(APIView):
+    """После пароля тестовой учётной записи выдаёт сессию уже в выбранной роли."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
+    def post(self, request):
+        from apps.users.role_testers import apply_tester_role, user_from_ticket
+
+        data = request.data if isinstance(request.data, dict) else {}
+        try:
+            user = user_from_ticket(str(data.get("ticket") or ""))
+            user = apply_tester_role(user, str(data.get("role") or ""))
+        except KeyError:
+            raise ValidationError({"role": "Неизвестная роль"}) from None
+        except ValueError as exc:
+            message = "Время выбора роли истекло, войдите снова" if str(exc) == "expired" else "Подтверждение входа недействительно"
+            raise ValidationError({"ticket": message}) from None
+        refresh = RefreshToken.for_user(user)
+        response = Response({"access": str(refresh.access_token)})
+        _set_refresh_cookie(response, str(refresh))
+        return response
+
+
+class StubRoleLoginView(APIView):
+    """Вход выбранной ролью без логина и пароля. В проде (DEBUG=False) маршрут отвечает 404."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        if not settings.DEBUG:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        from apps.users.role_stub import stub_role_choices
+
+        return Response(stub_role_choices())
+
+    def post(self, request):
+        if not settings.DEBUG:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        from apps.users.role_stub import issue_stub_user
+
+        code = (request.data.get("role") if isinstance(request.data, dict) else None) or ""
+        try:
+            user = issue_stub_user(code)
+        except KeyError:
+            raise ValidationError({"role": "Неизвестная роль"}) from None
+        refresh = RefreshToken.for_user(user)
+        response = Response({"access": str(refresh.access_token)})
+        _set_refresh_cookie(response, str(refresh))
         return response

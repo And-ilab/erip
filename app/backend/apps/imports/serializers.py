@@ -29,8 +29,8 @@ class ImportUploadSerializer(serializers.Serializer):
     def validate_file(self, file):
         if file.size > MAX_UPLOAD_MB * 1024 * 1024:
             raise serializers.ValidationError(f"Файл больше {MAX_UPLOAD_MB} МБ")
-        if not file.name.lower().endswith((".csv", ".txt")):
-            raise serializers.ValidationError("Ожидается файл CSV")
+        if not file.name.lower().endswith((".csv", ".txt", ".xlsx", ".xlsm", ".xls")):
+            raise serializers.ValidationError("Ожидается файл CSV или Excel (.xlsx, .xlsm, .xls)")
         return file
 
     def validate(self, attrs):

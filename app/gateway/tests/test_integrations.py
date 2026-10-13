@@ -9,7 +9,7 @@ from app.core.config import Settings
 from app.integrations.bnp.client import BnpValidationError, StubBnpClient, check_files
 from app.integrations.bnp.schemas import BnpManifest
 from app.integrations.pris.client import HttpPrisClient, InMemoryTokenCache, PrisError, StubPrisClient
-from app.integrations.pris.schemas import ByProcNumRequest, SaveDataDebtRequest, SaveRepayRequest
+from app.integrations.pris.schemas import ByNumDebtRequest, ByProcNumRequest, SaveDataDebtRequest, SaveRepayRequest
 
 MANIFEST = {
     "version": 1,
@@ -59,6 +59,7 @@ def test_bnp_validate_rejects_long_personal_id(client):
     ({"debts__typeId": "bank"}, "недопустимы"),
     ({"serviceId": 999}, "serviceId"),
     ({"docs__fileName": "scan.jpg"}, ".pdf"),
+    ({"docs__signatureName": "zayavlenie.sig"}, ".pdf.sgn"),
     ({"docs__docType": "photo"}, "тип документа"),
     ({"notificationE-mail": "not-an-email"}, "e-mail"),
     ({"debtors__middleName": None}, "middleName"),
@@ -95,25 +96,39 @@ def test_bnp_dictionaries_endpoint(client):
 def test_pris_echo_and_claimant_info(client):
     assert "заглушка ПРИС" in client.get("/gw/v1/integrations/pris/echo").json()["data"]["result"]
     info = client.post("/gw/v1/integrations/pris/claimant-info", json={"p_proc_num": "60118000051"}).json()["data"]
-    assert info[0]["p_ispdoc"][0]["proc_num"] == "60118000051"
+    assert info["mode"] == "stub"
+    assert info["items"][0]["p_ispdoc"][0]["proc_num"] == "60118000051"
 
+
+_ADDRESS = {
+    "full_adr": "220030, г. Минск, ул. Интернациональная, 36",
+    "country": "112", "region": "Минская", "area": "Минский", "np_type": "1", "np": "Минск",
+    "street_type": "", "street": "Интернациональная", "house": "36", "corp": "", "flat": "", "post_index": "220030",
+}
 
 SAVE_DATA = {"package": [{
     "identif": {"p_cl_num": "00020600034", "p_opi": "601", "p_solidar_num": ""},
-    "debtor": {"p_d_country": "112", "p_d_surname": "Малачетыре", "p_d_first_name": "Четверик",
-               "p_d_father_name": "Итестычтэры", "p_d_idf_num": "3070786A070PB0",
-               "p_d_phones": [{"Phone": ""}], "p_r_req_init": "205",
-               "p_arr_sum": [{"p_price": "211.24", "p_curr_code": "933", "p_rest_sum": "211.24"}]},
-    "claimant": {"p_c_firm_name": "Унитарное предприятие", "p_c_reg_num": "101528843", "p_b_unp": "101528843"},
+    "debtor": {
+        "p_d_country": "112", "p_d_surname": "Малачетыре", "p_d_first_name": "Четверик",
+        "p_d_father_name": "Итестычтэры", "p_d_date_reg": "11.04.1984", "p_d_idf_num": "3070786A070PB0",
+        "p_d_adr_reg": _ADDRESS, "p_d_phones": [{"Phone": ""}], "p_r_req_init": "205",
+        "p_arr_sum": [{"p_price": "211.24", "p_curr_code": "933", "p_rest_sum": "211.24"}],
+    },
+    "claimant": {
+        "p_c_firm_name": "Унитарное предприятие", "p_c_opf": "1300", "p_c_reg_num": "101528843",
+        "p_c_firm_adr": _ADDRESS, "p_b_unp": "101528843", "p_b_bank_code": "PJCBBY2X",
+        "p_b_acc_num": "BY05PJCB30120002411000000933", "p_b_curr_code": "933", "p_b_acc_type": "4",
+    },
     "documents": [{"p_doc_code": "15", "p_doc_date": "09.12.2025", "p_doc_num": "124-2025", "p_doc_org_code": "6",
                    "p_doc_org": "нотариус", "p_doc_date_in": "09.12.2025",
-                   "p_files": [{"file_body": "JVBERi0=", "file_ecp": "MII="}]}],
+                   "p_files": [{"file_body": "JVBERi0x", "file_ecp": "MIIH2CbF"}]}],
 }]}
 
 
 def test_pris_save_data_validation(client):
     ok = client.post("/gw/v1/integrations/pris/save-data-debt/validate", json=SAVE_DATA)
     assert ok.json()["data"]["code"] == "1"
+    assert ok.json()["data"]["data"][0]["processStatus"] == 1000
     broken = copy.deepcopy(SAVE_DATA)
     broken["package"][0]["debtor"]["p_d_surname"] = ""
     assert client.post("/gw/v1/integrations/pris/save-data-debt/validate", json=broken).status_code == 422
@@ -161,6 +176,54 @@ async def test_http_pris_client_headers_and_errors():
         with pytest.raises(PrisError, match="Ошибка бизнес-логики"):
             await client.put_save_data_debt(SaveDataDebtRequest.model_validate(SAVE_DATA))
     assert sum(1 for c in calls if c.url.path == "/core/auth/authorizate") == 1
+
+
+def test_pris_query_omits_empty_proc_num():
+    body = ByNumDebtRequest(p_cl_num="12548634", p_proc_num="", p_date_from="").pris_body()
+    assert body == {"p_cl_num": "12548634"}
+    with pytest.raises(ValueError):
+        ByNumDebtRequest().pris_body()
+
+
+def test_pris_process_status_rejects_business_code():
+    from app.integrations.pris.schemas import Envelope
+
+    refused = Envelope(code="1", data=[{"responseId": "x", "processStatus": 1013, "processMessage": "Отсутствуют элементы"}])
+    assert "1013" in refused.put_rejection()
+    accepted = Envelope(code="1", data=[{"responseId": "x", "processStatus": 1000, "processMessage": "Данные получены успешно!"}])
+    assert accepted.put_rejection() == ""
+
+
+def test_pris_wofe_requires_filename():
+    from app.integrations.pris.schemas import SaveDataDebtWofeRequest
+
+    payload = copy.deepcopy(SAVE_DATA)
+    payload["package"][0]["documents"][0]["p_files"] = [{"file_body": "MIIH2CbFa3", "file_ecp": "writ.pdf"}]
+    assert SaveDataDebtWofeRequest.model_validate(payload).package[0].documents[0].p_files[0].file_ecp == "writ.pdf"
+    payload["package"][0]["documents"][0]["p_files"] = [{"file_body": "MIIH2CbFa3", "file_ecp": "MIIH2CbFa3signature"}]
+    with pytest.raises(ValueError):
+        SaveDataDebtWofeRequest.model_validate(payload)
+
+
+async def test_http_pris_logout_before_reauthorize():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path == "/core/auth/authorizate":
+            return httpx.Response(200, json={"x-token": f"T{len(calls)}", "x-timestamp": "04.12.2020 15:25:52"})
+        if request.url.path == "/core/auth/logout":
+            return httpx.Response(200, json={"Response": "Всего доброго!"})
+        if request.url.path.endswith("GetClaimantInfoByProcNum") and request.headers.get("x-token") == "T1":
+            return httpx.Response(401, json={"message": "истёк"})
+        return httpx.Response(200, json={"code": "1", "data": [], "message": "", "tag": ""})
+
+    settings = Settings(pris_base_url="http://pris.test", pris_user_id="u1", pris_access_key="key")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = HttpPrisClient(settings, http)
+        await client.get_by_proc_num(ByProcNumRequest(p_proc_num="60118000051"))
+    assert calls.count("/core/auth/logout") == 1
+    assert calls.count("/core/auth/authorizate") == 2
 
 
 async def test_http_pris_authorize_rejected():

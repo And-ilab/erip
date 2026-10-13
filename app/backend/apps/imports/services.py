@@ -1,7 +1,7 @@
 """Импорт выгрузок АИС «Расчет-ЖКУ»: идемпотентный upsert с журналом ImportJob.
 
-Повторная загрузка того же файла не создаёт дублей: записи ищутся по ключу
-(схема + ключ из field_maps), неизменённые строки не перезаписываются.
+Повторная загрузка того же ключа не создаёт дубль. Если в строке изменилось
+поле, запись обновляется. Совпавшая строка остаётся как была.
 """
 
 from __future__ import annotations
@@ -18,7 +18,15 @@ from apps.users.models import Organization, ServiceOrganization
 
 from .field_maps import ACCOUNT_LOOKUP, ENTITY_MAPS, EntityMap
 from .models import ImportJob
-from .parsing import ConversionError, bind_columns, convert, decode, detect_encoding_path, read_header, read_rows
+from .parsing import (
+    EXCEL_SUFFIXES,
+    ConversionError,
+    bind_columns,
+    convert,
+    detect_encoding_path,
+    open_table,
+    read_header,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +54,15 @@ class AisImporter:
         job = self._new_job(file_name, hashlib.sha256(content).hexdigest())
 
         def work() -> None:
-            text, encoding = decode(content)
-            headers, rows = read_rows(text)
+            encoding, headers, rows = open_table(content)
             self._consume(job, encoding, headers, rows)
 
         return self._finish(job, work)
 
     def run_path(self, path: Path) -> ImportJob:
-        """Потоковое чтение файла: для полной выгрузки АИС, которую нельзя держать в памяти HTTP-запроса."""
+        """Потоковое чтение CSV. Книга Excel читается целиком: это архив, а не поток строк."""
+        if path.suffix.lower() in EXCEL_SUFFIXES:
+            return self.run(path.read_bytes(), path.name)
         job = self._new_job(path.name, self._checksum(path))
 
         def work() -> None:
@@ -152,13 +161,22 @@ class AisImporter:
             return
         if self.map.parent:
             self._warm_accounts({values.get(ACCOUNT_LOOKUP) for _, values in pending})
-        ready: list[tuple[dict, dict]] = []
+        ready_by_key: dict[tuple, tuple[dict, dict]] = {}
+        order: list[tuple] = []
         for line_no, values in pending:
             try:
-                ready.append(self._lookup(values))
+                item = self._lookup(values)
             except (RowRejected, ConversionError) as exc:
                 self._reject(job, line_no, str(exc))
-        self._write(ready, job, touched)
+                continue
+            key = self._lookup_key(item[0])
+            if key in ready_by_key:
+                # Повтор ключа в том же пакете: в базу попадает последняя строка.
+                job.unchanged += 1
+            else:
+                order.append(key)
+            ready_by_key[key] = item
+        self._write([ready_by_key[key] for key in order], job, touched)
 
     def _lookup(self, values: dict) -> tuple[dict, dict]:
         values = dict(values)
@@ -271,14 +289,20 @@ class AisImporter:
             accounts = Account.objects.filter(pk__in=pks[start:start + WRITE_BATCH])
             if self.map.entity == "account":
                 self._sync_service_organizations(accounts)
+                from apps.debts.services.territory import TerritoryIndex
+
+                TerritoryIndex().assign_queryset(accounts)
             if self.map.entity == "service":
                 from apps.debts.services.portfolio import sync_supplier_organizations
 
                 sync_supplier_organizations(accounts)
             if self.map.entity in {"account", "service", "registration", "payment"}:
+                from apps.debts.services.claim_measures import backfill_visible_measures
                 from apps.debts.services.portfolio import PortfolioRefresher
 
-                PortfolioRefresher().refresh(list(accounts.values_list("pk", flat=True)))
+                ids = list(accounts.values_list("pk", flat=True))
+                PortfolioRefresher().refresh(ids)
+                backfill_visible_measures(Account.objects.filter(pk__in=ids))
 
     def _sync_service_organizations(self, accounts) -> None:
         """Справочник обслуживающих организаций пополняется из выгрузки (ТЗ 4.2.8.6)."""

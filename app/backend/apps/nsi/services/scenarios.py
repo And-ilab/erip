@@ -1,0 +1,503 @@
+"""Конструктор сценариев и печатных форм (ТЗ 4.2.5). Мессенджер в шаге не отправляет сообщения."""
+
+import copy
+import uuid
+
+from django.core.files.base import ContentFile
+
+from apps.core.exceptions import ServiceError
+from apps.debts.models import AccountScenarioRun, DebtWorkItem, ScenarioPause
+from apps.debts.services.artifacts import _pdf_bytes
+from apps.nsi.models import (
+    PrintedDocument,
+    PrintForm,
+    PrintFormRevision,
+    ScenarioDefinition,
+    ScenarioRevision,
+)
+from apps.nsi.services.timelines import warning_wait_for
+from apps.nsi.services.writ_checklist import ChecklistInvalid, default_checklist, normalize_checklist
+
+ACTIONS = {
+    "call", "sms", "email", "messenger", "warning", "disconnect", "writ", "lawsuit", "manual_call",
+}
+# Частоты читает прогон обзвона. Группа 3 реже групп 1–2, группы 4–6 — один раз.
+CALL_REPEAT = {
+    "1": {"every_days": 1},
+    "2": {"every_days": 1},
+    "3": {"every_days": 3},
+    "4": {"once": True},
+    "5": {"once": True},
+    "6": {"once": True},
+}
+EXCLUSIVE = {"call", "disconnect", "writ"}
+VARIABLES = ("fio", "account", "amount", "address", "services", "last_payment", "organization", "due_days", "tariff")
+
+
+class ScenarioInvalid(ServiceError):
+    default_detail = "Сценарий не сохранён"
+    default_code = "scenario_invalid"
+
+
+def check_steps(steps: list[dict]) -> list[str]:
+    if not isinstance(steps, list) or not steps:
+        raise ScenarioInvalid("В сценарии нет шагов")
+    orders = []
+    warnings = []
+    for step in steps:
+        action = step.get("action")
+        if action not in ACTIONS:
+            raise ScenarioInvalid(f"Неизвестное действие: {action}")
+        order = step.get("order")
+        if not isinstance(order, int) or order < 1:
+            raise ScenarioInvalid("У шага должен быть порядковый номер")
+        orders.append(order)
+        if action == "messenger":
+            warnings.append("Шаг «мессенджер» сохранён. Отправка в мессенджеры на этом этапе не выполняется.")
+        groups = step.get("groups") or []
+        if groups and (
+            not isinstance(groups, list) or any(not isinstance(item, int) or item < 1 or item > 6 for item in groups)
+        ):
+            raise ScenarioInvalid("Группы шага — числа от 1 до 6")
+        party = step.get("party") or "any"
+        if party not in {"any", "person", "legal"}:
+            raise ScenarioInvalid("Лицо шага: любое, физическое или юридическое")
+        org_kind = step.get("org_kind") or "any"
+        if org_kind not in {"any", "billing", "supplier"}:
+            raise ScenarioInvalid("Тип организации: любая, начисляющая или поставщик")
+        if action == "writ":
+            try:
+                step["checklist"] = normalize_checklist(step.get("checklist"))
+            except ChecklistInvalid as exc:
+                raise ScenarioInvalid(str(exc.detail)) from exc
+        else:
+            step.pop("checklist", None)
+        if action == "call" and step.get("repeat") is not None:
+            _check_repeat(step.get("repeat"))
+    by_order: dict[int, list[str]] = {}
+    for step in steps:
+        by_order.setdefault(step["order"], []).append(step["action"])
+    for order, actions in by_order.items():
+        clash = [item for item in actions if item in EXCLUSIVE]
+        if len(set(clash)) > 1:
+            raise ScenarioInvalid(f"Шаги с номером {order} требуют взаимоисключающие ресурсы: {', '.join(clash)}")
+    for step in steps:
+        if step.get("terminal"):
+            continue
+        if not any(other.get("order", 0) > step["order"] for other in steps):
+            raise ScenarioInvalid(f"Тупик: шаг {step['order']} ({step['action']}) никуда не ведёт")
+    return warnings
+
+
+def _check_repeat(repeat) -> None:
+    if not isinstance(repeat, dict):
+        raise ScenarioInvalid("Частота обзвона задаётся по группам")
+    for key, rule in repeat.items():
+        if str(key) not in {"1", "2", "3", "4", "5", "6"}:
+            raise ScenarioInvalid("Группа частоты — число от 1 до 6")
+        if not isinstance(rule, dict):
+            raise ScenarioInvalid("Правило частоты — объект")
+        if rule.get("once"):
+            continue
+        days = rule.get("every_days")
+        if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+            raise ScenarioInvalid("Интервал обзвона — число дней от 1")
+
+
+def publish(scenario: ScenarioDefinition, user, *, apply_to_running: bool = False) -> tuple[list[str], int]:
+    warnings = check_steps(scenario.steps)
+    last = scenario.revisions.order_by("-version").values_list("version", flat=True).first()
+    scenario.version = (last or 0) + 1
+    scenario.status = ScenarioDefinition.Status.ACTIVE
+    scenario.save(update_fields=["version", "status", "updated_at"])
+    ScenarioRevision.objects.create(
+        scenario=scenario, version=scenario.version, steps=scenario.steps, author=user,
+    )
+    moved = 0
+    if apply_to_running:
+        moved = AccountScenarioRun.objects.filter(scenario=scenario).update(version=scenario.version)
+    return warnings, moved
+
+
+def restore_scenario(scenario: ScenarioDefinition, version: int, user, *, apply_to_running: bool = False) -> tuple[list[str], int]:
+    """Откат публикует старые шаги новым номером. Уже запущенные счета не двигаются, пока это не выбрано."""
+    revision = scenario.revisions.filter(version=version).first()
+    if revision is None:
+        raise ScenarioInvalid("Такой версии сценария нет")
+    scenario.steps = revision.steps
+    scenario.save(update_fields=["steps", "updated_at"])
+    return publish(scenario, user, apply_to_running=apply_to_running)
+
+
+def copy_scenario(scenario: ScenarioDefinition, user) -> ScenarioDefinition:
+    organization = None if user.is_superadmin else user.organization
+    return ScenarioDefinition.objects.create(
+        organization=organization,
+        name=f"{scenario.name} (копия)",
+        status=ScenarioDefinition.Status.DRAFT,
+        version=1,
+        steps=scenario.steps,
+        based_on=scenario,
+        call_legal=scenario.call_legal,
+        dial_mobile_from_day=scenario.dial_mobile_from_day,
+        dial_mobile_weekdays=scenario.dial_mobile_weekdays,
+        call_from_day=scenario.call_from_day,
+        weekday_from=scenario.weekday_from,
+        weekday_to=scenario.weekday_to,
+        weekend_from=scenario.weekend_from,
+        weekend_to=scenario.weekend_to,
+    )
+
+
+def assign_run(account, scenario: ScenarioDefinition, user, *, upgrade: bool = False, paused: bool = False, reason: str = ""):
+    if scenario.status != ScenarioDefinition.Status.ACTIVE:
+        raise ScenarioInvalid("На лицевой счёт назначается опубликованный сценарий")
+    if paused and not reason.strip():
+        raise ScenarioInvalid("Пауза записывается с причиной")
+    run = AccountScenarioRun.objects.filter(account=account).first()
+    if run is None:
+        run = AccountScenarioRun.objects.create(
+            organization=account.organization, account=account, scenario=scenario, version=scenario.version,
+            paused=paused, pause_reason=reason,
+        )
+        ScenarioPause.objects.create(run=run, paused=paused, reason=reason, actor=user)
+    else:
+        pause_changed = run.paused != paused or (run.pause_reason or "") != reason
+        if upgrade or run.scenario_id != scenario.pk:
+            run.scenario = scenario
+            run.version = scenario.version
+        run.paused = paused
+        run.pause_reason = reason
+        run.save()
+        if pause_changed:
+            ScenarioPause.objects.create(run=run, paused=paused, reason=reason, actor=user)
+    if not paused:
+        from apps.nsi.services.scenario_engine import advance_account
+
+        advance_account(account)
+    return run
+
+
+PRINT_BLOCKS = ("logo", "requisites", "body", "signatory")
+
+
+def block_order_of(form: PrintForm) -> list[str]:
+    raw = list(form.block_order or [])
+    order = [item for item in raw if item in PRINT_BLOCKS]
+    for item in PRINT_BLOCKS:
+        if item not in order:
+            order.append(item)
+    return order
+
+
+def layout_of(form: PrintForm) -> dict:
+    return {
+        "addressee": form.addressee,
+        "font_size": form.font_size,
+        "indent_mm": form.indent_mm,
+        "outdent_mm": form.outdent_mm,
+        "block_order": block_order_of(form),
+        "logo_text": form.logo_text,
+        "requisites": form.requisites,
+        "signatory": form.signatory,
+        "doc_kind": form.doc_kind,
+        "blocks": list(form.blocks or []),
+        "blank": form.blank or "",
+    }
+
+
+def placeholder_values(account, tariff: str = "", warning_date: str = "") -> dict:
+    """Подстановки печатной формы. Только поля, которые уже есть у лицевого счёта и его услуг."""
+    from decimal import Decimal
+
+    service_rows = list(account.services.all())
+    names = [row.service_name for row in service_rows if row.service_name][:8]
+    penalty = sum((row.balance_mulct_out or Decimal("0")) for row in service_rows)
+    last = account.payments.exclude(pay_date=None).order_by("-pay_date").values_list("pay_date", flat=True).first()
+    started = account.debt_started_on
+    return {
+        "fio": account.short_fio or "—",
+        "account": account.client_account,
+        "amount": "" if account.balance_out is None else str(account.balance_out),
+        "penalty": str(penalty),
+        "address": account.account_address or "—",
+        "services": ", ".join(names) or "—",
+        "last_payment": last.isoformat() if last else "нет",
+        "organization": account.organization.name,
+        "due_days": str(warning_wait_for(account.organization)),
+        "tariff": tariff or "—",
+        "debt_group": str(account.debt_group_manual or account.debt_group or "—"),
+        "rating": account.rating or "—",
+        "months_debt": "—" if account.months_debt is None else str(account.months_debt),
+        "personal_id": account.payer_identifier or "—",
+        "unp": account.payer_unp or "—",
+        "warning_date": warning_date or "—",
+        "debt_started": started.isoformat() if started else "—",
+    }
+
+
+def apply_placeholders(text: str, values: dict) -> str:
+    rendered = text or ""
+    for key, value in values.items():
+        rendered = rendered.replace("{" + key + "}", str(value))
+    return rendered
+
+
+def fill_account_text(template: str, account, *, tariff: str = "", warning_date: str = "") -> str:
+    return apply_placeholders(template, placeholder_values(account, tariff=tariff, warning_date=warning_date))
+
+
+def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") -> PrintedDocument:
+    from apps.debts.services.artifacts import render_layout_pdf
+    from apps.nsi.services.form_layout import blocks_of, fill_blocks
+    from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext
+
+    blank = (form.blank or "").strip()
+    if blank and known(blank):
+        ctx = context_for_blank(blank, account, warning_date="")
+        text = official_plaintext(blank, ctx)
+        filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
+        payload = render_layout_pdf(filled, font_size=form.font_size or 12, blank=blank, context=ctx)
+    else:
+        text = fill_account_text(form.body, account, tariff=tariff)
+        filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
+        for block in filled:
+            if block["key"] == "body":
+                block["text"] = text
+        payload = render_layout_pdf(filled, font_size=form.font_size or 12)
+    document = PrintedDocument(
+        form=form, version=form.version, account=account, addressee=form.addressee or "debtor",
+        body=text, batch=batch,
+    )
+    document.file.save(
+        f"{form.code}-v{form.version}-{account.pk}.pdf", ContentFile(payload), save=True,
+    )
+    DebtWorkItem.objects.create(
+        organization=account.organization, account=account, kind=_work_kind(form.doc_kind),
+        title=form.name, note=f"Собран по шаблону {form.code} версии {form.version}",
+    )
+    return document
+
+
+def package_pdf(form: PrintForm, batch: str) -> bytes:
+    documents = form.documents.filter(batch=batch).select_related("account").order_by("id")
+    blank = (form.blank or "").strip()
+    from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext, package_html, render_official_pdf
+
+    if blank and known(blank):
+        contexts = [context_for_blank(blank, document.account) for document in documents]
+        payload = render_official_pdf(blank, contexts[0]) if len(contexts) == 1 else None
+        if len(contexts) != 1:
+            from apps.nsi.services.form_sheet import pdf_from_html
+
+            payload = pdf_from_html(package_html(blank, contexts))
+        if payload:
+            return payload
+        lines = []
+        for ctx in contexts:
+            lines.extend(official_plaintext(blank, ctx).splitlines())
+            lines.append("")
+        return _pdf_bytes(lines or [""], font_size=form.font_size or 12)
+    lines: list[str] = []
+    for kind in block_order_of(form):
+        if kind == "body":
+            chunk = []
+            for document in documents:
+                chunk.append(f"ЛС {document.account.client_account} · версия макета {document.version}")
+                chunk.extend(document.body.splitlines() or [""])
+                chunk.append("")
+        else:
+            chunk = _block_lines(form, kind, "")
+        if not chunk:
+            continue
+        if lines:
+            lines.append("")
+        lines.extend(chunk)
+    return _pdf_bytes(
+        lines, font_size=form.font_size or 12, indent_mm=form.indent_mm or 0, outdent_mm=form.outdent_mm or 0,
+    )
+
+
+def new_batch() -> str:
+    return uuid.uuid4().hex
+
+
+def _block_lines(form: PrintForm, kind: str, text: str) -> list[str]:
+    if kind == "logo" and form.logo_text:
+        return [form.logo_text]
+    if kind == "requisites" and form.requisites:
+        return form.requisites.splitlines()
+    if kind == "body":
+        return text.splitlines() or [""]
+    if kind == "signatory" and form.signatory:
+        return [form.signatory]
+    return []
+
+
+def _document_lines(form: PrintForm, text: str) -> list[str]:
+    lines: list[str] = []
+    for kind in block_order_of(form):
+        chunk = _block_lines(form, kind, text)
+        if not chunk:
+            continue
+        if lines:
+            lines.append("")
+        lines.extend(chunk)
+    return lines
+
+
+def restore_print(form: PrintForm, version: int) -> PrintForm:
+    """Старый текст становится новой версией. Уже собранные документы остаются на номере, которым их печатали."""
+    revision = form.revisions.filter(version=version).first()
+    if revision is None:
+        raise ScenarioInvalid("Такой версии печатной формы нет")
+    previous = form.body
+    previous_layout = layout_of(form)
+    form.body = revision.body
+    for key, value in (revision.layout or {}).items():
+        if key in {
+            "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
+            "logo_text", "requisites", "signatory", "blocks", "blank",
+        }:
+            setattr(form, key, value)
+    form.save(update_fields=[
+        "body", "addressee", "font_size", "indent_mm", "outdent_mm", "block_order",
+        "logo_text", "requisites", "signatory", "blocks", "blank", "updated_at",
+    ])
+    remember_print_version(form, previous, previous_layout)
+    return form
+
+
+def remember_print_version(form: PrintForm, previous_body: str | None, previous_layout: dict | None = None) -> None:
+    layout = layout_of(form)
+    if previous_body is None:
+        PrintFormRevision.objects.get_or_create(
+            form=form, version=form.version, defaults={"body": form.body, "layout": layout},
+        )
+        return
+    if previous_body == form.body and (previous_layout or layout) == layout:
+        return
+    form.version += 1
+    form.save(update_fields=["version", "updated_at"])
+    PrintFormRevision.objects.create(form=form, version=form.version, body=form.body, layout=layout)
+
+
+def _work_kind(doc_kind: str) -> str:
+    if doc_kind in {DebtWorkItem.Kind.WARNING, DebtWorkItem.Kind.WRIT, DebtWorkItem.Kind.CLAIM, DebtWorkItem.Kind.CLOSURE}:
+        return doc_kind
+    if doc_kind == "writeoff":
+        return DebtWorkItem.Kind.CLOSURE
+    return DebtWorkItem.Kind.WARNING
+
+
+# Цепочка должника идёт по порядку. Срок перед шагом задаёт сценарий или схема.
+# Отключение в типовой ряд не входит: его запускает администратор после предупреждения.
+STANDARD_STEPS = [
+    {
+        "order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False,
+        "repeat": copy.deepcopy(CALL_REPEAT),
+    },
+    {"order": 2, "action": "email", "wait_days": 0, "template": "Уведомление", "terminal": False},
+    {"order": 3, "action": "warning", "wait_days": 0, "template": "Предупреждение", "terminal": False},
+    {
+        "order": 4, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись", "terminal": False,
+        "checklist": default_checklist(),
+    },
+    {"order": 5, "action": "lawsuit", "wait_days": 0, "template": "Исковое заявление", "terminal": True},
+]
+
+# Прежний шаблон выбирал один шаг по группе. Неизменённая копия заменяется цепочкой.
+GROUP_STANDARD_STEPS = [
+    {"order": 1, "action": "call", "wait_days": 0, "template": "Голос группы 1", "groups": [1], "terminal": False},
+    {
+        "order": 2, "action": "warning", "wait_days": 0, "template": "Предупреждение",
+        "groups": [2], "blocks_next": False, "terminal": False,
+    },
+    {"order": 3, "action": "call", "wait_days": 0, "template": "Голос группы 2", "groups": [2], "terminal": False},
+    {
+        "order": 4, "action": "writ", "wait_days": 0, "template": "Отключение и подготовка взыскания",
+        "groups": [3], "terminal": False,
+    },
+    {
+        "order": 5, "action": "writ", "wait_days": 0, "template": "Взыскание через ОПИ",
+        "groups": [4, 5], "terminal": False,
+    },
+    {
+        "order": 6, "action": "writ", "wait_days": 0, "template": "Взыскание, безнадёжная задолженность",
+        "groups": [6], "terminal": True,
+    },
+]
+
+LEGACY_STANDARD_STEPS = [
+    {"order": 1, "action": "call", "wait_days": 0, "template": "Голос группы 1", "terminal": False},
+    {"order": 2, "action": "manual_call", "wait_days": 1, "template": "", "terminal": False},
+    {"order": 3, "action": "warning", "wait_days": 5, "template": "Предупреждение", "terminal": False},
+    {"order": 4, "action": "disconnect", "wait_days": 0, "approval": True, "terminal": False},
+    {"order": 5, "action": "writ", "wait_days": 0, "branch_group": 3, "terminal": True},
+]
+
+
+def _is_stock_chain(steps) -> bool:
+    return steps == LEGACY_STANDARD_STEPS or steps == GROUP_STANDARD_STEPS
+
+
+def upgrade_legacy_scenario(scenario: ScenarioDefinition | None) -> None:
+    """Неизменённый типовой шаблон становится цепочкой. Правка администратора не трогается."""
+    if scenario is None:
+        return
+    if _is_stock_chain(scenario.steps):
+        scenario.steps = copy.deepcopy(STANDARD_STEPS)
+        scenario.save(update_fields=["steps", "updated_at"])
+    for revision in scenario.revisions.all():
+        if _is_stock_chain(revision.steps):
+            revision.steps = copy.deepcopy(STANDARD_STEPS)
+            revision.save(update_fields=["steps"])
+
+
+def _fill_missing_checklist(steps: list[dict]) -> bool:
+    """Шаг надписи без чек-листа получает законный набор. Уже записанный список не трогается."""
+    changed = False
+    for step in steps:
+        if step.get("action") == "writ" and not step.get("checklist"):
+            step["checklist"] = default_checklist()
+            changed = True
+    return changed
+
+
+def _fill_standard_repeat(scenario: ScenarioDefinition, steps: list[dict]) -> bool:
+    """Только типовой шаг «Автообзвон». Чужой сценарий и старый шаблон не переписываются."""
+    if scenario.organization_id is not None or scenario.name != "Стандартное взыскание":
+        return False
+    changed = False
+    for step in steps:
+        if step.get("action") == "call" and step.get("template") == "Автообзвон" and not step.get("repeat"):
+            step["repeat"] = copy.deepcopy(CALL_REPEAT)
+            changed = True
+    return changed
+
+
+def ensure_standard_scenario() -> None:
+    scenario = ScenarioDefinition.objects.filter(organization=None, name="Стандартное взыскание").first()
+    if scenario is None:
+        scenario = ScenarioDefinition.objects.create(
+            organization=None, name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE,
+            version=1, steps=copy.deepcopy(STANDARD_STEPS),
+        )
+    else:
+        upgrade_legacy_scenario(scenario)
+    steps = [dict(step) for step in (scenario.steps or [])]
+    changed = _fill_missing_checklist(steps)
+    changed = _fill_standard_repeat(scenario, steps) or changed
+    if changed:
+        scenario.steps = steps
+        scenario.save(update_fields=["steps", "updated_at"])
+    current = scenario.revisions.filter(version=scenario.version).first()
+    if current is not None:
+        revision_steps = [dict(step) for step in (current.steps or [])]
+        revision_changed = _fill_missing_checklist(revision_steps)
+        revision_changed = _fill_standard_repeat(scenario, revision_steps) or revision_changed
+        if revision_changed:
+            current.steps = revision_steps
+            current.save(update_fields=["steps"])
+    if not scenario.revisions.filter(version=scenario.version).exists():
+        ScenarioRevision.objects.create(scenario=scenario, version=scenario.version, steps=scenario.steps)

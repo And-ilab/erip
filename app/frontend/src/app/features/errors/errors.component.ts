@@ -31,6 +31,7 @@ import { ErrorLogEntry } from '../../core/models';
         <button mat-stroked-button (click)="reload(1)">Найти</button>
       </div>
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
+      <div class="list-pane">
       <table mat-table [dataSource]="rows()" class="mat-elevation-z1">
         <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Время</th><td mat-cell *matCellDef="let e">{{ e.created_at | date: 'dd.MM.yyyy HH:mm:ss' }}</td></ng-container>
         <ng-container matColumnDef="service"><th mat-header-cell *matHeaderCellDef>Сервис</th><td mat-cell *matCellDef="let e">{{ e.service }}</td></ng-container>
@@ -40,6 +41,7 @@ import { ErrorLogEntry } from '../../core/models';
         <tr mat-header-row *matHeaderRowDef="columns"></tr>
         <tr mat-row *matRowDef="let row; columns: columns" class="clickable-row" (click)="selected.set(row)"></tr>
       </table>
+      </div>
       <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
       @if (selected(); as e) {
         <h3>{{ e.error_type }} · {{ e.path }}</h3>

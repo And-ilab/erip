@@ -10,6 +10,38 @@ class Organization(TimeStampedModel, SoftDeleteModel):
     schema_name = models.CharField("Имя схемы АИС", max_length=30, unique=True)
     name = models.CharField("Наименование", max_length=250)
     unp = models.CharField("УНП", max_length=9, blank=True)
+    pris_claimant = models.JSONField(
+        "Реквизиты взыскателя для АИС ПРИС",
+        default=dict,
+        blank=True,
+        help_text="ОПФ, адрес и банковский счёт. Коды справочников 306, 308 и 309 задаёт пользователь.",
+    )
+    call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
+    outgoing_numbers = models.JSONField(
+        "Исходящие номера обзвона",
+        default=list,
+        blank=True,
+        help_text="Пул номеров +375. Прогон берёт следующий по кругу и передаёт его адаптеру.",
+    )
+    outgoing_cursor = models.PositiveIntegerField("Сдвиг ротации исходящих номеров", default=0)
+    call_recording = models.BooleanField(
+        "Запись разговора",
+        default=False,
+        help_text="Выключено, пока Asterisk не отдаёт запись.",
+    )
+    call_transfer = models.BooleanField(
+        "Перевод на оператора",
+        default=False,
+        help_text="Выключено, пока Asterisk не отдаёт перевод.",
+    )
+    warning_wait_days = models.PositiveSmallIntegerField(
+        "Дней на оплату после предупреждения", null=True, blank=True,
+        help_text="Пусто — общее значение из параметров расчёта.",
+    )
+    step_waits = models.JSONField(
+        "Ожидание перед шагом, дней", default=dict, blank=True,
+        help_text="Ключ — действие шага сценария. Пустой ключ берёт срок из самого шага.",
+    )
 
     class Meta:
         ordering = ["name"]
@@ -55,6 +87,10 @@ class User(AbstractUser):
         SUPPLIER = "supplier", "Поставщик услуг"
 
     role = models.CharField("Роль", max_length=20, choices=Role.choices, default=Role.SPECIALIST)
+    can_approve = models.BooleanField(
+        "Согласует", default=False,
+        help_text="Специалист с этим признаком может пропустить мероприятие или этап воронки.",
+    )
     contour = models.CharField(
         "Контур", max_length=20, choices=Contour.choices, default=Contour.BILLING,
         help_text="Поставщик видит только услуги, где его организация назначена поставщиком",
@@ -83,6 +119,12 @@ class User(AbstractUser):
         """Имя для обращения в оповещениях: «Имя Отчество» или логин."""
         parts = [p for p in (self.first_name, self.middle_name) if p]
         return " ".join(parts) or self.get_full_name() or self.username
+
+    @property
+    def registry_name(self) -> str:
+        """Фамилия, имя и отчество в реестре и в группировке."""
+        parts = [p for p in (self.last_name, self.first_name, self.middle_name) if p]
+        return " ".join(parts) or self.username
 
     def save(self, *args, **kwargs):
         if self.is_superuser:

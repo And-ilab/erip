@@ -1,8 +1,6 @@
-import { DecimalPipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
@@ -11,241 +9,739 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
 import { Router } from '@angular/router';
-import { debounceTime, distinctUntilChanged } from 'rxjs';
+import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, errorMessage } from '../../core/api.service';
-import { AccountRow, AccountService, CalendarEvent, KanbanColumn, SavedFilter } from '../../core/models';
+import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
+import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
+import { AuthService } from '../../core/auth.service';
+import { BynSignComponent, MoneyComponent } from '../../core/money.component';
+import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
+import { AnalyticsComponent } from '../analytics/analytics.component';
+import { RegistryViewsComponent } from '../registry-views.component';
+import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
+import { briefText, bucketParam, groupSectionTitle } from '../group-title';
+import { DomainFilterComponent, DomainRule, accountDomainFields, parseDomain } from '../domain-filter.component';
+import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
-  account_id: 'Код ЛС',
+  account_id: 'ID ЛС',
   client_account: 'Номер ЛС',
-  unified_account: 'УЕН',
+  unified_account: 'Уникальный единый номер (УЕН)',
   provider_short_name: 'Обслуживающая организация',
+  schema_label: 'Наименование схемы',
   account_address: 'Адрес',
-  short_fio: 'Должник',
-  payer_identifier: 'ИН',
-  payer_unp: 'УНП',
-  rating_label: 'Рейтинг',
-  debt_started_on: 'Дата возникновения',
-  debt_total: 'Долг',
-  mulct_total: 'Пеня',
-  effective_group: 'Группа',
+  short_fio: 'ФИО плательщика / Наименование юридического лица',
+  payer_identifier: 'Идентификационный номер (ИН)',
+  payer_unp: 'Учётный номер плательщика (УНП)',
+  rating_label: 'Рейтинг должника',
+  debt_started_on: 'Наиболее ранний период возникновения долга',
+  debt_total: 'Сумма основного долга',
+  mulct_total: 'Сумма пени',
+  obligation_total: 'Суммарный долг по всем услугам ЛС',
+  services_debt_count: 'Количество услуг с задолженностью',
+  contract_number: 'Номер договора',
+  contract_date: 'Дата договора',
+  service_provider: 'Поставщик услуги',
+  initial_principal: 'Первоначальная сумма задолженности',
+  initial_penalty: 'Первоначальная сумма пени',
+  period_balances: 'Остатки задолженности и пени по периодам',
+  repayment_due_on: 'Срок погашения по договору',
+  last_payment_date: 'Дата последней оплаты',
+  effective_group: 'Группа задолженности',
   scenario_name: 'Сценарий',
-  assigned_name: 'Специалист',
+  scenario_brief: 'Сценарий',
+  assigned_name: 'Закреплённый специалист',
   ownership_type_name: 'Тип собственности',
-  months_debt: 'Месяцев долга',
-  subj_count: 'Проживающих',
-  funnel_stage: 'Этап воронки',
+  acc_category_full: 'Тип объекта жилфонда',
+  months_debt: 'Кол-во месяцев долга',
+  subj_count: 'Кол-во проживающих',
+  registered_count: 'Кол-во зарегистрированных',
+  funnel_stage: 'Этап воронки взыскания',
 };
+
+const MONEY_COLUMNS = new Set([
+  'debt_total', 'mulct_total', 'obligation_total', 'initial_principal', 'initial_penalty', 'period_balances',
+]);
+
+const BASE_COLUMNS = [
+  'client_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
+  'rating_label', 'funnel_stage', 'debt_total', 'mulct_total', 'obligation_total', 'effective_group',
+  'scenario_brief', 'assigned_name', 'ownership_type_name', 'acc_category_full', 'months_debt',
+  'subj_count', 'registered_count', 'services_debt_count', 'debt_started_on',
+  'contract_number', 'contract_date', 'service_provider', 'initial_principal', 'initial_penalty',
+  'period_balances', 'repayment_due_on', 'last_payment_date',
+];
+
+type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
+
+const GROUP_PAGE = 40;
+
+interface GroupSection {
+  value: string;
+  accounts: number;
+  services: number;
+  debt: string | null;
+  penalty: string | null;
+  rows: AccountRow[];
+  rowTotal: number;
+  page: number;
+  open: boolean;
+  loading: boolean;
+}
 
 @Component({
   selector: 'app-accounts-list',
   standalone: true,
   imports: [
-    DecimalPipe, ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule, MatSnackBarModule,
+    ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
+    MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
+    CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent, DomainFilterComponent,
   ],
   template: `
-    <div class="page">
-      <div class="page-header">
-        <h2>Реестр задолженностей по ЛС</h2>
-        <button mat-stroked-button (click)="view.set('list')">Список</button>
-        <button mat-stroked-button (click)="showKanban()">Канбан</button>
-        <button mat-stroked-button (click)="showCalendar()">Календарь</button>
-        <button mat-stroked-button (click)="exportCsv()">Экспорт CSV</button>
-      </div>
-      <div class="filters">
-        <mat-form-field>
-          <mat-label>Поиск: номер ЛС, ФИО, адрес, ИН</mat-label>
-          <input matInput [formControl]="search" />
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Группы</mat-label>
-          <mat-select [formControl]="groupsSelected" multiple>
-            @for (g of groups; track g) { <mat-option [value]="g">Группа {{ g }}</mat-option> }
-          </mat-select>
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Рейтинг</mat-label>
-          <mat-select [formControl]="rating">
-            <mat-option value="">Все</mat-option>
-            @for (letter of letters; track letter) { <mat-option [value]="letter">{{ letter }}</mat-option> }
-          </mat-select>
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Этап</mat-label>
-          <mat-select [formControl]="stage">
-            <mat-option value="">Все</mat-option>
-            <mat-option value="new">Новый</mat-option>
-            <mat-option value="prevention">Превентивные меры</mat-option>
-            <mat-option value="warning">Предупреждение</mat-option>
-            <mat-option value="disconnect">Отключение</mat-option>
-            <mat-option value="enforcement">Взыскание</mat-option>
-            <mat-option value="court">Суд / ОПИ</mat-option>
-            <mat-option value="closed">Не должник</mat-option>
-          </mat-select>
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Группировать по</mat-label>
-          <mat-select [formControl]="groupBy">
-            <mat-option value="">Без группировки</mat-option>
-            <mat-option value="provider">Организация</mat-option>
-            <mat-option value="debt_group">Группа задолженности</mat-option>
-            <mat-option value="rating">Рейтинг</mat-option>
-            <mat-option value="category">Категория</mat-option>
-            <mat-option value="specialist">Специалист</mat-option>
-            <mat-option value="period">Период</mat-option>
-          </mat-select>
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Сохранённый фильтр</mat-label>
-          <mat-select (selectionChange)="applyFilter($event.value)">
-            <mat-option [value]="null">—</mat-option>
-            @for (item of filters(); track item.id) { <mat-option [value]="item">{{ item.name }}</mat-option> }
-          </mat-select>
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Имя фильтра</mat-label>
-          <input matInput [formControl]="filterName" />
-        </mat-form-field>
-        <button mat-stroked-button (click)="remember()">Сохранить фильтр</button>
-      </div>
-      @if (error()) { <p class="status-failed">{{ error() }}</p> }
-
-      @if (view() === 'list') {
-        <div class="filters">
-          @for (name of available(); track name) {
-            <mat-checkbox [checked]="columns().includes(name)" (change)="toggleColumn(name, $event.checked)">{{ label(name) }}</mat-checkbox>
+    <div class="registry">
+      <div class="control">
+        <span class="crumb">Реестр ЛС</span>
+        <div class="search-wrap" (click)="$event.stopPropagation()">
+          <div class="search" (click)="panelOpen.set(true)">
+            @if (groupsSelected.value.length) {
+              <button type="button" class="fchip" (click)="clearGroups($event)">Группа: {{ groupsSelected.value.join(', ') }} ×</button>
+            }
+            @if (rating.value.length) {
+              <button type="button" class="fchip" (click)="clearRating($event)">Рейтинг: {{ rating.value.join(', ') }} ×</button>
+            }
+            @if (stage.value) {
+              <button type="button" class="fchip" (click)="clearStage($event)">Этап: {{ stageLabel(stage.value) }} ×</button>
+            }
+            @if (specialist.value) {
+              <button type="button" class="fchip" (click)="clearText(specialist, $event)">Специалист: {{ specialist.value }} ×</button>
+            }
+            @if (ownership.value) {
+              <button type="button" class="fchip" (click)="clearText(ownership, $event)">Собственность: {{ ownership.value }} ×</button>
+            }
+            @if (housing.value) {
+              <button type="button" class="fchip" (click)="clearText(housing, $event)">Жилфонд: {{ housing.value }} ×</button>
+            }
+            @if (monthsDebt.value) {
+              <button type="button" class="fchip" (click)="clearText(monthsDebt, $event)">Месяцев: {{ monthsDebt.value }} ×</button>
+            }
+            @if (residents.value) {
+              <button type="button" class="fchip" (click)="clearText(residents, $event)">Проживающих: {{ residents.value }} ×</button>
+            }
+            @if (periodFrom.value || periodTo.value) {
+              <button type="button" class="fchip" (click)="clearPeriod($event)">Период: {{ periodFrom.value || '…' }} — {{ periodTo.value || '…' }} ×</button>
+            }
+            @if (groupBy.value) {
+              <button type="button" class="fchip" (click)="clearGroupByChip($event)">Группировать по: {{ groupByLabel(groupBy.value) }} ×</button>
+            }
+            @if (territoryName()) {
+              <button type="button" class="fchip" (click)="clearTerritoryChip($event)">{{ territoryName() }} ×</button>
+            }
+            @if (domain()) {
+              <button type="button" class="fchip" (click)="clearDomain($event)">Условие ×</button>
+            }
+            <input
+              [formControl]="search"
+              placeholder="Поиск по ФИО плательщиков, лицевому счёту, адресу, идентификационному номеру…"
+              (focus)="panelOpen.set(true)"
+            />
+            <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
+          </div>
+          @if (panelOpen()) {
+            <div class="search-panel" role="dialog" aria-label="Фильтры реестра">
+              <div class="col">
+                <div class="col-title">Фильтры</div>
+                <div class="sub">Группа задолженности</div>
+                <div class="pills">
+                  @for (g of groups; track g) {
+                    <button type="button" class="pill" [class.on]="groupsSelected.value.includes(g)" (click)="toggleGroup(g)">{{ g }}</button>
+                  }
+                </div>
+                <div class="sub">Рейтинг должника</div>
+                <div class="pills">
+                  @for (letter of letters; track letter) {
+                    <button type="button" class="pill" [class.on]="rating.value.includes(letter)" (click)="toggleRating(letter)">{{ letter }}</button>
+                  }
+                </div>
+                <div class="sub">Этап воронки взыскания</div>
+                @for (item of stages; track item.id) {
+                  <button type="button" class="menu-item" [class.on]="stage.value === item.id" (click)="setStage(item.id)">{{ item.label }}</button>
+                }
+                <div class="sub">Закреплённый специалист</div>
+                @for (item of specialists(); track item.name) {
+                  <button type="button" class="menu-item" [class.on]="specialist.value === item.name" (click)="setSpecialist(item.name)">{{ item.name }}</button>
+                }
+                @if (!specialists().length) {
+                  <p class="empty">Закреплённых специалистов пока нет</p>
+                }
+                <div class="sub">Тип собственности</div>
+                <div class="save-row">
+                  <input [formControl]="ownership" placeholder="Например, частная" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Тип объекта жилфонда</div>
+                <div class="save-row">
+                  <input [formControl]="housing" placeholder="Например, квартира" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Кол-во месяцев долга</div>
+                <div class="save-row">
+                  <input [formControl]="monthsDebt" type="number" placeholder="Месяцев" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Кол-во проживающих</div>
+                <div class="save-row">
+                  <input [formControl]="residents" type="number" placeholder="Человек" (click)="$event.stopPropagation()" />
+                </div>
+                <div class="sub">Период возникновения долга</div>
+                <div class="save-row">
+                  <input [formControl]="periodFrom" type="date" (click)="$event.stopPropagation()" />
+                  <input [formControl]="periodTo" type="date" (click)="$event.stopPropagation()" />
+                </div>
+                <button type="button" class="menu-add" (click)="customOpen.set(true)">+ Добавить пользовательский фильтр</button>
+              </div>
+              <div class="col">
+                <div class="col-title">Группировать по</div>
+                @for (item of groupChoices(); track item.id) {
+                  <button type="button" class="menu-item" [class.on]="groupBy.value === item.id" (click)="setGroupBy(item.id)">{{ item.label }}</button>
+                }
+              </div>
+              <div class="col">
+                <div class="col-title">Избранное</div>
+                <div class="save-row">
+                  <input [formControl]="filterName" placeholder="Имя фильтра" (click)="$event.stopPropagation()" />
+                  <button type="button" (click)="remember()">Сохранить</button>
+                </div>
+                @for (item of filters(); track item.id) {
+                  <button type="button" class="menu-item" (click)="applyFilter(item)">★ {{ item.name }}</button>
+                }
+                @if (!filters().length) {
+                  <p class="empty">Сохранённых наборов пока нет</p>
+                }
+              </div>
+            </div>
           }
         </div>
-        @if (selected().size || allMatching()) {
-        <div class="filters">
-          <span>Выбрано: {{ selected().size }} @if (allMatching()) { (все по фильтру) }</span>
-          <mat-checkbox [checked]="allMatching()" (change)="allMatching.set($event.checked)">Все по фильтру</mat-checkbox>
-          <mat-form-field>
-            <mat-label>Мероприятие</mat-label>
-            <mat-select [formControl]="measureKind">
-              @for (item of measures; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
-            </mat-select>
-          </mat-form-field>
-          @if (measureKind.value === 'call' || measureKind.value === 'notice' || measureKind.value === 'warning') {
-            <mat-form-field><mat-label>Шаблон</mat-label><input matInput [formControl]="templateName" /></mat-form-field>
+        @if (selectedCount()) {
+          <span class="picked-count">Выбрано {{ selectedCount() }}</span>
+          <button type="button" class="tool" (click)="clearSelection()">Снять</button>
+        }
+        @if (canLaunch()) {
+          <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
+        }
+        <button type="button" class="tool" (click)="exportCsv()">CSV</button>
+        <div class="columns-wrap" (click)="$event.stopPropagation()">
+          <button type="button" class="tool" [attr.aria-expanded]="columnsOpen()" (click)="toggleColumns($event)">Столбцы</button>
+          @if (columnsOpen()) {
+            <div class="columns-panel" role="dialog" aria-label="Столбцы реестра">
+              @for (name of catalog(); track name) {
+                <label>
+                  <input type="checkbox" [checked]="columns().includes(name)" (change)="toggleColumn(name)" />
+                  <span>{{ label(name) }}</span>
+                </label>
+              }
+            </div>
           }
-          @if (measureKind.value === 'call') {
-            <mat-form-field><mat-label>Время с</mat-label><input matInput type="time" [formControl]="timeFrom" /></mat-form-field>
-            <mat-form-field><mat-label>Время по</mat-label><input matInput type="time" [formControl]="timeTo" /></mat-form-field>
-            <mat-form-field><mat-label>Дней</mat-label><input matInput type="number" [formControl]="days" /></mat-form-field>
-          }
-          @if (measureKind.value === 'notice') {
+        </div>
+        <app-registry-views
+          [mode]="view() === 'grouped' ? 'list' : view()"
+          [map]="true"
+          (modeChange)="showRegistry($event)" />
+      </div>
+
+      @if (measureOpen()) {
+        <div class="measure">
+          <p class="hint">
+            @if (selectedCount()) {
+              Мероприятие уйдёт по {{ selectedCount() }} выбранным лицевым счетам.
+            } @else {
+              Мероприятие уйдёт по всем лицевым счетам текущего фильтра.
+            }
+            Шаблон выбирается из списка. Поставщик отмечает свои услуги: в партию попадут только они.
+          </p>
+          <div class="filters">
             <mat-form-field>
-              <mat-label>Канал</mat-label>
-              <mat-select [formControl]="channel">
-                <mat-option value="sms">SMS</mat-option>
-                <mat-option value="messenger">Мессенджер</mat-option>
-                <mat-option value="email">E-mail</mat-option>
-                <mat-option value="erip">Личный кабинет ЕРИП</mat-option>
-                <mat-option value="letter">Письмо</mat-option>
+              <mat-label>Мероприятие</mat-label>
+              <mat-select [formControl]="measureKind">
+                @for (item of measures; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
               </mat-select>
             </mat-form-field>
-          }
-          @if (measureKind.value === 'scenario') {
-            <mat-form-field><mat-label>Сценарий</mat-label><input matInput [formControl]="scenarioName" /></mat-form-field>
-            <mat-form-field><mat-label>Дата начала</mat-label><input matInput type="date" [formControl]="startedOn" /></mat-form-field>
-          }
-          @if (measureKind.value === 'collection') {
-            <mat-form-field><mat-label>Исполнитель (id)</mat-label><input matInput [formControl]="assignee" /></mat-form-field>
-            <mat-form-field><mat-label>Срок</mat-label><input matInput type="date" [formControl]="dueOn" /></mat-form-field>
-          }
-          @if (serviceChoices().length) {
-            @for (service of serviceChoices(); track service.id) {
-              <mat-checkbox [checked]="pickedServices().has(service.id)" (change)="toggleService(service.id, $event.checked)">
-                {{ service.service_name }} — {{ service.shot_name }}
-              </mat-checkbox>
+            @if (needsTemplate()) {
+              <mat-form-field>
+                <mat-label>Шаблон</mat-label>
+                <mat-select [formControl]="templateId">
+                  @for (item of templateOptions(); track item.id) {
+                    <mat-option [value]="item.id">{{ item.name }} ({{ item.channel_display }})</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
             }
-          }
-          <button mat-flat-button color="primary" (click)="launch()">Запустить</button>
+            @if (needsServices()) {
+              <mat-form-field>
+                <mat-label>Услуги</mat-label>
+                <mat-select [formControl]="catalogServices" multiple>
+                  @for (item of serviceChoices(); track item.service_id) {
+                    <mat-option [value]="item.service_id">{{ item.service_name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
+            @if (measureKind.value === 'call') {
+              <mat-form-field><mat-label>Время с</mat-label><input matInput type="time" [formControl]="timeFrom" /></mat-form-field>
+              <mat-form-field><mat-label>Время по</mat-label><input matInput type="time" [formControl]="timeTo" /></mat-form-field>
+              <mat-form-field><mat-label>Дней</mat-label><input matInput type="number" [formControl]="days" /></mat-form-field>
+            }
+            @if (measureKind.value === 'notice') {
+              <mat-form-field>
+                <mat-label>Канал</mat-label>
+                <mat-select [formControl]="channel">
+                  <mat-option value="sms">SMS</mat-option>
+                  <mat-option value="email">E-mail</mat-option>
+                </mat-select>
+              </mat-form-field>
+            }
+            @if (measureKind.value === 'scenario') {
+              <mat-form-field><mat-label>Сценарий</mat-label><input matInput [formControl]="scenarioName" /></mat-form-field>
+              <mat-form-field><mat-label>Дата начала</mat-label><input matInput type="date" [formControl]="startedOn" /></mat-form-field>
+            }
+            @if (measureKind.value === 'collection') {
+              <mat-form-field><mat-label>Исполнитель (id)</mat-label><input matInput [formControl]="assignee" /></mat-form-field>
+              <mat-form-field><mat-label>Срок</mat-label><input matInput type="date" [formControl]="dueOn" /></mat-form-field>
+            }
+            <button mat-flat-button color="primary" (click)="launch()">Запустить</button>
+          </div>
         </div>
+      }
+
+      <div class="body">
+        @if (error()) { <p class="status-failed">{{ error() }}</p> }
+
+        @if (view() === 'map') {
+          <app-accounts-map [query]="mapQuery()" (openList)="openTerritory($event)" />
         }
-        <table mat-table [dataSource]="rows()" matSort (matSortChange)="sortBy($event)" class="mat-elevation-z1">
-          <ng-container matColumnDef="pick">
-            <th mat-header-cell *matHeaderCellDef></th>
-            <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
-              <mat-checkbox [checked]="selected().has(r.id)" (change)="toggleRow(r.id, $event.checked)" />
-            </td>
-          </ng-container>
-          @for (name of columns(); track name) {
-            <ng-container [matColumnDef]="name">
-              <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)">{{ label(name) }}</th>
-              <td mat-cell *matCellDef="let r">{{ cell(r, name) }}</td>
+
+        @if (view() === 'charts') {
+          <app-analytics />
+        }
+
+        @if (view() === 'list') {
+          <div class="list-pane">
+          <table mat-table [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
+            <ng-container matColumnDef="select">
+              <th mat-header-cell *matHeaderCellDef>
+                <input type="checkbox" aria-label="Выбрать страницу" [checked]="pageAllSelected()" (change)="togglePage($event)" />
+              </th>
+              <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
+                <input type="checkbox" [attr.aria-label]="'Выбрать ЛС ' + r.client_account" [checked]="isSelected(r.id)" (change)="toggleRow(r, $event)" />
+              </td>
             </ng-container>
-          }
-          <tr mat-header-row *matHeaderRowDef="shown()"></tr>
-          <tr mat-row *matRowDef="let row; columns: shown()" class="clickable-row" (click)="open(row)"></tr>
-        </table>
-        <mat-paginator [length]="total()" [pageSize]="pageSize" [pageSizeOptions]="[25, 50, 100]" (page)="pageChanged($event)" />
-      }
-
-      @if (view() === 'grouped') {
-        <table mat-table [dataSource]="groupedRows()" class="mat-elevation-z1">
-          <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value || '—' }}</td></ng-container>
-          <ng-container matColumnDef="accounts"><th mat-header-cell *matHeaderCellDef>ЛС</th><td mat-cell *matCellDef="let r">{{ r.accounts }}</td></ng-container>
-          <ng-container matColumnDef="debt"><th mat-header-cell *matHeaderCellDef>Сальдо</th><td mat-cell *matCellDef="let r">{{ r.debt }}</td></ng-container>
-          <tr mat-header-row *matHeaderRowDef="['value', 'accounts', 'debt']"></tr>
-          <tr mat-row *matRowDef="let row; columns: ['value', 'accounts', 'debt']"></tr>
-        </table>
-      }
-
-      @if (view() === 'kanban') {
-        <div class="board">
-          @for (column of board(); track column.stage) {
-            <section>
-              <h3>{{ column.title }} <span class="muted">{{ column.cards.length }} из {{ column.total }}</span></h3>
-              @for (card of column.cards; track card.id) {
-                <article class="card" (click)="open(card)">
-                  <b>{{ card.client_account }}</b>
-                  <div>{{ card.short_fio }}</div>
-                  <div class="muted">{{ card.account_address }}</div>
-                  @if (card.effective_group) { <span class="group-badge g{{ card.effective_group }}">{{ card.effective_group }}</span> }
-                  <mat-form-field (click)="$event.stopPropagation()">
-                    <mat-label>Этап</mat-label>
-                    <mat-select [value]="card.funnel_stage" (selectionChange)="move(card, $event.value)">
-                      @for (column of board(); track column.stage) { <mat-option [value]="column.stage">{{ column.title }}</mat-option> }
-                    </mat-select>
-                  </mat-form-field>
-                </article>
-              }
-            </section>
-          }
-        </div>
-      }
-
-      @if (view() === 'calendar') {
-        <div class="filters">
-          <mat-form-field>
-            <mat-label>Месяц</mat-label>
-            <input matInput type="month" [value]="month" (change)="setMonth($any($event.target).value)" />
-          </mat-form-field>
-        </div>
-        @for (event of events(); track event.date + event.title) {
-          <p><b>{{ event.date }}</b> · {{ event.kind }} · {{ event.title }}</p>
+            @for (name of columns(); track name) {
+              <ng-container [matColumnDef]="name">
+                <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)"
+                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)">
+                  {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }
+                </th>
+                <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'">
+                  @switch (name) {
+                    @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
+                    @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
+                    @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
+                    @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
+                    @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
+                    @case ('scenario_brief') { {{ short(r.scenario_brief) }} }
+                    @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" [sign]="false" /> }
+                    @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" [sign]="false" /> }
+                    @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" [sign]="false" /> }
+                    @default { {{ boardCell(r, name) }} }
+                  }
+                </td>
+              </ng-container>
+            }
+            <tr mat-header-row *matHeaderRowDef="shownColumns()"></tr>
+            <tr mat-row *matRowDef="let row; columns: shownColumns()" class="clickable-row" [class.picked]="isSelected(row.id)"
+                [attr.data-account]="row.id" (pointerdown)="beginSelect($event, row)" (click)="openRow($event, row)"></tr>
+          </table>
+          </div>
+          <mat-paginator [length]="total()" [pageSize]="pageSize" [pageSizeOptions]="[25, 50, 100]" (page)="pageChanged($event)" />
         }
+
+        @if (view() === 'grouped') {
+          <div class="list-pane groups">
+          @if (sectionsLoading()) {
+            <p class="hint">Загрузка групп…</p>
+          } @else if (!sections().length && !error()) {
+            <p class="hint">По этому отбору лицевых счетов нет.</p>
+          }
+          @if (sections().length) {
+            <table class="grouped-board">
+              <thead>
+                <tr>
+                  @for (name of shownColumns(); track name) {
+                    <th>@if (name !== 'select') { {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> } }</th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (section of sections(); track section.value) {
+                  <tr [class]="'group-band g' + (section.value || '0')">
+                    <td [attr.colspan]="shownColumns().length">
+                      <button type="button" class="band" (click)="toggleSection(section.value)">
+                        <span class="chev">{{ section.open ? '▾' : '▸' }}</span>
+                        <span class="title">{{ sectionTitle(section.value) }}</span>
+                        <span class="count">{{ section.accounts }} ЛС</span>
+                        <b class="sum"><app-money [value]="sectionObligation(section)" [blank]="false" /></b>
+                      </button>
+                    </td>
+                  </tr>
+                  @if (section.open) {
+                    @for (r of section.rows; track r.id) {
+                      <tr class="clickable-row" [class.picked]="isSelected(r.id)" (click)="openRow($event, r)">
+                        @for (name of shownColumns(); track name) {
+                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)" [class.one-line]="name === 'scenario_brief'">
+                            @switch (name) {
+                              @case ('select') {
+                                <input type="checkbox" [attr.aria-label]="'Выбрать ЛС ' + r.client_account" [checked]="isSelected(r.id)" (click)="$event.stopPropagation()" (change)="toggleRow(r, $event)" />
+                              }
+                              @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
+                              @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
+                              @case ('client_account') { <b class="account-no">{{ r.client_account }}</b> }
+                              @case ('short_fio') { {{ r.short_fio }}@if (r.is_legal) { <span class="legal">ЮЛ</span> } }
+                              @case ('funnel_stage') { {{ stageLabel(r.funnel_stage) }} }
+                              @case ('scenario_brief') { {{ short(r.scenario_brief) }} }
+                              @case ('debt_total') { <app-money [value]="r.debt_total" [blank]="false" [sign]="false" /> }
+                              @case ('mulct_total') { <app-money [value]="r.mulct_total" [blank]="false" [sign]="false" /> }
+                              @case ('obligation_total') { <app-money [value]="r.obligation_total" [blank]="false" [sign]="false" /> }
+                              @default { {{ boardCell(r, name) }} }
+                            }
+                          </td>
+                        }
+                      </tr>
+                    }
+                    @if (section.loading) {
+                      <tr class="more"><td [attr.colspan]="shownColumns().length">Загрузка…</td></tr>
+                    } @else if (section.rows.length < section.rowTotal) {
+                      <tr class="more">
+                        <td [attr.colspan]="shownColumns().length">
+                          <button type="button" (click)="moreSection(section)">Показать ещё {{ section.rowTotal - section.rows.length }}</button>
+                        </td>
+                      </tr>
+                    }
+                  }
+                }
+                <tr class="group-foot">
+                  <td [attr.colspan]="shownColumns().length">
+                    <div class="foot">Итого {{ groupedTotals().accounts }} ЛС · услуг с задолженностью {{ groupedTotals().services }}
+                    · основной долг <app-money [value]="groupedTotals().debt" [blank]="false" />
+                    · пеня <app-money [value]="groupedTotals().penalty" [blank]="false" />
+                    · задолженность <app-money [value]="groupedTotals().obligation" [blank]="false" />
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          }
+          </div>
+        }
+
+        @if (view() === 'kanban') {
+          <div class="k-board">
+            @for (column of board(); track column.stage) {
+              <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
+                       (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
+                <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
+                <div class="list-pane cards">
+                @for (card of column.cards; track card.id) {
+                  <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
+                           [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
+                    <div class="card-head">
+                      <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
+                      @if (card.rating_label || card.effective_group) {
+                        <div class="card-marks">
+                          @if (card.rating_label) {
+                            <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
+                          }
+                          @if (card.effective_group) {
+                            <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                          }
+                        </div>
+                      }
+                    </div>
+                    <div class="line">
+                      <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
+                      @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ short(street(card.account_address)) }}</span> }
+                    </div>
+                    <div class="line one-line" tabindex="0" title="Сценарий">{{ short(card.scenario_brief) === '—' ? 'Сценарий не назначен' : short(card.scenario_brief) }}</div>
+                    @if (card.ownership_type_name || card.acc_category_full) {
+                      <div class="line">
+                        @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
+                        @if (card.ownership_type_name && card.acc_category_full) { · }
+                        @if (card.acc_category_full) { <span tabindex="0" title="Тип объекта жилфонда">{{ short(card.acc_category_full) }}</span> }
+                      </div>
+                    }
+                    <div class="line">
+                      <span tabindex="0" title="Кол-во месяцев долга">{{ card.months_debt ?? '—' }}</span>
+                      · <span tabindex="0" title="Проживающих">{{ card.subj_count ?? '—' }}</span>
+                      · <span tabindex="0" title="Зарегистрированных">{{ card.registered_count ?? '—' }}</span>
+                    </div>
+                    <div class="money">
+                      <span tabindex="0" title="Сумма задолженности"><app-money [value]="card.obligation_total" [blank]="false" [sign]="false" /></span>
+                      <small>
+                        <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
+                        · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></span>
+                      </small>
+                    </div>
+                    <div class="foot">
+                      @if (mark(card); as note) {
+                        <span class="when">
+                          <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+                          {{ note }}
+                        </span>
+                      } @else { <span></span> }
+                      @if (initials(card.assigned_name); as who) {
+                        <span class="who" [style.background]="avatarColor(card.assigned_name)" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
+                      }
+                    </div>
+                  </article>
+                }
+                </div>
+              </section>
+            }
+          </div>
+        }
+
+        @if (view() === 'calendar') {
+          <app-calendar-board
+            [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="canLaunch()"
+            [supplier]="supplierContour()" [templates]="templates()" [serviceChoices]="serviceChoices()"
+            captionTail="мероприятия по делам" [selectedGroups]="groupsSelected.value"
+            (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
+            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)"
+            (groupsChange)="applyCalendarGroups($event)" />
+        }
+      </div>
+
+      @if (customOpen()) {
+        <app-domain-filter
+          [fields]="accountFields"
+          [domain]="domain()"
+          (apply)="applyDomain($event)"
+          (cancel)="customOpen.set(false)" />
+      }
+
+      @if (reasonOpen()) {
+        <div class="backdrop" (click)="reasonOpen.set(false)">
+          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
+            <h3>Смена этапа воронки взыскания</h3>
+            <p class="muted">Это переход карточки между этапами воронки взыскания. Мероприятие этой кнопкой не меняется. Без заполненного основания этап не меняется.</p>
+            <mat-form-field class="reason-field">
+              <mat-label>Этап воронки взыскания</mat-label>
+              <mat-select [formControl]="funnelStage">
+                @for (item of stages; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field class="reason-field">
+              <mat-label>Основание</mat-label>
+              <input matInput [formControl]="funnelReason" />
+            </mat-form-field>
+            <div class="dialog-actions">
+              <button mat-flat-button color="primary" type="button" (click)="confirmMove()">Перевести</button>
+              <button mat-stroked-button type="button" (click)="reasonOpen.set(false)">Отмена</button>
+            </div>
+          </div>
+        </div>
       }
     </div>
   `,
   styles: `
-    .board { display: flex; gap: 12px; overflow: auto; align-items: flex-start; }
-    section { min-width: 220px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-    .card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; margin-bottom: 8px; cursor: pointer; }
-    h3 { margin: 0 0 8px; font-size: 14px; }
+    :host { display: block; }
+    .control {
+      display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px;
+      background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
+    }
+    .crumb { color: var(--erip-muted); font-size: 13px; white-space: nowrap; }
+    .search-wrap { position: relative; flex: 1; min-width: 0; }
+    .search {
+      display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px;
+      background: #fff; border: 1px solid #d8dce0; border-radius: 4px;
+    }
+    .search input {
+      flex: 1; min-width: 80px; border: 0; outline: none; background: transparent;
+      font: inherit; font-size: 13px; color: #1f2933;
+    }
+    .fchip {
+      border: 0; background: var(--erip-primary-soft); color: var(--erip-primary);
+      border-radius: 3px; font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap;
+    }
+    .chevron {
+      border: 0; background: transparent; color: var(--erip-muted); cursor: pointer; font-size: 12px; padding: 4px;
+    }
+    .search-panel {
+      position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+      display: grid; grid-template-columns: 1.15fr 1fr .9fr; width: min(820px, 100%);
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(16, 42, 67, .16);
+    }
+    .col { padding: 8px 0 12px; min-width: 0; }
+    .col + .col { border-left: 1px solid var(--erip-border); }
+    .col-title {
+      padding: 6px 16px 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      text-transform: uppercase; color: var(--erip-muted);
+    }
+    .sub { padding: 4px 16px; font-size: 12px; color: var(--erip-muted); }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
+    .pill, .menu-item, .menu-add, .save-row button, .tool, .view-btn { font: inherit; cursor: pointer; }
+    .pill {
+      min-width: 28px; height: 28px; padding: 0 8px; border: 1px solid var(--erip-border); border-radius: 4px;
+      background: #fff; color: #1f2933;
+    }
+    .pill.on, .menu-item.on { background: var(--erip-primary-soft); color: var(--erip-primary); font-weight: 600; border-color: transparent; }
+    .menu-item, .menu-add {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 6px 16px; font-size: 13px; color: #1f2933;
+    }
+    .menu-item:hover, .menu-add:hover, .pill:hover { background: #f3f6f8; }
+    .menu-add { color: var(--erip-link); }
+    .save-row { display: flex; gap: 6px; padding: 0 12px 8px; }
+    .save-row input {
+      flex: 1; min-width: 0; height: 30px; border: 1px solid var(--erip-border); border-radius: 4px; padding: 0 8px; font: inherit;
+    }
+    .save-row button {
+      height: 30px; padding: 0 10px; border: 0; border-radius: 4px; background: var(--erip-primary); color: #fff; font-size: 13px;
+    }
+    .empty { margin: 4px 16px; font-size: 12px; color: var(--erip-muted); }
+    .tool, .view-btn {
+      height: 32px; border: 1px solid #d8dce0; border-radius: 4px; background: #fff; color: #374151;
+    }
+    .tool { padding: 0 10px; font-size: 13px; white-space: nowrap; }
+    .columns-wrap { position: relative; }
+    .columns-panel {
+      position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; width: 320px; max-height: 360px;
+      overflow: auto; background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(16, 42, 67, .16); padding: 6px 0;
+    }
+    .columns-panel label {
+      display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; font-size: 13px; cursor: pointer;
+    }
+    .columns-panel label:hover { background: #f3f6f8; }
+    .views { display: flex; gap: 4px; }
+    .view-btn { width: 32px; font-size: 14px; }
+    .view-btn.on, .charts-box.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
+    .charts-box { margin-left: 10px; }
+    .measure { padding: 10px 16px 0; background: #fff; border-bottom: 1px solid var(--erip-border); }
+    .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
+    .body { padding: 16px 24px; }
+    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
+      font-size: 13px; font-weight: 600; color: #243140;
+    }
+    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
+    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
+    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-card {
+      position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
+      border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
+      box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
+    }
+    .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
+    .k-card.picked, tr.picked { background: #e7f4f1; }
+    .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
+    .picked-count { font-size: 13px; color: var(--erip-primary); white-space: nowrap; }
+    th[draggable="true"] { cursor: grab; }
+    th app-byn-sign { margin-left: 0.28em; }
+    .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
+    .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
+    .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
+    .k-card .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; flex: 1; min-width: 0; color: #1f2933; }
+    .k-card .card-head .card-marks { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+    .k-card .stage-btn {
+      position: absolute; top: 8px; right: 8px; border: 1px solid #d8dce0; background: #fff;
+      color: var(--erip-primary); border-radius: 4px; font-size: 11px; line-height: 1.2;
+      padding: 3px 6px; cursor: pointer;
+    }
+    .stage-menu {
+      position: absolute; z-index: 5; top: 28px; right: 8px; min-width: 180px; padding: 4px;
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 20px rgba(16, 42, 67, .16);
+    }
+    .stage-menu button {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 6px 8px; font: inherit; font-size: 12px; border-radius: 4px; cursor: pointer;
+    }
+    .stage-menu button.on, .stage-menu button:hover { background: #f3f6f8; }
+    .k-card .line { margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; }
+    .one-line { white-space: nowrap; }
+    .k-card .line.one-line { overflow: hidden; text-overflow: ellipsis; }
+    .k-card .group-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; }
+    .k-card .letter {
+      width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
+      display: grid; place-items: center; background: #9ca3af;
+    }
+    .k-card.g1 .letter, .k-card.g1 .group-line { color: #1f9d55; } .k-card.g1 .letter { background: #1f9d55; color: #fff; }
+    .k-card.g2 .letter, .k-card.g2 .group-line { color: #a16207; } .k-card.g2 .letter { background: #c8962e; color: #fff; }
+    .k-card.g3 .letter, .k-card.g3 .group-line { color: #ef6c00; } .k-card.g3 .letter { background: #ef6c00; color: #fff; }
+    .k-card.g4 .letter, .k-card.g4 .group-line { color: #e53935; } .k-card.g4 .letter { background: #e53935; color: #fff; }
+    .k-card.g5 .letter, .k-card.g5 .group-line { color: #c62828; } .k-card.g5 .letter { background: #c62828; color: #fff; }
+    .k-card.g6 .letter, .k-card.g6 .group-line { color: #7f1d1d; } .k-card.g6 .letter { background: #7f1d1d; color: #fff; }
+    .k-card .money { margin-top: 6px; font-size: 13px; font-weight: 700; color: #1f2933; }
+    .k-card .money > span, .k-card .money small { display: block; }
+    .k-card .money small { font-weight: 400; color: #6b7280; }
+    .k-card .money .amount-danger { color: var(--erip-danger); }
+    .k-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 26px; }
+    .k-card .when { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; }
+    .k-card .cal { width: 14px; height: 14px; flex: 0 0 14px; }
+    .k-card .who {
+      width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700;
+      display: grid; place-items: center; flex: 0 0 26px;
+    }
+    .account-no { color: var(--erip-link); }
+    .backdrop {
+      position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+      background: rgba(20, 40, 55, .35);
+    }
+    .dialog { width: min(520px, calc(100vw - 32px)); background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 12px 32px rgba(16, 42, 67, .2); }
+    .dialog h3 { margin: 0 0 8px; color: var(--erip-primary-dark); }
+    .dialog-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .reason-field { width: 100%; }
+    .legal {
+      margin-left: 6px; padding: 1px 6px; border-radius: 8px; background: #e7f2f4; color: var(--erip-primary);
+      font-size: 11px; font-weight: 700;
+    }
   `,
 })
 export class AccountsListComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
+  private readonly auth = inject(AuthService);
 
   protected readonly groups = [1, 2, 3, 4, 5, 6];
   protected readonly letters = ['A', 'B', 'C', 'D', 'E'];
+  protected readonly stages = [
+    { id: 'new', label: 'Новый должник' },
+    { id: 'prevention', label: 'Автообзвон/уведомления' },
+    { id: 'warning', label: 'Предупреждение вручено' },
+    { id: 'disconnect', label: 'Отключение услуг' },
+    { id: 'enforcement', label: 'Исполнительная надпись / иск' },
+    { id: 'court', label: 'ОПИ' },
+    { id: 'closed', label: 'Не должник' },
+  ];
+  protected readonly groupOptions = [
+    { id: 'provider', label: 'Обслуживающая организация' },
+    { id: 'debt_group', label: 'Группа задолженности' },
+    { id: 'rating', label: 'Рейтинг должника' },
+    { id: 'category', label: 'Категория должника' },
+    { id: 'specialist', label: 'Закреплённый специалист' },
+    { id: 'ownership', label: 'Тип собственности' },
+    { id: 'housing', label: 'Тип объекта жилфонда' },
+    { id: 'months', label: 'Кол-во месяцев долга' },
+    { id: 'residents', label: 'Кол-во проживающих' },
+    { id: 'period', label: 'Период возникновения долга' },
+  ];
   protected readonly measures = [
     { id: 'call', label: 'Автообзвон' },
     { id: 'notice', label: 'Уведомление' },
@@ -257,52 +753,129 @@ export class AccountsListComponent implements OnInit {
   protected readonly rows = signal<AccountRow[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
-  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped'>('list');
-  protected readonly columns = signal<string[]>(['client_account', 'short_fio', 'account_address', 'provider_short_name', 'debt_total', 'effective_group']);
-  protected readonly available = signal<string[]>([]);
-  protected readonly selected = signal<Set<number>>(new Set());
-  protected readonly allMatching = signal(false);
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map' | 'charts'>('list');
+  protected readonly panelOpen = signal(false);
+  protected readonly customOpen = signal(false);
+  protected readonly accountFields = accountDomainFields();
+  protected readonly domain = signal<DomainRule | null>(null);
+  protected readonly measureOpen = signal(false);
+  protected readonly mapQuery = signal<Record<string, string | number | null>>({});
+  protected readonly territoryId = signal<number | null>(null);
+  protected readonly territoryName = signal('');
+  protected readonly columns = signal<string[]>([...BASE_COLUMNS]);
+  protected readonly columnOrder = signal<string[]>([...BASE_COLUMNS]);
+  protected readonly catalog = signal<string[]>([...BASE_COLUMNS]);
+  protected readonly columnsOpen = signal(false);
   protected readonly board = signal<KanbanColumn[]>([]);
+  protected readonly stageMenu = signal<number | null>(null);
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly filters = signal<SavedFilter[]>([]);
-  protected readonly serviceChoices = signal<AccountService[]>([]);
-  protected readonly pickedServices = signal<Set<number>>(new Set());
-  protected readonly groupedRows = signal<{ value: string; accounts: number; debt: string | null }[]>([]);
+  protected readonly specialists = signal<{ name: string }[]>([]);
+  protected readonly templates = signal<MessageTemplate[]>([]);
+  protected readonly serviceChoices = signal<ServiceChoice[]>([]);
+  protected readonly sections = signal<GroupSection[]>([]);
+  protected readonly sectionsLoading = signal(false);
+  private groupTicket = 0;
+  protected readonly selected = signal<Set<number>>(new Set());
+  protected readonly dropStage = signal<string | null>(null);
   protected readonly search = new FormControl('', { nonNullable: true });
   protected readonly groupsSelected = new FormControl<number[]>([], { nonNullable: true });
-  protected readonly rating = new FormControl('', { nonNullable: true });
+  protected readonly rating = new FormControl<string[]>([], { nonNullable: true });
   protected readonly stage = new FormControl('', { nonNullable: true });
   protected readonly groupBy = new FormControl('', { nonNullable: true });
   protected readonly filterName = new FormControl('', { nonNullable: true });
+  protected readonly customField = new FormControl<CustomField>('group', { nonNullable: true });
+  protected readonly customValue = new FormControl('', { nonNullable: true });
   protected readonly measureKind = new FormControl('call', { nonNullable: true });
-  protected readonly templateName = new FormControl('', { nonNullable: true });
+  protected readonly templateId = new FormControl<number | null>(null);
+  protected readonly catalogServices = new FormControl<number[]>([], { nonNullable: true });
   protected readonly timeFrom = new FormControl('09:00', { nonNullable: true });
   protected readonly timeTo = new FormControl('18:00', { nonNullable: true });
   protected readonly days = new FormControl('3', { nonNullable: true });
-  protected readonly channel = new FormControl('sms', { nonNullable: true });
+  protected readonly channel = new FormControl('email', { nonNullable: true });
   protected readonly scenarioName = new FormControl('', { nonNullable: true });
   protected readonly startedOn = new FormControl('', { nonNullable: true });
   protected readonly assignee = new FormControl('', { nonNullable: true });
   protected readonly dueOn = new FormControl('', { nonNullable: true });
+  protected readonly specialist = new FormControl('', { nonNullable: true });
+  protected readonly ownership = new FormControl('', { nonNullable: true });
+  protected readonly housing = new FormControl('', { nonNullable: true });
+  protected readonly monthsDebt = new FormControl('', { nonNullable: true });
+  protected readonly residents = new FormControl('', { nonNullable: true });
+  protected readonly periodFrom = new FormControl('', { nonNullable: true });
+  protected readonly periodTo = new FormControl('', { nonNullable: true });
+  protected readonly funnelReason = new FormControl('', { nonNullable: true });
+  protected readonly funnelStage = new FormControl('new', { nonNullable: true });
+  protected readonly reasonOpen = signal(false);
+  private pendingMove: { ids: number[]; stage: string } | null = null;
   protected pageSize = 50;
-  protected month = new Date().toISOString().slice(0, 7);
+  protected spanFrom = monthStart();
+  protected spanTo = monthEnd();
+  protected calendarMode: CalendarMode = 'month';
   private page = 1;
   private ordering = '';
 
+  private selectAnchor: number | null = null;
+  private pointerSelecting = false;
+  private dragMoved = false;
+  private cardDragged = false;
+  private draggedColumn = '';
+
+  @HostListener('document:click')
+  protected closeSearch(): void {
+    this.panelOpen.set(false);
+    this.stageMenu.set(null);
+    this.columnsOpen.set(false);
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  protected dragSelect(event: PointerEvent): void {
+    if (!this.pointerSelecting || this.selectAnchor == null) return;
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const row = element?.closest('tr[data-account]');
+    const id = Number(row?.getAttribute('data-account'));
+    if (!id) return;
+    if (id !== this.selectAnchor) this.dragMoved = true;
+    this.selectRange(this.selectAnchor, id);
+  }
+
+  @HostListener('document:pointerup')
+  protected endSelect(): void {
+    this.pointerSelecting = false;
+  }
+
   ngOnInit(): void {
-    this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.reload(1));
-    this.groupsSelected.valueChanges.subscribe(() => this.reload(1));
-    this.rating.valueChanges.subscribe(() => this.reload(1));
-    this.stage.valueChanges.subscribe(() => this.reload(1));
+    this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.onFilter());
+    this.groupsSelected.valueChanges.subscribe(() => this.onFilter());
+    this.rating.valueChanges.subscribe(() => this.onFilter());
+    this.stage.valueChanges.subscribe(() => this.onFilter());
+    this.specialist.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.ownership.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.housing.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.monthsDebt.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.residents.valueChanges.pipe(debounceTime(300)).subscribe(() => this.onFilter());
+    this.periodFrom.valueChanges.subscribe(() => this.onFilter());
+    this.periodTo.valueChanges.subscribe(() => this.onFilter());
     this.groupBy.valueChanges.subscribe((value) => {
       if (value) this.showGrouped();
-      else this.reload(1);
+      else if (this.view() === 'grouped') this.reload(1);
     });
-    this.api.columns().subscribe((prefs) => {
-      this.available.set(prefs.available);
-      if (prefs.columns.length) this.columns.set(prefs.columns);
-    });
+    this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
+    this.api.columns().subscribe((prefs) => this.applyColumns(prefs));
     this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results));
+    this.api.specialists().subscribe({
+      next: (rows) => this.specialists.set(rows),
+      error: () => this.specialists.set([]),
+    });
+    this.api.templates({ is_active: true, page_size: 200 }).subscribe({
+      next: (page) => this.templates.set(page.results),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+    this.api.serviceChoices().subscribe({
+      next: (page) => this.serviceChoices.set(page.results),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+    this.channel.valueChanges.subscribe(() => this.keepTemplateInList());
     this.reload(1);
   }
 
@@ -310,8 +883,34 @@ export class AccountsListComponent implements OnInit {
     return LABELS[name] ?? name;
   }
 
-  shown(): string[] {
-    return ['pick', ...this.columns()];
+  protected moneyColumn(name: string): boolean {
+    return MONEY_COLUMNS.has(name);
+  }
+
+  stageLabel(id: string): string {
+    return this.stages.find((item) => item.id === id)?.label ?? id;
+  }
+
+  setSpecialist(name: string): void {
+    this.specialist.setValue(this.specialist.value === name ? '' : name);
+  }
+
+  groupByLabel(id: string): string {
+    return this.groupChoices().find((item) => item.id === id)?.label ?? this.groupOptions.find((item) => item.id === id)?.label ?? id;
+  }
+
+  protected groupChoices(): { id: string; label: string }[] {
+    const items = this.groupOptions.filter((item) => item.id !== 'provider' || this.auth.showServiceOrg());
+    if (!this.auth.showSchema()) return items;
+    return [{ id: 'schema', label: 'Наименование схемы' }, ...items];
+  }
+
+  protected canLaunch(): boolean {
+    return this.auth.canLaunchMeasure();
+  }
+
+  protected supplierContour(): boolean {
+    return this.auth.me()?.contour === 'supplier';
   }
 
   sortable(name: string): boolean {
@@ -322,6 +921,121 @@ export class AccountsListComponent implements OnInit {
     const value = row[name as keyof AccountRow];
     if (name === 'effective_group') return value ? String(value) : '';
     return value == null ? '' : String(value);
+  }
+
+  protected short(text: string | null | undefined): string {
+    return briefText(text || '');
+  }
+
+  boardCell(row: AccountRow, name: string): string {
+    const lines = row.service_lines || [];
+    const join = (pick: (line: NonNullable<AccountRow['service_lines']>[number]) => string) => {
+      const text = lines.map(pick).filter(Boolean).join('; ');
+      return briefText(text);
+    };
+    if (name === 'services_debt_count') return String(row.services_debt_count ?? 0);
+    if (name === 'contract_number') return join((line) => line.service_name ? `${line.service_list_id} (${line.service_name})` : String(line.service_list_id));
+    if (name === 'contract_date') return join((line) => line.start_date || '');
+    if (name === 'service_provider') return join((line) => line.shot_name);
+    if (name === 'initial_principal') return join((line) => line.initial_principal || '');
+    if (name === 'initial_penalty') return join((line) => line.initial_penalty || '');
+    if (name === 'repayment_due_on') return join((line) => line.repayment_due_on || '');
+    if (name === 'last_payment_date') return join((line) => line.last_payment_date || '');
+    if (name === 'period_balances') {
+      return join((line) => (line.periods || []).map((period) =>
+        `${line.service_name || line.service_list_id} ${period.period}: долг ${period.principal || 0}, пеня ${period.penalty || 0}`,
+      ).join('; '));
+    }
+    const raw = this.cell(row, name);
+    if (['account_address', 'ownership_type_name', 'acc_category_full', 'assigned_name', 'provider_short_name', 'schema_label'].includes(name)) {
+      return briefText(raw);
+    }
+    return raw;
+  }
+
+  togglePanel(event: Event): void {
+    event.stopPropagation();
+    this.panelOpen.update((open) => !open);
+  }
+
+  applyCalendarGroups(groups: number[]): void {
+    this.groupsSelected.setValue(groups);
+  }
+
+  toggleGroup(group: number): void {
+    const current = this.groupsSelected.value;
+    const next = current.includes(group) ? current.filter((item) => item !== group) : [...current, group].sort((a, b) => a - b);
+    this.groupsSelected.setValue(next);
+  }
+
+  toggleRating(letter: string): void {
+    const current = this.rating.value;
+    const next = current.includes(letter)
+      ? current.filter((item) => item !== letter)
+      : [...current, letter].sort();
+    this.rating.setValue(next);
+  }
+
+  setStage(id: string): void {
+    this.stage.setValue(this.stage.value === id ? '' : id);
+  }
+
+  setGroupBy(id: string): void {
+    this.groupBy.setValue(this.groupBy.value === id ? '' : id);
+  }
+
+  clearGroups(event: Event): void {
+    event.stopPropagation();
+    this.groupsSelected.setValue([]);
+  }
+
+  clearRating(event: Event): void {
+    event.stopPropagation();
+    this.rating.setValue([]);
+  }
+
+  clearStage(event: Event): void {
+    event.stopPropagation();
+    this.stage.setValue('');
+  }
+
+  clearGroupByChip(event: Event): void {
+    event.stopPropagation();
+    this.groupBy.setValue('');
+  }
+
+  clearTerritoryChip(event: Event): void {
+    event.stopPropagation();
+    this.clearTerritory();
+  }
+
+  protected applyDomain(rule: DomainRule | null): void {
+    this.domain.set(rule);
+    this.customOpen.set(false);
+    this.onFilter();
+  }
+
+  protected clearDomain(event: Event): void {
+    event.stopPropagation();
+    this.domain.set(null);
+    this.onFilter();
+  }
+
+  addCustom(): void {
+    const value = this.customValue.value;
+    if (!value) return;
+    if (this.customField.value === 'group') {
+      const group = Number(value);
+      if (!this.groupsSelected.value.includes(group)) this.toggleGroup(group);
+    }
+    if (this.customField.value === 'rating' && !this.rating.value.includes(value)) this.toggleRating(value);
+    if (this.customField.value === 'stage') this.stage.setValue(value);
+    if (this.customField.value === 'specialist') this.specialist.setValue(value);
+    if (this.customField.value === 'ownership') this.ownership.setValue(value);
+    if (this.customField.value === 'housing') this.housing.setValue(value);
+    if (this.customField.value === 'months') this.monthsDebt.setValue(value);
+    if (this.customField.value === 'residents') this.residents.setValue(value);
+    this.customOpen.set(false);
   }
 
   pageChanged(event: PageEvent): void {
@@ -339,20 +1053,14 @@ export class AccountsListComponent implements OnInit {
     this.router.navigate(['/accounts', row.id]);
   }
 
-  toggleColumn(name: string, on: boolean): void {
-    const next = on ? [...this.columns(), name] : this.columns().filter((item) => item !== name);
-    this.columns.set(this.available().filter((item) => next.includes(item)));
-    this.api.saveColumns(this.columns()).subscribe();
-  }
-
-  toggleRow(id: number, on: boolean): void {
-    const next = new Set(this.selected());
-    if (on) next.add(id);
-    else next.delete(id);
-    this.selected.set(next);
+  showList(): void {
+    this.dropGrouping();
+    this.view.set('list');
+    this.reload(1);
   }
 
   showKanban(): void {
+    this.dropGrouping();
     this.view.set('kanban');
     this.api.kanban(this.query()).subscribe({
       next: (columns) => this.board.set(columns),
@@ -361,20 +1069,389 @@ export class AccountsListComponent implements OnInit {
   }
 
   showCalendar(): void {
+    this.dropGrouping();
     this.view.set('calendar');
     this.loadCalendar();
   }
 
-  setMonth(value: string): void {
-    this.month = value;
+  showMap(): void {
+    this.dropGrouping();
+    this.territoryId.set(null);
+    this.territoryName.set('');
+    this.view.set('map');
+    this.mapQuery.set(this.query());
+  }
+
+  showRegistry(mode: string): void {
+    if (mode === 'list') this.showList();
+    else if (mode === 'kanban') this.showKanban();
+    else if (mode === 'calendar') this.showCalendar();
+    else if (mode === 'map') this.showMap();
+    else if (mode === 'charts') this.showCharts();
+  }
+
+  showCharts(): void {
+    this.dropGrouping();
+    this.view.set('charts');
+  }
+
+  openTerritory(node: { id: number; name: string }): void {
+    this.territoryId.set(node.id);
+    this.territoryName.set(node.name);
+    this.view.set('list');
+    this.reload(1);
+  }
+
+  clearTerritory(): void {
+    this.territoryId.set(null);
+    this.territoryName.set('');
+    this.reload(1);
+  }
+
+  setSpan(span: { from: string; to: string }): void {
+    this.spanFrom = span.from;
+    this.spanTo = span.to;
     this.loadCalendar();
   }
 
-  move(card: AccountRow, stage: string): void {
-    this.api.updateAccount(card.id, { funnel_stage: stage }).subscribe({
-      next: () => this.showKanban(),
+  protected openCalendarEvent(event: CalendarEvent): void {
+    if (event.measure_id) this.router.navigate(['/measures', event.measure_id]);
+    else if (event.account_id) this.router.navigate(['/accounts', event.account_id]);
+  }
+
+  protected submitCalendar(draft: CalendarDraft): void {
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = chosen.length
+      ? { kind: draft.kind, account_ids: chosen }
+      : { kind: draft.kind, filters: this.query(), all_matching: true };
+    this.fillEvent(body, draft);
+    this.api.createMeasure(body).subscribe({
+      next: (measure) => {
+        this.snack.open(`${measure.kind_display}: ${measure.status_display}`, 'OK', { duration: 5000 });
+        this.loadCalendar();
+      },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  private fillEvent(body: Record<string, unknown>, draft: CalendarDraft): void {
+    body['due_on'] = draft.date;
+    body['started_on'] = draft.date;
+    if (draft.template_name) body['template_name'] = draft.template_name;
+    if (draft.catalog_service_ids) body['catalog_service_ids'] = draft.catalog_service_ids;
+    if (draft.channel) body['channel'] = draft.channel;
+    if (draft.time_from) {
+      body['time_from'] = draft.time_from;
+      body['time_to'] = draft.time_to;
+      body['days'] = draft.days;
+    }
+    if (draft.scenario_name) body['scenario_name'] = draft.scenario_name;
+    if (draft.assignee) body['assignee'] = draft.assignee;
+  }
+
+  protected canMove(): boolean {
+    const me = this.auth.me();
+    return this.auth.canSkip() && !!me && me.contour !== 'supplier';
+  }
+
+  protected shownColumns(): string[] {
+    return ['select', ...this.columns()];
+  }
+
+  protected selectedCount(): number {
+    return this.selected().size;
+  }
+
+  protected isSelected(id: number): boolean {
+    return this.selected().has(id);
+  }
+
+  protected pageAllSelected(): boolean {
+    const rows = this.rows();
+    return rows.length > 0 && rows.every((row) => this.selected().has(row.id));
+  }
+
+  protected clearSelection(): void {
+    this.selected.set(new Set());
+  }
+
+  protected togglePage(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    const next = new Set(this.selected());
+    for (const row of this.rows()) {
+      if (checked) next.add(row.id);
+      else next.delete(row.id);
+    }
+    this.selected.set(next);
+  }
+
+  protected toggleRow(row: AccountRow, event: Event): void {
+    event.stopPropagation();
+    const next = new Set(this.selected());
+    if (next.has(row.id)) next.delete(row.id);
+    else next.add(row.id);
+    this.selected.set(next);
+    this.selectAnchor = row.id;
+  }
+
+  protected beginSelect(event: PointerEvent, row: AccountRow): void {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('a, button, input')) return;
+    this.pointerSelecting = true;
+    this.dragMoved = false;
+    if (!(event.shiftKey && this.selectAnchor != null)) this.selectAnchor = row.id;
+  }
+
+  protected openRow(event: MouseEvent, row: AccountRow): void {
+    if (this.dragMoved) {
+      this.dragMoved = false;
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest('input, button, a')) return;
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      const next = new Set(this.selected());
+      if (event.shiftKey && this.selectAnchor != null) this.selectRange(this.selectAnchor, row.id);
+      else if (next.has(row.id)) next.delete(row.id);
+      else next.add(row.id);
+      if (!event.shiftKey) {
+        this.selected.set(next);
+        this.selectAnchor = row.id;
+      }
+      return;
+    }
+    this.open(row);
+  }
+
+  protected toggleColumns(event: Event): void {
+    event.stopPropagation();
+    this.panelOpen.set(false);
+    this.columnsOpen.update((open) => !open);
+  }
+
+  protected toggleColumn(name: string): void {
+    const current = { order: this.columnOrder(), visible: this.columns() };
+    const next = current.visible.includes(name)
+      ? hideColumn(current, name)
+      : showColumn(current, this.catalog(), name);
+    if (next === current || !next.visible.length) return;
+    this.rememberColumns(next.visible, next.order);
+  }
+
+  protected startColumn(event: DragEvent, name: string): void {
+    this.draggedColumn = name;
+    event.dataTransfer?.setData('text/plain', name);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  protected allowColumn(event: DragEvent): void {
+    if (!this.draggedColumn) return;
+    event.preventDefault();
+  }
+
+  protected dropColumn(event: DragEvent, name: string): void {
+    event.preventDefault();
+    const from = this.draggedColumn;
+    this.draggedColumn = '';
+    if (!from || from === name) return;
+    const next = moveColumn({ order: this.columnOrder(), visible: this.columns() }, from, name);
+    if (next.visible === this.columns()) return;
+    this.rememberColumns(next.visible, next.order);
+  }
+
+  private applyColumns(prefs: ColumnPrefs): void {
+    const allowed = prefs.available.length ? prefs.available : [...BASE_COLUMNS];
+    const names = prefs.columns.filter((name) => allowed.includes(name));
+    this.catalog.set(allowed);
+    const order = resolveColumnOrder(prefs.order ?? [], names, allowed);
+    this.columnOrder.set(order);
+    const shown = new Set(names);
+    const visible = order.filter((name) => shown.has(name));
+    if (visible.length) this.columns.set(visible);
+  }
+
+  private rememberColumns(visible: string[], order: string[]): void {
+    this.columnOrder.set(order);
+    this.columns.set(visible);
+    this.api.saveColumns(visible, order).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
+  }
+
+  protected startCard(event: DragEvent, card: AccountRow): void {
+    if (!this.canMove()) {
+      event.preventDefault();
+      return;
+    }
+    this.cardDragged = true;
+    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
+    event.dataTransfer?.setData('text/plain', ids.join(','));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    event.stopPropagation();
+  }
+
+  protected allowDrop(event: DragEvent, stage: string): void {
+    if (!this.canMove()) return;
+    event.preventDefault();
+    this.dropStage.set(stage);
+  }
+
+  protected clearDrop(stage: string): void {
+    if (this.dropStage() === stage) this.dropStage.set(null);
+  }
+
+  protected dropOnStage(event: DragEvent, stage: string): void {
+    event.preventDefault();
+    this.dropStage.set(null);
+    if (!this.canMove()) return;
+    const raw = event.dataTransfer?.getData('text/plain') || '';
+    const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
+    if (ids.length) this.moveIds(ids, stage);
+  }
+
+  protected openCard(event: MouseEvent, card: AccountRow): void {
+    if (this.cardDragged) {
+      this.cardDragged = false;
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      event.stopPropagation();
+      const next = new Set(this.selected());
+      if (next.has(card.id)) next.delete(card.id);
+      else next.add(card.id);
+      this.selected.set(next);
+      return;
+    }
+    this.open(card);
+  }
+
+  private selectRange(fromId: number, toId: number): void {
+    const ids = this.rows().map((row) => row.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0) return;
+    const [start, end] = from < to ? [from, to] : [to, from];
+    this.selected.set(new Set(ids.slice(start, end + 1)));
+  }
+
+  private moveIds(ids: number[], stage: string): void {
+    this.stageMenu.set(null);
+    this.pendingMove = { ids, stage };
+    this.funnelStage.setValue(stage || 'new');
+    this.funnelReason.setValue('');
+    this.reasonOpen.set(true);
+  }
+
+  protected openStage(event: Event, card: AccountRow): void {
+    event.stopPropagation();
+    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
+    this.moveIds(ids, card.funnel_stage || 'new');
+  }
+
+  protected confirmMove(): void {
+    const pending = this.pendingMove;
+    const reason = this.funnelReason.value.trim();
+    const stage = this.funnelStage.value;
+    if (!pending || !reason) {
+      this.snack.open('Укажите основание смены этапа воронки взыскания', 'OK');
+      return;
+    }
+    this.reasonOpen.set(false);
+    const ids = [...pending.ids];
+    const step = (): void => {
+      const id = ids.shift();
+      if (id == null) {
+        this.selected.set(new Set());
+        this.pendingMove = null;
+        this.showKanban();
+        return;
+      }
+      this.api.updateAccount(id, { funnel_stage: stage, funnel_reason: reason }).subscribe({
+        next: () => step(),
+        error: (e) => this.snack.open(errorMessage(e), 'OK'),
+      });
+    };
+    step();
+  }
+
+  protected clearText(control: FormControl<string>, event: Event): void {
+    event.stopPropagation();
+    control.setValue('');
+  }
+
+  protected clearPeriod(event: Event): void {
+    event.stopPropagation();
+    this.periodFrom.setValue('');
+    this.periodTo.setValue('');
+  }
+
+  protected letter(label: string): string {
+    return (label || '—').slice(0, 1);
+  }
+
+  protected street(address: string): string {
+    const lower = address.toLowerCase();
+    const marks = ['ул.', 'ул ', 'пр-т', 'пр.', 'просп', 'пер.', 'б-р', 'тракт', 'пл.', 'ш.'];
+    let cut = -1;
+    for (const mark of marks) {
+      const index = lower.indexOf(mark);
+      if (index >= 0 && (cut < 0 || index < cut)) cut = index;
+    }
+    return (cut >= 0 ? address.slice(cut) : address).replace(/\s+/g, ' ').trim();
+  }
+
+  protected mark(card: AccountRow): string {
+    const stage = card.funnel_stage || 'new';
+    if (stage === 'warning' && card.warning_handed_on) return `Вручено ${this.dayMonth(card.warning_handed_on)}`;
+    if (stage === 'disconnect' && card.order_on) return `Наряд от ${this.dayMonth(card.order_on)}`;
+    const filed = card.filed_on || card.package_on;
+    if (stage === 'enforcement' && filed) return `Подано ${this.dayMonth(filed)}`;
+    if (stage === 'court' && filed) return `Передано ${this.dayMonth(filed)}`;
+    const due = stage === 'enforcement' || stage === 'court' ? (card.claim_due || card.warning_due) : (card.warning_due || card.claim_due);
+    return due ? this.relative(due) : '';
+  }
+
+  protected initials(name: string): string {
+    const parts = (name || '').split(/\s+/).filter(Boolean);
+    return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
+  }
+
+  protected avatarColor(name: string): string {
+    const palette = ['#2e7d32', '#7c3aed', '#ea580c', '#c62828', '#1d4ed8', '#0f766e'];
+    let hash = 0;
+    for (const char of name) hash = (hash + char.charCodeAt(0)) % palette.length;
+    return palette[hash];
+  }
+
+  move(card: AccountRow, stage: string): void {
+    this.stageMenu.set(null);
+    this.moveIds([card.id], stage);
+  }
+
+  private dayMonth(iso: string): string {
+    const parts = iso.slice(0, 10).split('-');
+    return parts.length === 3 ? `${parts[2]}.${parts[1]}` : iso;
+  }
+
+  private relative(iso: string): string {
+    const due = new Date(`${iso.slice(0, 10)}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
+    if (Number.isNaN(diff)) return '';
+    if (diff === 0) return 'Сегодня';
+    if (diff === 1) return 'Завтра';
+    if (diff === -1) return 'Вчера';
+    if (diff > 1) return `Через ${diff} ${this.dayWord(diff)}`;
+    const past = Math.abs(diff);
+    return `${past} ${this.dayWord(past)} назад`;
+  }
+
+  private dayWord(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'день';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дня';
+    return 'дней';
   }
 
   exportCsv(): void {
@@ -392,7 +1469,10 @@ export class AccountsListComponent implements OnInit {
     const name = this.filterName.value.trim();
     if (!name) return;
     this.api.saveFilter({ name, target: 'accounts', query: this.query() }).subscribe({
-      next: () => this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results)),
+      next: () => {
+        this.filterName.setValue('');
+        this.api.savedFilters('accounts').subscribe((page) => this.filters.set(page.results));
+      },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
@@ -401,37 +1481,63 @@ export class AccountsListComponent implements OnInit {
     if (!item) return;
     this.search.setValue(String(item.query['q'] ?? ''), { emitEvent: false });
     this.groupsSelected.setValue(this.parseGroups(item.query['debt_group__in']), { emitEvent: false });
-    this.rating.setValue(String(item.query['rating'] ?? ''), { emitEvent: false });
+    this.rating.setValue(this.parseRatings(item.query['rating__in'] ?? item.query['rating']), { emitEvent: false });
     this.stage.setValue(String(item.query['funnel_stage'] ?? ''), { emitEvent: false });
+    this.specialist.setValue(String(item.query['assigned_name'] ?? ''), { emitEvent: false });
+    this.ownership.setValue(String(item.query['ownership'] ?? ''), { emitEvent: false });
+    this.housing.setValue(String(item.query['housing'] ?? ''), { emitEvent: false });
+    this.monthsDebt.setValue(String(item.query['months_debt'] ?? ''), { emitEvent: false });
+    this.residents.setValue(String(item.query['subj_count'] ?? ''), { emitEvent: false });
+    this.periodFrom.setValue(String(item.query['period_from'] ?? ''), { emitEvent: false });
+    this.periodTo.setValue(String(item.query['period_to'] ?? ''), { emitEvent: false });
     this.groupBy.setValue(String(item.query['group_by'] ?? ''), { emitEvent: false });
+    this.domain.set(parseDomain(item.query['domain']));
+    this.panelOpen.set(false);
     if (this.groupBy.value) this.showGrouped();
     else this.reload(1);
   }
 
-  toggleService(id: number, on: boolean): void {
-    const next = new Set(this.pickedServices());
-    if (on) next.add(id);
-    else next.delete(id);
-    this.pickedServices.set(next);
+  needsTemplate(): boolean {
+    const kind = this.measureKind.value;
+    return kind === 'call' || kind === 'notice' || kind === 'warning';
+  }
+
+  needsServices(): boolean {
+    const kind = this.measureKind.value;
+    if (kind === 'scenario') return false;
+    if (this.auth.me()?.contour === 'supplier') return true;
+    return kind === 'disconnect' || kind === 'collection';
+  }
+
+  templateOptions(): MessageTemplate[] {
+    const all = this.templates();
+    if (this.measureKind.value !== 'notice') return all;
+    const channel = this.channel.value;
+    if (channel !== 'email' && channel !== 'sms') return all;
+    const matched = all.filter((item) => item.channel === channel);
+    return matched.length ? matched : all;
   }
 
   launch(): void {
     const kind = this.measureKind.value;
-    const ids = [...this.selected()];
-    if ((kind === 'disconnect' || kind === 'collection') && ids.length === 1 && !this.allMatching() && !this.pickedServices().size) {
-      this.api.accountServices(ids[0], true).subscribe({
-        next: (page) => this.serviceChoices.set(page.results.filter((row) => Number(row.balance_out) > 0 || Number(row.balance_mulct_out) > 0)),
-        error: (e) => this.snack.open(errorMessage(e), 'OK'),
-      });
-      this.snack.open('Отметьте услуги и нажмите «Запустить» ещё раз', 'OK', { duration: 4000 });
+    const template = this.templates().find((item) => item.id === this.templateId.value);
+    if (this.needsTemplate() && !template) {
+      this.snack.open('Выберите шаблон', 'OK');
       return;
     }
-    const body: Record<string, unknown> = { kind, filters: this.query() };
-    if (this.allMatching()) body['all_matching'] = true;
-    else body['account_ids'] = ids;
-    const serviceIds = [...this.pickedServices()];
-    if (serviceIds.length) body['service_ids'] = serviceIds;
-    if (kind === 'call' || kind === 'notice' || kind === 'warning') body['template_name'] = this.templateName.value;
+    if (this.needsServices() && !this.catalogServices.value.length) {
+      const text = this.auth.me()?.contour === 'supplier'
+        ? 'Выберите услуги своего поставщика'
+        : 'Выберите услуги';
+      this.snack.open(text, 'OK');
+      return;
+    }
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = chosen.length
+      ? { kind, account_ids: chosen }
+      : { kind, filters: this.query(), all_matching: true };
+    if (template) body['template_name'] = template.name;
+    if (this.needsServices()) body['catalog_service_ids'] = this.catalogServices.value;
     if (kind === 'call') {
       body['time_from'] = this.timeFrom.value;
       body['time_to'] = this.timeTo.value;
@@ -451,25 +1557,134 @@ export class AccountsListComponent implements OnInit {
       next: (measure) => {
         const file = measure.artifact ? ` Файл: ${measure.artifact}` : '';
         this.snack.open(`${measure.kind_display}: ${measure.status_display}.${file}`, 'OK', { duration: 5000 });
-        this.serviceChoices.set([]);
-        this.pickedServices.set(new Set());
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
 
+  private keepTemplateInList(): void {
+    const selected = this.templateId.value;
+    if (selected != null && !this.templateOptions().some((item) => item.id === selected)) {
+      this.templateId.setValue(null);
+    }
+  }
+
+  private dropGrouping(): void {
+    if (this.groupBy.value) this.groupBy.setValue('', { emitEvent: false });
+  }
+
   private loadCalendar(): void {
-    this.api.calendar(this.month, this.query()).subscribe({
+    this.api.calendar({ date_from: this.spanFrom, date_to: this.spanTo }, this.query()).subscribe({
       next: (events) => this.events.set(events),
       error: (e) => this.error.set(errorMessage(e)),
     });
   }
 
+  protected penaltyMarked(name: string, row: AccountRow): boolean {
+    return name === 'mulct_total' && Number(row.mulct_total) > 0;
+  }
+
+  protected sectionTitle(value: string): string {
+    return groupSectionTitle(this.groupBy.value, value, this.groupByLabel(this.groupBy.value));
+  }
+
+  protected sectionObligation(section: GroupSection): number {
+    return Number(section.debt ?? 0) + Number(section.penalty ?? 0);
+  }
+
+  protected groupedTotals(): { accounts: number; services: number; debt: string; penalty: string; obligation: string } {
+    const rows = this.sections();
+    const debt = rows.reduce((sum, row) => sum + Number(row.debt || 0), 0);
+    const penalty = rows.reduce((sum, row) => sum + Number(row.penalty || 0), 0);
+    return {
+      accounts: rows.reduce((sum, row) => sum + row.accounts, 0),
+      services: rows.reduce((sum, row) => sum + row.services, 0),
+      debt: debt.toFixed(2),
+      penalty: penalty.toFixed(2),
+      obligation: (debt + penalty).toFixed(2),
+    };
+  }
+
+  protected toggleSection(value: string): void {
+    this.sections.update((list) => list.map((item) => item.value === value ? { ...item, open: !item.open } : item));
+  }
+
+  protected moreSection(section: GroupSection): void {
+    if (section.loading || section.rows.length >= section.rowTotal) return;
+    const ticket = this.groupTicket;
+    this.sections.update((list) => list.map((item) => item.value === section.value ? { ...item, loading: true } : item));
+    this.api.accounts({
+      ...this.query(),
+      bucket: bucketParam(section.value),
+      page: section.page + 1,
+      page_size: GROUP_PAGE,
+    }).subscribe({
+      next: (result) => {
+        if (ticket !== this.groupTicket) return;
+        this.sections.update((list) => list.map((item) => item.value === section.value ? {
+          ...item,
+          rows: [...item.rows, ...result.results],
+          rowTotal: result.count,
+          page: section.page + 1,
+          loading: false,
+        } : item));
+      },
+      error: (e) => {
+        if (ticket !== this.groupTicket) return;
+        this.sections.update((list) => list.map((item) => item.value === section.value ? { ...item, loading: false } : item));
+        this.error.set(errorMessage(e));
+      },
+    });
+  }
+
   private showGrouped(): void {
     this.view.set('grouped');
+    this.sectionsLoading.set(true);
+    const ticket = ++this.groupTicket;
     this.api.grouped(this.query()).subscribe({
-      next: (rows) => this.groupedRows.set(rows),
-      error: (e) => this.error.set(errorMessage(e)),
+      next: (rows) => {
+        if (ticket !== this.groupTicket) return;
+        if (!rows.length) {
+          this.sections.set([]);
+          this.sectionsLoading.set(false);
+          this.error.set('');
+          return;
+        }
+        forkJoin(rows.map((row) => this.api.accounts({
+          ...this.query(),
+          bucket: bucketParam(row.value),
+          page: 1,
+          page_size: GROUP_PAGE,
+        }))).subscribe({
+          next: (pages) => {
+            if (ticket !== this.groupTicket) return;
+            this.sections.set(rows.map((row, index) => ({
+              value: row.value,
+              accounts: row.accounts,
+              services: row.services,
+              debt: row.debt,
+              penalty: row.penalty,
+              rows: pages[index].results,
+              rowTotal: pages[index].count,
+              page: 1,
+              open: true,
+              loading: false,
+            })));
+            this.sectionsLoading.set(false);
+            this.error.set('');
+          },
+          error: (e) => {
+            if (ticket !== this.groupTicket) return;
+            this.sectionsLoading.set(false);
+            this.error.set(errorMessage(e));
+          },
+        });
+      },
+      error: (e) => {
+        if (ticket !== this.groupTicket) return;
+        this.sectionsLoading.set(false);
+        this.error.set(errorMessage(e));
+      },
     });
   }
 
@@ -477,15 +1692,50 @@ export class AccountsListComponent implements OnInit {
     return String(value ?? '').split(',').map((item) => Number(item)).filter((item) => item > 0);
   }
 
+  private parseRatings(value: unknown): string[] {
+    return String(value ?? '').split(',').map((item) => item.trim()).filter((item) => this.letters.includes(item));
+  }
+
   private query(): Record<string, string | number | null> {
     const selected = this.groupsSelected.value;
     return {
       q: this.search.value,
       debt_group__in: selected.length ? selected.join(',') : null,
-      rating: this.rating.value,
+      rating__in: this.rating.value.length ? this.rating.value.join(',') : null,
       funnel_stage: this.stage.value,
+      assigned_name: this.specialist.value,
+      ownership: this.ownership.value,
+      housing: this.housing.value,
+      months_debt: this.monthsDebt.value || null,
+      subj_count: this.residents.value || null,
+      period_from: this.periodFrom.value,
+      period_to: this.periodTo.value,
       group_by: this.groupBy.value,
+      domain: this.domain() ? JSON.stringify(this.domain()) : null,
+      territory: this.territoryId(),
     };
+  }
+
+  private onFilter(): void {
+    const current = this.view();
+    if (current === 'map') {
+      this.mapQuery.set(this.query());
+      return;
+    }
+    if (this.groupBy.value) {
+      this.showGrouped();
+      return;
+    }
+    if (current === 'kanban') {
+      this.showKanban();
+      return;
+    }
+    if (current === 'calendar') {
+      this.loadCalendar();
+      return;
+    }
+    if (current === 'charts') return;
+    this.reload(1);
   }
 
   private reload(page: number): void {
@@ -504,4 +1754,15 @@ export class AccountsListComponent implements OnInit {
       error: (e) => this.error.set(errorMessage(e)),
     });
   }
+}
+
+function monthStart(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function monthEnd(): string {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
 }

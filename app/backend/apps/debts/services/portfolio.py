@@ -112,26 +112,37 @@ def release_expired_inheritance(account: Account) -> bool:
     return True
 
 
+DEFAULT_SCENARIO_NAMES = {
+    1: "Превентивный обзвон и уведомления",
+    2: "Письменное предупреждение",
+    3: "Отключение и подготовка взыскания",
+    4: "Взыскание через ОПИ",
+    5: "Взыскание через ОПИ",
+    6: "Взыскание, безнадёжная задолженность",
+}
+
+
 def scenario_names() -> dict[int, str]:
     rows = dict(
         ScenarioRule.objects.active().filter(category__isnull=True).values_list("group", "name")
     )
-    return rows or {
-        1: "Превентивный обзвон и уведомления",
-        2: "Письменное предупреждение",
-        3: "Отключение и подготовка взыскания",
-        4: "Взыскание через ОПИ",
-        5: "Взыскание через ОПИ",
-        6: "Взыскание, безнадёжная задолженность",
-    }
+    return rows or DEFAULT_SCENARIO_NAMES
 
 
-def rating_letter(group: int | None, aggravating: bool) -> str:
-    if group is None or group <= 2:
+def rating_letter(group: int | None, aggravating: bool, rules=None) -> str:
+    """Буквы A–E из п. 4.2.1.5. Пороги берутся из настроек, история строк не переписывается."""
+    if rules is None:
+        from apps.nsi.models import CalculationSettings
+
+        rules = CalculationSettings.load()
+    b_group = rules.rating_b_group
+    c_from = rules.rating_c_from
+    e_from = rules.rating_e_from
+    if group is None or group < b_group:
         return "A"
-    if group == 3:
+    if group < c_from:
         return "B"
-    if group == 6:
+    if group >= e_from:
         return "E"
     return "D" if aggravating else "C"
 
@@ -172,12 +183,12 @@ class PortfolioRefresher:
         self._inheritance(account)
         self._rating(account)
         self._close_paid(account)
+        from apps.debts.services.shares import sync_debt_shares
+
+        sync_debt_shares(account)
         RefreshRequest.objects.filter(account=account, status=RefreshRequest.Status.PENDING).update(
             status=RefreshRequest.Status.DONE, updated_at=timezone.now(),
         )
-        if account.ais_updated_at is None or True:
-            account.ais_updated_at = timezone.now()
-            account.save(update_fields=["ais_updated_at", "updated_at"])
 
     def _operational_date(self, account: Account) -> date | None:
         dates = [d for d in account.registrations.values_list("oper_date", flat=True) if d]
@@ -226,11 +237,11 @@ class PortfolioRefresher:
         main = account.registrations.filter(subj_is_main=True).order_by("id").first()
         identifier = ""
         unp = ""
-        if main and main.personal_num:
+        if main:
             if main.subj_legal_entity:
-                unp = main.personal_num
-            else:
-                identifier = main.personal_num
+                unp = (main.payer_unp or main.personal_num or "").strip()
+            elif main.personal_num:
+                identifier = main.personal_num.strip()
         fields = []
         if account.payer_identifier != identifier:
             account.payer_identifier = identifier
@@ -264,6 +275,9 @@ class PortfolioRefresher:
                 contact.ais_updated_at = now
                 contact.registration = person
                 contact.save(update_fields=["ais_updated_at", "registration", "updated_at"])
+        from apps.debts.services.contacts import apply_call_priorities
+
+        apply_call_priorities(account)
 
     def _history_balances(self, account: Account) -> None:
         from apps.debts.models import ServiceDebtPeriod
@@ -339,7 +353,7 @@ class PortfolioRefresher:
                 account.rating_repeat = None
                 account.save(update_fields=["rating", "rating_repeat", "updated_at"])
             return
-        letter = rating_letter(worst, aggravating)
+        letter = rating_letter(worst, aggravating, self.settings)
         if account.rating == letter and (letter == "E" or account.rating_repeat):
             return
         repeat = self._repeat(account, letter)
@@ -374,29 +388,27 @@ class PortfolioRefresher:
         return previous + 1
 
     def _close_paid(self, account: Account) -> None:
+        from apps.debts.services.measures import close_paid_measures, note_disconnected_but_paid
+
         threshold = self.settings.close_threshold or Decimal("0")
-        active = [Measure.Status.ASSIGNED, Measure.Status.RUNNING]
         for service in account.services.all():
             balance = service.balance_out if service.balance_out is not None else Decimal("0")
             penalty = service.balance_mulct_out if service.balance_mulct_out is not None else Decimal("0")
             if balance > threshold or penalty > threshold:
                 continue
-            Measure.objects.filter(services=service, status__in=active).update(
-                status=Measure.Status.CANCELLED, updated_at=timezone.now(),
-            )
+            close_paid_measures(account, service)
             if service.scenario_name or service.scenario_locked:
                 service.scenario_name = ""
                 service.scenario_locked = False
                 service.save(update_fields=["scenario_name", "scenario_locked", "updated_at"])
         if account.effective_group is None:
-            Measure.objects.filter(accounts=account, status__in=active).update(
-                status=Measure.Status.CANCELLED, updated_at=timezone.now(),
-            )
+            close_paid_measures(account, None)
             if account.scenario_name or account.scenario_locked:
                 self._log(account, StatusHistory.Kind.SCENARIO, account.scenario_name, "")
                 account.scenario_name = ""
                 account.scenario_locked = False
                 account.save(update_fields=["scenario_name", "scenario_locked", "updated_at"])
+        note_disconnected_but_paid(account)
 
     @staticmethod
     def _log(account, kind, old, new, service=None, reason=""):
@@ -406,6 +418,16 @@ class PortfolioRefresher:
             organization=account.organization, account=account, service=service, kind=kind,
             old_value=old or "", new_value=new or "", reason=reason,
         )
+
+
+def apply_rating_now() -> int:
+    """Пересчитывает текущие буквы. Старые строки истории остаются как были."""
+    refresher = PortfolioRefresher()
+    count = 0
+    for account in Account.objects.all().iterator():
+        refresher._rating(account)
+        count += 1
+    return count
 
 
 def sync_supplier_organizations(accounts) -> None:

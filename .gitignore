@@ -21,6 +21,9 @@ gateway.db
 media/
 staticfiles/
 
+# Выгрузка OSM и сборка справочника, в репозиторий не входят
+.cache/
+
 # Локальные инструменты
 .idea/
 .vscode/
@@ -33,4 +36,5 @@ staticfiles/
 .DS_Store
 Thumbs.db
 ~$*
+*.pmtiles
 *.log

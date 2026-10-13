@@ -11,15 +11,103 @@ export interface ApiError {
 
 export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'observer';
 
+export interface OrganizationOption {
+  id: number;
+  schema_name: string;
+  name: string;
+  unp?: string;
+  call_legal?: boolean;
+  is_active?: boolean;
+  user_count?: number;
+  account_count?: number;
+  local_admin_name?: string;
+}
+
+export interface DirectoryUser {
+  id: number;
+  username: string;
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  display_name: string;
+  registry_name: string;
+  email: string;
+  phone: string;
+  position: string;
+  role: Role;
+  can_approve?: boolean;
+  contour: 'billing' | 'supplier';
+  organization: number | null;
+  service_organizations: number[];
+  is_active: boolean;
+  last_login: string | null;
+}
+
+export interface ServiceOrganizationOption {
+  id: number;
+  organization: number;
+  provider_id: number;
+  short_name: string;
+  full_name: string;
+  is_supplier: boolean;
+  is_active: boolean;
+}
+
+export interface ImportJob {
+  id: number;
+  organization: number;
+  entity: string;
+  entity_display: string;
+  file_name: string;
+  encoding: string;
+  status: string;
+  status_display: string;
+  total: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  rejected: number;
+  errors: { line: number; reason: string }[];
+  unknown_columns: string[];
+  created_at: string;
+  finished_at: string | null;
+}
+
 export interface Me {
   id: number;
   username: string;
   display_name: string;
   email: string;
   role: Role;
+  can_approve: boolean;
   contour: 'billing' | 'supplier';
   organization: number | null;
   organization_name: string | null;
+  supplier_name: string;
+  show_schema: boolean;
+  show_supplier: boolean;
+  show_service_org: boolean;
+}
+
+export interface ServicePeriodLine {
+  period: string | null;
+  principal: string | null;
+  penalty: string | null;
+}
+
+export interface ServiceLine {
+  service_list_id: number;
+  service_name: string;
+  start_date: string | null;
+  shot_name: string;
+  initial_principal: string | null;
+  initial_penalty: string | null;
+  balance_out: string | null;
+  balance_mulct_out: string | null;
+  repayment_due_on: string | null;
+  last_payment_date: string | null;
+  debt_started_on: string | null;
+  periods: ServicePeriodLine[];
 }
 
 export interface AccountRow {
@@ -28,6 +116,7 @@ export interface AccountRow {
   client_account: string;
   unified_account: number | null;
   provider_short_name: string;
+  schema_label?: string;
   account_address: string;
   short_fio: string;
   payer_identifier: string;
@@ -38,20 +127,41 @@ export interface AccountRow {
   rating_label: string;
   debt_started_on: string | null;
   scenario_name: string;
+  scenario_brief?: string;
   assigned_name: string;
   ownership_type_name: string;
+  acc_category_full?: string;
   months_debt: number | null;
   subj_count: number | null;
+  registered_count?: number | null;
+  is_legal?: boolean;
   funnel_stage: string;
+  claim_id?: number | null;
+  claim_stage?: string;
   services_count: number;
   debt_total: string | null;
   mulct_total: string | null;
+  obligation_total?: string | null;
   warning_due: string | null;
   claim_due: string | null;
+  warning_handed_on: string | null;
+  order_on: string | null;
+  filed_on: string | null;
+  package_on: string | null;
   updated_at: string;
   ais_updated_at: string | null;
   operational_date: string | null;
   inheritance_case: boolean;
+  service_lines?: ServiceLine[];
+  services_debt_count?: number;
+}
+
+export interface DebtShare {
+  provider_id: number | null;
+  provider_name: string;
+  principal: string;
+  penalty: string;
+  total: string;
 }
 
 export interface AccountDetail extends AccountRow {
@@ -80,18 +190,46 @@ export interface AccountDetail extends AccountRow {
   legal_status: string;
 }
 
+export interface ServiceChoice {
+  service_id: number;
+  service_name: string;
+}
+
 export interface AccountService {
   id: number;
   account: number;
   service_list_id: number;
+  service_id: number;
   service_name: string;
+  service_name_report: string;
   shot_name: string;
   full_name: string;
   provider_id: number | null;
+  ais_account_id: number;
+  report_group_id: number | null;
+  calculation_id: number | null;
+  sort_code: number | null;
   balance_in: string | null;
+  balance_mulct_in: string | null;
   balance_out: string | null;
   balance_mulct_out: string | null;
+  calc_sum: string | null;
+  calc_result_sum: string | null;
+  calc_priv_sum: string | null;
+  spent_fact: string | null;
+  tarrif: string | null;
+  mulct_sum: string | null;
+  recalc_sum: string | null;
+  mulct_recalc_sum: string | null;
+  netting_sum: string | null;
+  netting_mulct_sum: string | null;
   overdue_debt: string | null;
+  share_service_summ: string | null;
+  share_mulct_summ: string | null;
+  subs_pay: string | null;
+  start_date: string | null;
+  stop_date: string | null;
+  calc_date: string | null;
   debt_period: number | null;
   debt_group: number | null;
   debt_group_manual?: number | null;
@@ -102,7 +240,6 @@ export interface AccountService {
   initial_principal: string | null;
   initial_penalty: string | null;
   last_payment_date: string | null;
-  start_date: string | null;
   account_number: string;
   address: string;
   payer: string;
@@ -115,7 +252,17 @@ export interface AccountService {
   residence_note: string;
   inheritance_case: boolean;
   billing_provider: string;
+  schema_label: string;
   funnel_stage: string;
+  assigned_name?: string;
+  ownership_type_name?: string;
+  housing_object?: string;
+  subj_count?: number | null;
+  account_months?: number | null;
+  scenario_brief?: string;
+  obligation_total?: string | null;
+  registered_count?: number | null;
+  periods?: ServicePeriodLine[];
 }
 
 export interface ContractPerson {
@@ -128,13 +275,48 @@ export interface ContractPerson {
   penalty: string | null;
   earliest: string | null;
   sample_id: number;
+  debt_group?: number | null;
+  service_name?: string;
+  service_count?: number;
+  address?: string;
+  due_on?: string | null;
+  account_ids?: number[];
+  rating_label?: string;
+  funnel_stage?: string;
+  assigned_name?: string;
+  ownership_type_name?: string;
+  housing_object?: string;
+  months_debt?: number | null;
+  subj_count?: number | null;
+  obligation?: string | null;
+  registered_count?: number | null;
+  services_debt_count?: number;
+  service_lines?: ServiceLine[];
+}
+
+export interface ContractAction {
+  kind: string;
+  label: string;
+  total: number;
+}
+
+export interface ContractSupplier {
+  provider_id: number | null;
+  name: string;
+  ls_count: number;
+  principal: string | null;
+  penalty: string | null;
+  measures: ContractAction[];
+  claims: ContractAction[];
 }
 
 export interface ContractSummary {
   ls_count: number;
   principal: string | null;
   penalty: string | null;
-  measures: { kind: string; total: number }[];
+  measures: ContractAction[];
+  claims: ContractAction[];
+  suppliers: ContractSupplier[];
 }
 
 export interface ContractPeriod {
@@ -162,6 +344,15 @@ export interface DialSettings {
   dial_mobile_from_day: number;
   dial_mobile_from_hour: number | null;
   dial_mobile_to_hour: number | null;
+  dial_mobile_weekdays?: number[];
+  rating_period_months?: number;
+  rating_b_group?: number;
+  rating_c_from?: number;
+  rating_c_to?: number;
+  rating_e_from?: number;
+  warning_wait_days?: number;
+  disconnect_requires_approval?: boolean;
+  apply_recorded?: boolean;
 }
 
 export interface ContactRow {
@@ -221,14 +412,150 @@ export interface MeasureRow {
   kind_display: string;
   status: string;
   status_display: string;
+  title: string;
   due_on: string | null;
   accounts_count: number;
+  debtor_name: string;
+  debtor_account: string;
+  debtor_id: number | null;
+  assignee_name: string;
+  next_action: string;
   artifact?: string;
   skipped_inheritance?: number[];
   suspension_confirmed_on?: string | null;
   suspension_source?: string;
   resumed_on?: string | null;
   resume_source?: string;
+  channel?: string;
+  template_name?: string;
+  scenario_name?: string;
+  owner_name?: string;
+  note?: string;
+  started_on?: string | null;
+  time_from?: string | null;
+  time_to?: string | null;
+  progress?: { total: number; done: number };
+  account_item_status?: string;
+  account_call_line?: string;
+  needs_approval?: boolean;
+  approval?: '' | 'pending' | 'approved' | 'rejected';
+  approval_note?: string;
+  skipped?: MeasureSkip[];
+}
+
+/** ЛС, не прошедший отбор при запуске партии. */
+export interface MeasureSkip {
+  account_id: number;
+  client_account: string;
+  reason: string;
+}
+
+/** Частное мероприятие: один ЛС внутри партии, со своим статусом. */
+export interface MeasureItemRow {
+  id: number;
+  account: number;
+  client_account: string;
+  debtor_name: string;
+  status: string;
+  status_display: string;
+  phone: string;
+  call_result: string;
+  call_result_display: string;
+  duration_sec: number | null;
+  listen_percent: number | null;
+  provider_message_id?: string;
+  caller_id?: string;
+  external_call?: boolean | null;
+  recipient: string;
+  delivery_error: string;
+  delivery_method: string;
+  delivery_method_display: string;
+  delivered_on: string | null;
+  recipient_name: string;
+  refused: boolean;
+  postal_id: string;
+  postal_status: string;
+  suspended_on: string | null;
+  resumed_on: string | null;
+  note: string;
+  warning_item: number | null;
+  acted_at: string | null;
+}
+
+export interface MeasureEventRow {
+  id: number;
+  item: number | null;
+  old_status: string;
+  new_status: string;
+  reason: string;
+  actor: string;
+  created_at: string;
+}
+
+export interface TaskCheckRow {
+  id: number;
+  title: string;
+  done: boolean;
+}
+
+export interface MeasureTaskRow {
+  id: number;
+  title: string;
+  due_on: string | null;
+  status: string;
+  assignee_name: string;
+  checks: TaskCheckRow[];
+}
+
+export interface MeasureDetail extends MeasureRow {
+  items: MeasureItemRow[];
+  events: MeasureEventRow[];
+  tasks?: MeasureTaskRow[];
+  call_legal: boolean;
+  group_from: number | null;
+  group_to: number | null;
+}
+
+/** Строка экрана «Готовы к отключению»: срок предупреждения истёк, долг не погашен. */
+export interface DisconnectCandidate {
+  account_id: number;
+  client_account: string;
+  debtor_name: string;
+  warning_item_id: number;
+  delivered_on: string;
+  warning_due: string;
+  refused: boolean;
+  requires_approval: boolean;
+  services: { id: number; name: string }[];
+}
+
+export interface MeasureGroup {
+  status: string;
+  label: string;
+  total: number;
+  shown: number;
+  results: MeasureRow[];
+}
+
+export interface MeasureMatrixCell {
+  measure_id: number;
+  status: string;
+  label: string;
+  tone: string;
+}
+
+export interface MeasureMatrixRow {
+  account_id: number;
+  debtor_name: string;
+  client_account: string;
+  cells: Record<string, MeasureMatrixCell | null>;
+}
+
+export interface MeasureMatrix {
+  kinds: { code: string; label: string }[];
+  total: number;
+  truncated: boolean;
+  results: MeasureMatrixRow[];
 }
 
 export interface DebtorCategory {
@@ -242,7 +569,7 @@ export interface SavedFilter {
   id: number;
   name: string;
   target: string;
-  query: Record<string, string | number | boolean | null>;
+  query: Record<string, string | number | boolean | null | number[] | string[]>;
 }
 
 export interface CalendarEvent {
@@ -250,6 +577,11 @@ export interface CalendarEvent {
   kind: string;
   title: string;
   account_id: number | null;
+  measure_id?: number | null;
+  contract_id?: number | null;
+  urgency?: 'overdue' | 'soon' | 'planned' | 'done';
+  due?: string;
+  debt_group?: number | null;
 }
 
 export interface KanbanColumn {
@@ -286,6 +618,11 @@ export interface Registration {
   is_close_relative: boolean;
   subj_legal_entity: boolean;
   personal_num: string;
+  sex_name: string;
+  maindoc_type_name: string;
+  maindoc_snum: string;
+  maindoc_date: string | null;
+  subj_is_check_out: boolean;
   idler_val: boolean;
   social_category: string;
   unfit_for_work: boolean;
@@ -308,6 +645,8 @@ export interface MessageTemplate {
   subject: string;
   body: string;
   debt_group: number | null;
+  version?: number;
+  revisions?: { version: number; at: string; author?: string }[];
   is_active: boolean;
 }
 
@@ -337,4 +676,59 @@ export interface ErrorLogEntry {
   message: string;
   traceback: string;
   created_at: string;
+}
+
+export interface MapCrumb {
+  id: number;
+  name: string;
+  kind: string;
+}
+
+export interface MapBubble {
+  id: number;
+  name: string;
+  kind: string;
+  latitude: number | null;
+  longitude: number | null;
+  accounts: number;
+  groups: Record<string, number>;
+  dominant_group: number | null;
+}
+
+export interface MapLevel {
+  parent: MapCrumb | null;
+  breadcrumb: MapCrumb[];
+  unplaced: number;
+  children: MapBubble[];
+}
+
+export interface ChartBucket {
+  cases: number;
+  principal: string;
+  penalty: string;
+}
+
+export interface ChartStage extends ChartBucket {
+  code: string;
+  title: string;
+}
+
+export interface ChartGroup extends ChartBucket {
+  group: number | null;
+  title: string;
+}
+
+export interface ChartMonth extends ChartBucket {
+  period: string;
+}
+
+export interface DebtCharts {
+  as_of: string;
+  cases: number;
+  principal: string;
+  penalty: string;
+  stages: ChartStage[];
+  groups: ChartGroup[];
+  months: ChartMonth[];
+  months_source: 'history' | 'current';
 }

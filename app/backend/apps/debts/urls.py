@@ -1,5 +1,6 @@
 from rest_framework.routers import DefaultRouter
 
+from .claims_views import ClaimCaseViewSet
 from .views import (
     AccountServiceViewSet,
     AccountViewSet,
@@ -14,6 +15,7 @@ from .views import (
 )
 
 router = DefaultRouter()
+router.register("claims", ClaimCaseViewSet, basename="claim")
 router.register("accounts", AccountViewSet, basename="account")
 router.register("services", AccountServiceViewSet, basename="accountservice")
 router.register("contracts", ContractViewSet, basename="contract")

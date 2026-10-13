@@ -4,19 +4,33 @@ from decimal import Decimal
 import pytest
 from django.core.management import call_command
 
-from apps.debts.models import AccountService, Contact, Measure, Registration, StatusHistory
+from apps.debts.models import AccountScenarioRun, AccountService, Contact, Measure, Registration, StatusHistory
+from apps.debts.serializers import scenario_brief
+from apps.nsi.models import ScenarioDefinition
 from apps.debts.services.contacts import choose_phone
 from apps.debts.services.grouping import DebtGroupCalculator
 from apps.debts.services.portfolio import PortfolioRefresher
 from apps.nsi.models import DebtorCategory
 from apps.users.models import ServiceOrganization, User
 
-from .conftest import make_user
+from .conftest import make_account, make_user
 
 
 @pytest.fixture
 def ready(org_a):
     call_command("loaddata", "debt_group_scale", verbosity=0)
+
+
+def test_accounts_of_one_payer_stay_together(api, specialist_a, org_a, account_a):
+    account_a.payer_identifier = "7010180A001PB2"
+    account_a.save(update_fields=["payer_identifier"])
+    other = make_account(org_a, 1008, client_account="00001008", payer_identifier="7010180A001PB2")
+    stranger = make_account(org_a, 1009, client_account="00001009", payer_identifier="OTHER")
+    listed = api(specialist_a).get("/api/v1/accounts/", {"payer_identifier": "7010180A001PB2"}).json()
+    ids = {row["id"] for row in listed["results"]}
+    assert account_a.id in ids
+    assert other.id in ids
+    assert stranger.id not in ids
 
 
 def test_manual_group_is_what_the_registry_filters(api, specialist_a, account_a, ready):
@@ -28,6 +42,23 @@ def test_manual_group_is_what_the_registry_filters(api, specialist_a, account_a,
     listed = api(specialist_a).get("/api/v1/accounts/?debt_group=5").json()
     assert listed["count"] == 1
     assert api(specialist_a).get("/api/v1/accounts/?debt_group=2").json()["count"] == 0
+
+
+def test_registry_scenario_column_is_the_name(org_a, account_a):
+    scenario = ScenarioDefinition.objects.create(
+        name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE, version=1,
+        steps=[
+            {"order": 1, "action": "call"},
+            {"order": 2, "action": "manual_call"},
+            {"order": 3, "action": "warning"},
+            {"order": 4, "action": "disconnect"},
+            {"order": 5, "action": "writ"},
+        ],
+    )
+    AccountScenarioRun.objects.create(
+        organization=org_a, account=account_a, scenario=scenario, version=1,
+    )
+    assert scenario_brief(account_a) == "Стандартное взыскание"
 
 
 def test_rating_and_debt_start_follow_the_rules(org_a, account_a, ready):
@@ -85,12 +116,15 @@ def test_pm_contact_survives_ais_refresh_and_dial_prefers_mobile(org_a, account_
     PortfolioRefresher().refresh_account(account_a)
     pm = Contact.objects.get(source=Contact.Source.PM)
     assert pm.value == "+375291110000"
-    assert Contact.objects.filter(source=Contact.Source.AIS, value=account_a.contact_phone).exists()
+    pm.refresh_from_db()
+    assert pm.priority == 1
+    ais_phone = Contact.objects.get(source=Contact.Source.AIS, value=account_a.contact_phone)
+    assert ais_phone.priority == 1
     picked = choose_phone(account_a, date(2026, 9, 26))
     assert picked.value == "+375291110000"
 
 
-def test_inheritance_blocks_auto_measure_and_lifts_for_new_payer(api, specialist_a, org_a, account_a, ready):
+def test_inheritance_blocks_auto_measure_and_lifts_for_new_payer(api, admin_a, specialist_a, org_a, account_a, ready):
     payer = Registration.objects.get(account=account_a)
     response = api(specialist_a).patch(
         f"/api/v1/accounts/{account_a.id}/",
@@ -100,9 +134,9 @@ def test_inheritance_blocks_auto_measure_and_lifts_for_new_payer(api, specialist
     assert response.status_code == 200
     account_a.refresh_from_db()
     assert account_a.inheritance_payer_id == payer.subj_id
-    blocked = api(specialist_a).post("/api/v1/measures/", {"kind": "call", "account_ids": [account_a.id]}, format="json")
+    blocked = api(admin_a).post("/api/v1/measures/", {"kind": "call", "account_ids": [account_a.id]}, format="json")
     assert blocked.status_code == 400
-    allowed = api(specialist_a).post(
+    allowed = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "collection", "account_ids": [account_a.id], "service_ids": [account_a.services.get().id],
@@ -129,13 +163,16 @@ def test_refresh_recalculates_the_loaded_account(api, specialist_a, account_a, r
     assert again.json()["id"] != created.json()["id"]
 
 
-def test_disconnect_requires_a_service_and_payment_cancels_it(api, specialist_a, account_a, ready):
-    missing = api(specialist_a).post("/api/v1/measures/", {"kind": "disconnect", "account_ids": [account_a.id]}, format="json")
+def test_disconnect_requires_a_service_and_payment_cancels_it(api, admin_a, specialist_a, account_a, ready):
+    missing = api(admin_a).post("/api/v1/measures/", {"kind": "disconnect", "account_ids": [account_a.id]}, format="json")
     assert missing.status_code == 400
     service = account_a.services.get()
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
-        {"kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id], "started_on": "2026-09-01", "days": 10},
+        {
+            "kind": "disconnect", "account_ids": [account_a.id], "service_ids": [service.id],
+            "started_on": "2026-09-01", "days": 10, "override_reason": "Проверка закрытия при оплате",
+        },
         format="json",
     )
     assert created.status_code == 201
@@ -170,7 +207,11 @@ def test_group_comes_from_unpaid_periods_and_reentry_raises_subrating(org_a, acc
     periods = list(ServiceDebtPeriod.objects.filter(service=service).order_by("period"))
     assert len(periods) == 7
     assert periods[0].started_on == date(2026, 4, 26)
+    assert periods[0].principal == service.balance_out
+    assert periods[1].principal == 0
     assert sum(row.principal for row in periods) == service.balance_out
+    account_a.refresh_from_db()
+    assert account_a.ais_updated_at is None
     account_a.refresh_from_db()
     assert account_a.rating_repeat == 1
     service.balance_out = Decimal("0")
@@ -190,12 +231,12 @@ def test_group_comes_from_unpaid_periods_and_reentry_raises_subrating(org_a, acc
     assert account_a.rating_repeat == 2
 
 
-def test_call_file_uses_the_dial_rule_and_warning_is_a_file(api, specialist_a, account_a, ready):
+def test_call_file_uses_the_dial_rule_and_warning_is_a_file(api, admin_a, specialist_a, account_a, ready):
     Contact.objects.create(
         organization=account_a.organization, account=account_a, kind=Contact.Kind.MOBILE, value="+375291110000",
         source=Contact.Source.PM, priority=3,
     )
-    created = api(specialist_a).post(
+    created = api(admin_a).post(
         "/api/v1/measures/",
         {
             "kind": "call", "account_ids": [account_a.id], "template_name": "Напоминание",
@@ -208,7 +249,7 @@ def test_call_file_uses_the_dial_rule_and_warning_is_a_file(api, specialist_a, a
     text = measure.artifact.read().decode("utf-8-sig")
     assert "+375291110000" in text
     assert "Напоминание" in text
-    warning = api(specialist_a).post(
+    warning = api(admin_a).post(
         "/api/v1/measures/",
         {"kind": "warning", "account_ids": [account_a.id], "template_name": "Предупреждение"},
         format="json",
@@ -224,3 +265,94 @@ def test_registry_filters_several_groups(api, specialist_a, account_a, ready):
     assert listed["count"] == 1
     grouped = api(specialist_a).get("/api/v1/accounts/grouped/?group_by=debt_group").json()
     assert any(row["value"] == "3" for row in grouped)
+
+
+def test_registry_columns_stay_hidden(api, specialist_a, superadmin):
+    listed = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    assert "client_account" in listed["columns"]
+    assert "schema_label" not in listed["available"]
+    hidden = [name for name in listed["columns"] if name != "account_address"]
+    saved = api(specialist_a).put("/api/v1/accounts/columns/", {"columns": hidden}, format="json")
+    assert saved.status_code == 200
+    assert "account_address" not in saved.json()["columns"]
+    again = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    assert again["columns"] == saved.json()["columns"]
+    empty = api(specialist_a).put("/api/v1/accounts/columns/", {"columns": []}, format="json")
+    assert empty.status_code == 400
+
+    root = api(superadmin).get("/api/v1/accounts/columns/").json()
+    assert "schema_label" in root["available"]
+    without = [name for name in root["columns"] if name != "schema_label"]
+    kept = api(superadmin).put("/api/v1/accounts/columns/", {"columns": without}, format="json").json()
+    assert "schema_label" not in kept["columns"]
+    assert kept["order"][0] == "schema_label"
+    assert "schema_label" in api(superadmin).get("/api/v1/accounts/columns/").json()["available"]
+
+
+def test_hidden_column_returns_to_its_place(api, specialist_a):
+    listed = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    original = listed["columns"]
+    hidden_name = original[2]
+    kept = [name for name in original if name != hidden_name]
+    saved = api(specialist_a).put("/api/v1/accounts/columns/", {"columns": kept}, format="json").json()
+    assert saved["columns"] == kept
+    assert saved["order"][2] == hidden_name
+    restored = api(specialist_a).put(
+        "/api/v1/accounts/columns/",
+        {"columns": [*kept, hidden_name]},
+        format="json",
+    ).json()
+    assert restored["columns"] == original
+    assert restored["order"][2] == hidden_name
+
+    order = list(restored["order"])
+    left, parked, right = order[1], order[2], order[3]
+    layout = [order[-1], *order[:-1]]
+    moved_visible = [name for name in layout if name != parked]
+    shifted = api(specialist_a).put(
+        "/api/v1/accounts/columns/",
+        {"columns": moved_visible, "order": layout},
+        format="json",
+    ).json()
+    assert shifted["order"] == layout
+    assert parked not in shifted["columns"]
+    shown = api(specialist_a).put(
+        "/api/v1/accounts/columns/",
+        {"columns": [*moved_visible, parked]},
+        format="json",
+    ).json()
+    place = shown["order"].index(parked)
+    assert shown["order"][place - 1] == left
+    assert shown["order"][place + 1] == right
+    assert shown["columns"][shown["columns"].index(parked) - 1] == left
+    again = api(specialist_a).get("/api/v1/accounts/columns/").json()
+    assert again["columns"] == shown["columns"]
+    assert again["order"] == shown["order"]
+
+    persons = api(specialist_a).get("/api/v1/contracts/columns/", {"board": "persons"}).json()
+    person_columns = persons["columns"]
+    person_hidden = person_columns[4]
+    person_kept = [name for name in person_columns if name != person_hidden]
+    person_saved = api(specialist_a).put(
+        "/api/v1/contracts/columns/",
+        {"board": "persons", "columns": person_kept},
+        format="json",
+    ).json()
+    assert person_saved["columns"] == person_kept
+    assert person_saved["order"][4] == person_hidden
+    person_back = api(specialist_a).put(
+        "/api/v1/contracts/columns/",
+        {"board": "persons", "columns": [*person_kept, person_hidden]},
+        format="json",
+    ).json()
+    assert person_back["columns"] == person_columns
+    assert person_back["order"][4] == person_hidden
+
+
+def test_registry_filters_several_ratings(api, specialist_a, account_a, ready):
+    account_a.rating = "B"
+    account_a.save()
+    listed = api(specialist_a).get("/api/v1/accounts/?rating__in=B,C").json()
+    assert listed["count"] == 1
+    empty = api(specialist_a).get("/api/v1/accounts/?rating__in=D,E").json()
+    assert empty["count"] == 0

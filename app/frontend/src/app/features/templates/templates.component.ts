@@ -1,7 +1,8 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, EventEmitter, OnInit, Output, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
@@ -13,23 +14,52 @@ import { AuthService } from '../../core/auth.service';
 import { Channel, MessageTemplate } from '../../core/models';
 
 @Component({
+  selector: 'app-template-delete-dialog',
+  standalone: true,
+  imports: [MatDialogModule, MatButtonModule],
+  template: `
+    <h2 mat-dialog-title>Деактивировать шаблон</h2>
+    <mat-dialog-content>
+      Шаблон «{{ data.name }}» будет перенесён в раздел «Архивированные».
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button mat-dialog-close>Отмена</button>
+      <button mat-flat-button color="warn" [mat-dialog-close]="true">Деактивировать</button>
+    </mat-dialog-actions>
+  `,
+})
+export class TemplateDeleteDialog {
+  protected readonly data = inject<{ name: string }>(MAT_DIALOG_DATA);
+}
+
+@Component({
   selector: 'app-templates',
   standalone: true,
   imports: [
     ReactiveFormsModule, MatListModule, MatCardModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatButtonModule, MatSnackBarModule,
+    MatButtonModule, MatSnackBarModule, MatDialogModule,
   ],
   template: `
-    <div class="page layout">
+    <div class="messages" id="messages">
       <mat-card class="list">
         <mat-card-header><mat-card-title>Шаблоны сообщений</mat-card-title></mat-card-header>
         <mat-card-content>
           @if (auth.canManageTemplates()) { <button mat-stroked-button (click)="edit(null)">+ Новый шаблон</button> }
           <mat-nav-list>
-            @for (t of templates(); track t.id) {
+            @for (t of activeTemplates(); track t.id) {
               <a mat-list-item (click)="edit(t)" [class.selected]="current()?.id === t.id">
                 <span matListItemTitle>{{ t.name }}</span>
                 <span matListItemLine class="muted">{{ t.channel_display }} · {{ t.debt_group ? 'группа ' + t.debt_group : 'без группы' }} · {{ t.is_central ? 'центральный' : 'локальный' }}</span>
+              </a>
+            }
+          </mat-nav-list>
+          <h3 class="archive-title">Архивированные</h3>
+          @if (!archivedTemplates().length) { <p class="muted">Пусто</p> }
+          <mat-nav-list>
+            @for (t of archivedTemplates(); track t.id) {
+              <a mat-list-item (click)="edit(t)" [class.selected]="current()?.id === t.id">
+                <span matListItemTitle>{{ t.name }}</span>
+                <span matListItemLine class="muted">{{ t.channel_display }} · {{ t.debt_group ? 'группа ' + t.debt_group : 'без группы' }} · архив</span>
               </a>
             }
           </mat-nav-list>
@@ -60,32 +90,53 @@ import { Channel, MessageTemplate } from '../../core/models';
             <mat-form-field class="full-width">
               <mat-label>Текст</mat-label>
               <textarea matInput rows="6" formControlName="body"></textarea>
-              <mat-hint>Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{debt_group}' }}, {{ '{group_name}' }}. Приветствие и подпись добавит шлюз.</mat-hint>
+              <mat-hint>Переменные: {{ '{fio}' }}, {{ '{account}' }}, {{ '{amount}' }}, {{ '{address}' }}, {{ '{services}' }}, {{ '{last_payment}' }}, {{ '{organization}' }}, {{ '{due_days}' }}, {{ '{debt_group}' }}, {{ '{group_name}' }}. Приветствие и подпись добавит шлюз. Канал мессенджера в сценарии сообщение не отправляет.</mat-hint>
             </mat-form-field>
           </form>
           <div class="filters actions">
             @if (auth.canManageTemplates()) {
               <button mat-flat-button color="primary" [disabled]="form.invalid" (click)="save()">Сохранить</button>
-              @if (current()) { <button mat-button color="warn" (click)="remove()">Деактивировать</button> }
+              @if (current(); as selected) {
+                @if (selected.is_active) {
+                  <button mat-button color="warn" (click)="remove()">Деактивировать</button>
+                } @else {
+                  <button mat-stroked-button (click)="restore()">Вернуть из архива</button>
+                }
+              }
             }
             <mat-form-field><mat-label>Имя для предпросмотра</mat-label><input #name matInput value="Иван Иванович" /></mat-form-field>
             <button mat-stroked-button [disabled]="!current()" (click)="preview(name.value)">Предпросмотр через шлюз</button>
           </div>
           @if (previewText()) { <pre class="message">{{ previewText() }}</pre> }
+          @if (current()?.revisions?.length) {
+            <h3 class="archive-title">Версии текста</h3>
+            <p class="muted">Уже отправленное оповещение остаётся на версии, которой его собрали.</p>
+            @for (rev of current()?.revisions; track rev.version) {
+              <div class="rev">
+                <span>v{{ rev.version }} {{ rev.author }}</span>
+                <button mat-stroked-button (click)="rollback(rev.version)" [disabled]="rev.version === current()?.version">Вернуть текст новой версией</button>
+              </div>
+            }
+          }
         </mat-card-content>
       </mat-card>
     </div>
   `,
   styles: `
-    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; }
+    .messages { display: grid; grid-template-columns: 340px 1fr; gap: 16px; }
+    @media (max-width: 900px) { .messages { grid-template-columns: 1fr; } }
     .grow { flex: 1; }
     .actions { margin-top: 12px; }
     .selected { background: rgba(0, 90, 200, .08); }
+    .archive-title { margin: 16px 0 0; font-size: 14px; font-weight: 600; }
+    .rev { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    .muted { color: var(--erip-muted); }
   `,
 })
 export class TemplatesComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly snack = inject(MatSnackBar);
+  private readonly dialog = inject(MatDialog);
   protected readonly auth = inject(AuthService);
 
   protected readonly groups = [1, 2, 3, 4, 5, 6];
@@ -96,8 +147,11 @@ export class TemplatesComponent implements OnInit {
     { value: 'inbox', label: 'Панель уведомлений ПМ' },
   ];
   protected readonly templates = signal<MessageTemplate[]>([]);
+  protected readonly activeTemplates = computed(() => this.templates().filter((item) => item.is_active));
+  protected readonly archivedTemplates = computed(() => this.templates().filter((item) => !item.is_active));
   protected readonly current = signal<MessageTemplate | null>(null);
   protected readonly previewText = signal('');
+  @Output() readonly changed = new EventEmitter<void>();
   protected readonly form = inject(FormBuilder).nonNullable.group({
     code: ['', [Validators.required, Validators.pattern(/^[a-z0-9_-]+$/)]],
     name: ['', Validators.required],
@@ -112,7 +166,7 @@ export class TemplatesComponent implements OnInit {
   }
 
   load(): void {
-    this.api.templates({ is_active: true, page_size: 200 }).subscribe((page) => this.templates.set(page.results));
+    this.api.templates({ page_size: 200 }).subscribe((page) => this.templates.set(page.results));
   }
 
   edit(template: MessageTemplate | null): void {
@@ -128,6 +182,7 @@ export class TemplatesComponent implements OnInit {
         this.snack.open('Шаблон сохранён', 'OK', { duration: 3000 });
         this.current.set(saved);
         this.load();
+        this.changed.emit();
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
@@ -136,10 +191,43 @@ export class TemplatesComponent implements OnInit {
   remove(): void {
     const template = this.current();
     if (!template) return;
-    this.api.deleteTemplate(template.id).subscribe({
-      next: () => {
-        this.edit(null);
+    this.dialog.open(TemplateDeleteDialog, { data: { name: template.name } }).afterClosed().subscribe((confirmed) => {
+      if (!confirmed) return;
+      this.api.deleteTemplate(template.id).subscribe({
+        next: () => {
+          this.edit(null);
+          this.load();
+          this.changed.emit();
+        },
+        error: (e) => this.snack.open(errorMessage(e), 'OK'),
+      });
+    });
+  }
+
+  rollback(version: number): void {
+    const template = this.current();
+    if (!template) return;
+    this.api.rollbackTemplate(template.id, version).subscribe({
+      next: (saved) => {
+        this.current.set(saved);
+        this.form.patchValue({ body: saved.body, subject: saved.subject });
+        this.snack.open(`Текст версии ${version} сохранён как v${saved.version}`, 'OK', { duration: 3000 });
         this.load();
+        this.changed.emit();
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  restore(): void {
+    const template = this.current();
+    if (!template) return;
+    this.api.restoreTemplate(template.id).subscribe({
+      next: (saved) => {
+        this.current.set(saved);
+        this.snack.open('Шаблон возвращён из архива', 'OK', { duration: 3000 });
+        this.load();
+        this.changed.emit();
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });

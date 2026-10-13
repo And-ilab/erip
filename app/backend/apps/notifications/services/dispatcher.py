@@ -127,5 +127,8 @@ def apply_delivery_status(notification: Notification, status: str, *, error: str
     if text:
         notification.rendered_text = text
     notification.save(update_fields=["status", "sent_at", "error", "rendered_text", "updated_at"])
+    from apps.debts.services.measures import sync_notice_status
+
+    sync_notice_status(notification.pk, notification.status == Notification.Status.SENT, notification.error)
     logger.info("Статус оповещения %s: %s", notification.pk, notification.status)
     return notification

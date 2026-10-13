@@ -1,9 +1,10 @@
 """Расчёт группы задолженности (ТЗ 4.2.1.4).
 
-Группа услуги берётся по самому раннему непогашенному периоду. Периоды строятся из числа
-месяцев долга и остатка: сумма и пеня раскладываются по этим месяцам. Группа ЛС — максимум
-среди услуг. Ручная корректировка хранится отдельно и снимается, когда расчётная группа
-перестала совпадать с основанием корректировки.
+Группа услуги берётся по числу месяцев до самого раннего непогашенного периода.
+Весь известный остаток и пеня сидят на этом раннем периоде: в выгрузке нет суммы
+каждого месяца, поэтому поздние месяцы окна хранят ноль и не притворяются долями.
+Группа ЛС — максимум среди услуг. Ручная корректировка хранится отдельно и снимается,
+когда расчётная группа перестала совпадать с основанием корректировки.
 """
 
 import calendar
@@ -99,14 +100,14 @@ class DebtGroupCalculator:
         self, operational: date | None, months: int | None, due_day: int,
         principal: Decimal | None, penalty: Decimal | None,
     ) -> list[dict]:
-        """Непогашенные периоды от самого раннего. Остаток делится по месяцам, копейки — на ранний."""
+        """Окно месяцев долга. Весь остаток — на самом раннем периоде, остальные месяцы с нулём."""
         if operational is None or not months or months < 0:
             return []
         if (principal or Decimal("0")) <= 0 and (penalty or Decimal("0")) <= 0:
             return []
         year, month = self._shift_month(operational.year, operational.month, -(months - 1))
-        principal_parts = self._split(principal, months)
-        penalty_parts = self._split(penalty, months)
+        principal_amount = principal if principal is not None else Decimal("0")
+        penalty_amount = penalty if penalty is not None else Decimal("0")
         rows = []
         for index in range(months):
             due_year, due_month = self._shift_month(year, month, 1)
@@ -114,21 +115,13 @@ class DebtGroupCalculator:
             due_on = date(due_year, due_month, day)
             rows.append({
                 "period": date(year, month, 1),
-                "principal": principal_parts[index],
-                "penalty": penalty_parts[index],
+                "principal": principal_amount if index == 0 else Decimal("0"),
+                "penalty": penalty_amount if index == 0 else Decimal("0"),
                 "due_on": due_on,
                 "started_on": due_on + timedelta(days=1),
             })
             year, month = self._shift_month(year, month, 1)
         return rows
-
-    @staticmethod
-    def _split(total: Decimal | None, count: int) -> list[Decimal]:
-        amount = total if total is not None else Decimal("0")
-        share = (amount / count).quantize(Decimal("0.01"))
-        parts = [share] * count
-        parts[0] = amount - share * (count - 1)
-        return parts
 
     def sync_periods(self, service: AccountService, operational: date | None, due_day: int) -> list[dict]:
         from apps.debts.models import ServiceDebtPeriod
@@ -147,8 +140,7 @@ class DebtGroupCalculator:
                 )
                 for row in rows
             ])
-        open_rows = [row for row in rows if (row["principal"] or 0) > 0 or (row["penalty"] or 0) > 0]
-        return open_rows
+        return rows
 
     @staticmethod
     def release_manual(obj, new_group: int | None) -> bool:

@@ -1,15 +1,17 @@
 """Клиент шлюза оповещений (FastAPI). Вызовы асинхронные (httpx.AsyncClient).
 
 NotificationDispatcher зависит от абстракции GatewayClient: в проде — HttpGatewayClient,
-в тестах — FakeGatewayClient; при выносе шлюза в Go-микросервис меняется только реализация.
+в тестах — FakeGatewayClient; при выносе шлюза в отдельный процесс на Python меняется только реализация.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 from django.conf import settings
@@ -32,6 +34,9 @@ class GatewayClient(ABC):
 
     @abstractmethod
     async def preview(self, payload: dict) -> str: ...
+
+    @abstractmethod
+    async def dial(self, payload: dict) -> dict: ...
 
 
 class HttpGatewayClient(GatewayClient):
@@ -69,6 +74,10 @@ class HttpGatewayClient(GatewayClient):
         body = await self._post("/gw/v1/notifications/preview", payload)
         return body.get("data", body)["text"]
 
+    async def dial(self, payload: dict) -> dict:
+        body = await self._post("/gw/v1/voice/dial", payload)
+        return body.get("data", body)
+
 
 @dataclass
 class FakeGatewayClient(GatewayClient):
@@ -87,6 +96,36 @@ class FakeGatewayClient(GatewayClient):
         if self.fail:
             raise GatewayUnavailable()
         return f"Добрый день, {payload.get('user_name')}!\n\n{payload.get('template_body')}\n\nС уважением, ЖКУ"
+
+    async def dial(self, payload: dict) -> dict:
+        """Тот же исход, что у VoiceStubAdapter: алгоритм живёт в адаптере шлюза."""
+        if self.fail:
+            raise GatewayUnavailable()
+        outcome = _voice_outcome().call_outcome(
+            payload.get("phone") or "",
+            payload.get("text") or "",
+            payload.get("caller_id") or "",
+        )
+        self.sent.append({"dial": payload, "outcome": outcome})
+        return outcome
+
+
+_voice_module = None
+
+
+def _voice_outcome():
+    """Загружает voice_outcome.py адаптера, не заводя второй расчёт исхода в Django."""
+    global _voice_module
+    if _voice_module is not None:
+        return _voice_module
+    path = Path(__file__).resolve().parents[4] / "gateway" / "app" / "adapters" / "voice_outcome.py"
+    spec = importlib.util.spec_from_file_location("erip_voice_outcome", path)
+    if spec is None or spec.loader is None:
+        raise GatewayUnavailable("Нет заглушки голосового адаптера")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _voice_module = module
+    return module
 
 
 _client: GatewayClient | None = None

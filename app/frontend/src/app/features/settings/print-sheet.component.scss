@@ -1,0 +1,231 @@
+// Лист A4. Парные правила печати — apps/nsi/services/form_sheet.css.
+:host {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.desk {
+  background: #525659;
+  padding: 20px 16px 28px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  max-height: calc(100vh - 200px);
+  min-height: 360px;
+  border-radius: 2px;
+}
+
+.stage {
+  position: relative;
+  margin: 0 auto;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 12px 28px rgba(0, 0, 0, 0.38);
+}
+
+.clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.a4 {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 210mm;
+  min-height: 297mm;
+  margin-left: -105mm;
+  transform-origin: top center;
+  box-sizing: border-box;
+  padding: 15mm 16mm 18mm;
+  background: #fff;
+  color: #1a1a1a;
+  font-family: "Times New Roman", Times, "Liberation Serif", serif;
+  font-size: 12pt;
+  line-height: 1.35;
+}
+
+.doc-block { margin: 0 0 2mm; }
+
+.doc-block.on {
+  outline: 0.3mm dashed rgba(29, 79, 99, 0.45);
+  outline-offset: 1mm;
+}
+
+.letterhead {
+  text-align: right;
+  border-bottom: 0.45mm solid #111;
+  padding-bottom: 2mm;
+  margin-bottom: 5mm;
+}
+
+.doc-title,
+.prose-text,
+.prose-inline,
+.field-label,
+.blank,
+.cell,
+.head-cell {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+.doc-title {
+  display: block;
+  width: 100%;
+  font-size: 14pt;
+  font-weight: 700;
+  text-align: center;
+  margin: 4mm 0 5mm;
+  letter-spacing: 0.03em;
+}
+
+.doc-title:focus,
+.prose-text:focus,
+.prose-inline:focus,
+.field-label:focus,
+.blank:focus,
+.cell:focus,
+.head-cell:focus {
+  outline: none;
+  background: rgba(29, 79, 99, 0.06);
+}
+
+.frame,
+.panel {
+  border: 0.35mm solid #111;
+  padding: 3mm 4mm;
+  margin: 3mm 0;
+}
+
+.frame {
+  width: 68%;
+  margin-left: auto;
+  box-sizing: border-box;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74mm, 1fr));
+  gap: 3mm 6mm;
+  align-items: end;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(28mm, max-content) minmax(16mm, 1fr);
+  column-gap: 3mm;
+  align-items: end;
+  min-width: 0;
+}
+
+.field.wide { grid-column: 1 / -1; }
+
+.field-label {
+  width: 100%;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.blank {
+  display: block;
+  width: 100%;
+  border-bottom: 0.25mm solid #111;
+  min-height: 5.5mm;
+  text-align: left;
+}
+
+.blank::placeholder {
+  color: #8b949c;
+  font-style: italic;
+}
+
+.prose {
+  margin: 1.4mm 0;
+}
+
+.prose-text {
+  display: block;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  text-align: justify;
+  text-indent: 10mm;
+  line-height: 1.35;
+}
+
+.letterhead .prose-text,
+.sign .prose-text {
+  text-align: right;
+  text-indent: 0;
+}
+
+.sign .prose-text { text-align: left; }
+
+.prose.mixed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 1.5mm;
+}
+
+.prose-inline {
+  text-indent: 0;
+  text-align: left;
+  min-width: 1ch;
+}
+
+.blank.inline {
+  display: inline-block;
+  width: 36mm;
+  min-height: 0;
+  padding: 0 1mm 0.2mm;
+  text-align: center;
+  vertical-align: baseline;
+}
+
+.gap { height: 3mm; }
+
+.sign {
+  width: 62%;
+  margin-left: auto;
+  margin-top: 12mm;
+}
+
+.sign-caption {
+  font-size: 10pt;
+  margin-bottom: 2mm;
+}
+
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 3mm;
+  table-layout: fixed;
+}
+
+table.grid th,
+table.grid td {
+  border: 0.3mm solid #111;
+  padding: 1.1mm 1.4mm;
+  vertical-align: top;
+  text-align: left;
+  font-weight: 400;
+}
+
+table.grid th { background: #f4f4f4; }
+
+.head-cell,
+.cell {
+  width: 100%;
+  min-width: 0;
+  font-weight: inherit;
+}
+
+.head-cell { font-weight: 700; }

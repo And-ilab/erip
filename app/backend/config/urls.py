@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.debts.map_tiles import belarus_map
+
 api_v1 = [
     path("auth/", include("apps.users.auth_urls")),
     path("", include("apps.users.urls")),
@@ -14,4 +16,5 @@ api_v1 = [
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", include(api_v1)),
+    path("maps/<path:filename>", belarus_map),
 ]

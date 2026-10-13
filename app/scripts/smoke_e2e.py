@@ -1,7 +1,7 @@
 """Сквозная проверка MVP на запущенных backend и шлюзе (критерии приёмки 1, 3, 4, 5).
 
 Перед запуском: выполнены миграции, загружены фикстуры, импортированы тестовые выгрузки
-(generate_ais_samples + import_ais), есть пользователь с правами на оповещения.
+(load_ais_sample или import_ais), есть пользователь с правами на оповещения.
 
   python scripts/smoke_e2e.py --backend http://localhost:8080 --gateway http://localhost:8080 \
       --user admin --password admin --internal-token <GW_INTERNAL_TOKEN>

@@ -1,0 +1,120 @@
+/* Лист A4 для PDF. Экранный близнец — print-sheet.component.scss. */
+@page {
+  size: A4;
+  margin: 15mm 16mm 16mm;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Times New Roman", Times, "Liberation Serif", "DejaVu Serif", serif;
+  font-size: 12pt;
+  line-height: 1.35;
+  color: #1a1a1a;
+}
+
+.doc-block { margin: 0 0 2mm; }
+
+.letterhead {
+  text-align: right;
+  border-bottom: 0.45mm solid #111;
+  padding-bottom: 2mm;
+  margin-bottom: 5mm;
+}
+
+.letterhead p { text-align: right; text-indent: 0; }
+
+h1.doc-title {
+  font-size: 14pt;
+  font-weight: 700;
+  text-align: center;
+  margin: 4mm 0 5mm;
+  letter-spacing: 0.03em;
+}
+
+.frame, .panel {
+  border: 0.35mm solid #111;
+  padding: 3mm 4mm;
+  margin: 3mm 0;
+  break-inside: avoid;
+}
+
+.frame {
+  width: 68%;
+  margin-left: auto;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74mm, 1fr));
+  gap: 3mm 6mm;
+  align-items: end;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(28mm, max-content) minmax(16mm, 1fr);
+  column-gap: 3mm;
+  align-items: end;
+}
+
+.field.wide { grid-column: 1 / -1; }
+
+.field-label { line-height: 1.2; }
+
+.blank {
+  display: block;
+  border-bottom: 0.25mm solid #111;
+  min-height: 5.5mm;
+}
+
+.blank.inline {
+  display: inline-block;
+  min-width: 24mm;
+  padding: 0 1mm;
+  text-align: center;
+  vertical-align: baseline;
+}
+
+p.prose {
+  margin: 1.4mm 0;
+  text-align: justify;
+  text-indent: 10mm;
+}
+
+.gap { height: 3mm; }
+
+.sign {
+  width: 62%;
+  margin-left: auto;
+  margin-top: 12mm;
+  break-inside: avoid;
+}
+
+.sign p { text-indent: 0; }
+
+.sign-caption {
+  font-size: 10pt;
+  margin-bottom: 2mm;
+}
+
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 3mm;
+  break-inside: avoid;
+}
+
+table.grid th,
+table.grid td {
+  border: 0.3mm solid #111;
+  padding: 1.2mm 1.6mm;
+  vertical-align: top;
+  text-align: left;
+  font-weight: 400;
+}
+
+table.grid th { font-weight: 700; background: #f4f4f4; }

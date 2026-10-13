@@ -5,9 +5,12 @@ import decimal
 import uuid
 
 from django.db import models
+from django.db.models.fields.files import FieldFile
 
 
 def to_jsonable(value):
+    if isinstance(value, FieldFile):
+        return value.name or ""
     if isinstance(value, decimal.Decimal):
         return str(value)
     if isinstance(value, datetime.datetime | datetime.date | datetime.time):

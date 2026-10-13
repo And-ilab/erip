@@ -41,7 +41,7 @@ class UserViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelViewSe
     permission_classes = [RolePermission]
     write_roles = ADMIN_ROLES
     filterset_fields = ["role", "organization", "is_active"]
-    search_fields = ["username", "first_name", "last_name", "email"]
+    search_fields = ["username", "first_name", "middle_name", "last_name", "email"]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -55,6 +55,9 @@ class UserViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelViewSe
             raise PermissionDenied("Нельзя деактивировать свою учётную запись")
         instance.is_active = False
         instance.save(update_fields=["is_active"])
+        from apps.users.reassign import reassign_work
+
+        reassign_work(instance)
 
 
 class MeView(generics.RetrieveAPIView):

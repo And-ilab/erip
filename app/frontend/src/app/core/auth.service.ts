@@ -5,6 +5,13 @@ import { Observable, catchError, map, of, switchMap, tap } from 'rxjs';
 
 import { Me } from './models';
 
+export interface LoginGate {
+  access?: string;
+  choose_role?: boolean;
+  ticket?: string;
+  roles?: { id: string; label: string }[];
+}
+
 const ACCESS_KEY = 'erip.access';
 const LEGACY_REFRESH_KEY = 'erip.refresh';
 
@@ -16,6 +23,17 @@ export class AuthService {
   readonly me = signal<Me | null>(null);
   readonly isSuperadmin = computed(() => this.me()?.role === 'superadmin');
   readonly canManageTemplates = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
+  readonly canWrite = computed(() => ['superadmin', 'local_admin', 'specialist'].includes(this.me()?.role ?? ''));
+  readonly canLaunchMeasure = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
+  readonly canSkip = computed(() => {
+    const me = this.me();
+    if (!me) return false;
+    if (me.role === 'superadmin' || me.role === 'local_admin') return true;
+    return me.role === 'specialist' && me.can_approve === true;
+  });
+  readonly showSchema = computed(() => this.me()?.show_schema === true);
+  readonly showSupplier = computed(() => this.me()?.show_supplier === true);
+  readonly showServiceOrg = computed(() => this.me()?.show_service_org === true);
 
   /** Access живёт только в памяти процесса. После перезагрузки страницы его восстанавливает refresh-cookie. */
   private access: string | null = null;
@@ -24,8 +42,29 @@ export class AuthService {
     return this.access;
   }
 
-  login(username: string, password: string): Observable<Me> {
-    return this.http.post<{ access: string }>('/api/v1/auth/token/', { username, password }).pipe(
+  login(username: string, password: string): Observable<LoginGate> {
+    return this.http.post<LoginGate>('/api/v1/auth/token/', { username, password }).pipe(
+      tap((body) => {
+        if (body.access) this.storeAccess(body.access);
+      }),
+      switchMap((body) => (body.access ? this.loadMe().pipe(map(() => body)) : of(body))),
+    );
+  }
+
+  chooseRole(ticket: string, role: string): Observable<Me> {
+    return this.http.post<{ access: string }>('/api/v1/auth/role-choice/', { ticket, role }).pipe(
+      tap((tokens) => this.storeAccess(tokens.access)),
+      switchMap(() => this.loadMe()),
+    );
+  }
+
+  /** Временный вход без пароля. Список пуст, если заглушка выключена (прод). */
+  stubRoles(): Observable<{ id: string; label: string }[]> {
+    return this.http.get<{ id: string; label: string }[]>('/api/v1/auth/stub-role/');
+  }
+
+  loginAsRole(role: string): Observable<Me> {
+    return this.http.post<{ access: string }>('/api/v1/auth/stub-role/', { role }).pipe(
       tap((tokens) => this.storeAccess(tokens.access)),
       switchMap(() => this.loadMe()),
     );
@@ -56,9 +95,9 @@ export class AuthService {
   }
 
   changePassword(oldPassword: string, newPassword: string): Observable<void> {
-    return this.http.post('/api/v1/auth/password/', { old_password: oldPassword, new_password: newPassword }, {
-      responseType: 'text',
-    }).pipe(map(() => undefined));
+    return this.http.post('/api/v1/auth/password/', {
+      old_password: oldPassword, new_password: newPassword,
+    }, { observe: 'response' }).pipe(map(() => undefined));
   }
 
   logout(): void {

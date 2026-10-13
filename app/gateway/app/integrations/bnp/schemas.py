@@ -3,7 +3,8 @@
 Правила: JSON в UTF-8; personType natural/legal/sole_trader с условной обязательностью полей;
 personalId — структура личного номера РБ (14 символов, латинские прописные); unp — 9 цифр;
 amount — строка с разделителем «.» и двумя знаками; даты YYYY-MM-DD; serviceId/typeId/docType —
-из справочников БНП. Документы принимаются только в .pdf и не более 15 МБ (инструкция ЛК).
+из справочников БНП. Документ — .pdf не более 15 МБ; файл ЭЦП в пакете — signatureName
+с расширением .pdf.sgn или .pdf.p7s (detachedSign: подпись отдельным файлом).
 """
 
 from __future__ import annotations
@@ -136,6 +137,14 @@ class Doc(BnpModel):
     def pdf_only(cls, value):
         if not value.lower().endswith(".pdf"):
             raise ValueError("принимаются только документы .pdf")
+        return value
+
+    @field_validator("signature_name")
+    @classmethod
+    def signature_file(cls, value):
+        lower = value.lower()
+        if not (lower.endswith(".pdf.p7s") or lower.endswith(".pdf.sgn")):
+            raise ValueError("файл ЭЦП в пакете: .pdf.sgn или .pdf.p7s")
         return value
 
     @field_validator("doc_type")

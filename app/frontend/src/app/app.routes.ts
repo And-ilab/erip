@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, superadminGuard } from './core/auth.guard';
+import { authGuard, importGuard, settingsAdminGuard, superadminGuard } from './core/auth.guard';
 import { ShellComponent } from './layout/shell.component';
 
 export const routes: Routes = [
@@ -24,6 +24,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/measures/measures-list.component').then((m) => m.MeasuresListComponent),
       },
       {
+        path: 'measures/:id',
+        loadComponent: () => import('./features/measures/measure-detail.component').then((m) => m.MeasureDetailComponent),
+      },
+      {
         path: 'contracts',
         loadComponent: () => import('./features/contracts/contracts-list.component').then((m) => m.ContractsListComponent),
       },
@@ -40,9 +44,57 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),
       },
+      { path: 'templates', redirectTo: 'settings/work/messages', pathMatch: 'full' },
+      { path: 'scenarios', redirectTo: 'settings/work/scenario', pathMatch: 'full' },
       {
-        path: 'templates',
-        loadComponent: () => import('./features/templates/templates.component').then((m) => m.TemplatesComponent),
+        path: 'claims',
+        loadComponent: () => import('./features/claims/claims-board.component').then((m) => m.ClaimsBoardComponent),
+        children: [
+          {
+            path: ':id',
+            loadComponent: () => import('./features/claims/claim-detail.component').then((m) => m.ClaimDetailComponent),
+          },
+        ],
+      },
+      {
+        path: 'settings',
+        loadComponent: () => import('./features/settings/settings-shell.component').then((m) => m.SettingsShellComponent),
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'rules' },
+          {
+            path: 'rules',
+            loadComponent: () => import('./features/settings/rating-rules.component').then((m) => m.RatingRulesComponent),
+          },
+          {
+            path: 'directory',
+            canActivate: [settingsAdminGuard],
+            loadComponent: () => import('./features/settings/org-directory.component').then((m) => m.OrgDirectoryComponent),
+          },
+          {
+            path: 'work',
+            loadComponent: () => import('./features/settings/settings-work.component').then((m) => m.SettingsWorkComponent),
+            children: [
+              { path: '', pathMatch: 'full', redirectTo: 'scenario' },
+              {
+                path: 'scenario',
+                loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
+              },
+              {
+                path: 'messages',
+                loadComponent: () => import('./features/templates/templates.component').then((m) => m.TemplatesComponent),
+              },
+              {
+                path: 'forms',
+                loadComponent: () => import('./features/settings/print-forms.component').then((m) => m.PrintFormsComponent),
+              },
+            ],
+          },
+        ],
+      },
+      {
+        path: 'imports',
+        canActivate: [importGuard],
+        loadComponent: () => import('./features/imports/imports.component').then((m) => m.ImportsComponent),
       },
       {
         path: 'errors',

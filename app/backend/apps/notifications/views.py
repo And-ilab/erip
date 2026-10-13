@@ -22,7 +22,7 @@ from .services.dispatcher import NotificationDispatcher, apply_delivery_status
 class MessageTemplateViewSet(AuditedViewSetMixin, viewsets.ModelViewSet):
     """Шаблоны: центральные (organization=None) видны всем, локальные — своей схеме."""
 
-    queryset = MessageTemplate.objects.all()
+    queryset = MessageTemplate.objects.prefetch_related("revisions__author")
     serializer_class = MessageTemplateSerializer
     permission_classes = [RolePermission]
     write_roles = ("superadmin", "local_admin")
@@ -35,6 +35,26 @@ class MessageTemplateViewSet(AuditedViewSetMixin, viewsets.ModelViewSet):
         if user.is_superadmin:
             return qs
         return qs.filter(Q(organization__isnull=True) | Q(organization=user.organization_id))
+
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        """Возврат из архива. Повтор группы и канала с уже действующим шаблоном отклоняется."""
+        template = self.get_object()
+        template.is_active = True
+        template.deactivated_at = None
+        try:
+            template.save(update_fields=["is_active", "deactivated_at", "updated_at"])
+        except IntegrityError as exc:
+            raise ValidationError("Уже есть действующий шаблон с этой группой и каналом") from exc
+        return Response(self.get_serializer(template).data)
+
+    @action(detail=True, methods=["post"])
+    def rollback(self, request, pk=None):
+        """Старый текст становится новой версией. Уже отправленные оповещения остаются на своём номере."""
+        from .services.versions import restore_template
+
+        template = restore_template(self.get_object(), int(request.data.get("version") or 0), request.user)
+        return Response(self.get_serializer(template).data)
 
     @action(detail=True, methods=["post"], permission_classes=[RolePermission], write_roles=None)
     def preview(self, request, pk=None):

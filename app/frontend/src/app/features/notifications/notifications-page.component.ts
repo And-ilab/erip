@@ -42,6 +42,7 @@ import { Notification } from '../../core/models';
         </mat-form-field>
       </div>
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
+      <div class="list-pane">
       <table mat-table [dataSource]="rows()" class="mat-elevation-z1">
         <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Создано</th><td mat-cell *matCellDef="let n">{{ n.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
         <ng-container matColumnDef="channel"><th mat-header-cell *matHeaderCellDef>Канал</th><td mat-cell *matCellDef="let n">{{ n.channel_display }}</td></ng-container>
@@ -52,6 +53,7 @@ import { Notification } from '../../core/models';
         <tr mat-header-row *matHeaderRowDef="columns"></tr>
         <tr mat-row *matRowDef="let row; columns: columns" class="clickable-row" (click)="selected.set(row)"></tr>
       </table>
+      </div>
       <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
       @if (selected(); as n) {
         <h3>Итоговый текст</h3>

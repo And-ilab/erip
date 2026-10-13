@@ -22,6 +22,7 @@ from .schemas import (
     ClaimantInfo,
     Envelope,
     SaveDataDebtRequest,
+    SaveDataDebtWofeRequest,
     SaveRepayRequest,
 )
 
@@ -38,6 +39,7 @@ class PrisEndpoints:
     BY_PROC_NUM = "/core/bi/GetClaimantInfoByProcNum"
     BY_NUM_DEBT = "/core/bi/GetClaimantInfoByNumDebt"
     SAVE_DATA_DEBT = "/core/BI/PutClaimantSaveDataDebt"
+    SAVE_DATA_DEBT_WOFE = "/core/BI/PutClaimantSaveDataDebtWOFE"
     SAVE_REPAY_DEBT = "/core/BI/PutClaimantSaveRepayDebt"
     NSI = "/core/BI/NSI/GetNSIData"
 
@@ -60,6 +62,9 @@ class TokenCache(ABC):
     async def get(self) -> PrisToken | None: ...
 
     @abstractmethod
+    async def peek(self) -> PrisToken | None: ...
+
+    @abstractmethod
     async def set(self, token: PrisToken, ttl_seconds: int) -> None: ...
 
     @abstractmethod
@@ -80,6 +85,9 @@ class InMemoryTokenCache(TokenCache):
     async def set(self, token: PrisToken, ttl_seconds: int) -> None:
         self._token, self._expires_at = token, self._clock() + ttl_seconds
 
+    async def peek(self) -> PrisToken | None:
+        return self._token
+
     async def clear(self) -> None:
         self._token, self._expires_at = None, 0.0
 
@@ -88,6 +96,7 @@ class RedisTokenCache(TokenCache):
     """Общий кэш токена для нескольких реплик шлюза."""
 
     key = "gateway:pris:token"
+    last_key = "gateway:pris:token:last"
 
     def __init__(self, redis_url: str):
         from redis.asyncio import Redis
@@ -101,11 +110,20 @@ class RedisTokenCache(TokenCache):
         token, _, timestamp = value.partition("|")
         return PrisToken(token, timestamp)
 
+    async def peek(self) -> PrisToken | None:
+        value = await self.redis.get(self.last_key)
+        if not value:
+            return None
+        token, _, timestamp = value.partition("|")
+        return PrisToken(token, timestamp)
+
     async def set(self, token: PrisToken, ttl_seconds: int) -> None:
-        await self.redis.set(self.key, f"{token.token}|{token.timestamp}", ex=ttl_seconds)
+        raw = f"{token.token}|{token.timestamp}"
+        await self.redis.set(self.key, raw, ex=ttl_seconds)
+        await self.redis.set(self.last_key, raw, ex=86400)
 
     async def clear(self) -> None:
-        await self.redis.delete(self.key)
+        await self.redis.delete(self.key, self.last_key)
 
 
 # ---------------------------------------------------------------- клиенты
@@ -133,6 +151,9 @@ class PrisClient(ABC):
     async def put_save_data_debt(self, request: SaveDataDebtRequest) -> Envelope: ...
 
     @abstractmethod
+    async def put_save_data_debt_wofe(self, request: SaveDataDebtWofeRequest) -> Envelope: ...
+
+    @abstractmethod
     async def put_save_repay_debt(self, request: SaveRepayRequest) -> Envelope: ...
 
     @abstractmethod
@@ -147,10 +168,25 @@ class _TokenMixin:
         cached = await self.cache.get()
         if cached is not None:
             return cached
+        # Регламент: новый x-token выдаётся после logout. Истёкший токен ещё доступен через peek.
+        await self._end_session()
         token = await self.authorize()
         # Запас 60 с, чтобы не отправить запрос с истекающим токеном
         await self.cache.set(token, max(self.settings.pris_token_ttl_seconds - 60, 60))
         return token
+
+    async def _end_session(self) -> None:
+        stale = await self.cache.peek()
+        await self.cache.clear()
+        if stale is None:
+            return
+        try:
+            await self.logout_token(stale)
+        except Exception:
+            logger.info("ПРИС: logout перед новой авторизацией не выполнен")
+
+    async def logout_token(self, token: PrisToken) -> None:
+        return None
 
 
 class HttpPrisClient(_TokenMixin, PrisClient):
@@ -175,28 +211,41 @@ class HttpPrisClient(_TokenMixin, PrisClient):
         return PrisToken(auth.x_token, auth.x_timestamp)
 
     async def logout(self) -> None:
-        token = await self.cache.get()
+        token = await self.cache.get() or await self.cache.peek()
+        await self.cache.clear()
         if token is not None:
-            await self.http.post(self.base_url + PrisEndpoints.LOGOUT, headers={"x-token": token.token})
-            await self.cache.clear()
+            await self.logout_token(token)
+
+    async def logout_token(self, token: PrisToken) -> None:
+        await self.http.post(
+            self.base_url + PrisEndpoints.LOGOUT, headers={"x-token": token.token}, timeout=20.0,
+        )
 
     async def _headers(self) -> dict:
         token = await self.token()
         return {"x-user_id": self.settings.pris_user_id, "x-token": token.token, "x-timestamp": token.timestamp}
 
     async def _get_result(self, path: str) -> str:
-        response = await self.http.get(self.base_url + path)
+        response = await self.http.get(self.base_url + path, timeout=20.0)
         self._raise_for_status(response)
         return str(response.json().get("result", ""))
 
-    async def _post(self, path: str, payload: dict | None) -> Envelope:
-        response = await self.http.post(self.base_url + path, json=payload, headers=await self._headers())
+    async def _post(self, path: str, payload: dict | None, *, accepted: bool = False) -> Envelope:
+        response = await self.http.post(
+            self.base_url + path, json=payload, headers=await self._headers(), timeout=60.0,
+        )
         if response.status_code == 401:
-            await self.cache.clear()  # токен истёк раньше срока — повторяем один раз
-            response = await self.http.post(self.base_url + path, json=payload, headers=await self._headers())
+            await self._end_session()
+            response = await self.http.post(
+                self.base_url + path, json=payload, headers=await self._headers(), timeout=60.0,
+            )
         self._raise_for_status(response)
         envelope = Envelope.model_validate(response.json())
-        if not envelope.ok:
+        if accepted:
+            reason = envelope.put_rejection()
+            if reason:
+                raise PrisError(f"ПРИС: {reason}")
+        elif not envelope.ok:
             raise PrisError(f"ПРИС: {envelope.message or envelope.tag or 'ошибка бизнес-логики'}")
         return envelope
 
@@ -212,23 +261,49 @@ class HttpPrisClient(_TokenMixin, PrisClient):
         return await self._get_result(PrisEndpoints.VERSION)
 
     async def get_by_proc_num(self, request: ByProcNumRequest) -> list[ClaimantInfo]:
-        envelope = await self._post(PrisEndpoints.BY_PROC_NUM, request.model_dump())
+        envelope = await self._post(PrisEndpoints.BY_PROC_NUM, request.pris_body())
         return [ClaimantInfo.model_validate(item) for item in envelope.data]
 
     async def get_by_num_debt(self, request: ByNumDebtRequest) -> list[ClaimantInfo]:
-        envelope = await self._post(PrisEndpoints.BY_NUM_DEBT, request.model_dump())
+        envelope = await self._post(PrisEndpoints.BY_NUM_DEBT, request.pris_body())
         return [ClaimantInfo.model_validate(item) for item in envelope.data]
 
     async def put_save_data_debt(self, request: SaveDataDebtRequest) -> Envelope:
-        return await self._post(PrisEndpoints.SAVE_DATA_DEBT, request.model_dump())
+        return await self._post(PrisEndpoints.SAVE_DATA_DEBT, request.model_dump(mode="json"), accepted=True)
+
+    async def put_save_data_debt_wofe(self, request: SaveDataDebtWofeRequest) -> Envelope:
+        return await self._post(PrisEndpoints.SAVE_DATA_DEBT_WOFE, request.model_dump(mode="json"), accepted=True)
 
     async def put_save_repay_debt(self, request: SaveRepayRequest) -> Envelope:
-        return await self._post(PrisEndpoints.SAVE_REPAY_DEBT, request.model_dump())
+        return await self._post(PrisEndpoints.SAVE_REPAY_DEBT, request.model_dump(mode="json"), accepted=True)
 
     async def get_nsi(self) -> list[dict]:
-        response = await self.http.post(self.base_url + PrisEndpoints.NSI, headers=await self._headers())
+        response = await self.http.post(
+            self.base_url + PrisEndpoints.NSI, headers=await self._headers(), timeout=60.0,
+        )
+        if response.status_code == 401:
+            await self._end_session()
+            response = await self.http.post(
+                self.base_url + PrisEndpoints.NSI, headers=await self._headers(), timeout=60.0,
+            )
         self._raise_for_status(response)
-        return response.json()
+        body = response.json()
+        if isinstance(body, dict) and body.get("code") == "0":
+            raise PrisError(f"ПРИС: {body.get('message') or body.get('tag') or 'справочник не получен'}")
+        if not isinstance(body, list):
+            raise PrisError("ПРИС: справочник пришёл не массивом")
+        return body
+
+
+def _stub_accepted(cl_num: str) -> Envelope:
+    return Envelope(
+        code="1",
+        data=[{
+            "responseId": f"stub-{cl_num}",
+            "processStatus": 1000,
+            "processMessage": "Данные получены успешно!",
+        }],
+    )
 
 
 SAMPLE_CLAIMANT_INFO = {
@@ -276,11 +351,16 @@ class StubPrisClient(_TokenMixin, PrisClient):
     async def put_save_data_debt(self, request: SaveDataDebtRequest) -> Envelope:
         await self.token()
         logger.info("ПРИС (заглушка): PutClaimantSaveDataDebt, записей %s", len(request.package))
-        return Envelope(code="1", data=[{"p_cl_num": i.identif.p_cl_num} for i in request.package])
+        return _stub_accepted(request.package[0].identif.p_cl_num)
+
+    async def put_save_data_debt_wofe(self, request: SaveDataDebtWofeRequest) -> Envelope:
+        await self.token()
+        logger.info("ПРИС (заглушка): PutClaimantSaveDataDebtWOFE, записей %s", len(request.package))
+        return _stub_accepted(request.package[0].identif.p_cl_num)
 
     async def put_save_repay_debt(self, request: SaveRepayRequest) -> Envelope:
         await self.token()
-        return Envelope(code="1", data=[{"p_cl_num": i.p_cl_num} for i in request.package])
+        return _stub_accepted(request.package[0].p_cl_num)
 
     async def get_nsi(self) -> list[dict]:
         await self.token()
