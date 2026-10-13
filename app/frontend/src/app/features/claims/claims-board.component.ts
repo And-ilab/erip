@@ -13,6 +13,7 @@ import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
+import { ratingMark, ratingMarkClass, ratingMarkTitle } from '../rating-mark';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -110,12 +111,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                     <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
                     @if (card.rating_label || card.effective_group) {
                       <div class="card-marks">
-                        @if (card.rating_label) {
-                          <span class="rating-badge r{{ letter(card.rating_label) }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                        }
-                        @if (card.effective_group) {
-                          <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
-                        }
+                        <span [class]="markClass(card.rating_label, card.effective_group)" tabindex="0" [attr.title]="markTitle(card.rating_label, card.effective_group)">{{ markText(card.rating_label, card.effective_group) }}</span>
                       </div>
                     }
                   </div>
@@ -799,6 +795,18 @@ export class ClaimsBoardComponent implements OnInit {
 
   protected letter(label: string): string {
     return (label || '—').slice(0, 1);
+  }
+
+  protected markText(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMark(rating, group);
+  }
+
+  protected markClass(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMarkClass(rating, group);
+  }
+
+  protected markTitle(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMarkTitle(rating, group);
   }
 
   protected street(address: string): string {

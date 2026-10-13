@@ -15,6 +15,7 @@ import { hideColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
+import { ratingMark, ratingMarkClass, ratingMarkTitle } from '../rating-mark';
 import { DomainFilterComponent, DomainRule, contractDomainFields, parseDomain } from '../domain-filter.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
@@ -400,12 +401,7 @@ const COLUMN_LABELS: Record<string, string> = {
                       <div class="name">{{ card.payer || 'Без наименования' }}</div>
                       @if (card.rating_label || card.debt_group) {
                         <div class="card-marks">
-                          @if (card.rating_label) {
-                            <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                          }
-                          @if (card.debt_group) {
-                            <span class="group-badge g{{ card.debt_group }}" tabindex="0" title="Группа задолженности {{ card.debt_group }}">{{ card.debt_group }}</span>
-                          }
+                          <span [class]="markClass(card.rating_label, card.debt_group)" tabindex="0" [attr.title]="markTitle(card.rating_label, card.debt_group)">{{ markText(card.rating_label, card.debt_group) }}</span>
                         </div>
                       }
                     </div>
@@ -1450,6 +1446,18 @@ export class ContractsListComponent implements OnInit {
 
   protected short(text: string | null | undefined): string {
     return briefText(text || '');
+  }
+
+  protected markText(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMark(rating, group);
+  }
+
+  protected markClass(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMarkClass(rating, group);
+  }
+
+  protected markTitle(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMarkTitle(rating, group);
   }
 
   protected periodText(row: AccountService): string {

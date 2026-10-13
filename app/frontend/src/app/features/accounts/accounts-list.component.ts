@@ -20,6 +20,7 @@ import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
+import { ratingMark, ratingMarkClass, ratingMarkTitle } from '../rating-mark';
 import { DomainFilterComponent, DomainRule, accountDomainFields, parseDomain } from '../domain-filter.component';
 import { AccountsMapComponent } from './accounts-map.component';
 
@@ -453,12 +454,7 @@ interface GroupSection {
                       <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
                       @if (card.rating_label || card.effective_group) {
                         <div class="card-marks">
-                          @if (card.rating_label) {
-                            <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                          }
-                          @if (card.effective_group) {
-                            <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
-                          }
+                          <span [class]="markClass(card.rating_label, card.effective_group)" tabindex="0" [attr.title]="markTitle(card.rating_label, card.effective_group)">{{ markText(card.rating_label, card.effective_group) }}</span>
                         </div>
                       }
                     </div>
@@ -925,6 +921,18 @@ export class AccountsListComponent implements OnInit {
 
   protected short(text: string | null | undefined): string {
     return briefText(text || '');
+  }
+
+  protected markText(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMark(rating, group);
+  }
+
+  protected markClass(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMarkClass(rating, group);
+  }
+
+  protected markTitle(rating: string | null | undefined, group: number | null | undefined): string {
+    return ratingMarkTitle(rating, group);
   }
 
   boardCell(row: AccountRow, name: string): string {

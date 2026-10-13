@@ -166,6 +166,10 @@ table.mat-mdc-table {
   &.rA { background: #2e7d32; } &.rB { background: var(--erip-accent); } &.rC { background: #ef6c00; }
   &.rD { background: #d84315; } &.rE { background: #8e1b1b; }
 }
+.rating-badge.pair, .group-badge.pair {
+  height: 22px; min-width: 0; padding: 0 10px; border-radius: 999px; font-size: 11px; line-height: 1; white-space: nowrap;
+}
+.group-badge.pair { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; font-weight: 700; }
 .chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
   background: var(--erip-primary-soft); color: var(--erip-primary);
