@@ -451,19 +451,21 @@ interface GroupSection {
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <div class="card-head">
                       <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                      @if (card.effective_group) {
-                        <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                      @if (card.rating_label || card.effective_group) {
+                        <div class="card-marks">
+                          @if (card.rating_label) {
+                            <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
+                          }
+                          @if (card.effective_group) {
+                            <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
+                          }
+                        </div>
                       }
                     </div>
                     <div class="line">
                       <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
                       @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ short(street(card.account_address)) }}</span> }
                     </div>
-                    @if (card.rating_label) {
-                      <div class="group-line">
-                        <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                      </div>
-                    }
                     <div class="line one-line" tabindex="0" title="Сценарий">{{ short(card.scenario_brief) === '—' ? 'Сценарий не назначен' : short(card.scenario_brief) }}</div>
                     @if (card.ownership_type_name || card.acc_category_full) {
                       <div class="line">
@@ -655,7 +657,7 @@ interface GroupSection {
     .k-card.g5 { border-left-color: #c62828; } .k-card.g6 { border-left-color: #7f1d1d; }
     .k-card .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
     .k-card .name { font-weight: 700; font-size: 14px; line-height: 1.25; flex: 1; min-width: 0; color: #1f2933; }
-    .k-card .card-head .group-badge { flex: 0 0 auto; }
+    .k-card .card-head .card-marks { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
     .k-card .stage-btn {
       position: absolute; top: 8px; right: 8px; border: 1px solid #d8dce0; background: #fff;
       color: var(--erip-primary); border-radius: 4px; font-size: 11px; line-height: 1.2;
