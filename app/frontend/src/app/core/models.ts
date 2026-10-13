@@ -418,6 +418,8 @@ export interface MeasureRow {
   debtor_name: string;
   debtor_account: string;
   debtor_id: number | null;
+  rating_label?: string;
+  effective_group?: number | null;
   assignee_name: string;
   next_action: string;
   artifact?: string;

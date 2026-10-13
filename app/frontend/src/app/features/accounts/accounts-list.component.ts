@@ -20,8 +20,8 @@ import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
-import { ratingMark, ratingMarkClass, ratingMarkTitle } from '../rating-mark';
 import { DomainFilterComponent, DomainRule, accountDomainFields, parseDomain } from '../domain-filter.component';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -97,6 +97,7 @@ interface GroupSection {
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
     CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent, DomainFilterComponent,
+    KanbanDebtorComponent,
   ],
   template: `
     <div class="registry">
@@ -450,49 +451,23 @@ interface GroupSection {
                 @for (card of column.cards; track card.id) {
                   <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                    <div class="card-head">
-                      <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                      @if (card.rating_label || card.effective_group) {
-                        <div class="card-marks">
-                          <span [class]="markClass(card.rating_label, card.effective_group)" tabindex="0" [attr.title]="markTitle(card.rating_label, card.effective_group)">{{ markText(card.rating_label, card.effective_group) }}</span>
-                        </div>
-                      }
-                    </div>
-                    <div class="line">
-                      <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
-                      @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ short(street(card.account_address)) }}</span> }
-                    </div>
-                    <div class="line one-line" tabindex="0" title="Сценарий">{{ short(card.scenario_brief) === '—' ? 'Сценарий не назначен' : short(card.scenario_brief) }}</div>
-                    @if (card.ownership_type_name || card.acc_category_full) {
-                      <div class="line">
-                        @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
-                        @if (card.ownership_type_name && card.acc_category_full) { · }
-                        @if (card.acc_category_full) { <span tabindex="0" title="Тип объекта жилфонда">{{ short(card.acc_category_full) }}</span> }
-                      </div>
-                    }
-                    <div class="line">
-                      <span tabindex="0" title="Кол-во месяцев долга">{{ card.months_debt ?? '—' }}</span>
-                      · <span tabindex="0" title="Проживающих">{{ card.subj_count ?? '—' }}</span>
-                      · <span tabindex="0" title="Зарегистрированных">{{ card.registered_count ?? '—' }}</span>
-                    </div>
-                    <div class="money">
-                      <span tabindex="0" title="Сумма задолженности"><app-money [value]="card.obligation_total" [blank]="false" [sign]="false" /></span>
-                      <small>
-                        <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
-                        · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></span>
-                      </small>
-                    </div>
-                    <div class="foot">
-                      @if (mark(card); as note) {
-                        <span class="when">
-                          <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-                          {{ note }}
-                        </span>
-                      } @else { <span></span> }
-                      @if (initials(card.assigned_name); as who) {
-                        <span class="who" [style.background]="avatarColor(card.assigned_name)" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
-                      }
-                    </div>
+                    <app-kanban-debtor
+                      [name]="card.short_fio || 'Без ФИО'"
+                      [rating]="card.rating_label"
+                      [group]="card.effective_group"
+                      [account]="card.client_account"
+                      [address]="card.account_address ? short(street(card.account_address)) : ''"
+                      [scenario]="scenarioLine(card)"
+                      [ownership]="card.ownership_type_name ? short(card.ownership_type_name) : ''"
+                      [housing]="card.acc_category_full ? short(card.acc_category_full) : ''"
+                      [months]="card.months_debt"
+                      [residents]="card.subj_count"
+                      [registered]="card.registered_count"
+                      [total]="card.obligation_total"
+                      [principal]="card.debt_total"
+                      [penalty]="card.mulct_total"
+                      [when]="mark(card)"
+                      [specialist]="card.assigned_name" />
                   </article>
                 }
                 </div>
@@ -923,16 +898,9 @@ export class AccountsListComponent implements OnInit {
     return briefText(text || '');
   }
 
-  protected markText(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMark(rating, group);
-  }
-
-  protected markClass(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMarkClass(rating, group);
-  }
-
-  protected markTitle(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMarkTitle(rating, group);
+  protected scenarioLine(card: AccountRow): string {
+    const text = this.short(card.scenario_brief);
+    return text === '—' ? 'Сценарий не назначен' : text;
   }
 
   boardCell(row: AccountRow, name: string): string {

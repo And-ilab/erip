@@ -15,6 +15,7 @@ import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix, Measur
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryChoice, RegistryFilterQuery } from '../registry-filter.component';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -23,7 +24,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     DatePipe, FormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
     MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
-    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent,
+    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, KanbanDebtorComponent,
   ],
   template: `
     <div class="page">
@@ -201,9 +202,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
                 @for (row of laneRows(lane.status); track row.id) {
                   <article class="k-card {{ row.kind }}" [draggable]="canMove()"
                            (dragstart)="startCard($event, row)" (click)="openCard($event, row)">
-                    <div class="name">{{ row.title }}</div>
-                    <div class="line">{{ row.debtor_name || 'ЛС' }} · ЛС {{ row.debtor_account }}</div>
-                    <div class="foot"><span class="when">{{ row.next_action }}</span></div>
+                    <app-kanban-debtor
+                      [name]="row.debtor_name || 'ЛС'"
+                      [rating]="row.rating_label"
+                      [group]="row.effective_group"
+                      [account]="row.debtor_account ? 'ЛС ' + row.debtor_account : ''"
+                      scenarioTitle="Мероприятие"
+                      [scenario]="row.title"
+                      [showPeople]="false"
+                      [showMoney]="false"
+                      [when]="row.next_action"
+                      [specialist]="row.assignee_name"
+                      specialistCaption="Исполнитель" />
                   </article>
                 }
                 @if (laneGroup(lane.status); as group) {
@@ -328,7 +338,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-col[data-status="paused"] h3 { border-bottom-color: #c8962e; }
     .k-col[data-status="cancelled"] h3 { border-bottom-color: #9ca3af; }
     .k-col .list-pane { flex: 1; min-height: 0; }
-    .k-col .list-pane.cards { --list-row: 96px; }
+    .k-col .list-pane.cards { --list-row: 136px; }
     .k-card {
       display: flex; flex-direction: column; gap: 4px; background: #fff; border: 1px solid #e6ebf0;
       border-left: 3px solid #cbd5e1; border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px;

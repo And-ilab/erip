@@ -13,7 +13,8 @@ import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
-import { ratingMark, ratingMarkClass, ratingMarkTitle } from '../rating-mark';
+import { briefText } from '../group-title';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -23,7 +24,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
-    DateFieldComponent,
+    DateFieldComponent, KanbanDebtorComponent,
   ],
   template: `
     <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()">
@@ -107,37 +108,28 @@ import { RegistryViewsComponent } from '../registry-views.component';
               @for (card of laneCards(lane); track card.id) {
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                          [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                  <div class="card-head">
-                    <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                    @if (card.rating_label || card.effective_group) {
-                      <div class="card-marks">
-                        <span [class]="markClass(card.rating_label, card.effective_group)" tabindex="0" [attr.title]="markTitle(card.rating_label, card.effective_group)">{{ markText(card.rating_label, card.effective_group) }}</span>
-                      </div>
+                  <app-kanban-debtor
+                    [name]="card.short_fio || 'Без ФИО'"
+                    [rating]="card.rating_label"
+                    [group]="card.effective_group"
+                    [account]="card.client_account"
+                    [address]="card.account_address ? short(street(card.account_address)) : ''"
+                    [scenario]="scenarioLine(card)"
+                    [ownership]="card.ownership_type_name ? short(card.ownership_type_name) : ''"
+                    [housing]="card.acc_category_full ? short(card.acc_category_full) : ''"
+                    [months]="card.months_debt"
+                    [residents]="card.subj_count"
+                    [registered]="card.registered_count"
+                    [total]="card.obligation_total"
+                    [principal]="card.debt_total"
+                    [penalty]="card.mulct_total"
+                    [when]="mark(card)"
+                    [specialist]="card.assigned_name">
+                    <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
+                    @if (module() === 'notary' && canMove() && courtFrom(card)) {
+                      <button type="button" class="court" (click)="toCourt($event, card)">{{ courtFrom(card) }}</button>
                     }
-                  </div>
-                  <div class="line">
-                    <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
-                    @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ street(card.account_address || '') }}</span> }
-                  </div>
-                  <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
-                  @if (module() === 'notary' && canMove() && courtFrom(card)) {
-                    <button type="button" class="court" (click)="toCourt($event, card)">{{ courtFrom(card) }}</button>
-                  }
-                  <div class="money">
-                    <span tabindex="0" title="Исходящее сальдо с пенями"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
-                    <small class="amount-danger" tabindex="0" title="Исходящее сальдо пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></small>
-                  </div>
-                  <div class="foot">
-                    @if (mark(card); as note) {
-                      <span class="when">
-                        <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-                        {{ note }}
-                      </span>
-                    } @else { <span></span> }
-                    @if (initials(card.assigned_name); as who) {
-                      <span class="who" [style.background]="avatarColor(card.assigned_name)" tabindex="0" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
-                    }
-                  </div>
+                  </app-kanban-debtor>
                 </article>
               }
               </div>
@@ -797,16 +789,13 @@ export class ClaimsBoardComponent implements OnInit {
     return (label || '—').slice(0, 1);
   }
 
-  protected markText(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMark(rating, group);
+  protected short(text: string | null | undefined): string {
+    return briefText(text || '');
   }
 
-  protected markClass(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMarkClass(rating, group);
-  }
-
-  protected markTitle(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMarkTitle(rating, group);
+  protected scenarioLine(card: AccountRow): string {
+    const text = this.short(card.scenario_brief);
+    return text === '—' ? 'Сценарий не назначен' : text;
   }
 
   protected street(address: string): string {

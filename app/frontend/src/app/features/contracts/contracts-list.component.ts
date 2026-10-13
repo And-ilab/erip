@@ -15,8 +15,8 @@ import { hideColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
-import { ratingMark, ratingMarkClass, ratingMarkTitle } from '../rating-mark';
 import { DomainFilterComponent, DomainRule, contractDomainFields, parseDomain } from '../domain-filter.component';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -107,7 +107,7 @@ const COLUMN_LABELS: Record<string, string> = {
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
-    DomainFilterComponent,
+    DomainFilterComponent, KanbanDebtorComponent,
   ],
   template: `
     <div class="registry">
@@ -397,53 +397,25 @@ const COLUMN_LABELS: Record<string, string> = {
                 @for (card of column.cards; track card.sample_id) {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                    <div class="card-head">
-                      <div class="name">{{ card.payer || 'Без наименования' }}</div>
-                      @if (card.rating_label || card.debt_group) {
-                        <div class="card-marks">
-                          <span [class]="markClass(card.rating_label, card.debt_group)" tabindex="0" [attr.title]="markTitle(card.rating_label, card.debt_group)">{{ markText(card.rating_label, card.debt_group) }}</span>
-                        </div>
-                      }
-                    </div>
-                    <div class="line">
-                      <span tabindex="0" title="Идентификатор">{{ personId(card) }}</span>
-                      · <span tabindex="0" title="Лицевые счета">{{ card.ls_count }}</span>
-                      · <span tabindex="0" title="Услуги с задолженностью">{{ card.services_debt_count ?? card.service_count || 0 }}</span>
-                    </div>
-                    @if (card.service_name) {
-                      <div class="line" tabindex="0" title="Услуга">{{ short(card.service_name) }}</div>
-                    }
-                    @if (card.address) {
-                      <div class="line" tabindex="0" title="Адрес">{{ street(card.address) }}</div>
-                    }
-                    @if (card.category) {
-                      <div class="line" tabindex="0" title="Категория">{{ card.category }}</div>
-                    }
-                    @if (card.ownership_type_name || card.housing_object) {
-                      <div class="line">
-                        @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
-                        @if (card.ownership_type_name && card.housing_object) { · }
-                        @if (card.housing_object) { <span tabindex="0" title="Тип объекта жилфонда">{{ short(card.housing_object) }}</span> }
-                      </div>
-                    }
-                    <div class="line">
-                      <span tabindex="0" title="Кол-во месяцев долга">{{ card.months_debt ?? '—' }}</span>
-                      · <span tabindex="0" title="Проживающих">{{ card.subj_count ?? '—' }}</span>
-                      · <span tabindex="0" title="Зарегистрированных">{{ card.registered_count ?? '—' }}</span>
-                    </div>
-                    <div class="money">
-                      <span tabindex="0" title="Сумма задолженности"><app-money [value]="card.obligation" [blank]="false" [sign]="false" /></span>
-                      <small>
-                        <span tabindex="0" title="Сумма основного долга"><app-money [value]="card.principal" [blank]="false" [sign]="false" /></span>
-                        · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="card.penalty" [blank]="false" [sign]="false" /></span>
-                      </small>
-                    </div>
-                    <div class="foot">
-                      <span class="when">{{ cardMark(card) }}</span>
-                      @if (initials(card.assigned_name); as who) {
-                        <span class="who" [style.background]="avatarColor(card.assigned_name)" tabindex="0" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
-                      }
-                    </div>
+                    <app-kanban-debtor
+                      [name]="card.payer || 'Без наименования'"
+                      [rating]="card.rating_label"
+                      [group]="card.debt_group"
+                      accountTitle="Идентификатор"
+                      [account]="personLine(card)"
+                      [address]="card.address ? street(card.address) : ''"
+                      scenarioTitle="Услуга"
+                      [scenario]="contractLine(card)"
+                      [ownership]="card.ownership_type_name ? short(card.ownership_type_name) : ''"
+                      [housing]="card.housing_object ? short(card.housing_object) : ''"
+                      [months]="card.months_debt"
+                      [residents]="card.subj_count"
+                      [registered]="card.registered_count"
+                      [total]="card.obligation"
+                      [principal]="card.principal"
+                      [penalty]="card.penalty"
+                      [when]="cardMark(card)"
+                      [specialist]="card.assigned_name" />
                   </article>
                 }
                 </div>
@@ -1448,16 +1420,15 @@ export class ContractsListComponent implements OnInit {
     return briefText(text || '');
   }
 
-  protected markText(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMark(rating, group);
+  protected personLine(card: ContractPerson): string {
+    return `${this.personId(card)} · ${card.ls_count} ЛС`;
   }
 
-  protected markClass(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMarkClass(rating, group);
-  }
-
-  protected markTitle(rating: string | null | undefined, group: number | null | undefined): string {
-    return ratingMarkTitle(rating, group);
+  protected contractLine(card: ContractPerson): string {
+    const name = this.short(card.service_name || card.category || '');
+    const count = card.services_debt_count ?? card.service_count ?? 0;
+    if (name && name !== '—') return count ? `${name} · ${count}` : name;
+    return count ? `Услуг с задолженностью: ${count}` : '—';
   }
 
   protected periodText(row: AccountService): string {

@@ -48,6 +48,8 @@ def test_registry_groups_show_debtor_assignee_and_only_visible_accounts(api, spe
     assert assigned["title"] == "Автообзвон — Напоминание"
     assert assigned["debtor_name"] == "Иванов И.И."
     assert assigned["debtor_account"] == "00001001"
+    assert assigned["rating_label"] == ""
+    assert assigned["effective_group"] is None
     assert assigned["accounts_count"] == 2
     assert assigned["assignee_name"] == "Анна Петровна"
     assert assigned["next_action"] == "20.07.2026"

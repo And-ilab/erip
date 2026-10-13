@@ -640,6 +640,8 @@ class MeasureSerializer(serializers.ModelSerializer):
     debtor_name = serializers.SerializerMethodField()
     debtor_account = serializers.SerializerMethodField()
     debtor_id = serializers.SerializerMethodField()
+    rating_label = serializers.SerializerMethodField()
+    effective_group = serializers.SerializerMethodField()
     assignee_name = serializers.SerializerMethodField()
     next_action = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
@@ -652,7 +654,7 @@ class MeasureSerializer(serializers.ModelSerializer):
             "id", "kind", "kind_display", "status", "status_display", "channel", "template_name",
             "scenario_name", "note", "assignee", "assignee_name", "started_on", "due_on", "days",
             "time_from", "time_to", "created_at", "accounts_count", "artifact", "title",
-            "debtor_name", "debtor_account", "debtor_id", "next_action", "progress",
+            "debtor_name", "debtor_account", "debtor_id", "rating_label", "effective_group", "next_action", "progress",
             "account_item_status", "account_call_line", "needs_approval", "approval", "approval_note",
             "suspension_confirmed_on", "suspension_source", "resumed_on", "resume_source",
             "owner_provider_id", "owner_name",
@@ -679,6 +681,30 @@ class MeasureSerializer(serializers.ModelSerializer):
 
     def get_debtor_id(self, obj):
         return self._debtor(obj)[2]
+
+    def _shown_account(self, obj):
+        if "debtor_rating" in obj.__dict__:
+            return None
+        return obj.accounts.order_by("client_account").first()
+
+    def get_rating_label(self, obj) -> str:
+        if "debtor_rating" in obj.__dict__:
+            return _rating_label(obj.debtor_rating or "", obj.debtor_rating_repeat)
+        account = self._shown_account(obj)
+        if account is None:
+            return ""
+        return _rating_label(account.rating, account.rating_repeat)
+
+    def get_effective_group(self, obj):
+        if "debtor_debt_group" in obj.__dict__ or "debtor_debt_group_manual" in obj.__dict__:
+            manual = obj.debtor_debt_group_manual
+            if manual is not None:
+                return manual
+            return obj.debtor_debt_group
+        account = self._shown_account(obj)
+        if account is None:
+            return None
+        return account.effective_group
 
     def get_assignee_name(self, obj) -> str:
         user = obj.assignee
