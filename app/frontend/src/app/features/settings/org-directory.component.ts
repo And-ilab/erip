@@ -9,6 +9,8 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
+import { Observable } from 'rxjs';
+
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DirectoryUser, OrganizationOption, Role, ServiceOrganizationOption } from '../../core/models';
@@ -18,12 +20,21 @@ interface UserDraft {
   first_name: string;
   middle_name: string;
   username: string;
-  password: string;
+  password?: string;
   email: string;
+  phone: string;
+  position: string;
   role: Role;
   can_approve: boolean;
   contour: 'billing' | 'supplier';
   service_organizations: number[];
+}
+
+interface UserDialogData {
+  roles: { id: Role; label: string }[];
+  services: ServiceOrganizationOption[];
+  user?: DirectoryUser;
+  save: (draft: UserDraft) => Observable<DirectoryUser>;
 }
 
 @Component({
@@ -69,18 +80,26 @@ export class OrgDraftDialog {
   standalone: true,
   imports: [FormsModule, MatDialogModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule],
   template: `
-    <h2 mat-dialog-title>Новый пользователь</h2>
+    <h2 mat-dialog-title>{{ data.user ? 'Пользователь' : 'Новый пользователь' }}</h2>
     <mat-dialog-content class="form">
       <div class="line">
-        <mat-form-field><mat-label>Фамилия</mat-label><input matInput [(ngModel)]="lastName" /></mat-form-field>
-        <mat-form-field><mat-label>Имя</mat-label><input matInput [(ngModel)]="firstName" /></mat-form-field>
-        <mat-form-field><mat-label>Отчество</mat-label><input matInput [(ngModel)]="middleName" /></mat-form-field>
+        <mat-form-field><mat-label>Фамилия</mat-label><input matInput [(ngModel)]="lastName" maxlength="150" /></mat-form-field>
+        <mat-form-field><mat-label>Имя</mat-label><input matInput [(ngModel)]="firstName" maxlength="150" /></mat-form-field>
+        <mat-form-field><mat-label>Отчество</mat-label><input matInput [(ngModel)]="middleName" maxlength="150" /></mat-form-field>
       </div>
       <div class="line">
-        <mat-form-field><mat-label>Логин</mat-label><input matInput [(ngModel)]="username" /></mat-form-field>
-        <mat-form-field><mat-label>Пароль</mat-label><input matInput type="password" [(ngModel)]="password" /></mat-form-field>
+        <mat-form-field><mat-label>Логин</mat-label><input matInput [(ngModel)]="username" maxlength="150" /></mat-form-field>
+        <mat-form-field>
+          <mat-label>{{ data.user ? 'Новый пароль' : 'Пароль' }}</mat-label>
+          <input matInput type="password" [(ngModel)]="password" autocomplete="new-password" />
+        </mat-form-field>
       </div>
-      <mat-form-field><mat-label>E-mail</mat-label><input matInput [(ngModel)]="email" /></mat-form-field>
+      @if (data.user) { <p class="hint">Пустой пароль оставляет прежний.</p> }
+      <div class="line">
+        <mat-form-field><mat-label>E-mail</mat-label><input matInput [(ngModel)]="email" maxlength="254" /></mat-form-field>
+        <mat-form-field><mat-label>Телефон</mat-label><input matInput [(ngModel)]="phone" maxlength="50" /></mat-form-field>
+      </div>
+      <mat-form-field><mat-label>Должность</mat-label><input matInput [(ngModel)]="position" maxlength="250" /></mat-form-field>
       <div class="line">
         <mat-form-field><mat-label>Роль</mat-label>
           <mat-select [(ngModel)]="role">
@@ -108,8 +127,8 @@ export class OrgDraftDialog {
       @if (error) { <p class="err">{{ error }}</p> }
     </mat-dialog-content>
     <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Отмена</button>
-      <button mat-flat-button color="primary" (click)="save()">Создать</button>
+      <button mat-button mat-dialog-close [disabled]="saving">Отмена</button>
+      <button mat-flat-button color="primary" (click)="save()" [disabled]="saving">{{ data.user ? 'Сохранить' : 'Создать' }}</button>
     </mat-dialog-actions>
   `,
   styles: `
@@ -123,19 +142,22 @@ export class OrgDraftDialog {
   `,
 })
 export class UserDraftDialog {
-  private readonly ref = inject(MatDialogRef<UserDraftDialog, UserDraft>);
-  protected readonly data = inject<{ roles: { id: Role; label: string }[]; services: ServiceOrganizationOption[] }>(MAT_DIALOG_DATA);
-  protected lastName = '';
-  protected firstName = '';
-  protected middleName = '';
-  protected username = '';
+  private readonly ref = inject(MatDialogRef<UserDraftDialog, boolean>);
+  protected readonly data = inject<UserDialogData>(MAT_DIALOG_DATA);
+  protected lastName = this.data.user?.last_name ?? '';
+  protected firstName = this.data.user?.first_name ?? '';
+  protected middleName = this.data.user?.middle_name ?? '';
+  protected username = this.data.user?.username ?? '';
   protected password = '';
-  protected email = '';
-  protected role: Role = this.data.roles[0]?.id ?? 'specialist';
-  protected contour: 'billing' | 'supplier' = 'billing';
-  protected canApprove = false;
-  protected services: number[] = [];
+  protected email = this.data.user?.email ?? '';
+  protected phone = this.data.user?.phone ?? '';
+  protected position = this.data.user?.position ?? '';
+  protected role: Role = this.data.user?.role ?? this.data.roles[0]?.id ?? 'specialist';
+  protected contour: 'billing' | 'supplier' = this.data.user?.role === 'specialist' ? this.data.user.contour : 'billing';
+  protected canApprove = !!this.data.user?.can_approve;
+  protected services: number[] = [...(this.data.user?.service_organizations ?? [])];
   protected error = '';
+  protected saving = false;
 
   protected toggleService(id: number, event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
@@ -144,11 +166,12 @@ export class UserDraftDialog {
 
   protected save(): void {
     const username = this.username.trim();
-    if (!username || !this.password) {
+    const password = this.password.trim();
+    if (!username || (!this.data.user && !password)) {
       this.error = 'Укажите логин и пароль';
       return;
     }
-    if (this.password.length < 8) {
+    if (password && password.length < 8) {
       this.error = 'Пароль не короче 8 символов';
       return;
     }
@@ -157,17 +180,27 @@ export class UserDraftDialog {
       this.error = 'Отметьте хотя бы одну организацию поставщика';
       return;
     }
-    this.ref.close({
+    this.error = '';
+    this.saving = true;
+    this.data.save({
       last_name: this.lastName.trim(),
       first_name: this.firstName.trim(),
       middle_name: this.middleName.trim(),
       username,
-      password: this.password,
+      password: password || undefined,
       email: this.email.trim(),
+      phone: this.phone.trim(),
+      position: this.position.trim(),
       role: this.role,
       can_approve: this.role === 'specialist' && this.canApprove,
       contour,
       service_organizations: contour === 'supplier' ? this.services : [],
+    }).subscribe({
+      next: () => this.ref.close(true),
+      error: (err) => {
+        this.saving = false;
+        this.error = errorMessage(err);
+      },
     });
   }
 }
@@ -207,7 +240,7 @@ export class UserDraftDialog {
       <section class="card">
         @if (selected(); as org) {
           <h2>Пользователи — {{ org.name }}</h2>
-          <p class="muted">Учётные записи ведутся в разрезе организации. Роль назначается в рамках организации; при блокировке открытые задания, мероприятия и закреплённые счета переходят другому сотруднику той же схемы и того же контура.</p>
+          <p class="muted">Учётные записи ведутся в разрезе организации. ФИО, логин, контакты, должность, роль и контур меняются кнопкой «Изменить». При блокировке открытые задания, мероприятия и закреплённые счета переходят другому сотруднику той же схемы и того же контура.</p>
           <div class="toolbar">
             <button mat-stroked-button (click)="createUser()">+ Новый пользователь</button>
             <button type="button" class="tab" [class.on]="tab() === 'users'" (click)="tab.set('users')">Пользователи</button>
@@ -237,8 +270,11 @@ export class UserDraftDialog {
                       </td>
                       <td><span class="status" [class.off]="!user.is_active">{{ user.is_active ? 'активен' : 'заблокирован' }}</span></td>
                       <td>{{ when(user.last_login) }}</td>
-                      <td>
+                      <td class="actions">
                         @if (canToggle(user)) {
+                          <button mat-icon-button type="button" (click)="editUser(user)" matTooltip="Изменить" aria-label="Изменить">
+                            <mat-icon>edit</mat-icon>
+                          </button>
                           <button mat-icon-button type="button" (click)="toggle(user)" [matTooltip]="user.is_active ? 'Заблокировать' : 'Вернуть доступ'">
                             <mat-icon>{{ user.is_active ? 'block' : 'lock_open' }}</mat-icon>
                           </button>
@@ -294,6 +330,7 @@ export class UserDraftDialog {
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--erip-border); font-size: 13px; vertical-align: middle; }
     th { color: var(--erip-muted); }
+    .actions { white-space: nowrap; text-align: right; }
     .who { display: flex; align-items: center; gap: 8px; }
     .role {
       display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
@@ -428,26 +465,11 @@ export class OrgDirectoryComponent implements OnInit {
   }
 
   protected createUser(): void {
-    const org = this.selected();
-    if (!org) return;
-    this.api.serviceOrganizations(org.id).subscribe({
-      next: (page) => {
-        this.dialog.open(UserDraftDialog, {
-          data: { roles: this.creatableRoles(), services: page.results },
-          width: '560px',
-        }).afterClosed().subscribe((draft: UserDraft | undefined) => {
-          if (!draft) return;
-          this.api.saveUser({ ...draft, organization: org.id }).subscribe({
-            next: () => {
-              this.snack.open('Пользователь создан', 'OK', { duration: 2000 });
-              this.loadOrgs(org.id);
-            },
-            error: (err) => this.snack.open(errorMessage(err), 'OK'),
-          });
-        });
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
+    this.openUserDialog();
+  }
+
+  protected editUser(user: DirectoryUser): void {
+    this.openUserDialog(user);
   }
 
   protected toggleApprove(user: DirectoryUser): void {
@@ -497,13 +519,63 @@ export class OrgDirectoryComponent implements OnInit {
     URL.revokeObjectURL(url);
   }
 
-  private creatableRoles(): { id: Role; label: string }[] {
+  private creatableRoles(current?: Role): { id: Role; label: string }[] {
+    const labels: Record<Role, string> = {
+      superadmin: 'Суперадминистратор',
+      local_admin: 'Локальный администратор',
+      specialist: 'Специалист',
+      observer: 'Наблюдатель',
+    };
     const roles: { id: Role; label: string }[] = [
-      { id: 'specialist', label: 'Специалист' },
-      { id: 'observer', label: 'Наблюдатель' },
+      { id: 'specialist', label: labels.specialist },
+      { id: 'observer', label: labels.observer },
     ];
-    if (this.auth.isSuperadmin()) roles.unshift({ id: 'local_admin', label: 'Локальный администратор' });
+    if (this.auth.isSuperadmin()) roles.unshift({ id: 'local_admin', label: labels.local_admin });
+    if (current && !roles.some((item) => item.id === current)) roles.unshift({ id: current, label: labels[current] });
     return roles;
+  }
+
+  private openUserDialog(user?: DirectoryUser): void {
+    const org = this.selected();
+    if (!org) return;
+    this.api.serviceOrganizations(org.id).subscribe({
+      next: (page) => {
+        this.dialog.open(UserDraftDialog, {
+          data: {
+            roles: this.creatableRoles(user?.role),
+            services: page.results,
+            user,
+            save: (draft: UserDraft) => this.api.saveUser(this.userPayload(draft, org.id, user?.id)),
+          },
+          width: '640px',
+        }).afterClosed().subscribe((saved) => {
+          if (!saved) return;
+          this.snack.open(user ? 'Пользователь изменён' : 'Пользователь создан', 'OK', { duration: 2000 });
+          this.loadOrgs(org.id);
+        });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private userPayload(draft: UserDraft, organization: number, id?: number): Partial<DirectoryUser> & { password?: string } {
+    const body: Partial<DirectoryUser> & { password?: string } = {
+      last_name: draft.last_name,
+      first_name: draft.first_name,
+      middle_name: draft.middle_name,
+      username: draft.username,
+      email: draft.email,
+      phone: draft.phone,
+      position: draft.position,
+      role: draft.role,
+      can_approve: draft.can_approve,
+      contour: draft.contour,
+      service_organizations: draft.service_organizations,
+      organization,
+    };
+    if (id) body.id = id;
+    if (draft.password) body.password = draft.password;
+    return body;
   }
 
   private loadOrgs(prefer?: number): void {
