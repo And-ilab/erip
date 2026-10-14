@@ -338,10 +338,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-col[data-status="paused"] h3 { border-bottom-color: #c8962e; }
     .k-col[data-status="cancelled"] h3 { border-bottom-color: #9ca3af; }
     .k-col .list-pane { flex: 1; min-height: 0; }
-    .k-col .list-pane.cards { --list-row: 136px; }
+    .k-col .list-pane.cards { --list-row: 112px; }
     .k-card {
       display: flex; flex-direction: column; gap: 4px; background: #fff; border: 1px solid #e6ebf0;
-      border-left: 3px solid #cbd5e1; border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px;
+      border-left: 3px solid #cbd5e1; border-radius: 8px; padding: 10px 12px 4px; margin-bottom: 8px;
       text-decoration: none; color: inherit; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }

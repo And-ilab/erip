@@ -24,44 +24,54 @@ import { ratingMark, ratingMarkClass, ratingMarkTitle } from './rating-mark';
         @if (address()) { <span tabindex="0" title="Адрес">{{ address() }}</span> }
       </div>
     }
-    @if (showScenario()) {
-      <div class="line one-line" tabindex="0" [attr.title]="scenarioTitle()">{{ scenario() || '—' }}</div>
-    }
-    @if (ownership() || housing()) {
-      <div class="line">
-        @if (ownership()) { <span tabindex="0" title="Тип собственности">{{ ownership() }}</span> }
-        @if (ownership() && housing()) { · }
-        @if (housing()) { <span tabindex="0" title="Тип объекта жилфонда">{{ housing() }}</span> }
-      </div>
-    }
-    @if (showPeople()) {
-      <div class="line">
-        <span tabindex="0" title="Кол-во месяцев долга">{{ months() ?? '—' }}</span>
-        · <span tabindex="0" title="Проживающих">{{ residents() ?? '—' }}</span>
-        · <span tabindex="0" title="Зарегистрированных">{{ registered() ?? '—' }}</span>
+    @if (showScenario() || ownership() || housing() || showPeople()) {
+      <div class="mid">
+        <div class="mid-text">
+          @if (showScenario()) {
+            <div class="line one-line" tabindex="0" [attr.title]="scenarioTitle()">{{ scenario() || '—' }}</div>
+          }
+          @if (ownership() || housing()) {
+            <div class="line">
+              @if (ownership()) { <span tabindex="0" title="Тип собственности">{{ ownership() }}</span> }
+              @if (ownership() && housing()) { · }
+              @if (housing()) { <span tabindex="0" title="Тип объекта жилфонда">{{ housing() }}</span> }
+            </div>
+          }
+        </div>
+        @if (showPeople()) {
+          <div class="people">
+            <span tabindex="0" title="Кол-во месяцев долга">{{ months() ?? '—' }}</span>
+            · <span tabindex="0" title="Проживающих">{{ residents() ?? '—' }}</span>
+            · <span tabindex="0" title="Зарегистрированных">{{ registered() ?? '—' }}</span>
+          </div>
+        }
       </div>
     }
     <ng-content />
-    @if (showMoney()) {
-      <div class="money">
-        <span tabindex="0" title="Сумма задолженности"><app-money [value]="total()" [blank]="false" [sign]="false" /></span>
-        <small>
-          <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="principal()" [blank]="false" [sign]="false" /></span>
-          · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="penalty()" [blank]="false" [sign]="false" /></span>
-        </small>
+    @if (when() || showMoney() || specialist()) {
+      <div class="foot">
+        @if (when()) {
+          <span class="when">
+            <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+            {{ when() }}
+          </span>
+        }
+        <div class="tail">
+          @if (showMoney()) {
+            <div class="money">
+              <span tabindex="0" title="Сумма задолженности"><app-money [value]="total()" [blank]="false" [sign]="false" /></span>
+              <small>
+                <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="principal()" [blank]="false" [sign]="false" /></span>
+                · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="penalty()" [blank]="false" [sign]="false" /></span>
+              </small>
+            </div>
+          }
+          @if (initials(); as who) {
+            <span class="who" [style.background]="avatarColor()" tabindex="0" [attr.title]="specialistCaption() + ': ' + specialist()">{{ who }}</span>
+          }
+        </div>
       </div>
     }
-    <div class="foot">
-      @if (when()) {
-        <span class="when">
-          <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-          {{ when() }}
-        </span>
-      } @else { <span></span> }
-      @if (initials(); as who) {
-        <span class="who" [style.background]="avatarColor()" tabindex="0" [attr.title]="specialistCaption() + ': ' + specialist()">{{ who }}</span>
-      }
-    </div>
   `,
   styles: `
     :host { display: block; }
@@ -70,12 +80,21 @@ import { ratingMark, ratingMarkClass, ratingMarkTitle } from './rating-mark';
     .card-marks { display: flex; align-items: center; flex: 0 0 auto; }
     .line { margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; }
     .one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .money { margin-top: 6px; font-size: 13px; font-weight: 700; color: #1f2933; }
+    .mid { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .mid-text { flex: 1 1 auto; min-width: 0; }
+    .people {
+      flex: 0 0 auto; margin-top: 3px; font-size: 12px; line-height: 1.35; color: #6b7280; white-space: nowrap;
+    }
+    .money { font-size: 13px; font-weight: 700; line-height: 1.2; color: #1f2933; text-align: right; }
     .money > span, .money small { display: block; }
-    .money small { font-weight: 400; color: #6b7280; }
+    .money small { font-weight: 400; font-size: 12px; color: #6b7280; }
     .money .amount-danger { color: var(--erip-danger); }
-    .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 26px; }
-    .when { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; }
+    .foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+    .tail { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .when {
+      display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden;
+      font-size: 12px; color: #6b7280; white-space: nowrap;
+    }
     .cal { width: 14px; height: 14px; flex: 0 0 14px; }
     .who {
       width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700;

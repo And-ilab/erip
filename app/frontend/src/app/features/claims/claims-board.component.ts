@@ -293,7 +293,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
-      border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
+      border-radius: 8px; padding: 10px 12px 4px; margin-bottom: 8px; cursor: pointer;
       box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
