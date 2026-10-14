@@ -114,8 +114,14 @@ def render_form_html(blocks: list[dict]) -> str:
         "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\">",
         f"<style>{_CSS}</style></head><body><article class=\"sheet\">",
     ]
-    for block in _ordered(blocks):
-        parts.append(_block_html(block))
+    for row in _rows(_ordered(blocks)):
+        split = len(row) > 1
+        if split:
+            parts.append('<div class="doc-row split">')
+        for block in sorted(row, key=lambda item: _num(item.get("x"))):
+            parts.append(_block_html(block))
+        if split:
+            parts.append("</div>")
     parts.append("</article></body></html>")
     return "".join(parts)
 
@@ -130,6 +136,16 @@ def pdf_from_html(html: str) -> bytes | None:
         return HTML(string=html).write_pdf()
     except OSError:
         return None
+
+
+def _rows(blocks: list[dict]) -> list[list[dict]]:
+    rows: list[list[dict]] = []
+    for block in blocks:
+        if rows and abs(_num(rows[-1][0].get("y")) - _num(block.get("y"))) < 8:
+            rows[-1].append(block)
+        else:
+            rows.append([block])
+    return rows
 
 
 def _ordered(blocks: list[dict]) -> list[dict]:
@@ -163,7 +179,8 @@ def _node_html(node: dict) -> str:
     if node["kind"] == "title":
         return f'<h1 class="doc-title">{escape(node["text"])}</h1>'
     if node["kind"] == "paragraph":
-        return f'<p class="prose">{_with_blanks(node["text"])}</p>'
+        klass = "prose indent" if len(node["text"]) > 80 else "prose"
+        return f'<p class="{klass}">{_with_blanks(node["text"])}</p>'
     box = "frame" if node["framed"] else "panel"
     fields = "".join(_field_html(item) for item in node["items"])
     return f'<div class="{box}"><div class="fields">{fields}</div></div>'

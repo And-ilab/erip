@@ -18,6 +18,18 @@ body {
 
 .doc-block { margin: 0 0 2mm; }
 
+.doc-row.split {
+  display: flex;
+  align-items: flex-start;
+  gap: 6mm;
+}
+
+.doc-row.split .doc-block {
+  flex: 1 1 0;
+  margin: 0;
+  min-width: 0;
+}
+
 .letterhead {
   text-align: right;
   border-bottom: 0.45mm solid #111;
@@ -81,6 +93,11 @@ h1.doc-title {
 
 p.prose {
   margin: 1.4mm 0;
+  text-align: inherit;
+  text-indent: 0;
+}
+
+p.prose.indent {
   text-align: justify;
   text-indent: 10mm;
 }

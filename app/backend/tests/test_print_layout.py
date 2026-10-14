@@ -34,16 +34,40 @@ def test_broken_pdf_is_not_dumped_as_text():
     assert "%PDF" not in body
 
 
-def test_warning_template_pdf_is_readable():
-    found = list(Path(__file__).resolve().parents[3].glob("Шаблоны/**/Предупреждение о задолженности r99116.pdf"))
+def _sample(name: str) -> bytes:
+    found = list(Path(__file__).resolve().parents[3].glob(f"Шаблоны/**/{name}"))
     assert found
-    draft = recognize_bytes(found[0].name, found[0].read_bytes())
+    return found[0].read_bytes()
+
+
+def test_warning_template_pdf_is_readable():
+    draft = recognize_bytes("warning.pdf", _sample("Предупреждение о задолженности r99116.pdf"))
     assert draft["recognized"] is True
-    body = next(block["text"] for block in draft["blocks"] if block["key"] == "body")
-    assert "ПРЕДУПРЕЖДЕНИЕ" in body
-    assert "В связи с наличием" in body
+    blocks = {block["key"]: block for block in draft["blocks"]}
+    assert "signatory" not in blocks
+    assert blocks["block-1"]["y"] == blocks["block-2"]["y"]
+    assert "Республика Беларусь" in blocks["block-1"]["text"]
+    assert "Собственник" in blocks["block-2"]["text"]
+    assert blocks["block-2"]["align"] == "right"
+    body = blocks["body"]["text"]
+    assert body.startswith("ПРЕДУПРЕЖДЕНИЕ")
+    paragraph = next(line for line in body.splitlines() if line.startswith("В связи"))
+    assert "№ 465." in paragraph
+    assert "\n" not in paragraph
     assert "%PDF" not in body
-    assert "endstream" not in body
+
+
+def test_notice_template_keeps_paragraphs():
+    draft = recognize_bytes("notice.pdf", _sample("Уведомление о задолженности (ст. 80, 87 ЖК) r99188.pdf"))
+    blocks = {block["key"]: block for block in draft["blocks"]}
+    assert "Республика Беларусь" in blocks["block-1"]["text"]
+    assert "Собственник ИВАН ИВАНОВИЧ" in blocks["block-2"]["text"]
+    body = blocks["body"]["text"]
+    assert body.startswith("УВЕДОМЛЕНИЕ")
+    paragraph = next(line for line in body.splitlines() if line.startswith("В связи"))
+    assert "исполнительной надписи." in paragraph
+    assert "адресу: г. Минск" in body
+    assert not any(line.startswith("адресу:") for line in body.splitlines())
 
 
 def test_image_scan_stays_empty_draft():
