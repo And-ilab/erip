@@ -54,6 +54,7 @@ DEBTOR_FIELDS = (
     "unp", "regNumber", "regName",
 )
 PERSONAL_ID_RE = re.compile(r"^\d{7}[A-Z]\d{3}[A-Z]{2}\d$")
+PERSONAL_ID_RULE = "7 цифр, латинская буква, 3 цифры, 2 латинские буквы, цифра"
 UNP_RE = re.compile(r"^\d{9}$")
 AMOUNT_RE = re.compile(r"^\d+\.\d{2}$")
 EMAIL_RE = re.compile(r"^[^@\s,]+@[^@\s,]+\.[^@\s,]+$")
@@ -484,17 +485,18 @@ def form_package(case: ClaimCase, user) -> ClaimPackage:
     package = stored_package(case)
     if package is None:
         raise ClaimBlocked("Сначала сохраните состав пакета")
+    _use_registration_personal_id(case.account, package)
     problems = _problems(case, package)
     package.problems = problems
     if problems:
         package.formed_at = None
         package.manifest = {}
-        package.save(update_fields=["problems", "formed_at", "manifest", "updated_at"])
+        package.save(update_fields=["debtors", "problems", "formed_at", "manifest", "updated_at"])
         WritCheck.objects.filter(account_id=case.account_id, code="package").update(done=False)
         raise ClaimBlocked("; ".join(problems))
     package.manifest = _manifest(case, package)
     package.formed_at = timezone.now()
-    package.save(update_fields=["problems", "manifest", "formed_at", "updated_at"])
+    package.save(update_fields=["debtors", "problems", "manifest", "formed_at", "updated_at"])
     ensure_writ_checks(case.account)
     WritCheck.objects.filter(account_id=case.account_id, code="package").update(done=True)
     ClaimEvent.objects.create(
@@ -603,6 +605,25 @@ def _suggestion(case: ClaimCase) -> dict:
         "debtors": _suggest_debtors(account),
         "debts": [_debt_row(account, "balance", "", timezone.localdate().isoformat(), "", "")],
     }
+
+
+def _use_registration_personal_id(account: Account, package: ClaimPackage) -> None:
+    """Номер из регистрации плательщика важнее копии, сохранённой в пакете раньше."""
+    live = _live_personal_id(account)
+    if not live or not package.debtors:
+        return
+    debtors = [dict(row) for row in package.debtors]
+    target = next((row for row in debtors if not row.get("solidary")), debtors[0])
+    target["personalId"] = live
+    package.debtors = debtors
+
+
+def _live_personal_id(account: Account) -> str:
+    regs = [reg for reg in account.registrations.all() if not reg.subj_is_check_out]
+    mains = [reg for reg in regs if reg.subj_is_main]
+    reg = mains[0] if mains else None
+    personal = reg.personal_num if reg is not None else ""
+    return (personal or account.payer_identifier or "").strip().upper()
 
 
 def _suggest_debtors(account: Account) -> list[dict]:
@@ -844,8 +865,10 @@ def _debtor_problems(debtor: dict, index: int) -> list[str]:
     prefix = f"Должник {index}"
     missing = []
     if person in {"natural", "sole_trader"}:
-        if not PERSONAL_ID_RE.fullmatch(debtor.get("personalId") or ""):
-            missing.append("личный номер (14 символов, латинские прописные)")
+        personal = (debtor.get("personalId") or "").strip()
+        if not PERSONAL_ID_RE.fullmatch(personal):
+            shown = f" «{personal}»" if personal else ""
+            missing.append(f"личный номер{shown} ({PERSONAL_ID_RULE})")
         for key, title in (("secondName", "фамилия"), ("firstName", "имя"), ("middleName", "отчество")):
             if not (debtor.get(key) or "").strip():
                 missing.append(title)

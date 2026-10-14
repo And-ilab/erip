@@ -73,6 +73,27 @@ def test_package_sums_service_balances_when_the_account_card_is_zero(api, specia
 
 
 @pytest.mark.django_db
+def test_form_takes_the_personal_number_from_the_registration(api, specialist_a, account_a):
+    call_command("loaddata", "bnp_dictionaries", verbosity=0)
+    case_id = _ready(api, specialist_a, account_a)
+    saved = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/", _composition(), format="json")
+    assert saved.status_code == 200, saved.content
+    registration = account_a.registrations.get()
+    registration.personal_num = "41111111111111"
+    registration.save(update_fields=["personal_num"])
+    formed = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/form/", {}, format="json")
+    assert formed.status_code == 400
+    text = formed.content.decode()
+    assert "41111111111111" in text
+    assert "латинская буква" in text
+
+    registration.personal_num = "4111111A111AA1"
+    registration.save(update_fields=["personal_num"])
+    formed = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/form/", {}, format="json")
+    assert "личный номер" not in formed.content.decode()
+
+
+@pytest.mark.django_db
 def test_sign_and_send_saves_the_bnp_archive_on_disk(api, specialist_a, account_a):
     import io
     import zipfile
