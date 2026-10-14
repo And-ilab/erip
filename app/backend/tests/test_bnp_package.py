@@ -6,7 +6,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 
-from apps.debts.models import ClaimPackageDocument
+from apps.debts.models import AccountService, ClaimPackageDocument
 
 from .test_claims_scenarios import _formed_package, _ready
 
@@ -35,8 +35,23 @@ def test_package_uses_ais_amount_and_names_the_signature(api, specialist_a, acco
     saved = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/", _composition(), format="json")
     assert saved.status_code == 200, saved.content
     debt = saved.json()["package"]["debts"][0]
-    assert debt["amount"] == "150.00"
+    assert debt["amount"] == "100.00"
     assert debt["amount"] != "999.00"
+
+
+@pytest.mark.django_db
+def test_package_sums_service_balances_when_the_account_card_is_zero(api, specialist_a, account_a):
+    call_command("loaddata", "bnp_dictionaries", verbosity=0)
+    account_a.balance_out = Decimal("0")
+    account_a.save(update_fields=["balance_out"])
+    AccountService.objects.create(
+        organization=account_a.organization, account=account_a, service_list_id=2, service_id=11,
+        service_name="Вода", balance_out=Decimal("25.50"), debt_period=3,
+    )
+    case_id = _ready(api, specialist_a, account_a)
+    saved = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/", _composition(), format="json")
+    assert saved.status_code == 200, saved.content
+    assert saved.json()["package"]["debts"][0]["amount"] == "125.50"
 
     application = api(specialist_a).post(f"/api/v1/claims/{case_id}/package/application/", {}, format="json")
     assert application.status_code == 200, application.content
@@ -104,7 +119,7 @@ def test_send_stays_a_stub_until_the_package_and_signatures_exist(api, specialis
     assert manifest["externalId"] == f"claim-{case_id}"
     assert manifest["serviceId"] == 572
     assert manifest["docs"][0]["detachedSign"] is True
-    assert manifest["debts"][0]["amount"] == "150.00"
+    assert manifest["debts"][0]["amount"] == "100.00"
     assert "Сформирован пакет" in formed.json()["events"][0]["reason"]
 
     unsigned = api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
@@ -223,8 +238,9 @@ def test_lawsuit_file_stays_out_of_the_bnp_manifest(api, specialist_a, account_a
 def test_changed_ais_amount_blocks_the_stub_send(api, specialist_a, account_a):
     case_id = _ready(api, specialist_a, account_a)
     _formed_package(api, specialist_a, account_a, case_id)
-    account_a.balance_out = Decimal("10.00")
-    account_a.save(update_fields=["balance_out"])
+    service = account_a.services.get()
+    service.balance_out = Decimal("10.00")
+    service.save(update_fields=["balance_out"])
     sent = api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
     assert sent.status_code == 400
     assert "АИС" in sent.content.decode()

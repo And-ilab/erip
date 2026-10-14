@@ -84,7 +84,7 @@ const COURT: Slot[] = [
           }
           @if (slot.mode === 'ais') {
             @for (debt of pack()?.debts || []; track $index) {
-              <p>{{ debt.source === 'penalty' ? 'Пеня' : 'Исходящее сальдо' }}: {{ debt.amount }} {{ debt.currency }}</p>
+              <p>{{ debt.source === 'penalty' ? 'Пеня' : 'Сумма основного долга' }}: {{ debt.amount }} {{ debt.currency }}</p>
             }
             @if (!(pack()?.debts || []).length) {
               <p>Сумм из АИС на деле пока нет. ПМ их не вводит.</p>

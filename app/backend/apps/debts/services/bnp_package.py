@@ -16,6 +16,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from django.core.files.base import ContentFile
+from django.db.models import Count, Sum
 from django.utils import timezone
 
 from apps.debts.models import (
@@ -758,11 +759,37 @@ def _with_live_amount(account: Account, row: dict) -> dict:
 
 
 def _amount_for(account: Account, source: str) -> str:
+    """Сумма строки пакета — те же колонки услуг, что «Сумма основного долга» и пеня на карточке.
+
+    Колонка «Исходящее сальдо» самой карточки ЛС в обезличенной выгрузке обнулена,
+    хотя по услугам долг есть. Пока на счёте есть услуги, пакет берёт их сумму.
+    """
+    totals = _service_totals(account)
     if source == "penalty":
-        total = sum((service.balance_mulct_out or Decimal("0")) for service in account.services.all())
+        total = totals["penalty"]
+    elif totals["count"]:
+        total = totals["principal"]
     else:
         total = account.balance_out or Decimal("0")
     return f"{Decimal(total).quantize(Decimal('0.01')):.2f}"
+
+
+def _service_totals(account: Account) -> dict:
+    cached = getattr(account, "_bnp_service_totals", None)
+    if cached is not None:
+        return cached
+    row = account.services.aggregate(
+        count=Count("pk"),
+        principal=Sum("balance_out"),
+        penalty=Sum("balance_mulct_out"),
+    )
+    cached = {
+        "count": row["count"] or 0,
+        "principal": row["principal"] or Decimal("0"),
+        "penalty": row["penalty"] or Decimal("0"),
+    }
+    account._bnp_service_totals = cached
+    return cached
 
 
 def _iso(value, label: str) -> str:
@@ -841,7 +868,7 @@ def _debt_problems(account: Account, debt: dict, allowed: set[str], known_types:
     problems = []
     amount = _amount_for(account, debt.get("source") or "balance")
     if not AMOUNT_RE.fullmatch(amount) or Decimal(amount) <= 0:
-        source = "пени" if debt.get("source") == "penalty" else "исходящего сальдо"
+        source = "пени" if debt.get("source") == "penalty" else "исходящего сальдо услуг"
         problems.append(f"В АИС нет положительной суммы {source}")
     type_id = debt.get("typeId") or ""
     if not type_id:
@@ -964,7 +991,7 @@ def _application_lines(case: ClaimCase, package: ClaimPackage) -> list[str]:
         f"Лицевой счёт: {account.client_account}",
         f"Адрес: {account.account_address}",
         f"Должник: {name}",
-        f"Исходящее сальдо по данным АИС: {_amount_for(account, 'balance')} BYN",
+        f"Сумма основного долга по данным АИС: {_amount_for(account, 'balance')} BYN",
         f"Пеня по данным АИС: {_amount_for(account, 'penalty')} BYN",
         f"Дата вручения предупреждения: {case.warning_delivered_on or 'не указана'}",
         f"Нотариальный тариф: {case.notary_tariff if case.notary_tariff is not None else 'не указан'}",
