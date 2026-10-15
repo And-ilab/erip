@@ -1,6 +1,8 @@
 from django.db.models import Q
 from rest_framework import generics, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.response import Response
 
 from apps.audit.mixins import AuditedViewSetMixin
 from apps.core.permissions import RolePermission
@@ -19,6 +21,30 @@ class OrganizationViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.Mod
     write_roles = (User.Role.SUPERADMIN,)
     scope_organization_field = "pk"
     search_fields = ["name", "schema_name"]
+
+    def check_permissions(self, request):
+        if getattr(self, "action", "") == "pris_claimant":
+            self.write_roles = (User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN)
+        super().check_permissions(request)
+
+    @action(detail=True, methods=["get", "patch"], url_path="pris-claimant")
+    def pris_claimant(self, request, pk=None):
+        from apps.debts.services.pris_submit import CLAIMANT_KEYS
+
+        org = self.get_object()
+        stored = dict(org.pris_claimant or {})
+        if request.method == "GET":
+            return Response({"claimant": stored})
+        incoming = request.data.get("claimant") if isinstance(request.data.get("claimant"), dict) else request.data
+        if not isinstance(incoming, dict):
+            raise ValidationError("Реквизиты взыскателя передаются объектом")
+        for key in CLAIMANT_KEYS:
+            if key in incoming:
+                value = incoming.get(key)
+                stored[key] = "" if value is None else str(value).strip()
+        org.pris_claimant = stored
+        org.save(update_fields=["pris_claimant", "updated_at"])
+        return Response({"claimant": stored})
 
 
 class ServiceOrganizationViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelViewSet):

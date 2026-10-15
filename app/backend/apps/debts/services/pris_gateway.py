@@ -23,14 +23,16 @@ class PrisTransport:
 
 class HttpPrisTransport(PrisTransport):
     def post(self, path: str, payload: dict) -> dict:
+        return self._exchange("POST", path, payload)
+
+    def get(self, path: str) -> dict:
+        return self._exchange("GET", path, None)
+
+    def _exchange(self, method: str, path: str, payload: dict | None) -> dict:
         url = settings.GATEWAY_URL.rstrip("/") + path
+        headers = {REQUEST_ID_HEADER: get_request_id(), "X-Internal-Token": settings.INTERNAL_TOKEN}
         try:
-            response = httpx.post(
-                url,
-                json=payload,
-                headers={REQUEST_ID_HEADER: get_request_id(), "X-Internal-Token": settings.INTERNAL_TOKEN},
-                timeout=60.0,
-            )
+            response = httpx.request(method, url, json=payload, headers=headers, timeout=60.0)
         except httpx.HTTPError as exc:
             logger.error("Шлюз ПРИС недоступен: %s", exc)
             raise GatewayUnavailable("Шлюз ПРИС недоступен") from exc
@@ -46,9 +48,26 @@ class HttpPrisTransport(PrisTransport):
 class RecordingPrisTransport(PrisTransport):
     """Тестовый канал: запоминает вызовы и отвечает как заглушка шлюза."""
 
-    def __init__(self, mode: str = "stub"):
+    def __init__(self, mode: str = "stub", with_actions: bool = False):
         self.mode = mode
+        self.with_actions = with_actions
         self.calls: list[tuple[str, dict]] = []
+
+    def get(self, path: str) -> dict:
+        self.calls.append((path, {}))
+        if path.rstrip("/").endswith("/nsi"):
+            return {
+                "mode": self.mode,
+                "items": [{
+                    "type": "120",
+                    "type_name": "ОРГАНЫ ПРИНУДИТЕЛЬНОГО ИСПОЛНЕНИЯ МИНИСТЕРСТВА ЮСТИЦИИ",
+                    "content": {"code": "1", "data": [
+                        {"code": 0, "lex1": "(пусто)", "code_sorting": 0},
+                        {"code": 801, "lex1": "ГУПИ МИНИСТЕРСТВА ЮСТИЦИИ РЕСПУБЛИКИ БЕЛАРУСЬ", "code_sorting": 0},
+                    ]},
+                }],
+            }
+        raise ClaimBlocked("Шлюз ПРИС: неизвестный запрос")
 
     def post(self, path: str, payload: dict) -> dict:
         self.calls.append((path, payload))
@@ -61,7 +80,12 @@ class RecordingPrisTransport(PrisTransport):
                 "items": [{
                     "p_ispdoc": [{"proc_num": number or "60118000051", "doc_num": "7"}],
                     "p_status": [{"status": "6", "actual": "1"}],
-                    "p_action": [],
+                    "p_ost": [{"req_sum": "211.24", "ost_sum": "200.00", "curr_code": "933"}],
+                    "p_action": [{"measure": "арест"}] if self.with_actions else [],
+                    "p_nachisl": [],
+                    "p_repay": [{"p_pay_sum": "11.24"}],
+                    "p_cred": [],
+                    "p_debt": [],
                 }],
             }
         cl_num = ""

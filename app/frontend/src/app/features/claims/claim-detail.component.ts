@@ -1,5 +1,6 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -8,8 +9,8 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
-import { DateFieldComponent } from '../../core/date-field.component';
-import { ApiService, ClaimCase, errorMessage } from '../../core/api.service';
+import { DateFieldComponent, HoldDraftDirective } from '../../core/date-field.component';
+import { ApiService, ClaimCase, PrisDictRow, PrisExchangeRow, errorMessage } from '../../core/api.service';
 import { ClaimChecklistComponent } from './claim-checklist.component';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
@@ -18,9 +19,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   selector: 'app-claim-detail',
   standalone: true,
   imports: [
-    FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatAutocompleteModule,
     MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimChecklistComponent,
-    DateFieldComponent,
+    DateFieldComponent, HoldDraftDirective,
   ],
   template: `
     <div class="case">
@@ -54,9 +55,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   [withdrawn]="withdrawn"
                   scope="notary"
                   [focus]="focusSlot()"
-                  (warningDateChange)="warningDate = $event"
-                  (tariffChange)="tariff = $event"
-                  (withdrawnChange)="withdrawn = $event"
+                  (warningDateChange)="setWarningDate($event)"
+                  (tariffChange)="setTariff($event)"
+                  (withdrawnChange)="setWithdrawn($event)"
                   (changed)="replace($event)" />
                 <div class="bar">
                   <button mat-flat-button color="primary" type="button" (click)="formPackage()">Собрать архив</button>
@@ -83,12 +84,12 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </div>
                 <p class="hint">Долг и пеня из АИС. «Взыскано» — после погашения долга, пени и тарифа.</p>
                 <div class="line">
-                  <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="warningDate = $event" />
+                  <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="setWarningDate($event)" />
                   <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
-                    <input matInput [(ngModel)]="tariff" />
+                    <input matInput holdDraft [ngModel]="tariff" (ngModelChange)="setTariff($event)" />
                     <span matTextSuffix><app-byn-sign /></span>
                   </mat-form-field>
-                  <mat-checkbox [(ngModel)]="withdrawn">Заявление отозвано</mat-checkbox>
+                  <mat-checkbox holdDraft [ngModel]="withdrawn" (ngModelChange)="setWithdrawn($event)">Заявление отозвано</mat-checkbox>
                 </div>
                 @if (row.submission_mode === 'stub') {
                   <p class="banner">В кабинет БНП пакет не уходил. Номер заглушки: {{ row.submission_id }}.</p>
@@ -150,7 +151,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     <mat-form-field><mat-label>Ответчик</mat-label><input matInput [(ngModel)]="defendant" /></mat-form-field>
                     <app-date-field label="Дата подачи" [value]="lawsuitDate" (valueChange)="lawsuitDate = $event" />
                     <mat-form-field><mat-label>Госпошлина</mat-label><input matInput [(ngModel)]="duty" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
-                    <app-date-field label="Дата вручения предупреждения" [value]="warningDate" (valueChange)="warningDate = $event" />
+                    <app-date-field label="Дата вручения предупреждения" [value]="warningDate" (valueChange)="setWarningDate($event)" />
                     <mat-form-field class="wide"><mat-label>Примечание</mat-label><input matInput [(ngModel)]="lawsuitNote" /></mat-form-field>
                     @if (housingKind()) {
                       <app-date-field label="Дата пакета на выселение" [value]="packageDate" (valueChange)="packageDate = $event" />
@@ -215,22 +216,89 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 <div class="actions">
                   <button mat-stroked-button type="button" (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
                 </div>
+                @if (row.pris?.inquiry?.applied) {
+                  <div class="inquiry">
+                    <p class="hint">Ход из АИС ПРИС. Идентификатор задолженности {{ row.pris?.cl_num }}.</p>
+                    @for (sum of row.pris?.inquiry?.p_ost || []; track $index) {
+                      <p>Остаток {{ sum.ost_sum }} {{ sum.curr_code }}, требование {{ sum.req_sum }}</p>
+                    }
+                    @for (status of row.pris?.inquiry?.p_status || []; track $index) {
+                      <p>Статус {{ status.status }} от {{ status.date_status }}@if (status.actual === '1') {, актуальный }</p>
+                    }
+                    @for (action of row.pris?.inquiry?.p_action || []; track $index) {
+                      <p>Мера: {{ actionLine(action) }}</p>
+                    }
+                    @for (pay of row.pris?.inquiry?.p_repay || []; track $index) {
+                      <p>Погашение {{ pay['p_pay_sum'] || pay['pay_sum'] || actionLine(pay) }}</p>
+                    }
+                    @for (charge of row.pris?.inquiry?.p_nachisl || []; track $index) {
+                      <p>Начисление: {{ actionLine(charge) }}</p>
+                    }
+                  </div>
+                }
                 <details>
                   <summary>Передача в ПРИС</summary>
-                  <p class="hint">Коды справочников 120, 201, 214, 217, 306, 309. Пустое поле в запрос не подставляется.</p>
+                  <p class="hint">Код выбирается из GetNSIData или вписывается. Пока канал-заглушка, справочник 120 содержит только пример регламента. Остальные номера придут из Минюста после GW_PRIS_MODE=http. Подпись — отдельный файл .p7s или .sgn. Локальная отметка пакета БНП в ПРИС не принимается.</p>
                   @if (row.pris?.problems?.length) {
                     <p class="need">{{ row.pris?.problems?.join('; ') }}</p>
                   }
+                  <p class="hint">Идентификатор задолженности: {{ row.pris?.cl_num || 'появится при передаче' }}</p>
                   <div class="fields">
-                    <mat-form-field><mat-label>ОПИ, справочник 120</mat-label><input matInput [(ngModel)]="prisOpi" /></mat-form-field>
-                    <mat-form-field><mat-label>Требование, справочник 214</mat-label><input matInput [(ngModel)]="prisReq" /></mat-form-field>
-                    <mat-form-field><mat-label>Вид документа, справочник 201</mat-label><input matInput [(ngModel)]="prisDocCode" /></mat-form-field>
+                    <mat-form-field><mat-label>ОПИ, справочник 120</mat-label>
+                      <input matInput [(ngModel)]="prisOpi" [matAutocomplete]="autoOpi" />
+                      <mat-autocomplete #autoOpi="matAutocomplete">
+                        @for (item of dict('120'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Требование, справочник 214</mat-label>
+                      <input matInput [(ngModel)]="prisReq" [matAutocomplete]="autoReq" />
+                      <mat-autocomplete #autoReq="matAutocomplete">
+                        @for (item of dict('214'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Вид документа, справочник 201</mat-label>
+                      <input matInput [(ngModel)]="prisDocCode" [matAutocomplete]="autoDoc" />
+                      <mat-autocomplete #autoDoc="matAutocomplete">
+                        @for (item of dict('201'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
                     <mat-form-field><mat-label>Номер документа</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
                     <mat-form-field><mat-label>Дата документа</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
-                    <mat-form-field><mat-label>Орган, справочник 217</mat-label><input matInput [(ngModel)]="prisOrgCode" /></mat-form-field>
+                    <mat-form-field><mat-label>Орган, справочник 217</mat-label>
+                      <input matInput [(ngModel)]="prisOrgCode" [matAutocomplete]="autoOrg" />
+                      <mat-autocomplete #autoOrg="matAutocomplete">
+                        @for (item of organDict(); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
                     <mat-form-field class="wide"><mat-label>Наименование органа</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
                     <mat-form-field><mat-label>Дата вступления в силу</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
-                    <mat-form-field><mat-label>Тип населённого пункта должника, 309</mat-label><input matInput [(ngModel)]="prisNpType" /></mat-form-field>
+                    <mat-form-field><mat-label>ОПФ должника-юрлица</mat-label><input matInput [(ngModel)]="prisDebtorOpf" /></mat-form-field>
+                    <mat-form-field><mat-label>Страна должника, 306</mat-label>
+                      <input matInput [(ngModel)]="prisDebtorCountry" [matAutocomplete]="autoDebtorCountry" />
+                      <mat-autocomplete #autoDebtorCountry="matAutocomplete">
+                        @for (item of dict('306'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Тип населённого пункта должника, 309</mat-label>
+                      <input matInput [(ngModel)]="prisNpType" [matAutocomplete]="autoNp" />
+                      <mat-autocomplete #autoNp="matAutocomplete">
+                        @for (item of dict('309'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Населённый пункт должника</mat-label><input matInput [(ngModel)]="prisDebtorNp" /></mat-form-field>
+                    <mat-form-field><mat-label>Область должника</mat-label><input matInput [(ngModel)]="prisDebtorRegion" /></mat-form-field>
+                    <mat-form-field><mat-label>Район должника</mat-label><input matInput [(ngModel)]="prisDebtorArea" /></mat-form-field>
+                    <mat-form-field><mat-label>Тип улицы должника, 308</mat-label>
+                      <input matInput [(ngModel)]="prisDebtorStreetType" [matAutocomplete]="autoDebtorStreet" />
+                      <mat-autocomplete #autoDebtorStreet="matAutocomplete">
+                        @for (item of dict('308'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Улица должника</mat-label><input matInput [(ngModel)]="prisDebtorStreet" /></mat-form-field>
+                    <mat-form-field><mat-label>Дом должника</mat-label><input matInput [(ngModel)]="prisDebtorHouse" /></mat-form-field>
+                    <mat-form-field><mat-label>Квартира должника</mat-label><input matInput [(ngModel)]="prisDebtorFlat" /></mat-form-field>
+                    <mat-form-field><mat-label>Индекс должника</mat-label><input matInput [(ngModel)]="prisDebtorIndex" /></mat-form-field>
+                    <mat-form-field class="wide"><mat-label>Полный адрес должника</mat-label><input matInput [(ngModel)]="prisDebtorAddress" /></mat-form-field>
                     <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
                       <mat-select [(ngModel)]="prisPdf">
                         <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
@@ -239,7 +307,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         }
                       </mat-select>
                     </mat-form-field>
-                    <mat-form-field><mat-label>Файл подписи</mat-label>
+                    <mat-form-field><mat-label>Файл подписи .p7s или .sgn</mat-label>
                       <mat-select [(ngModel)]="prisSign">
                         <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
                         @for (file of row.files; track file.id) {
@@ -248,21 +316,56 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                       </mat-select>
                     </mat-form-field>
                     <mat-form-field><mat-label>ОПФ взыскателя</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
-                    <mat-form-field><mat-label>Страна адреса, справочник 306</mat-label><input matInput [(ngModel)]="prisCountry" /></mat-form-field>
+                    <mat-form-field><mat-label>Страна адреса, справочник 306</mat-label>
+                      <input matInput [(ngModel)]="prisCountry" [matAutocomplete]="autoCountry" />
+                      <mat-autocomplete #autoCountry="matAutocomplete">
+                        @for (item of dict('306'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
                     <mat-form-field class="wide"><mat-label>Полный адрес взыскателя</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
-                    <mat-form-field><mat-label>Тип населённого пункта, 309</mat-label><input matInput [(ngModel)]="prisClaimNpType" /></mat-form-field>
+                    <mat-form-field><mat-label>Область взыскателя</mat-label><input matInput [(ngModel)]="prisClaimRegion" /></mat-form-field>
+                    <mat-form-field><mat-label>Район взыскателя</mat-label><input matInput [(ngModel)]="prisClaimArea" /></mat-form-field>
+                    <mat-form-field><mat-label>Тип населённого пункта, 309</mat-label>
+                      <input matInput [(ngModel)]="prisClaimNpType" [matAutocomplete]="autoClaimNp" />
+                      <mat-autocomplete #autoClaimNp="matAutocomplete">
+                        @for (item of dict('309'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
                     <mat-form-field><mat-label>Населённый пункт</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
+                    <mat-form-field><mat-label>Тип улицы, 308</mat-label>
+                      <input matInput [(ngModel)]="prisClaimStreetType" [matAutocomplete]="autoClaimStreet" />
+                      <mat-autocomplete #autoClaimStreet="matAutocomplete">
+                        @for (item of dict('308'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    <mat-form-field><mat-label>Улица взыскателя</mat-label><input matInput [(ngModel)]="prisClaimStreet" /></mat-form-field>
                     <mat-form-field><mat-label>Дом</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
+                    <mat-form-field><mat-label>Корпус</mat-label><input matInput [(ngModel)]="prisClaimCorp" /></mat-form-field>
+                    <mat-form-field><mat-label>Квартира</mat-label><input matInput [(ngModel)]="prisClaimFlat" /></mat-form-field>
+                    <mat-form-field><mat-label>Индекс</mat-label><input matInput [(ngModel)]="prisClaimIndex" /></mat-form-field>
+                    <mat-form-field><mat-label>УНП получателя</mat-label><input matInput [(ngModel)]="prisBankUnp" /></mat-form-field>
                     <mat-form-field><mat-label>SWIFT</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
                     <mat-form-field><mat-label>Счёт</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
                     <mat-form-field><mat-label>Тип счёта</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
+                    <mat-form-field><mat-label>Валюта, ОКРБ</mat-label><input matInput [(ngModel)]="prisCurr" /></mat-form-field>
+                    <mat-form-field><mat-label>Код платежа в бюджет</mat-label><input matInput [(ngModel)]="prisBudget" /></mat-form-field>
                   </div>
                   <div class="actions">
+                    <button mat-stroked-button type="button" (click)="savePrisDraft()">Сохранить черновик</button>
                     <button mat-flat-button color="primary" type="button" (click)="sendPris()">Передать в ПРИС</button>
                     <button mat-stroked-button type="button" (click)="act('pris/refresh')">Обновить ход</button>
                     <button mat-stroked-button type="button" (click)="act('pris/repay')">Передать погашения</button>
                     <button mat-stroked-button type="button" (click)="act('ais-receipt')">Имитация выгрузки АИС</button>
                   </div>
+                  @if (row.pris?.exchanges?.length) {
+                    <details>
+                      <summary>Журнал обмена ПРИС</summary>
+                      @for (item of row.pris?.exchanges || []; track item.id) {
+                        <p class="hint">{{ item.created_at }} · {{ item.operation }} · {{ item.mode || 'без канала' }} · {{ item.process_status }} · {{ item.note }}</p>
+                        <pre>{{ exchangeText(item) }}</pre>
+                      }
+                    </details>
+                  }
                 </details>
               }
               @case ('writeoff') {
@@ -334,6 +437,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .sums .total { background: var(--erip-primary-soft); }
     .line, .actions, .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+    .inquiry { margin: 8px 0; }
+    pre { white-space: pre-wrap; font-size: 12px; background: #f6f8fa; padding: 8px; border-radius: 8px; max-height: 240px; overflow: auto; }
     .wide { width: 100%; }
     .need { color: var(--erip-danger); }
     aside { background: #f7f8fa; border-radius: 10px; padding: 12px; min-height: 0; overflow: auto; }
@@ -350,12 +455,19 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     }
   `,
 })
-export class ClaimDetailComponent implements OnInit {
+export class ClaimDetailComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   protected readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
+  private alive = true;
+  private viewedId = 0;
+  private notaryEpoch = 0;
+  private notaryTimer: ReturnType<typeof setTimeout> | null = null;
+  private warningDirty = false;
+  private tariffDirty = false;
+  private withdrawnDirty = false;
 
   protected readonly Number = Number;
   protected readonly tabs = [
@@ -393,6 +505,17 @@ export class ClaimDetailComponent implements OnInit {
   protected prisOrg = '';
   protected prisDocDateIn = '';
   protected prisNpType = '';
+  protected prisDebtorOpf = '';
+  protected prisDebtorCountry = '';
+  protected prisDebtorNp = '';
+  protected prisDebtorRegion = '';
+  protected prisDebtorArea = '';
+  protected prisDebtorStreetType = '';
+  protected prisDebtorStreet = '';
+  protected prisDebtorHouse = '';
+  protected prisDebtorFlat = '';
+  protected prisDebtorIndex = '';
+  protected prisDebtorAddress = '';
   protected prisPdf = 0;
   protected prisSign = 0;
   protected prisOpf = '';
@@ -404,6 +527,17 @@ export class ClaimDetailComponent implements OnInit {
   protected prisBank = '';
   protected prisAccount = '';
   protected prisAccType = '';
+  protected prisClaimRegion = '';
+  protected prisClaimArea = '';
+  protected prisClaimStreetType = '';
+  protected prisClaimStreet = '';
+  protected prisClaimCorp = '';
+  protected prisClaimFlat = '';
+  protected prisClaimIndex = '';
+  protected prisBankUnp = '';
+  protected prisCurr = '933';
+  protected prisBudget = '';
+  protected prisDicts: Record<string, PrisDictRow[]> = {};
   protected actTitle = 'Акт о невозможности взыскания';
   protected approvers: number[] = [];
   protected decisionReason = '';
@@ -418,6 +552,46 @@ export class ClaimDetailComponent implements OnInit {
       }
     });
     this.route.paramMap.subscribe((params) => this.load(Number(params.get('id'))));
+    this.api.prisDictionaries().subscribe({
+      next: (page) => {
+        const books: Record<string, PrisDictRow[]> = {};
+        for (const [code, book] of Object.entries(page.dictionaries || {})) books[code] = book.rows || [];
+        this.prisDicts = books;
+      },
+      error: () => { this.prisDicts = {}; },
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.alive = false;
+    this.flushNotarySave();
+  }
+
+  protected setWarningDate(value: string | null): void {
+    const next = value || '';
+    if (next === this.warningDate) return;
+    this.warningDate = next;
+    this.warningDirty = true;
+    this.notaryEpoch += 1;
+    this.queueNotarySave();
+  }
+
+  protected setTariff(value: string | null): void {
+    const next = value == null ? '' : String(value);
+    if (next === this.tariff) return;
+    this.tariff = next;
+    this.tariffDirty = true;
+    this.notaryEpoch += 1;
+    this.queueNotarySave();
+  }
+
+  protected setWithdrawn(value: boolean): void {
+    const next = !!value;
+    if (next === this.withdrawn) return;
+    this.withdrawn = next;
+    this.withdrawnDirty = true;
+    this.notaryEpoch += 1;
+    this.queueNotarySave();
   }
 
   protected setTab(tab: (typeof this.tabs)[number]['id']): void {
@@ -491,8 +665,15 @@ export class ClaimDetailComponent implements OnInit {
       this.snack.open('Нужен нотариальный тариф', 'OK');
       return;
     }
+    this.cancelNotaryTimer();
+    this.notaryEpoch += 1;
+    const epoch = this.notaryEpoch;
     this.api.patchClaim(row.id, this.draft()).subscribe({
       next: (next) => {
+        if (!this.alive || epoch !== this.notaryEpoch) return;
+        this.warningDirty = false;
+        this.tariffDirty = false;
+        this.withdrawnDirty = false;
         this.apply(next);
         if (this.needsSkip(next) && !this.checklistSkip.trim()) {
           this.snack.open('Пропуск этапа записывается с причиной', 'OK');
@@ -505,6 +686,10 @@ export class ClaimDetailComponent implements OnInit {
   }
 
   protected formPackage(): void {
+    this.flushNotarySave(() => this.submitPackage());
+  }
+
+  private submitPackage(): void {
     const row = this.claim();
     const pack = row?.package;
     if (!row || !pack) {
@@ -561,8 +746,17 @@ export class ClaimDetailComponent implements OnInit {
   protected save(): void {
     const row = this.claim();
     if (!row) return;
+    this.cancelNotaryTimer();
+    this.notaryEpoch += 1;
+    const epoch = this.notaryEpoch;
     this.api.patchClaim(row.id, this.draft()).subscribe({
-      next: (next) => this.apply(next),
+      next: (next) => {
+        if (!this.alive || epoch !== this.notaryEpoch) return;
+        this.warningDirty = false;
+        this.tariffDirty = false;
+        this.withdrawnDirty = false;
+        this.apply(next);
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }
@@ -571,8 +765,32 @@ export class ClaimDetailComponent implements OnInit {
     return (row.writ_checklist || []).some((item) => !item.met && !item.mandatory);
   }
 
+  protected dict(type: string): PrisDictRow[] {
+    return this.prisDicts[type] || [];
+  }
+
+  protected organDict(): PrisDictRow[] {
+    return [...this.dict('217'), ...this.dict('2107')];
+  }
+
+  protected actionLine(row: Record<string, string>): string {
+    return Object.entries(row).filter(([, value]) => value).map(([key, value]) => `${key}: ${value}`).join(', ');
+  }
+
+  protected exchangeText(item: PrisExchangeRow): string {
+    return JSON.stringify({ request: item.request, response: item.response }, null, 2);
+  }
+
+  protected savePrisDraft(): void {
+    this.act('pris/draft', this.prisPayload());
+  }
+
   protected sendPris(): void {
-    this.act('pris/submit', {
+    this.act('pris/submit', this.prisPayload());
+  }
+
+  private prisPayload(): object {
+    return {
       opi: this.prisOpi,
       req_init: this.prisReq,
       doc_code: this.prisDocCode,
@@ -582,21 +800,41 @@ export class ClaimDetailComponent implements OnInit {
       doc_org: this.prisOrg,
       doc_date_in: this.prisDocDateIn,
       debtor_np_type: this.prisNpType,
+      debtor_opf: this.prisDebtorOpf,
+      debtor_country: this.prisDebtorCountry,
+      debtor_np: this.prisDebtorNp,
+      debtor_region: this.prisDebtorRegion,
+      debtor_area: this.prisDebtorArea,
+      debtor_street_type: this.prisDebtorStreetType,
+      debtor_street: this.prisDebtorStreet,
+      debtor_house: this.prisDebtorHouse,
+      debtor_flat: this.prisDebtorFlat,
+      debtor_post_index: this.prisDebtorIndex,
+      debtor_full_adr: this.prisDebtorAddress,
       pdf_id: this.prisPdf || '',
       signature_id: this.prisSign || '',
       claimant: {
         opf: this.prisOpf,
         country: this.prisCountry,
         full_adr: this.prisAddress,
+        region: this.prisClaimRegion,
+        area: this.prisClaimArea,
         np_type: this.prisClaimNpType,
         np: this.prisNp,
+        street_type: this.prisClaimStreetType,
+        street: this.prisClaimStreet,
         house: this.prisHouse,
+        corp: this.prisClaimCorp,
+        flat: this.prisClaimFlat,
+        post_index: this.prisClaimIndex,
+        bank_unp: this.prisBankUnp,
         bank_code: this.prisBank,
         acc_num: this.prisAccount,
         acc_type: this.prisAccType,
-        curr_code: '933',
+        curr_code: this.prisCurr || '933',
+        budget_code: this.prisBudget,
       },
-    });
+    };
   }
 
   protected act(action: string, body: object = {}): void {
@@ -631,17 +869,83 @@ export class ClaimDetailComponent implements OnInit {
   }
 
   private load(id: number): void {
+    if (id === this.viewedId) return;
+    this.flushNotarySave();
+    this.viewedId = id;
+    this.warningDirty = false;
+    this.tariffDirty = false;
+    this.withdrawnDirty = false;
+    this.notaryEpoch += 1;
     this.api.claim(id).subscribe({
-      next: (row) => this.apply(row),
+      next: (row) => {
+        if (!this.alive || this.viewedId !== id) return;
+        this.apply(row);
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private queueNotarySave(): void {
+    if (this.notaryTimer) clearTimeout(this.notaryTimer);
+    this.notaryTimer = setTimeout(() => this.flushNotarySave(), 300);
+  }
+
+  private cancelNotaryTimer(): void {
+    if (!this.notaryTimer) return;
+    clearTimeout(this.notaryTimer);
+    this.notaryTimer = null;
+  }
+
+  private flushNotarySave(done?: () => void): void {
+    this.cancelNotaryTimer();
+    const row = this.claim();
+    if (!row || (!this.warningDirty && !this.tariffDirty && !this.withdrawnDirty)) {
+      done?.();
+      return;
+    }
+    const id = row.id;
+    const epoch = this.notaryEpoch;
+    const warning = this.warningDate;
+    const tariff = this.tariff;
+    const withdrawn = this.withdrawn;
+    this.api.patchClaim(id, {
+      warning_delivered_on: warning || null,
+      notary_tariff: tariff || null,
+      application_withdrawn: withdrawn,
+    }).subscribe({
+      next: (next) => {
+        if (!this.alive || this.viewedId !== id || epoch !== this.notaryEpoch) {
+          if (this.alive && this.viewedId === id && (this.warningDirty || this.tariffDirty || this.withdrawnDirty)) {
+            this.queueNotarySave();
+          }
+          return;
+        }
+        this.warningDirty = false;
+        this.tariffDirty = false;
+        this.withdrawnDirty = false;
+        this.claim.set(next);
+        this.warningDate = next.warning_delivered_on || '';
+        this.tariff = next.notary_tariff || '';
+        this.withdrawn = !!next.application_withdrawn;
+        done?.();
+      },
+      error: (err) => {
+        if (this.alive) this.snack.open(errorMessage(err), 'OK');
+      },
     });
   }
 
   private apply(row: ClaimCase): void {
     this.claim.set(row);
-    this.warningDate = row.warning_delivered_on || '';
-    this.tariff = row.notary_tariff || '';
-    this.withdrawn = row.application_withdrawn;
+    if (!this.warningDirty) {
+      const incoming = row.warning_delivered_on || '';
+      if (incoming || !this.warningDate) this.warningDate = incoming;
+    }
+    if (!this.tariffDirty) {
+      const incoming = row.notary_tariff || '';
+      if (incoming || !this.tariff) this.tariff = incoming;
+    }
+    if (!this.withdrawnDirty) this.withdrawn = row.application_withdrawn;
     this.lawsuitNumber = row.lawsuit_number;
     this.lawsuitKind = row.lawsuit_kind;
     this.defendant = row.defendant_name;
@@ -663,6 +967,17 @@ export class ClaimDetailComponent implements OnInit {
     this.prisOrg = String(request['doc_org'] || '');
     this.prisDocDateIn = String(request['doc_date_in'] || '');
     this.prisNpType = String(request['debtor_np_type'] || '');
+    this.prisDebtorOpf = String(request['debtor_opf'] || '');
+    this.prisDebtorCountry = String(request['debtor_country'] || '');
+    this.prisDebtorNp = String(request['debtor_np'] || '');
+    this.prisDebtorRegion = String(request['debtor_region'] || '');
+    this.prisDebtorArea = String(request['debtor_area'] || '');
+    this.prisDebtorStreetType = String(request['debtor_street_type'] || '');
+    this.prisDebtorStreet = String(request['debtor_street'] || '');
+    this.prisDebtorHouse = String(request['debtor_house'] || '');
+    this.prisDebtorFlat = String(request['debtor_flat'] || '');
+    this.prisDebtorIndex = String(request['debtor_post_index'] || '');
+    this.prisDebtorAddress = String(request['debtor_full_adr'] || '');
     this.prisPdf = Number(request['pdf_id'] || 0);
     this.prisSign = Number(request['signature_id'] || 0);
     this.prisOpf = String(claimant['opf'] || '');
@@ -674,6 +989,16 @@ export class ClaimDetailComponent implements OnInit {
     this.prisBank = String(claimant['bank_code'] || '');
     this.prisAccount = String(claimant['acc_num'] || '');
     this.prisAccType = String(claimant['acc_type'] || '');
+    this.prisClaimRegion = String(claimant['region'] || '');
+    this.prisClaimArea = String(claimant['area'] || '');
+    this.prisClaimStreetType = String(claimant['street_type'] || '');
+    this.prisClaimStreet = String(claimant['street'] || '');
+    this.prisClaimCorp = String(claimant['corp'] || '');
+    this.prisClaimFlat = String(claimant['flat'] || '');
+    this.prisClaimIndex = String(claimant['post_index'] || '');
+    this.prisBankUnp = String(claimant['bank_unp'] || '');
+    this.prisCurr = String(claimant['curr_code'] || '933');
+    this.prisBudget = String(claimant['budget_code'] || '');
     this.eviction = row.eviction_stage;
     this.note = row.notary_note || '';
     this.lawsuitNote = row.lawsuit_note || '';

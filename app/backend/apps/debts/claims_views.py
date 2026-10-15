@@ -45,6 +45,7 @@ from .services.claims import (
     start_writeoff,
     update_case,
 )
+from .services.pris_nsi import load_pris_dictionaries
 from .services.pris_submit import refresh_pris, repay_pris, save_pris_draft, submit_pris
 
 EDITABLE = (
@@ -229,6 +230,10 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": "manual"})
         return Response(case_payload(case, with_choices=True))
+
+    @action(detail=False, methods=["get"], url_path="pris-dictionaries")
+    def pris_dictionaries(self, request):
+        return Response(load_pris_dictionaries())
 
     @action(detail=True, methods=["post"], url_path="pris/draft")
     def pris_draft(self, request, pk=None):

@@ -861,6 +861,12 @@ class ClaimCase(AisRecord):
         blank=True,
         help_text="Коды справочников 120, 201, 214, 217, 309 и выбранные файлы. Пустые коды не подставляются.",
     )
+    pris_inquiry = models.JSONField(
+        "Ход производства ПРИС",
+        default=dict,
+        blank=True,
+        help_text="Ответ 3.11.04 или 3.11.05. В заглушке не заполняется, чтобы не записать номер из примера.",
+    )
     tariff_received = models.BooleanField("Тариф поступил по выгрузке", default=False)
     ais_debt_cleared = models.BooleanField("Выгрузка показала погашение долга и пени", default=False)
     eviction_stage = models.CharField("Параллельная ветвь выселения", max_length=20, blank=True)
@@ -964,6 +970,27 @@ class ClaimApproval(AisRecord):
         ]
         verbose_name = "Согласование списания"
         verbose_name_plural = "Согласования списания"
+
+
+class PrisExchange(TimeStampedModel):
+    """Журнал обмена с АИС ПРИС по одному делу. Тела файлов в запрос не пишутся."""
+
+    case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="pris_exchanges", verbose_name="Дело")
+    actor = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Кто",
+    )
+    operation = models.CharField("Операция", max_length=20)
+    mode = models.CharField("Канал", max_length=20, blank=True)
+    path = models.CharField("Путь шлюза", max_length=120)
+    process_status = models.CharField("Код обработки", max_length=10, blank=True)
+    request = models.JSONField("Запрос", default=dict, blank=True)
+    response = models.JSONField("Ответ", default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [models.Index(fields=["case", "id"], name="debts_pris_case_id_idx")]
+        verbose_name = "Обмен с ПРИС"
+        verbose_name_plural = "Обмен с ПРИС"
 
 
 class ClaimEvent(TimeStampedModel):

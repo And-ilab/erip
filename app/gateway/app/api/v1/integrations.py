@@ -54,6 +54,12 @@ async def pris_echo(client: PrisClient = Depends(get_pris_client)):
     return {"result": await client.echo()}
 
 
+@router.get("/pris/nsi", summary="ПРИС: справочники GetNSIData")
+@api_response
+async def pris_nsi(client: PrisClient = Depends(get_pris_client), settings: Settings = Depends(get_settings)):
+    return {"mode": settings.pris_mode, "items": await client.get_nsi()}
+
+
 def _pris_result(envelope, settings: Settings) -> dict:
     payload = envelope.model_dump()
     payload["mode"] = settings.pris_mode

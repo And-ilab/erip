@@ -27,7 +27,7 @@
 ## 2. АИС ПРИС (Минюст)
 
 - **Файл:** `gateway/app/integrations/pris/client.py` → `StubPrisClient`.
-- **Поведение:** запросы проверяются схемами регламента (`pris/schemas.py`), ответ — пример из регламента, токен вида `stub-token-N`.
+- **Поведение:** запросы проверяются схемами регламента (`pris/schemas.py`), ответ — пример из регламента, токен вида `stub-token-N`. `GetNSIData` в заглушке возвращает сокращённый пример справочника 120 из регламента (коды 0 и 801), не полный набор Минюста. Журнал обмена на деле пишет, что пакет не отправлен. Номер производства и ход из примера на дело не записываются.
 - **Реальный клиент уже написан:** `HttpPrisClient` в том же файле (авторизация, `logout` перед новым токеном, повтор при 401, конверт `code/data/message`, отказ по `processStatus` кроме 1000 и 1001, сервис `PutClaimantSaveDataDebtWOFE`). Проверен на имитации ответов, не на живом сервере: тестовый контур открывается через itVPN, клиента этого канала в ПМ нет.
 - **Выбор реализации:** `get_pris_client()` в `gateway/app/api/v1/integrations.py`, переключатель `GW_PRIS_MODE`.
 
@@ -56,6 +56,7 @@ GW_PRIS_ACCESS_KEY=...
 Эндпоинты в `gateway/app/api/v1/integrations.py` сделаны для проверки каркаса и ходят в заглушки:
 
 - `GET /gw/v1/integrations/pris/echo`;
+- `GET /gw/v1/integrations/pris/nsi`;
 - `POST /gw/v1/integrations/pris/claimant-info`;
 - `POST /gw/v1/integrations/pris/save-data-debt/validate` — при реальном клиенте `GW_PRIS_MODE=http` он **отправит пакет в ПРИС**, а не только проверит;
 - `POST /gw/v1/integrations/bnp/validate`;
@@ -98,7 +99,7 @@ GW_PRIS_ACCESS_KEY=...
 | Шаг | Как выглядит на показе | Куда заменить |
 |---|---|---|
 | Подписать и направить | Пакет собирается в деле. Одна кнопка ставит локальную отметку подписи на исходящие PDF, пишет zip (`manifest.json`, PDF, `.pdf.p7s`) в `media/claims/bnp-archive/` и вызывает `POST /api/v1/claims/{id}/sign-and-send/`. Номер `stub-{id}`, в личный кабинет БНП пакет не уходит | `StubBnpClient` в `gateway/app/integrations/bnp/client.py`, когда появится способ подачи и проверка ЭЦП ГосСУОК |
-| Статус ОПИ | `POST .../pris/submit/`, `.../pris/refresh/` и `.../pris/repay/` собирают пакет по регламенту и при `GW_PRIS_MODE=stub` пишут `opi_mode=stub`, не записывая номер из примера. `POST .../opi/` по-прежнему ручной | `GW_PRIS_MODE=http` и канал itVPN: тот же пакет уходит в `HttpPrisClient` |
+| Статус ОПИ | `POST .../pris/draft/`, `.../pris/submit/`, `.../pris/refresh/` и `.../pris/repay/` собирают пакет по регламенту. Справочники — `GET /api/v1/claims/pris-dictionaries/`. При `GW_PRIS_MODE=stub` пишется `opi_mode=stub`, номер и ход из примера на дело не записываются, в журнале обмена сказано, что в ПРИС не отправлено. Подпись только `.p7s` или `.sgn`. `POST .../opi/` по-прежнему ручной | `GW_PRIS_MODE=http` и канал itVPN: тот же пакет уходит в `HttpPrisClient`, ход производства сохраняется на деле. Повторный опрос — `python manage.py refresh_pris` |
 | Погашение для статуса «Взыскано» | `POST .../ais-receipt/` ставит флаги тарифа и погашения. `balance_out` лицевого счёта не меняется | Ночная выгрузка АИС, когда в ней есть тариф и остаток |
 | Уведомление АИС о списании | После согласия всех согласующих в деле текст «файл статусов ещё не выгружен» | Обратный CSV статусов, ТЗ 4.2.10 |
 

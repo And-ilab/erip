@@ -241,6 +241,20 @@ export class UserDraftDialog {
         @if (selected(); as org) {
           <h2>Пользователи — {{ org.name }}</h2>
           <p class="muted">Учётные записи ведутся в разрезе организации. ФИО, логин, контакты, должность, роль и контур меняются кнопкой «Изменить». При блокировке открытые задания, мероприятия и закреплённые счета переходят другому сотруднику той же схемы и того же контура.</p>
+          @if (auth.canManageTemplates()) {
+            <details class="pris">
+              <summary>Реквизиты взыскателя для АИС ПРИС</summary>
+              <p class="muted">Эти реквизиты уходят в пакет каждого дела схемы. Коды справочников 306, 308 и 309 подставятся списком, когда Минюст отдаст GetNSIData.</p>
+              <div class="pris-grid">
+                @for (field of prisFields; track field.key) {
+                  <label>{{ field.label }}
+                    <input [ngModel]="prisClaimant[field.key]" (ngModelChange)="setPris(field.key, $event)" />
+                  </label>
+                }
+              </div>
+              <button mat-stroked-button type="button" (click)="savePris()">Сохранить реквизиты</button>
+            </details>
+          }
           <div class="toolbar">
             <button mat-stroked-button (click)="createUser()">+ Новый пользователь</button>
             <button type="button" class="tab" [class.on]="tab() === 'users'" (click)="tab.set('users')">Пользователи</button>
@@ -348,6 +362,10 @@ export class UserDraftDialog {
     .rights { display: flex; flex-direction: column; gap: 10px; }
     .rights article { border: 1px solid var(--erip-border); border-radius: 10px; padding: 10px 12px; }
     .rights p { margin: 4px 0 0; }
+    .pris { margin-top: 12px; }
+    .pris-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+    .pris-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--erip-muted); min-width: 180px; }
+    .pris-grid input { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; font: inherit; color: inherit; }
     @media (max-width: 980px) { .split { grid-template-columns: 1fr; } }
   `,
 })
@@ -362,6 +380,28 @@ export class OrgDirectoryComponent implements OnInit {
   protected readonly selectedId = signal<number | null>(null);
   protected readonly query = signal('');
   protected readonly tab = signal<'users' | 'rights'>('users');
+  protected prisClaimant: Record<string, string> = {};
+  protected readonly prisFields = [
+    { key: 'opf', label: 'ОПФ' },
+    { key: 'country', label: 'Страна, справочник 306' },
+    { key: 'full_adr', label: 'Полный адрес' },
+    { key: 'region', label: 'Область' },
+    { key: 'area', label: 'Район' },
+    { key: 'np_type', label: 'Тип населённого пункта, 309' },
+    { key: 'np', label: 'Населённый пункт' },
+    { key: 'street_type', label: 'Тип улицы, 308' },
+    { key: 'street', label: 'Улица' },
+    { key: 'house', label: 'Дом' },
+    { key: 'corp', label: 'Корпус' },
+    { key: 'flat', label: 'Квартира' },
+    { key: 'post_index', label: 'Индекс' },
+    { key: 'bank_unp', label: 'УНП получателя' },
+    { key: 'bank_code', label: 'SWIFT' },
+    { key: 'acc_num', label: 'Счёт' },
+    { key: 'acc_type', label: 'Тип счёта' },
+    { key: 'curr_code', label: 'Валюта, ОКРБ' },
+    { key: 'budget_code', label: 'Код платежа в бюджет' },
+  ];
   protected readonly rights = [
     { title: 'Суперадминистратор', text: 'Все схемы. Меняет границы групп, рейтинг, организации и любых пользователей.' },
     { title: 'Локальный администратор', text: 'Пользователи своей схемы, сценарии и печатные формы схемы. Границы групп задаёт суперадминистратор.' },
@@ -441,6 +481,8 @@ export class OrgDirectoryComponent implements OnInit {
     const visible = this.visibleOrgs();
     if (this.selectedId() != null && !visible.some((org) => org.id === this.selectedId())) {
       this.selectedId.set(visible[0]?.id ?? null);
+      const selected = this.selectedId();
+      if (selected != null) this.loadPris(selected);
     }
     this.loadUsers();
   }
@@ -449,6 +491,23 @@ export class OrgDirectoryComponent implements OnInit {
     this.selectedId.set(id);
     this.tab.set('users');
     this.loadUsers();
+    this.loadPris(id);
+  }
+
+  protected setPris(key: string, value: string): void {
+    this.prisClaimant = { ...this.prisClaimant, [key]: value };
+  }
+
+  protected savePris(): void {
+    const org = this.selectedId();
+    if (org == null) return;
+    this.api.saveOrganizationPris(org, this.prisClaimant).subscribe({
+      next: (row) => {
+        this.prisClaimant = { ...row.claimant };
+        this.snack.open('Реквизиты взыскателя сохранены', 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   protected createOrg(): void {
@@ -586,8 +645,18 @@ export class OrgDirectoryComponent implements OnInit {
         const current = prefer ?? this.selectedId();
         this.selectedId.set(visible.find((org) => org.id === current)?.id ?? visible[0]?.id ?? null);
         this.loadUsers();
+        const selected = this.selectedId();
+        if (selected != null) this.loadPris(selected);
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private loadPris(id: number): void {
+    if (!this.auth.canManageTemplates()) return;
+    this.api.organizationPris(id).subscribe({
+      next: (row) => { this.prisClaimant = { curr_code: '933', ...row.claimant }; },
+      error: () => { this.prisClaimant = { curr_code: '933' }; },
     });
   }
 

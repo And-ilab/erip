@@ -493,6 +493,18 @@ export class ApiService {
     return this.http.post<ClaimCase>(`${this.base}/claims/${id}/${action}/`, body);
   }
 
+  prisDictionaries(): Observable<PrisDictionaries> {
+    return this.http.get<PrisDictionaries>(`${this.base}/claims/pris-dictionaries/`);
+  }
+
+  organizationPris(id: number): Observable<{ claimant: Record<string, string> }> {
+    return this.http.get<{ claimant: Record<string, string> }>(`${this.base}/organizations/${id}/pris-claimant/`);
+  }
+
+  saveOrganizationPris(id: number, claimant: Record<string, string>): Observable<{ claimant: Record<string, string> }> {
+    return this.http.patch<{ claimant: Record<string, string> }>(`${this.base}/organizations/${id}/pris-claimant/`, claimant);
+  }
+
   uploadClaimDocument(
     id: number, docType: string, pdf: File | null, signature: File | null, kind: string, docId?: number,
   ): Observable<ClaimCase> {
@@ -748,6 +760,34 @@ export interface ClaimCase {
   package?: ClaimPackage;
 }
 
+export interface PrisDictRow { code: string; name: string }
+
+export interface PrisDictionaries {
+  mode: string;
+  dictionaries: Record<string, { name: string; rows: PrisDictRow[] }>;
+}
+
+export interface PrisInquiry {
+  applied?: boolean;
+  p_ost?: { req_sum?: string; ost_sum?: string; curr_code?: string }[];
+  p_status?: { status?: string; date_status?: string; actual?: string }[];
+  p_action?: Record<string, string>[];
+  p_nachisl?: Record<string, string>[];
+  p_repay?: Record<string, string>[];
+  p_ispdoc?: { proc_num?: string; doc_num?: string }[];
+}
+
+export interface PrisExchangeRow {
+  id: number;
+  operation: string;
+  mode: string;
+  process_status: string;
+  created_at: string;
+  note: string;
+  request: Record<string, unknown>;
+  response: Record<string, unknown>;
+}
+
 export interface PrisCard {
   problems: string[];
   ready: boolean;
@@ -757,6 +797,8 @@ export interface PrisCard {
   process_message: string;
   request: Record<string, string | number>;
   claimant: Record<string, string>;
+  inquiry?: PrisInquiry;
+  exchanges?: PrisExchangeRow[];
 }
 
 export interface ClaimPackage {
