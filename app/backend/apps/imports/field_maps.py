@@ -246,6 +246,7 @@ REGISTRATION_MAP = EntityMap(
         F("SUBJ_IS_MAIN", "subj_is_main", "bool"),
         F("IS_CLOSE_RELATIVE", "is_close_relative", "bool"),
         F("SUBJ_LEGAL_ENTITY", "subj_legal_entity", "bool"),
+        F("LEGACY_PARAM_TYPE_NAME", "heritage_transfer", "heritage"),
     ),
 )
 

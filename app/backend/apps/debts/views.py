@@ -426,7 +426,48 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 Q(work_item__isnull=True) | Q(work_item__service__isnull=True)
                 | Q(work_item__service__provider_id__in=providers or [-1])
             )
-        return self._nested("", AttachmentSerializer, qs)
+        page = self.paginate_queryset(qs)
+        rows = list(AttachmentSerializer(
+            page if page is not None else qs, many=True, context=self.get_serializer_context(),
+        ).data)
+        from .models import ClaimPackageDocument
+
+        documents = ClaimPackageDocument.objects.filter(package__case__account=account).select_related("package__case")
+        for doc in documents:
+            rows.append({
+                "id": f"package-{doc.pk}",
+                "account": account.pk,
+                "work_item": None,
+                "doc_type": doc.doc_type,
+                "original_name": doc.file_name,
+                "uploaded_by": None,
+                "created_at": doc.created_at.isoformat() if doc.created_at else None,
+                "package": True,
+                "claim_id": doc.package.case_id,
+                "doc_id": doc.pk,
+            })
+        if page is not None:
+            return self.get_paginated_response(rows)
+        return Response(rows)
+
+    @action(detail=True, methods=["get", "post"], url_path="writ-draft")
+    def writ_draft(self, request, pk=None):
+        from apps.debts.services.claims import case_payload
+        from apps.debts.services.writ_draft import create_writ, writ_preview
+
+        account = self.get_object()
+        if request.method == "GET":
+            return Response(writ_preview(account))
+        case = create_writ(account, request.user, request.data)
+        return Response(case_payload(case), status=status.HTTP_201_CREATED)
+
+    @action(detail=True)
+    def scenario(self, request, pk=None):
+        from apps.debts.services.scenario_board import scenario_outline
+
+        account = self.get_object()
+        account = Account.objects.prefetch_related("measures__tasks").get(pk=account.pk)
+        return Response(scenario_outline(account))
 
     @action(detail=True, url_path="dial-number")
     def dial_number(self, request, pk=None):
@@ -555,7 +596,9 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 case_ids = {}
                 if cards:
                     case_ids = dict(
-                        ClaimCase.objects.filter(account_id__in=[row["id"] for row in cards]).values_list("account_id", "id")
+                        ClaimCase.objects.filter(account_id__in=[row["id"] for row in cards])
+                        .order_by("id")
+                        .values_list("account_id", "id")
                     )
                 for row in cards:
                     row["claim_id"] = case_ids.get(row["id"])

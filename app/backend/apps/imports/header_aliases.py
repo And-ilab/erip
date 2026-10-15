@@ -169,5 +169,6 @@ HEADER_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
         "subj_is_main": ("Является плательщиком",),
         "is_close_relative": ("Является членом семьи плательщика",),
         "subj_legal_entity": ("Является юридическим лицом",),
+        "heritage_transfer": ("Способ перехода прав",),
     },
 }

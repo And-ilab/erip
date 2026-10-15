@@ -26,6 +26,7 @@ from .services.bnp_package import (
     open_document,
     save_package,
     sign_and_send,
+    sign_documents,
     store_document,
     update_document_layout,
     update_document_text,
@@ -191,6 +192,12 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         return FileResponse(
             field.open("rb"), as_attachment=not inline, filename=name, content_type=content_type,
         )
+
+    @action(detail=True, methods=["post"], url_path="sign-documents")
+    def sign_docs(self, request, pk=None):
+        case = sign_documents(self._case(pk), request.user)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"signed": "package"})
+        return Response(case_payload(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="sign-and-send")
     def sign_send(self, request, pk=None):

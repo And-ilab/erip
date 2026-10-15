@@ -114,7 +114,7 @@ export interface AccountRow {
   id: number;
   account_id: number;
   client_account: string;
-  unified_account: number | null;
+  unified_account: number | string | null;
   provider_short_name: string;
   schema_label?: string;
   account_address: string;
@@ -188,6 +188,21 @@ export interface AccountDetail extends AccountRow {
   residence_note: string;
   bankruptcy: boolean;
   legal_status: string;
+  provider_id?: number | null;
+  is_private_enterprise?: boolean;
+  house_id?: number | null;
+  priv_acc_count?: number | null;
+  acc_category_short?: string;
+  category_short_name?: string;
+  uniq_attr?: number | null;
+  uniq_attr_name?: string;
+  info_param_value1?: string;
+  info_param_value2?: string;
+  pay_sum_writeoff?: string | null;
+  unshared_sum?: string | null;
+  receipt_pay?: string | null;
+  calc_result_sum?: string | null;
+  heritage_from_file?: boolean;
 }
 
 export interface ServiceChoice {
@@ -400,10 +415,13 @@ export interface WorkItem {
 }
 
 export interface AttachmentRow {
-  id: number;
+  id: number | string;
   doc_type: string;
   original_name: string;
   created_at: string;
+  package?: boolean;
+  claim_id?: number;
+  doc_id?: number;
 }
 
 export interface MeasureRow {
@@ -602,6 +620,8 @@ export interface Payment {
   pay_mulct_summ: string | null;
   bank_name: string;
   payment_type_display: string;
+  file_fields?: { label: string; value: string }[];
+  [key: string]: unknown;
 }
 
 export interface Registration {
@@ -632,6 +652,60 @@ export interface Registration {
   legacy_start_date: string | null;
   legacy_stop_date: string | null;
   subj_heritage_date: string | null;
+  solidary?: boolean;
+  sheet?: { label: string; value: string }[];
+}
+
+export interface ScenarioTask {
+  id: number;
+  title: string;
+  status: string;
+  status_label: string;
+}
+
+export interface ScenarioMeasure {
+  id: number;
+  kind: string;
+  kind_label: string;
+  status: string;
+  status_label: string;
+  tasks: ScenarioTask[];
+}
+
+export interface ScenarioStep {
+  order: number;
+  action: string;
+  title: string;
+  checklist: string[];
+  measures: ScenarioMeasure[];
+}
+
+export interface ScenarioBoard {
+  scenario_name: string;
+  steps: ScenarioStep[];
+  manual: ScenarioMeasure[];
+}
+
+export interface WritRecord {
+  id: number;
+  stage_label: string;
+  debt_from: string | null;
+  debt_to: string | null;
+  repayment_days: number;
+  notary_office: string;
+  documents: { id: number; name: string }[];
+}
+
+export interface WritDraft {
+  eligible_from: string | null;
+  eligible_to: string | null;
+  warning_delivered_on: string | null;
+  defendant_name: string;
+  principal: string;
+  penalty: string;
+  repayment_days: number;
+  blockers: string[];
+  records: WritRecord[];
 }
 
 export type Channel = 'inbox' | 'email' | 'sms' | 'voice';

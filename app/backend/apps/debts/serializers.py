@@ -154,10 +154,13 @@ class AccountListSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         from .services.board_lines import board_service_lines
+        from .services.card_sheet import unified_from_raw
 
         data = super().to_representation(instance)
         data = _supplier_totals(instance, data)
         data["obligation_total"] = _add_money(data.get("debt_total"), data.get("mulct_total"))
+        if not data.get("unified_account"):
+            data["unified_account"] = unified_from_raw(instance) or None
         lines, debt_count = board_service_lines(instance.services.all())
         data["service_lines"] = lines
         data["services_debt_count"] = debt_count
@@ -239,6 +242,8 @@ class AccountDetailSerializer(serializers.ModelSerializer):
     assigned_name = serializers.CharField(source="assigned_to.registry_name", default="", read_only=True)
     schema_label = serializers.SerializerMethodField()
     scenario_brief = serializers.SerializerMethodField()
+    receipt_pay = serializers.SerializerMethodField()
+    heritage_from_file = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
@@ -266,8 +271,25 @@ class AccountDetailSerializer(serializers.ModelSerializer):
             published_scenario(obj.organization_id, cache)
         return scenario_brief(obj, cache)
 
+    def get_receipt_pay(self, obj) -> str:
+        from django.db.models import Sum
+
+        totals = obj.payments.aggregate(services=Sum("pay_service_summ"), penalty=Sum("pay_mulct_summ"))
+        return _add_money(totals["services"], totals["penalty"])
+
+    def get_heritage_from_file(self, obj) -> bool:
+        from django.db.models import Q
+
+        return obj.registrations.filter(
+            Q(heritage_transfer="accept") | Q(subj_heritage_date__isnull=False),
+        ).exists()
+
     def to_representation(self, instance):
+        from .services.card_sheet import unified_from_raw
+
         data = super().to_representation(instance)
+        if not data.get("unified_account"):
+            data["unified_account"] = unified_from_raw(instance) or None
         return _supplier_totals(instance, data)
 
     def validate(self, attrs):
@@ -492,10 +514,16 @@ class AccountServiceSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     payment_type_display = serializers.CharField(source="get_payment_type_display", read_only=True)
+    file_fields = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
         exclude = ["raw"]
+
+    def get_file_fields(self, obj) -> list[dict]:
+        from .services.card_sheet import payment_file_fields
+
+        return payment_file_fields(obj)
 
 
 def mask_identifier(value: str) -> str:
@@ -511,6 +539,8 @@ REGISTRATION_PM = {"social_category", "unfit_for_work", "heritage_transfer"}
 class RegistrationSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="__str__", read_only=True)
     debtor_role = serializers.SerializerMethodField()
+    solidary = serializers.SerializerMethodField()
+    sheet = serializers.SerializerMethodField()
 
     class Meta:
         model = Registration
@@ -518,7 +548,19 @@ class RegistrationSerializer(serializers.ModelSerializer):
         read_only_fields = [f.name for f in Registration._meta.fields if f.name not in REGISTRATION_PM]
 
     def get_debtor_role(self, obj) -> str:
-        return "Плательщик" if obj.subj_is_main else "Солидарный должник"
+        from .services.card_sheet import debtor_role
+
+        return debtor_role(obj)
+
+    def get_solidary(self, obj) -> bool:
+        from .services.card_sheet import is_solidary
+
+        return is_solidary(obj)
+
+    def get_sheet(self, obj) -> list[dict]:
+        from .services.card_sheet import registration_sheet
+
+        return registration_sheet(obj)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

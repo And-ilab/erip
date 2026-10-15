@@ -69,7 +69,7 @@ def test_sample_import_and_reimport_is_idempotent():
 
     account = Account.objects.get(organization__schema_name="BR2000", account_id=367826)
     assert account.client_account == "50498"
-    assert account.unified_account is None
+    assert account.unified_account == 120_000_000_000
     assert "E+" in account.raw["Уникальный единый номер ЛС (УЕН ЛС)"].upper()
     assert account.house_address == "ул. Гоголя, д.32"
 
@@ -127,7 +127,8 @@ def test_parsing_helpers():
     assert convert("01.02.2026", "date").isoformat() == "2026-02-01"
     assert convert("Зачисление из зарплаты", "payment_type") == "salary"
     assert convert("", "bool") is False
-    assert convert("1,2E+11", "int") is None
+    assert convert("1,2E+11", "int") == 120_000_000_000
+    assert convert("Принятие наследства", "heritage") == "accept"
     assert decode("тест".encode("cp1251"))[1] == "cp1251"
     bindings, unknown = bind_columns(["ACCOUNT_ID", "ACCOUNT_ID", "EXTRA"], ENTITY_MAPS["account"])
     assert bindings[1].spec.field == "is_private_enterprise"

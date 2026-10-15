@@ -832,8 +832,19 @@ class ClaimCase(AisRecord):
         APPROVED = "approved", "Согласовано"
         REJECTED = "rejected", "Отказ согласующего"
 
-    account = models.OneToOneField(Account, on_delete=models.CASCADE, related_name="claim_case", verbose_name="ЛС")
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="claim_case", verbose_name="ЛС")
     stage = models.CharField("Этап", max_length=20, choices=Stage.choices, default=Stage.PREP, db_index=True)
+    debt_from = models.DateField("Период задолженности с", null=True, blank=True)
+    debt_to = models.DateField("Период задолженности по", null=True, blank=True)
+    non_delivery_act_on = models.DateField("Дата акта о невручении предупреждения", null=True, blank=True)
+    repayment_days = models.PositiveSmallIntegerField("Дней на погашение", default=7)
+    writ_principal = models.DecimalField(
+        "Долг по услугам за период", max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+    writ_penalty = models.DecimalField(
+        "Долг по пене за период", max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+    notary_office = models.CharField("Нотариальная контора", max_length=250, blank=True)
     warning_delivered_on = models.DateField("Дата вручения предупреждения", null=True, blank=True)
     notary_tariff = models.DecimalField("Нотариальный тариф", max_digits=12, decimal_places=2, null=True, blank=True)
     application_withdrawn = models.BooleanField("Заявление отозвано", default=False)

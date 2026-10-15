@@ -65,7 +65,8 @@ const MONEY_COLUMNS = new Set([
 ]);
 
 const BASE_COLUMNS = [
-  'client_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
+  'client_account', 'unified_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
+  'provider_short_name', 'schema_label',
   'rating_label', 'funnel_stage', 'debt_total', 'mulct_total', 'obligation_total', 'effective_group',
   'scenario_brief', 'assigned_name', 'ownership_type_name', 'acc_category_full', 'months_debt',
   'subj_count', 'registered_count', 'services_debt_count', 'debt_started_on',
@@ -323,7 +324,7 @@ interface GroupSection {
         }
 
         @if (view() === 'list') {
-          <div class="list-pane">
+          <div class="list-pane fill">
           <table mat-table [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef>
@@ -364,7 +365,7 @@ interface GroupSection {
         }
 
         @if (view() === 'grouped') {
-          <div class="list-pane groups">
+          <div class="list-pane fill groups">
           @if (sectionsLoading()) {
             <p class="hint">Загрузка групп…</p>
           } @else if (!sections().length && !error()) {
@@ -923,7 +924,8 @@ export class AccountsListComponent implements OnInit {
       ).join('; '));
     }
     const raw = this.cell(row, name);
-    if (['account_address', 'ownership_type_name', 'acc_category_full', 'assigned_name', 'provider_short_name', 'schema_label'].includes(name)) {
+    if (name === 'account_address') return raw;
+    if (['ownership_type_name', 'acc_category_full', 'assigned_name', 'provider_short_name', 'schema_label'].includes(name)) {
       return briefText(raw);
     }
     return raw;

@@ -71,6 +71,13 @@ a:not(.mat-mdc-button-base):not(.mat-mdc-list-item) { color: var(--erip-link); t
   max-height: min(calc(10 * var(--list-row) + 44px), calc(100vh - 220px));
   overflow: auto;
 }
+.list-pane.fill {
+  min-height: calc(100vh - 210px);
+  max-height: calc(100vh - 210px);
+  background: #fff;
+}
+.list-pane.fill table.mat-mdc-table { width: max-content; min-width: 100%; }
+.list-pane.fill .mat-column-account_address { min-width: 280px; white-space: normal; }
 .list-pane.cards { --list-row: 116px; max-height: min(calc(10 * var(--list-row)), calc(100vh - 260px)); }
 .list-pane.lines {
   --list-row: 26px;

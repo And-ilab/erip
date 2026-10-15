@@ -279,6 +279,19 @@ def stamp_package_signatures(case: ClaimCase) -> ClaimPackage:
     return package
 
 
+def sign_documents(case: ClaimCase, user) -> ClaimCase:
+    """Локальная отметка на PDF комплекта. В кабинет БНП пакет не уходит."""
+    stamp_package_signatures(case)
+    ClaimEvent.objects.create(
+        case=case,
+        actor=user if getattr(user, "is_authenticated", False) else None,
+        old_stage=case.stage,
+        new_stage=case.stage,
+        reason="Документы комплекта отмечены локальной подписью",
+    )
+    return case
+
+
 def sign_and_send(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
     from apps.debts.services.claims import _require_notary_fields, send_to_notary
 
@@ -506,6 +519,7 @@ def form_package(case: ClaimCase, user) -> ClaimPackage:
         new_stage=case.stage,
         reason="Сформирован пакет для личного кабинета БНП",
     )
+    write_archive(case)
     return package
 
 

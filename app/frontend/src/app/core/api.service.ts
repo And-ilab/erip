@@ -14,6 +14,8 @@ import {
   DialSettings,
   ApiError,
   AttachmentRow,
+  ScenarioBoard,
+  WritDraft,
   BalanceRow,
   CalendarEvent,
   ContactRow,
@@ -153,6 +155,30 @@ export class ApiService {
 
   accountFiles(id: number): Observable<Page<AttachmentRow>> {
     return this.http.get<Page<AttachmentRow>>(`${this.base}/accounts/${id}/attachments/`, { params: toParams({ page_size: 200 }) });
+  }
+
+  accountScenario(id: number): Observable<ScenarioBoard> {
+    return this.http.get<ScenarioBoard>(`${this.base}/accounts/${id}/scenario/`);
+  }
+
+  writDraft(id: number): Observable<WritDraft> {
+    return this.http.get<WritDraft>(`${this.base}/accounts/${id}/writ-draft/`);
+  }
+
+  createWrit(id: number, body: object): Observable<{ id: number }> {
+    return this.http.post<{ id: number }>(`${this.base}/accounts/${id}/writ-draft/`, body);
+  }
+
+  deleteAttachment(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/attachments/${id}/`);
+  }
+
+  downloadAttachment(id: number): Observable<Blob> {
+    return this.http.get(`${this.base}/attachments/${id}/download/`, { responseType: 'blob' });
+  }
+
+  downloadClaimFile(claimId: number, docId: number): Observable<Blob> {
+    return this.http.get(`${this.base}/claims/${claimId}/package/documents/${docId}/pdf/`, { responseType: 'blob' });
   }
 
   refreshAccount(id: number): Observable<{ id: number; status: string }> {
@@ -411,16 +437,16 @@ export class ApiService {
 
   accountServices(id: number, withDebt = false): Observable<Page<AccountService>> {
     return this.http.get<Page<AccountService>>(`${this.base}/accounts/${id}/services/`, {
-      params: toParams({ page_size: 200, with_debt: withDebt ? 1 : null }),
+      params: toParams({ page_size: 500, with_debt: withDebt ? 1 : null }),
     });
   }
 
   accountPayments(id: number): Observable<Page<Payment>> {
-    return this.http.get<Page<Payment>>(`${this.base}/accounts/${id}/payments/`, { params: toParams({ page_size: 200 }) });
+    return this.http.get<Page<Payment>>(`${this.base}/accounts/${id}/payments/`, { params: toParams({ page_size: 500 }) });
   }
 
   accountRegistrations(id: number): Observable<Page<Registration>> {
-    return this.http.get<Page<Registration>>(`${this.base}/accounts/${id}/registrations/`, { params: toParams({ page_size: 200 }) });
+    return this.http.get<Page<Registration>>(`${this.base}/accounts/${id}/registrations/`, { params: toParams({ page_size: 500 }) });
   }
 
   notifications(params: Params): Observable<Page<Notification>> {

@@ -60,12 +60,13 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   (withdrawnChange)="setWithdrawn($event)"
                   (changed)="replace($event)" />
                 <div class="bar">
+                  <button mat-stroked-button type="button" (click)="signDocuments()">Подписать</button>
                   <button mat-flat-button color="primary" type="button" (click)="formPackage()">Собрать архив</button>
-                  <button mat-flat-button type="button" (click)="saveThenSend()">Подписать и направить</button>
-                  @if (row.package?.has_archive) {
-                    <button mat-stroked-button type="button" (click)="downloadArchive()">Скачать архив</button>
-                  }
+                  <button mat-stroked-button type="button" (click)="downloadArchive()">Скачать архив</button>
+                  <button mat-stroked-button type="button" (click)="downloadManifest()">Скачать json</button>
+                  <button mat-flat-button type="button" disabled title="Обмен с БНП система-система не подключён">Отправить</button>
                 </div>
+                <p class="muted">«Отправить» неактивна: канал БНП система-система не подключён. Архив и json сохраняются на компьютер.</p>
                 @if (sendGaps(row).length) {
                   <ul class="blockers">
                     @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
@@ -115,7 +116,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 }
                 <div class="actions">
                   <button mat-stroked-button type="button" (click)="save()">Сохранить</button>
-                  <button mat-flat-button color="primary" type="button" (click)="saveThenSend()">Подписать и направить</button>
+                  <button mat-flat-button type="button" disabled title="Обмен с БНП система-система не подключён">Отправить</button>
                   <button mat-stroked-button type="button" (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
                   <button mat-stroked-button type="button" (click)="refuse()">Отказ нотариуса</button>
                   @if (row.stage === 'notary' || row.stage === 'writ_done' || row.stage === 'refused') {
@@ -718,10 +719,39 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
         this.api.claimAction(row.id, 'package/form', {}).subscribe({
           next: (next) => {
             this.apply(next);
-            this.snack.open('Архив собран. В кабинет БНП вызов не уходит.', 'OK', { duration: 3000 });
+            this.downloadArchive();
+            this.router.navigate(['/accounts', row.account]);
           },
           error: (err) => this.snack.open(errorMessage(err), 'OK'),
         });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected signDocuments(): void {
+    const row = this.claim();
+    if (!row) return;
+    this.api.claimAction(row.id, 'sign-documents', {}).subscribe({
+      next: (next) => {
+        this.apply(next);
+        this.snack.open('Документы отмечены локальной подписью. В кабинет БНП вызов не уходит.', 'OK', { duration: 3000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected downloadManifest(): void {
+    const row = this.claim();
+    if (!row) return;
+    this.api.claimManifest(row.id).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `bnp-claim-${row.id}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });

@@ -29,15 +29,25 @@ class AccountRepository:
         term = term.strip()
         if not term:
             return qs
-        condition = Q(client_account__icontains=term) | Q(short_fio__icontains=term) | Q(
-            account_address__icontains=term
+        condition = (
+            Q(client_account__icontains=term)
+            | Q(short_fio__icontains=term)
+            | Q(account_address__icontains=term)
+            | Q(provider_short_name__icontains=term)
+            | Q(ownership_type_name__icontains=term)
+            | Q(acc_category_full__icontains=term)
+            | Q(scenario_name__icontains=term)
+            | Q(schema_name__icontains=term)
+            | Q(assigned_to__last_name__icontains=term)
+            | Q(assigned_to__first_name__icontains=term)
+            | Q(scenario_run__scenario__name__icontains=term)
         )
         if term.isdigit():
             condition |= Q(client_account__endswith=term.lstrip("0") or "0") | Q(unified_account=int(term)) | Q(
                 account_id=int(term)
             )
         condition |= Q(payer_identifier__icontains=term) | Q(payer_unp__icontains=term)
-        return qs.filter(condition)
+        return qs.filter(condition).distinct()
 
     def group_summary(self) -> list[dict]:
         rows = (
