@@ -77,7 +77,7 @@ a:not(.mat-mdc-button-base):not(.mat-mdc-list-item) { color: var(--erip-link); t
   background: #fff;
 }
 .list-pane.fill table.mat-mdc-table { width: max-content; min-width: 100%; }
-.list-pane.fill .mat-column-account_address { min-width: 280px; white-space: normal; }
+.list-pane.fill .mat-column-account_address { white-space: nowrap; }
 .list-pane.cards { --list-row: 116px; max-height: min(calc(10 * var(--list-row)), calc(100vh - 260px)); }
 .list-pane.lines {
   --list-row: 26px;

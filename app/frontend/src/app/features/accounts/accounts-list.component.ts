@@ -60,6 +60,42 @@ const LABELS: Record<string, string> = {
   funnel_stage: 'Этап воронки взыскания',
 };
 
+const SHORT_LABELS: Record<string, string> = {
+  account_id: 'ID ЛС',
+  client_account: 'Номер\nЛС',
+  unified_account: 'УЕН',
+  provider_short_name: 'Обслуж.\nорганизация',
+  schema_label: 'Схема',
+  account_address: 'Адрес',
+  short_fio: 'ФИО /\nнаименование',
+  payer_identifier: 'ИН',
+  payer_unp: 'УНП',
+  rating_label: 'Рейтинг',
+  debt_started_on: 'Ранний\nпериод долга',
+  debt_total: 'Основной\nдолг',
+  mulct_total: 'Пеня',
+  obligation_total: 'Суммарный\nдолг',
+  services_debt_count: 'Услуг\nс долгом',
+  contract_number: 'Номер\nдоговора',
+  contract_date: 'Дата\nдоговора',
+  service_provider: 'Поставщик\nуслуги',
+  initial_principal: 'Первонач.\nдолг',
+  initial_penalty: 'Первонач.\nпеня',
+  period_balances: 'Остатки\nпо периодам',
+  repayment_due_on: 'Срок\nпогашения',
+  last_payment_date: 'Последняя\nоплата',
+  effective_group: 'Группа',
+  scenario_name: 'Сценарий',
+  scenario_brief: 'Сценарий',
+  assigned_name: 'Специалист',
+  ownership_type_name: 'Собствен-\nность',
+  acc_category_full: 'Жилфонд',
+  months_debt: 'Месяцев\nдолга',
+  subj_count: 'Прожива-\nющие',
+  registered_count: 'Зареги-\nстрировано',
+  funnel_stage: 'Этап\nворонки',
+};
+
 const MONEY_COLUMNS = new Set([
   'debt_total', 'mulct_total', 'obligation_total', 'initial_principal', 'initial_penalty', 'period_balances',
 ]);
@@ -337,8 +373,9 @@ interface GroupSection {
             @for (name of columns(); track name) {
               <ng-container [matColumnDef]="name">
                 <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)"
-                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)">
-                  {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }
+                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)"
+                    [attr.title]="label(name)">
+                  <span class="col-head" [style.width.ch]="columnCh(name)">{{ shortLabel(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }</span>
                 </th>
                 <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'">
                   @switch (name) {
@@ -376,7 +413,7 @@ interface GroupSection {
               <thead>
                 <tr>
                   @for (name of shownColumns(); track name) {
-                    <th>@if (name !== 'select') { {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> } }</th>
+                    <th [attr.title]="name === 'select' ? '' : label(name)">@if (name !== 'select') { <span class="col-head" [style.width.ch]="columnCh(name)">{{ shortLabel(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }</span> }</th>
                   }
                 </tr>
               </thead>
@@ -623,6 +660,13 @@ interface GroupSection {
     .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .picked-count { font-size: 13px; color: var(--erip-primary); white-space: nowrap; }
     th[draggable="true"] { cursor: grab; }
+    .col-head {
+      display: inline-block; white-space: pre-line; line-height: 1.15; vertical-align: bottom;
+      font-size: 11px; font-weight: 600;
+    }
+    .list-pane.fill .mat-mdc-header-cell { white-space: normal; vertical-align: bottom; }
+    :host ::ng-deep .list-pane.fill .mat-sort-header-content { white-space: normal; text-align: left; overflow: visible; }
+    .list-pane.fill td.mat-mdc-cell, .grouped-board td { white-space: nowrap; }
     th app-byn-sign { margin-left: 0.28em; }
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
@@ -855,6 +899,23 @@ export class AccountsListComponent implements OnInit {
     return LABELS[name] ?? name;
   }
 
+  protected shortLabel(name: string): string {
+    return SHORT_LABELS[name] ?? this.label(name);
+  }
+
+  protected columnCh(name: string): number {
+    let longest = 0;
+    const take = (row: AccountRow) => {
+      longest = Math.max(longest, this.shownText(row, name).length);
+    };
+    for (const row of this.rows()) take(row);
+    for (const section of this.sections()) {
+      for (const row of section.rows) take(row);
+    }
+    const head = Math.max(...this.shortLabel(name).split('\n').map((line) => line.length), 4);
+    return Math.max(longest, head, 4);
+  }
+
   protected moneyColumn(name: string): boolean {
     return MONEY_COLUMNS.has(name);
   }
@@ -902,6 +963,19 @@ export class AccountsListComponent implements OnInit {
   protected scenarioLine(card: AccountRow): string {
     const text = this.short(card.scenario_brief);
     return text === '—' ? 'Сценарий не назначен' : text;
+  }
+
+  private shownText(row: AccountRow, name: string): string {
+    if (name === 'funnel_stage') return this.stageLabel(row.funnel_stage);
+    if (name === 'scenario_brief') return this.short(row.scenario_brief);
+    if (name === 'short_fio') return `${row.short_fio || ''}${row.is_legal ? ' ЮЛ' : ''}`;
+    if (name === 'effective_group') return row.effective_group ? String(row.effective_group) : '';
+    if (name === 'rating_label') return row.rating_label || '';
+    if (name === 'debt_total' || name === 'mulct_total' || name === 'obligation_total' || name === 'initial_principal' || name === 'initial_penalty') {
+      const raw = name.startsWith('initial') ? this.boardCell(row, name) : String(row[name as keyof AccountRow] ?? '');
+      return raw;
+    }
+    return this.boardCell(row, name);
   }
 
   boardCell(row: AccountRow, name: string): string {

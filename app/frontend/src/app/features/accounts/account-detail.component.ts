@@ -240,25 +240,28 @@ import {
           </mat-tab>
 
           <mat-tab label="Услуги ({{ services().length }})">
-            <div class="filters">
-              <button mat-stroked-button type="button" (click)="servicePicker = !servicePicker">Столбцы</button>
+            <div class="columns-wrap">
+              <button mat-stroked-button type="button" (click)="toggleServicePicker($event)">Столбцы</button>
               @if (servicePicker) {
-                <button mat-button type="button" (click)="setServiceColumns(true)">Отметить все</button>
-                <button mat-button type="button" (click)="setServiceColumns(false)">Снять все</button>
+                <div class="picker-back" (click)="servicePicker = false"></div>
+                <div class="picker-menu" role="listbox" aria-label="Столбцы услуг"
+                     [style.top.px]="serviceMenuTop" [style.left.px]="serviceMenuLeft"
+                     [style.max-height]="'calc(100vh - ' + (serviceMenuTop + 12) + 'px)'">
+                  <div class="picker-actions">
+                    <button type="button" (click)="setServiceColumns(true)">Отметить все</button>
+                    <button type="button" (click)="setServiceColumns(false)">Снять все</button>
+                  </div>
+                  @for (col of serviceCatalog; track col; let i = $index) {
+                    <label>
+                      <input type="checkbox" [checked]="serviceVisible(col)" (change)="toggleServiceColumn(col, $any($event.target).checked)" />
+                      <span>{{ serviceLabel(col) }}</span>
+                      <button type="button" (click)="$event.preventDefault(); moveServiceColumn(i, -1)">↑</button>
+                      <button type="button" (click)="$event.preventDefault(); moveServiceColumn(i, 1)">↓</button>
+                    </label>
+                  }
+                </div>
               }
             </div>
-            @if (servicePicker) {
-              <div class="picker">
-                @for (col of serviceCatalog; track col; let i = $index) {
-                  <label>
-                    <input type="checkbox" [checked]="serviceVisible(col)" (change)="toggleServiceColumn(col, $any($event.target).checked)" />
-                    {{ serviceLabel(col) }}
-                    <button type="button" (click)="moveServiceColumn(i, -1)">↑</button>
-                    <button type="button" (click)="moveServiceColumn(i, 1)">↓</button>
-                  </label>
-                }
-              </div>
-            }
             <div class="list-pane service-pane"><table mat-table [dataSource]="services()">
               <ng-container matColumnDef="report_group_id"><th mat-header-cell *matHeaderCellDef>ID группы отчёта</th><td mat-cell *matCellDef="let s">{{ s.report_group_id ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="netting_mulct_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_mulct_sum" [blank]="false" /></td></ng-container>
@@ -550,6 +553,18 @@ import {
     .sheet dd { margin: 0; }
     .picker { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0 12px; }
     .picker label { display: flex; gap: 6px; align-items: center; }
+    .columns-wrap { position: relative; display: inline-block; margin: 8px 0; }
+    .picker-back { position: fixed; inset: 0; z-index: 20; }
+    .picker-menu {
+      position: fixed; z-index: 21; width: 360px; overflow: auto; background: #fff;
+      border: 1px solid var(--erip-border); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(16, 42, 67, .16); padding: 6px 0;
+    }
+    .picker-actions { display: flex; gap: 8px; padding: 4px 12px 8px; }
+    .picker-actions button { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; }
+    .picker-menu label { display: flex; gap: 8px; align-items: center; padding: 4px 12px; font-size: 13px; }
+    .picker-menu label span { flex: 1; }
+    .picker-menu label button { border: 0; background: transparent; cursor: pointer; }
     table.plain { border-collapse: collapse; width: max-content; min-width: 100%; }
     table.plain th, table.plain td { border-bottom: 1px solid var(--erip-border); padding: 6px 10px; text-align: left; white-space: nowrap; }
     .crumbs b { color: #1f2933; }
@@ -738,6 +753,8 @@ export class AccountDetailComponent implements OnInit {
   protected manualReason = '';
   protected templateId: number | null = null;
   protected servicePicker = false;
+  protected serviceMenuTop = 0;
+  protected serviceMenuLeft = 0;
   protected paymentPicker = false;
   protected taskDraft: Record<number, string> = {};
   protected warningDelivered = '';
@@ -1379,6 +1396,9 @@ export class AccountDetailComponent implements OnInit {
       overdue_debt: 'Просроченная задолженность', debt_period: 'Кол-во периодов долга',
       share_service_summ: 'Распределённая оплата услуг', share_mulct_summ: 'Распределённая оплата пени',
       months_debt: 'Кол-во месяцев долга', supplier: 'Поставщик услуги', debt_group: 'Группа задолженности',
+      report_group_id: 'ID группы отчёта', netting_mulct_sum: 'Взаимозачет пени', ais_account_id: 'Код ЛС',
+      calculation_id: 'Код операции расчета', sort_code: 'Код сортировки',
+      service_name_report: 'Наименование услуги в извещении', full_name: 'Полное наименование поставщика',
     };
     return labels[col] || col;
   }
@@ -1390,6 +1410,14 @@ export class AccountDetailComponent implements OnInit {
 
   protected serviceVisible(col: string): boolean {
     return !this.serviceHidden.has(col);
+  }
+
+  protected toggleServicePicker(event: Event): void {
+    const button = event.currentTarget as HTMLElement;
+    const box = button.getBoundingClientRect();
+    this.serviceMenuTop = box.bottom + 4;
+    this.serviceMenuLeft = Math.min(box.left, window.innerWidth - 376);
+    this.servicePicker = !this.servicePicker;
   }
 
   protected toggleServiceColumn(col: string, on: boolean): void {
