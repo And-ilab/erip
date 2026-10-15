@@ -1,5 +1,5 @@
-import { Component, computed, input, output } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Directive, OnDestroy, Component, computed, inject, input, output } from '@angular/core';
+import { FormsModule, NgModel } from '@angular/forms';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -12,7 +12,7 @@ import { MatInputModule } from '@angular/material/input';
   template: `
     <mat-form-field class="compact" [class.need]="required() && !value()" subscriptSizing="dynamic">
       <mat-label>{{ label() }}@if (required()) { * }</mat-label>
-      <input matInput [matDatepicker]="picker" [ngModel]="parsed()" (ngModelChange)="commit($event)" />
+      <input matInput [matDatepicker]="picker" [ngModel]="parsed()" (focus)="arm()" (dateChange)="commit($event.value)" />
       <mat-datepicker-toggle matIconSuffix [for]="picker" />
       <mat-datepicker #picker />
       @if (required() && !value()) { <mat-hint>обязательно</mat-hint> }
@@ -24,7 +24,7 @@ import { MatInputModule } from '@angular/material/input';
     .need { --mdc-outlined-text-field-outline-color: #c62828; --mdc-outlined-text-field-label-text-color: #c62828; }
   `,
 })
-export class DateFieldComponent {
+export class DateFieldComponent implements OnDestroy {
   readonly label = input.required<string>();
   readonly required = input(false);
   readonly value = input('');
@@ -32,11 +32,59 @@ export class DateFieldComponent {
 
   /** Один и тот же объект, пока строка даты не изменилась. Новый Date на каждый цикл вешает страницу. */
   protected readonly parsed = computed(() => parseIsoDate(this.value()));
+  private gone = false;
+  private touched = false;
+  private pending = '';
+  private scheduled = false;
+
+  ngOnDestroy(): void {
+    this.gone = true;
+  }
+
+  /** Пустое значение до фокуса — это снятие поля с экрана, а не очистка даты. */
+  protected arm(): void {
+    this.touched = true;
+  }
 
   protected commit(value: Date | null): void {
+    if (this.gone) return;
     const next = formatIsoDate(value);
-    if (next === (this.value() || '')) return;
-    this.valueChange.emit(next);
+    if (!next && !this.touched) return;
+    this.pending = next;
+    if (this.scheduled) return;
+    this.scheduled = true;
+    queueMicrotask(() => {
+      this.scheduled = false;
+      if (this.gone) return;
+      const chosen = this.pending;
+      if (!chosen && !this.touched) return;
+      if (chosen === (this.value() || '')) return;
+      this.valueChange.emit(chosen);
+    });
+  }
+}
+
+/** Снятие поля с экрана не затирает уже введённое значение в модели. */
+@Directive({
+  selector: '[holdDraft]',
+  standalone: true,
+})
+export class HoldDraftDirective implements OnDestroy {
+  private gone = false;
+
+  constructor() {
+    const model = inject(NgModel, { self: true });
+    const original = model.viewToModelUpdate.bind(model);
+    model.viewToModelUpdate = (value: unknown) => {
+      queueMicrotask(() => {
+        if (this.gone) return;
+        original(value);
+      });
+    };
+  }
+
+  ngOnDestroy(): void {
+    this.gone = true;
   }
 }
 

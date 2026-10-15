@@ -8,7 +8,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 
-import { DateFieldComponent } from '../../core/date-field.component';
+import { DateFieldComponent, HoldDraftDirective } from '../../core/date-field.component';
 import { ApiService, BlankPenaltyRow, BlankPeriodPair, BlankResident, BlankSection, BlankServiceRow, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
 import { SheetBlock, SheetEditor, bodyBlock, normalizeBlock } from '../settings/document-flow';
 import { OfficialSheetComponent } from '../settings/official-sheet.component';
@@ -44,7 +44,7 @@ const COURT: Slot[] = [
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule,
-    MatSnackBarModule, DateFieldComponent, PrintSheetComponent, OfficialSheetComponent,
+    MatSnackBarModule, DateFieldComponent, HoldDraftDirective, PrintSheetComponent, OfficialSheetComponent,
   ],
   template: `
     <div class="split" [attr.data-slot]="selected()">
@@ -71,16 +71,18 @@ const COURT: Slot[] = [
             }
           </div>
           @if (scope() === 'court') { <ng-content /> }
-          @if (slot.mode === 'date') {
-            <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate()" (valueChange)="warningDateChange.emit($event)" />
-          }
-          @if (slot.mode === 'tariff') {
-            <mat-form-field [class.need]="!(tariff() && +tariff() > 0)" subscriptSizing="dynamic">
-              <mat-label>Нотариальный тариф *</mat-label>
-              <input matInput [ngModel]="tariff()" (ngModelChange)="tariffChange.emit($event)" />
-            </mat-form-field>
-            <mat-checkbox [ngModel]="withdrawn()" (ngModelChange)="withdrawnChange.emit($event)">Заявление отозвано</mat-checkbox>
-            <p class="meta">Тариф считает АИС. Отзыв заявления обнуляет тариф при сохранении дела.</p>
+          @if (scope() !== 'court') {
+            <div [hidden]="slot.mode !== 'date'">
+              <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate()" (valueChange)="warningDateChange.emit($event)" />
+            </div>
+            <div [hidden]="slot.mode !== 'tariff'">
+              <mat-form-field [class.need]="!(tariff() && +tariff() > 0)" subscriptSizing="dynamic">
+                <mat-label>Нотариальный тариф *</mat-label>
+                <input matInput holdDraft [ngModel]="tariff()" (ngModelChange)="emitTariff($event)" />
+              </mat-form-field>
+              <mat-checkbox holdDraft [ngModel]="withdrawn()" (ngModelChange)="emitWithdrawn($event)">Заявление отозвано</mat-checkbox>
+              <p class="meta">Тариф считает АИС. Отзыв заявления обнуляет тариф при сохранении дела.</p>
+            </div>
           }
           @if (slot.mode === 'ais') {
             @for (debt of pack()?.debts || []; track $index) {
@@ -268,6 +270,7 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   private rawUrl = '';
   private lastKind = '';
   private lastFocus = '';
+  private alive = true;
 
   constructor() {
     effect(() => {
@@ -310,7 +313,24 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.alive = false;
     this.revoke();
+  }
+
+  /** Снятие пункта с экрана не должно присылать пустой тариф. */
+  protected emitTariff(value: string | null): void {
+    const next = value ?? '';
+    queueMicrotask(() => {
+      if (!this.alive) return;
+      this.tariffChange.emit(next);
+    });
+  }
+
+  protected emitWithdrawn(value: boolean): void {
+    queueMicrotask(() => {
+      if (!this.alive) return;
+      this.withdrawnChange.emit(!!value);
+    });
   }
 
   protected visibleSlots(): Slot[] {
