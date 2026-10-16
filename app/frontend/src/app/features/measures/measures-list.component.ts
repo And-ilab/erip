@@ -51,6 +51,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
         }
         <app-registry-views [mockup]="true" [mode]="view() === 'ready' ? 'list' : view()" (modeChange)="showRegistry($event)" />
       </div>
+      @if (canConduct() && view() === 'list') {
+        <div class="conduct">
+          <span class="muted">Отмечено мероприятий: {{ pickedRows().size }}</span>
+          <button mat-flat-button color="primary" type="button" [disabled]="busy() || !pickedRows().size" (click)="conductPicked()">Провести</button>
+        </div>
+      }
 
       <div class="body">
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
@@ -139,12 +145,6 @@ import { RegistryViewsComponent } from '../registry-views.component';
               <div class="more">
                 <span class="muted">Группировка по уже загруженным строкам.</span>
                 <button mat-stroked-button type="button" (click)="moreAny()">Показать ещё</button>
-              </div>
-            }
-            @if (canConduct() && pickedRows().size) {
-              <div class="more">
-                <span class="muted">Отмечено мероприятий: {{ pickedRows().size }}</span>
-                <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="conductPicked()">Провести</button>
               </div>
             }
           </section>
@@ -322,6 +322,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
       background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
     }
     .body { flex: 1; min-height: 0; overflow: auto; padding: 0 0 28px; }
+    .conduct {
+      display: flex; align-items: center; gap: 12px; flex: 0 0 auto;
+      padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--erip-border);
+    }
     h2 { margin: 0; font-size: 15px; font-weight: 600; color: #243140; white-space: nowrap; flex: 0 0 auto; }
     .icon {
       width: 36px; height: 36px; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
