@@ -130,7 +130,42 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                   <dt>Обновлено из АИС</dt><dd>{{ a.ais_updated_at | date: 'dd.MM.yyyy HH:mm' }}</dd>
                   <dt>Дата возникновения долга</dt><dd>{{ a.debt_started_on | date: 'dd.MM.yyyy' }}</dd>
                   <dt>Сценарий</dt><dd>{{ a.scenario_brief || a.scenario_name || '—' }}</dd>
+                  <dt>Наследственное дело</dt><dd>{{ inheritanceText() }}</dd>
+                  <dt>Категория должника</dt><dd>{{ categoryName() }}</dd>
                 </dl>
+                <p class="flag" [class.bad]="riskOn()">Признаки банкротства / недееспособности — {{ riskOn() ? 'есть' : 'нет' }}</p>
+                @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
+                  <h4>Ручная группа</h4>
+                  <div class="filters">
+                    <mat-form-field>
+                      <mat-label>Группа задолженности</mat-label>
+                      <mat-select [(ngModel)]="manualGroup">
+                        <mat-option [value]="null">По расчёту</mat-option>
+                        @for (g of [1, 2, 3, 4, 5, 6]; track g) { <mat-option [value]="g">{{ g }}</mat-option> }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="manualReason" /></mat-form-field>
+                    <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
+                  </div>
+                }
+                @if (auth.canWrite()) {
+                  <div class="filters">
+                    <mat-form-field>
+                      <mat-label>Категория</mat-label>
+                      <mat-select [(ngModel)]="categoryId">
+                        <mat-option [value]="null">Не задана</mat-option>
+                        @for (item of categories(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
+                    <mat-checkbox [(ngModel)]="inheritance">Наследственное дело</mat-checkbox>
+                    <mat-form-field><mat-label>Приостановка до</mat-label><input matInput type="date" [(ngModel)]="inheritanceUntil" /></mat-form-field>
+                    <button mat-stroked-button (click)="saveProfile()">Сохранить</button>
+                    <mat-form-field><mat-label>Новая категория</mat-label><input matInput [(ngModel)]="newCategory" /></mat-form-field>
+                    <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
+                    <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
+                  </div>
+                }
               </mat-card-content></mat-card>
             </div>
           </mat-tab>
@@ -392,47 +427,6 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             }
           </mat-tab>
 
-          <mat-tab label="Категории и статусы">
-            <p class="muted tab-note">В ТЗ это не отдельная вкладка с таким названием. Здесь собрано то, что ТЗ относит к карточке: категория должника из справочника, признак наследственного дела, признаки банкротства и ручная группа. Категория ведётся в ПМ и в файл карточки ЛС не входит. Наследственное дело останавливает автоматические меры. Ручная группа меняет группу счёта, по которой выбирается сценарий. Расчётная группа по раннему непогашенному периоду остаётся в истории. Пустая группа возвращает расчёт. Группа счёта — максимум среди услуг и не запускает меры по младшим услугам.</p>
-            <p class="flag" [class.bad]="a.inheritance_case || a.heritage_from_file">Наследственное дело — {{ inheritanceText() }}</p>
-            <p class="flag" [class.bad]="riskOn()">Признаки банкротства / недееспособности — {{ riskOn() ? 'есть' : 'нет' }}</p>
-            @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
-            <h4>Ручная корректировка группы</h4>
-            <div class="filters">
-              <mat-form-field>
-                <mat-label>Группа задолженности</mat-label>
-                <mat-select [(ngModel)]="manualGroup">
-                  <mat-option [value]="null">По расчёту</mat-option>
-                  @for (g of [1, 2, 3, 4, 5, 6]; track g) { <mat-option [value]="g">{{ g }}</mat-option> }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="manualReason" /></mat-form-field>
-              <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
-            </div>
-            }
-            @if (auth.canWrite()) {
-            <div class="filters">
-              <mat-form-field>
-                <mat-label>Категория</mat-label>
-                <mat-select [(ngModel)]="categoryId">
-                  <mat-option [value]="null">Не задана</mat-option>
-                  @for (item of categories(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
-              <mat-checkbox [(ngModel)]="inheritance">Наследственное дело</mat-checkbox>
-              <mat-form-field><mat-label>Приостановка до</mat-label><input matInput type="date" [(ngModel)]="inheritanceUntil" /></mat-form-field>
-              <button mat-stroked-button (click)="saveProfile()">Сохранить</button>
-              <mat-form-field><mat-label>Новая категория</mat-label><input matInput [(ngModel)]="newCategory" /></mat-form-field>
-              <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
-              <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
-            </div>
-            }
-            @if (!auth.canWrite()) {
-              <p class="muted">{{ a.residence_note || 'Фактическое проживание не указано' }}@if (a.inheritance_case) { · наследственное дело }</p>
-            }
-          </mat-tab>
-
           <mat-tab label="История сумм задолженности">
             <p class="muted tab-note">Остаток основного долга и пени по каждой услуге и каждому периоду задолженности. Цифры из АИС «Расчет-ЖКУ»: это непогашенный остаток, а не список оплат и не журнал смены группы или рейтинга.</p>
             <div class="list-pane"><table mat-table [dataSource]="balances()">
@@ -476,42 +470,6 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             </table></div>
           </mat-tab>
 
-          <mat-tab label="Вложения">
-            <p class="muted tab-note">Отдельной вкладки «Вложения» в ТЗ нет: файлы крепятся к мероприятию. Здесь собраны все файлы этого лицевого счёта: подтверждения мероприятий, пакет исполнительной надписи и документы работы с задолженностью. Файл можно скачать. Вложение карточки можно удалить. Документ пакета удаляется в деле.</p>
-            <div class="filters">
-              <mat-form-field><mat-label>Тип документа</mat-label><input matInput [(ngModel)]="fileType" /></mat-form-field>
-              @if (auth.canWrite()) {
-                <input type="file" (change)="onFile($event)" />
-              }
-            </div>
-            <div class="list-pane"><table mat-table [dataSource]="files()">
-              <ng-container matColumnDef="doc_type"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let r">{{ r.doc_type }}</td></ng-container>
-              <ng-container matColumnDef="original_name"><th mat-header-cell *matHeaderCellDef>Файл</th><td mat-cell *matCellDef="let r">
-                <button mat-button type="button" (click)="downloadFile(r)">{{ r.original_name }}</button>
-                @if (auth.canWrite() && !r.package) { <button mat-button type="button" (click)="deleteFile(r)">Удалить</button> }
-              </td></ng-container>
-              <tr mat-header-row *matHeaderRowDef="fileColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: fileColumns"></tr>
-            </table></div>
-          </mat-tab>
-
-          @if (auth.canWrite()) {
-          <mat-tab label="Оповестить">
-            <div class="notify">
-              <p class="muted">В ТЗ уведомление — мероприятие из реестра, отдельной вкладки «Оповестить» нет. Это короткий вызов того же шлюза по шаблону. В справочнике тексты заведены как e-mail, поэтому в списке стоит этот канал. Доставка абоненту пока не подключена: остаётся запись об отправке. Группа задолженности: {{ account()?.effective_group ?? 'не рассчитана' }}.</p>
-              <mat-form-field>
-                <mat-label>Каркас</mat-label>
-                <mat-select [(ngModel)]="templateId">
-                  @for (t of templates(); track t.id) { <mat-option [value]="t.id">{{ t.name }} ({{ t.channel_display }})</mat-option> }
-                </mat-select>
-              </mat-form-field>
-              @if (auth.canWrite()) {
-              <button mat-flat-button color="primary" [disabled]="!templateId || sending()" (click)="notify()">Отправить через шлюз</button>
-              }
-            </div>
-            @if (filledPreview()) { <pre class="message">{{ filledPreview() }}</pre> }
-          </mat-tab>
-          }
         <mat-tab [label]="'История изменений (' + history().length + ')'">
             <p class="muted tab-note">Журнал пишет смену группы, рейтинга, этапа воронки, сценария, контакта, категории должника, наследственного дела, регистрации, фактического проживания и юридического статуса. Кто изменил, когда и какое было основание, видно в строке.</p>
             <div class="list-pane"><table mat-table [dataSource]="history()">

@@ -1426,9 +1426,34 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         )
         return self._act(request, measure, runner)
 
+    @action(detail=False, methods=["post"])
+    def conduct(self, request):
+        """Провести отмеченные в реестре мероприятий ручные партии."""
+        from apps.users.models import User
+
+        from .services.autocall import conduct_selected
+
+        if request.user.role not in {User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN, User.Role.SPECIALIST}:
+            raise PermissionDenied("Мероприятие проводит специалист, локальный администратор или суперадминистратор")
+        if request.user.contour == User.Contour.SUPPLIER:
+            raise PermissionDenied("Обзвон и рассылку проводит специалист начисляющей организации")
+        raw = request.data.get("ids") or []
+        try:
+            ids = [int(item) for item in raw]
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"ids": "Укажите мероприятия"}) from exc
+        measures = list(self.get_queryset().filter(pk__in=ids).select_related("source_scenario", "organization"))
+        result = conduct_selected(measures, request.user)
+        skipped = {row["id"] for row in result["skipped"]}
+        for measure in measures:
+            if measure.pk in skipped:
+                continue
+            record_action(request, AuditLog.Action.UPDATE, measure, after={"conduct": True})
+        return Response(result)
+
     @action(detail=True, methods=["post"])
     def dial(self, request, pk=None):
-        """Провести открытую партию обзвона из карточки, без входа на сервер."""
+        """Провести одну открытую партию обзвона. Кнопка в интерфейсе стоит в реестре."""
         from apps.users.models import User
 
         if request.user.role not in {User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN, User.Role.SPECIALIST}:

@@ -292,7 +292,7 @@ interface GroupSection {
             } @else {
               Мероприятие назначается по всем лицевым счетам текущего фильтра.
             }
-            Запуск — на карточке мероприятия. Партия сценария идёт сама, кнопка ей не нужна.
+            Запуск — кнопкой «Провести» в реестре мероприятий. Мероприятие сценария идёт само.
           </p>
           <div class="filters">
             <mat-form-field>
@@ -1616,7 +1616,7 @@ export class AccountsListComponent implements OnInit {
   }
 
   private afterCallLaunch(measure: MeasureRow, done?: () => void): void {
-    this.snack.open('Мероприятие назначено. Запуск — на карточке мероприятия.', 'OK', { duration: 5000 });
+    this.snack.open('Мероприятие назначено. Запуск — кнопкой «Провести» в реестре мероприятий.', 'OK', { duration: 5000 });
     done?.();
     if (!done) this.router.navigate(['/measures', measure.id]);
   }

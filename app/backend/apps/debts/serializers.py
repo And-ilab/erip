@@ -672,7 +672,7 @@ class MeasureItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = MeasureItem
         fields = [
-            "id", "account", "client_account", "debtor_name", "status", "status_display",
+            "id", "measure", "account", "client_account", "debtor_name", "status", "status_display",
             "phone", "call_result", "call_result_display", "duration_sec", "listen_percent",
             "recording_ref", "provider_message_id", "caller_id", "external_call",
             "recipient", "delivery_error", "delivery_method", "delivery_method_display",
@@ -816,18 +816,32 @@ class MeasureSerializer(serializers.ModelSerializer):
 
 class MeasureDetailSerializer(MeasureSerializer):
     items = serializers.SerializerMethodField()
+    campaign_total = serializers.SerializerMethodField()
     events = serializers.SerializerMethodField()
     tasks = serializers.SerializerMethodField()
 
     class Meta(MeasureSerializer.Meta):
-        fields = [*MeasureSerializer.Meta.fields, "items", "events", "tasks", "call_legal", "group_from", "group_to"]
+        fields = [
+            *MeasureSerializer.Meta.fields, "items", "campaign_total", "events", "tasks",
+            "call_legal", "group_from", "group_to",
+        ]
+
+    def _assigned(self, obj):
+        cached = obj.__dict__.get("_assigned_items")
+        if cached is None:
+            from apps.debts.services.registry import assigned_items
+
+            cached = assigned_items(obj, self.context.get("visible_accounts"))
+            obj.__dict__["_assigned_items"] = cached
+        return cached
 
     def get_items(self, obj):
-        qs = obj.items.select_related("account")
-        visible = self.context.get("visible_accounts")
-        if visible is not None:
-            qs = qs.filter(account__in=visible)
-        return MeasureItemSerializer(qs, many=True).data
+        rows, _total = self._assigned(obj)
+        return MeasureItemSerializer(rows, many=True).data
+
+    def get_campaign_total(self, obj) -> int:
+        _rows, total = self._assigned(obj)
+        return total
 
     def get_events(self, obj):
         rows = obj.events.select_related("actor")[:40]

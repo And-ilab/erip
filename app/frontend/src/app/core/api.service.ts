@@ -342,6 +342,12 @@ export class ApiService {
     return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/dial/`, {});
   }
 
+  conductMeasures(ids: number[]): Observable<{ dialed: number; sent: number; skipped: { id: number; reason: string }[] }> {
+    return this.http.post<{ dialed: number; sent: number; skipped: { id: number; reason: string }[] }>(
+      `${this.base}/measures/conduct/`, { ids },
+    );
+  }
+
   addMeasureTask(id: number, title: string, dueOn = ''): Observable<MeasureDetail> {
     return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/tasks/`, { title, due_on: dueOn || null });
   }

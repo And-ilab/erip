@@ -70,7 +70,7 @@ const DELIVERY_METHODS = [
 
           <mat-card class="fact progress-card"><mat-card-content>
             <dl>
-              <dt>Лицевых счетов</dt><dd>{{ m.items.length }}</dd>
+              <dt>Лицевых счетов</dt><dd>{{ m.campaign_total ?? m.items.length }}</dd>
               <dt>Завершено</dt><dd>{{ done() }} из {{ m.items.length }}</dd>
               @if (m.needs_approval) {
                 <dt>Согласование</dt>
@@ -96,24 +96,6 @@ const DELIVERY_METHODS = [
             }
           </mat-card-content></mat-card>
         </div>
-
-        @if (canDial(m)) {
-          <mat-card class="action">
-            <mat-card-content>
-              <h3>Провести обзвон</h3>
-              <p class="muted">Партия назначена в реестре. Звонки уходят в голосовой шлюз по её номерам. Окно: {{ hhmm(m.time_from) }}–{{ hhmm(m.time_to) }}. Кнопку видит специалист, локальный администратор или суперадминистратор начисляющей организации.</p>
-              <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="dial()">Провести обзвон</button>
-            </mat-card-content>
-          </mat-card>
-        }
-        @if (m.kind === 'call' && m.manual === false && (m.status === 'assigned' || m.status === 'running')) {
-          <mat-card class="action">
-            <mat-card-content>
-              <h3>Автообзвон по сценарию</h3>
-              <p class="muted">Партия сценария проводится по расписанию. Отдельная кнопка запуска не показывается.</p>
-            </mat-card-content>
-          </mat-card>
-        }
 
         @if (auth.canWrite() || (m.tasks || []).length) {
           <mat-card class="action">
@@ -189,18 +171,6 @@ const DELIVERY_METHODS = [
           </mat-card-content></mat-card>
         }
 
-        @if (m.kind === 'notice' && openItems().length) {
-          <mat-card class="action tone-notice"><mat-card-content>
-            <h3>Отправка уведомлений</h3>
-            <p class="muted">
-              Каналы на заглушках: ошибка доставки вернётся в строку лицевого счёта, прочтение не подтверждается.
-            </p>
-            <button mat-flat-button color="primary" [disabled]="busy() || !selected().size" (click)="send()">
-              Отправить отмеченным ({{ selected().size }})
-            </button>
-          </mat-card-content></mat-card>
-        }
-
         @if (m.kind === 'warning' && openItems().length) {
           <mat-card class="action tone-warn"><mat-card-content>
             <h3>Вручение предупреждения</h3>
@@ -240,13 +210,20 @@ const DELIVERY_METHODS = [
 
         <section class="surface group items">
           <div class="group-head">
-            <span>Лицевые счета партии</span>
-            <span class="muted">({{ m.items.length }})</span>
+            <span>Лицевые счета мероприятия</span>
+            <span class="muted">({{ m.campaign_total ?? m.items.length }})</span>
           </div>
+          <p class="muted pad">Правила мероприятия — в блоке выше. Запуск отмеченных строк — кнопка «Провести» в реестре. Сценарий идёт по расписанию и этой кнопкой не стартует.</p>
+          @if (m.manual === false) {
+            <p class="muted pad">Сценарий заводит отдельную запись на каждый лицевой счёт. Ниже все счета этого шага и шаблона.</p>
+          }
+          @if ((m.campaign_total ?? m.items.length) > m.items.length) {
+            <p class="muted pad">Показаны первые {{ m.items.length }} из {{ m.campaign_total }}.</p>
+          }
           @if (!m.items.length) {
-            <p class="muted pad">В этой партии нет лицевых счетов вашего контура.</p>
+            <p class="muted pad">В вашем контуре нет лицевых счетов этого мероприятия.</p>
           } @else {
-            <div class="list-pane">
+            <div class="list-pane campaign">
             <table>
               <thead>
                 <tr>
@@ -274,7 +251,7 @@ const DELIVERY_METHODS = [
                       <td class="tick">
                         <mat-checkbox
                           [checked]="selected().has(item.id)"
-                          [disabled]="!isOpen(item)"
+                          [disabled]="!isOpen(item) || item.measure !== m.id"
                           (change)="pick(item)" />
                       </td>
                     }
@@ -482,6 +459,7 @@ const DELIVERY_METHODS = [
     .tick { width: 40px; }
     .row-actions { width: 56px; text-align: right; }
     .row-form td { background: #f7f9fb; }
+    .campaign { max-height: 360px; overflow: auto; }
   `,
 })
 export class MeasureDetailComponent {
@@ -523,7 +501,7 @@ export class MeasureDetailComponent {
     return total ? Math.round((this.done() / total) * 100) : 0;
   });
   protected readonly selectable = computed(
-    () => ['notice', 'warning'].includes(this.measure()?.kind ?? '') && this.openItems().length > 0,
+    () => this.measure()?.kind === 'warning' && this.openItems().length > 0,
   );
   protected readonly allPicked = computed(() => {
     const open = this.openItems();
@@ -562,34 +540,6 @@ export class MeasureDetailComponent {
       this.rowId.set(null);
       this.load(id);
     }, { allowSignalWrites: true });
-  }
-
-  protected canDial(measure: MeasureDetail): boolean {
-    return measure.manual !== false
-      && measure.kind === 'call'
-      && (measure.status === 'assigned' || measure.status === 'running')
-      && this.auth.canWrite()
-      && this.auth.me()?.contour !== 'supplier';
-  }
-
-  protected dial(): void {
-    this.busy.set(true);
-    this.api.dialMeasure(this.measureId()).subscribe({
-      next: (detail) => {
-        this.busy.set(false);
-        const count = detail.dialed ?? 0;
-        const text = count
-          ? `Прозвонено ${count}. Результат в строках партии.`
-          : 'Новых звонков нет: номер уже обработан, нет +375 или повтор ещё не подошёл.';
-        this.snack.open(text, 'OK', { duration: 5000 });
-        this.measure.set(detail);
-        this.selected.set(new Set());
-      },
-      error: (err) => {
-        this.busy.set(false);
-        this.snack.open(errorMessage(err), 'OK');
-      },
-    });
   }
 
   protected recordingLink(value: string): boolean {
@@ -661,11 +611,7 @@ export class MeasureDetailComponent {
     } else {
       body['status'] = this.rowStatus;
     }
-    this.run(this.api.recordMeasureItem(this.measureId(), body), 'Результат сохранён', () => this.rowId.set(null));
-  }
-
-  protected send(): void {
-    this.run(this.api.sendNotices(this.measureId(), [...this.selected()]), 'Уведомления поставлены в отправку');
+    this.run(this.api.recordMeasureItem(item.measure || this.measureId(), body), 'Результат сохранён', () => this.rowId.set(null));
   }
 
   protected deliver(): void {

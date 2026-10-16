@@ -479,6 +479,7 @@ export interface MeasureSkip {
 /** Частное мероприятие: один ЛС внутри партии, со своим статусом. */
 export interface MeasureItemRow {
   id: number;
+  measure: number;
   account: number;
   client_account: string;
   debtor_name: string;
@@ -536,6 +537,7 @@ export interface MeasureTaskRow {
 
 export interface MeasureDetail extends MeasureRow {
   items: MeasureItemRow[];
+  campaign_total?: number;
   events: MeasureEventRow[];
   tasks?: MeasureTaskRow[];
   call_legal: boolean;

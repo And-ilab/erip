@@ -14,7 +14,7 @@ from apps.debts.services.portfolio import DEFAULT_SCENARIO_NAMES
 
 MATRIX_KINDS = (
     (Measure.Kind.CALL, "Автообзвон"),
-    (Measure.Kind.NOTICE, "E-mail"),
+    (Measure.Kind.NOTICE, "Уведомление"),
     (Measure.Kind.WARNING, "Предупреждение"),
     (Measure.Kind.DISCONNECT, "Отключение услуг"),
     (Measure.Kind.COLLECTION, "Испол. надпись"),
@@ -134,6 +134,32 @@ def _with_detail(base: str, detail: str) -> str:
     if not text or text.casefold() == base.casefold():
         return base
     return f"{base} — {text}"
+
+
+def assigned_items(measure: Measure, visible_accounts, limit: int = 300):
+    """Счета, которым назначено это мероприятие.
+
+    Ручной запуск хранит их в одной записи. Сценарий заводит запись на каждый
+    лицевой счёт, поэтому здесь собираются счета того же шага и шаблона.
+    """
+    from apps.debts.models import MeasureItem
+
+    rows = MeasureItem.objects.select_related("account")
+    if measure.source_scenario_id:
+        rows = rows.filter(
+            measure__organization_id=measure.organization_id,
+            measure__kind=measure.kind,
+            measure__source_scenario_id=measure.source_scenario_id,
+            measure__source_version=measure.source_version,
+            measure__source_step=measure.source_step,
+            measure__template_name=measure.template_name,
+        )
+    else:
+        rows = rows.filter(measure_id=measure.pk)
+    if visible_accounts is not None:
+        rows = rows.filter(account__in=visible_accounts)
+    total = rows.count()
+    return list(rows.order_by("account__client_account", "id")[:limit]), total
 
 
 def measure_title(measure: Measure) -> str:

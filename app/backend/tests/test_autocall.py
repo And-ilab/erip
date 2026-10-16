@@ -347,3 +347,51 @@ def test_observer_and_supplier_cannot_dial(api, admin_a, observer_a, account_a, 
     assert denied.status_code == 403
     item = MeasureItem.objects.get(measure_id=party_id)
     assert item.call_result == ""
+    denied = api(observer_a).post("/api/v1/measures/conduct/", {"ids": [party_id]}, format="json")
+    assert denied.status_code == 403
+    supplier_batch = api(supplier).post("/api/v1/measures/conduct/", {"ids": [party_id]}, format="json")
+    assert supplier_batch.status_code == 403
+
+
+@pytest.mark.django_db
+def test_measure_card_lists_every_account_of_the_step(api, admin_a, org_a):
+    from apps.nsi.services.scenarios import assign_run
+
+    first = _owing(org_a, 9801, 1, "+375291110301")
+    second = _owing(org_a, 9802, 1, "+375291110302")
+    scenario = _scenario(org_a, "Один шаг", {"1": {"every_days": 1}})
+    assign_run(first, scenario, admin_a)
+    assign_run(second, scenario, admin_a)
+    opened = Measure.objects.get(accounts=first, kind=Measure.Kind.CALL)
+    response = api(admin_a).get(f"/api/v1/measures/{opened.pk}/")
+    assert response.status_code == 200, response.content
+    body = response.json()
+    numbers = {row["client_account"] for row in body["items"]}
+    assert first.client_account in numbers
+    assert second.client_account in numbers
+    assert body["campaign_total"] == 2
+    assert {row["measure"] for row in body["items"]} == {
+        opened.pk,
+        Measure.objects.get(accounts=second, kind=Measure.Kind.CALL).pk,
+    }
+
+
+@pytest.mark.django_db
+def test_registry_conduct_dials_manual_and_skips_scenario(
+    api, admin_a, specialist_a, org_a, account_a, fake_gateway,
+):
+    from apps.nsi.services.scenarios import assign_run
+
+    manual = _open_call(api, admin_a, account_a)
+    person = _owing(org_a, 9811, 1, "+375291110401")
+    assign_run(person, _scenario(org_a, "Сценарий", {"1": {"every_days": 1}}), admin_a)
+    scenario_id = Measure.objects.get(accounts=person, kind=Measure.Kind.CALL).pk
+    response = api(specialist_a).post(
+        "/api/v1/measures/conduct/", {"ids": [manual, scenario_id]}, format="json",
+    )
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["dialed"] == 1
+    assert any(row["id"] == scenario_id and "сценари" in row["reason"].lower() for row in body["skipped"])
+    assert MeasureItem.objects.get(measure_id=manual).call_result == MeasureItem.CallResult.ANSWERED
+    assert MeasureItem.objects.get(measure_id=scenario_id).call_result == ""

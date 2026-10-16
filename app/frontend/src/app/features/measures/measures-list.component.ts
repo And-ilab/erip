@@ -141,6 +141,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
                 <button mat-stroked-button type="button" (click)="moreAny()">Показать ещё</button>
               </div>
             }
+            @if (canConduct() && pickedRows().size) {
+              <div class="more">
+                <span class="muted">Отмечено мероприятий: {{ pickedRows().size }}</span>
+                <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="conductPicked()">Провести</button>
+              </div>
+            }
           </section>
         }
       }
@@ -552,6 +558,31 @@ export class MeasuresListComponent implements OnInit {
     if (row.services.some((service) => services.has(service.id))) accounts.add(row.account_id);
     else accounts.delete(row.account_id);
     this.picked.set(accounts);
+  }
+
+  protected canConduct(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected conductPicked(): void {
+    const ids = [...this.pickedRows()];
+    if (!ids.length) return;
+    this.busy.set(true);
+    this.api.conductMeasures(ids).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        const parts = [`Обзвон: ${result.dialed}`, `уведомления: ${result.sent}`];
+        const skipped = result.skipped?.[0]?.reason;
+        const text = skipped ? `${parts.join(', ')}. ${skipped}` : parts.join(', ');
+        this.snack.open(text, 'OK', { duration: 6000 });
+        this.pickedRows.set(new Set());
+        this.load();
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.snack.open(errorMessage(err), 'OK');
+      },
+    });
   }
 
   protected launch(): void {

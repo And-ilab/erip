@@ -68,6 +68,46 @@ def dial_due_calls(at: datetime | None = None) -> dict:
     return {"dialed": dialed, "open_parties": open_parties, "in_window": in_window}
 
 
+def conduct_selected(measures, user) -> dict:
+    """Провести отмеченные в реестре ручные партии. Сценарий сюда не берётся."""
+    from apps.debts.models import MeasureItem
+    from apps.debts.services.measures import MeasureLaunchError, queue_notices
+
+    dialed = 0
+    sent = 0
+    skipped = []
+    open_items = [MeasureItem.Status.ASSIGNED, MeasureItem.Status.RUNNING]
+    for measure in measures:
+        if measure.source_scenario_id:
+            skipped.append({"id": measure.pk, "reason": "Идёт по сценарию, отдельно не запускается"})
+            continue
+        if measure.kind == Measure.Kind.CALL:
+            try:
+                dialed += conduct_call_measure(measure)["dialed"]
+            except MeasureLaunchError as exc:
+                skipped.append({"id": measure.pk, "reason": _error_text(exc)})
+            continue
+        if measure.kind == Measure.Kind.NOTICE:
+            items = list(measure.items.filter(status__in=open_items))
+            try:
+                sent += queue_notices(measure, items, user)
+            except MeasureLaunchError as exc:
+                skipped.append({"id": measure.pk, "reason": _error_text(exc)})
+            continue
+        skipped.append({
+            "id": measure.pk,
+            "reason": "Этот вид отмечается на карточке: вручение, отключение или взыскание",
+        })
+    return {"dialed": dialed, "sent": sent, "skipped": skipped}
+
+
+def _error_text(exc) -> str:
+    detail = getattr(exc, "detail", exc)
+    if isinstance(detail, dict):
+        return "; ".join(str(value) for value in detail.values())
+    return str(detail)
+
+
 def conduct_call_measure(measure: Measure, at: datetime | None = None) -> dict:
     """Провести одну открытую партию. Вне её окна строки не пишутся."""
     from apps.debts.services.measures import MeasureLaunchError
