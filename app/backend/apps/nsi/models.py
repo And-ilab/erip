@@ -309,6 +309,25 @@ class BnpService(TimeStampedModel, SoftDeleteModel):
         return f"{self.service_id} {self.name}"
 
 
+class NotaryOffice(TimeStampedModel, SoftDeleteModel):
+    """Контора с сайта Белорусской нотариальной палаты. Удаление — деактивация."""
+
+    code = models.CharField("Код", max_length=80, primary_key=True)
+    source_id = models.PositiveIntegerField("Идентификатор на belnotary.by", unique=True)
+    name = models.CharField("Наименование", max_length=250)
+    district = models.CharField("Нотариальный округ", max_length=80)
+    address = models.CharField("Адрес", max_length=250, blank=True)
+    phones = models.CharField("Телефоны", max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["district", "name"]
+        verbose_name = "Нотариальная контора"
+        verbose_name_plural = "Нотариальные конторы"
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class BnpDocType(TimeStampedModel, SoftDeleteModel):
     """Тип документа БНП (docTypeId)."""
 

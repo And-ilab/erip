@@ -435,6 +435,10 @@ export class ApiService {
     return this.http.delete<void>(`${this.base}/nsi/debtor-categories/${id}/`);
   }
 
+  notaryOffices(): Observable<Page<NotaryOffice>> {
+    return this.http.get<Page<NotaryOffice>>(`${this.base}/nsi/notary-offices/`, { params: { page_size: 500 } });
+  }
+
   categories(): Observable<Page<DebtorCategory>> {
     return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, { params: toParams({ page_size: 100 }) });
   }
@@ -735,6 +739,14 @@ export class ApiService {
 
 export interface Named { id: string; label: string }
 
+export interface NotaryOffice {
+  code: string;
+  name: string;
+  district: string;
+  address: string;
+  phones: string;
+}
+
 export interface AssignedAccount {
   account: number;
   client_account: string;
@@ -758,6 +770,7 @@ export interface ClaimCase {
   stage: string;
   stage_label: string;
   warning_delivered_on: string | null;
+  notary_office: string;
   notary_tariff: string | null;
   application_withdrawn: boolean;
   submission_id: string;

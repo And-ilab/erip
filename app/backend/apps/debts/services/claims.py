@@ -105,6 +105,8 @@ MONEY_FIELDS = {"notary_tariff", "state_duty"}
 def update_case(case: ClaimCase, data: dict, user) -> ClaimCase:
     previous_warning = case.warning_delivered_on
     previous_tariff = case.notary_tariff
+    if "notary_office" in data:
+        data["notary_office"] = str(data.get("notary_office") or "").strip()[:250]
     if data.get("application_withdrawn"):
         data["notary_tariff"] = Decimal("0")
     kind = data.get("lawsuit_kind")

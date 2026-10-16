@@ -17,6 +17,7 @@ from .models import (
     CalculationSettings,
     DebtGroupScale,
     DebtorCategory,
+    NotaryOffice,
     PrintForm,
     ScenarioDefinition,
     ScenarioRule,
@@ -28,6 +29,7 @@ from .serializers import (
     CalculationSettingsSerializer,
     DebtGroupScaleSerializer,
     DebtorCategorySerializer,
+    NotaryOfficeSerializer,
     PrintFormSerializer,
     ScenarioDefinitionSerializer,
     ScenarioRuleSerializer,
@@ -572,6 +574,15 @@ class DebtGroupScaleViewSet(NsiViewSet):
         return Response(self.get_serializer(self.get_queryset().filter(is_active=True), many=True).data)
 
 
+class NotaryOfficeViewSet(NsiViewSet):
+    """Действующие конторы с belnotary.by. Снятая с публикации запись в список не попадает."""
+
+    queryset = NotaryOffice.objects.active()
+    serializer_class = NotaryOfficeSerializer
+    search_fields = ["name", "district", "address"]
+    filterset_fields = ["district"]
+
+
 NSI_REGISTRY = {
     "debt-groups": DebtGroupScaleViewSet,
     "debtor-categories": DebtorCategoryViewSet,
@@ -582,4 +593,5 @@ NSI_REGISTRY = {
     "bnp-services": nsi_viewset(BnpService, BnpServiceSerializer, ["name"], ["type_id", "is_active"]),
     "bnp-debt-types": nsi_viewset(BnpDebtType, BnpDebtTypeSerializer, ["code", "name"]),
     "bnp-doc-types": nsi_viewset(BnpDocType, BnpDocTypeSerializer, ["code", "name"]),
+    "notary-offices": NotaryOfficeViewSet,
 }

@@ -1,0 +1,2400 @@
+[
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "brestskaya-gorodskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 13066,
+   "name": "Брестская городская нотариальная контора",
+   "district": "Брестский нотариальный округ",
+   "address": "224005, г. Брест, ул. Советская, д. 46",
+   "phones": "+375 162 23-18-98, +375 162 58-00-78, +375 162 59-21-19, +375 162 59-21-18, +375 162 21-28-13, +375 162 59-27-68"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-baranovichskogo-rayona",
+  "fields": {
+   "source_id": 13070,
+   "name": "Нотариальная контора Барановичского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225409, г. Барановичи, бульвар Штоккерау, д. 5",
+   "phones": "+375 163 63-88-53, +375 163 64-03-39, +375 163 63-89-53"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-berezovskogo-rayona",
+  "fields": {
+   "source_id": 13071,
+   "name": "Нотариальная контора Березовского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225209, г. Береза, Армейский переулок, д. 2",
+   "phones": "+375 1643 2-74-50, +375 1643 9-26-96, +375 1643 4-14-23, +375 1643 2-74-51"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-brestskogo-rayona",
+  "fields": {
+   "source_id": 13067,
+   "name": "Нотариальная контора Брестского района",
+   "district": "Брестский нотариальный округ",
+   "address": "224024, г. Брест, ул. Красногвардейская, д. 113/1",
+   "phones": "+375 162 23-10-05, +375 162 54-37-90, +375 162 93-53-91"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-gantsevichskogo-rayona",
+  "fields": {
+   "source_id": 13073,
+   "name": "Нотариальная контора Ганцевичского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225432, г. Ганцевичи, ул. Фрунзе, д. 7",
+   "phones": "+375 1646 6-75-79, +375 1646 6-20-68"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-drogichinskogo-rayona",
+  "fields": {
+   "source_id": 13074,
+   "name": "Нотариальная контора Дрогичинского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225612, г. Дрогичин, ул. К. Маркса, д. 5А",
+   "phones": "+375 1644 5-95-71, +375 1644 4-99-83, +375 1644 5-95-85"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-zhabinkovskogo-rayona",
+  "fields": {
+   "source_id": 13076,
+   "name": "Нотариальная контора Жабинковского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225101, г. Жабинка, ул. Советская, д. 3",
+   "phones": "+375 1641 3-26-39, +375 1641 6-05-03"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-ivanovskogo-rayona",
+  "fields": {
+   "source_id": 13077,
+   "name": "Нотариальная контора Ивановского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225793, г. Иваново, ул. Северная, д. 3",
+   "phones": "+375 1652 2-01-92, +375 1652 9-12-40, +375 1652 9-11-22"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-ivatsevichskogo-rayona",
+  "fields": {
+   "source_id": 13078,
+   "name": "Нотариальная контора Ивацевичского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225295, г. Ивацевичи, ул. 60 лет Октября, д.10",
+   "phones": "+375 1645 2-14-61, +375 1645 9-24-71, +375 1645 2-14-38, +375 1645 9-27-62, +375 1645 9-12-30"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kamenetskogo-rayona",
+  "fields": {
+   "source_id": 13079,
+   "name": "Нотариальная контора Каменецкого района",
+   "district": "Брестский нотариальный округ",
+   "address": "225051, г. Каменец, ул. Я. Коласа, д. 6",
+   "phones": "+375 1631 3-72-02, +375 1631 9-03-10, +375 1631 3-72-16"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kobrinskogo-rayona",
+  "fields": {
+   "source_id": 13080,
+   "name": "Нотариальная контора Кобринского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225306, г. Кобрин, ул.Дзержинского д.58/1",
+   "phones": "+375 1642 4-41-58, +375 1642 3-64-85, +375 1642 3-83-81, +375 1642 3-85-60, +375 1642 3-45-23"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-leninskogo-rayona-g-bresta",
+  "fields": {
+   "source_id": 13064,
+   "name": "Нотариальная контора Ленинского района г. Бреста",
+   "district": "Брестский нотариальный округ",
+   "address": "224030, г. Брест, ул. Дзержинского, д. 14",
+   "phones": "+375 162 23-18-69, +375 162 21-10-97, +375 162 43-16-14, +375 162 50-71-76"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-luninetskogo-rayona",
+  "fields": {
+   "source_id": 13081,
+   "name": "Нотариальная контора Лунинецкого района",
+   "district": "Брестский нотариальный округ",
+   "address": "225644, г. Лунинец, ул. Красная, д. 74",
+   "phones": "+375 1647 6-10-82, +375 1647 2-49-69, +375 1647 6-52-23"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-lyakhovichskogo-rayona",
+  "fields": {
+   "source_id": 13082,
+   "name": "Нотариальная контора Ляховичского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225372, г. Ляховичи, ул. Чкалова, д. 8",
+   "phones": "+375 1633 6-09-79, +375 1633 6-09-67"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-maloritskogo-rayona",
+  "fields": {
+   "source_id": 13083,
+   "name": "Нотариальная контора Малоритского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225903, г. Малорита, ул. Пионерская, д. 17",
+   "phones": "+375 1651 6-04-46, +375 1651 2-06-30"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-moskovskogo-rayona-g-bresta",
+  "fields": {
+   "source_id": 13065,
+   "name": "Нотариальная контора Московского района г. Бреста",
+   "district": "Брестский нотариальный округ",
+   "address": "224016, г. Брест, ул. Кирова, д. 105",
+   "phones": "+375 162 43-54-14, +375 162 93-53-93, +375 162 56-14-71, +375 162 53-59-18, +375 29 349 33 82"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-pinskogo-rayona",
+  "fields": {
+   "source_id": 13086,
+   "name": "Нотариальная контора Пинского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225716, г. Пинск, ул. Днепровской Флотилии, д. 41",
+   "phones": "+375 165 61-55-86, +375 165 65-95-05, +375 165 65-07-96"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-pruzhanskogo-rayona",
+  "fields": {
+   "source_id": 13087,
+   "name": "Нотариальная контора Пружанского района",
+   "district": "Брестский нотариальный округ",
+   "address": "224145, г. Пружаны, ул. Советская, д. 30",
+   "phones": "+375 1632 2-15-85, +375 1632 4-12-57, +375 1632 4-12-91"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-stolinskogo-rayona",
+  "fields": {
+   "source_id": 13088,
+   "name": "Нотариальная контора Столинского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225501, г. Столин, ул. Красноармейская, д. 10",
+   "phones": "+375 1655 2-20-40, +375 1655 6-28-47, +375 1655 2-33-91, +375 1655 6-22-33"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-beloozerska-berezovskogo-rayona",
+  "fields": {
+   "source_id": 13072,
+   "name": "Нотариальная контора г. Белоозерска Березовского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225215, г. Белоозерск, ул. Гагарина, д. 15",
+   "phones": "+375 1643 9-04-71"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-vysokoe-kamenetskogo-rayona",
+  "fields": {
+   "source_id": 13092,
+   "name": "Нотариальная контора г. Высокое Каменецкого района",
+   "district": "Брестский нотариальный округ",
+   "address": "225080, г. Высокое, ул. Советских Пограничников, д. 1",
+   "phones": "+375 1631 9-46-99"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-david-gorodok-stolinskogo-rayona",
+  "fields": {
+   "source_id": 13075,
+   "name": "Нотариальная контора г. Давид-Городок Столинского района",
+   "district": "Брестский нотариальный округ",
+   "address": "225540, г. Давид-Городок, ул. Калинина, д. 25",
+   "phones": "+375 1655 5-13-82, +375 1655 6-40-52"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-mikashevichi",
+  "fields": {
+   "source_id": 13084,
+   "name": "Нотариальная контора г. Микашевичи Лунинецкого района",
+   "district": "Брестский нотариальный округ",
+   "address": "225687, г. Микашевичи, ул. Первомайская, д. 11",
+   "phones": "+375 1647 6-87-48"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-goroda-pinska",
+  "fields": {
+   "source_id": 13085,
+   "name": "Нотариальная контора г. Пинска",
+   "district": "Брестский нотариальный округ",
+   "address": "225710, г. Пинск, ул. Первомайская, д. 181",
+   "phones": "+375 165 62-88-08, +375 165 66-14-61, +375 165 61-56-76, +375 165 63-57-56, +375 165 63-56-90, +375 165 63-30-14, +375 165 63-30-16"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-moskovskogo-rayona-g-bresta-",
+  "fields": {
+   "source_id": 13240,
+   "name": "Нотариальная контора № 2 Московского района г. Бреста",
+   "district": "Брестский нотариальный округ",
+   "address": "224023, г. Брест, ул. Московская, д. 273А",
+   "phones": "+375 162 29-01-62, +375 162 29-01-63, +375 162 29-01-61, +375 162 29-01-64"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-goroda-baranovichi",
+  "fields": {
+   "source_id": 13068,
+   "name": "Нотариальная контора №1 г. Барановичи",
+   "district": "Брестский нотариальный округ",
+   "address": "225415, г. Барановичи, ул. Советская, д. 144",
+   "phones": "+375 163 67-40-87, +375 163 68-15-65, +375 163 60-84-91, +375 163 60-85-93, +375 163 60-71-27, +375 163 60-85-89, +375 163 60-84-95, +375 163 60-84-91"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-goroda-baranovichi",
+  "fields": {
+   "source_id": 13069,
+   "name": "Нотариальная контора №2 г. Барановичи",
+   "district": "Брестский нотариальный округ",
+   "address": "225409, г. Барановичи, ул. Советская, д. 79",
+   "phones": "+375 163 66-38-21, +375 163 64-38-08, +375 163 64-38-30"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "pervaya-brestskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 13063,
+   "name": "Первая Брестская нотариальная контора",
+   "district": "Брестский нотариальный округ",
+   "address": "224013, г. Брест, ул. Малая, д. 3",
+   "phones": "+375 162 58-93-92, +375 162 58-93-91, +375 162 58-93-90, +375 162 43-16-58, +375 162 43-16-59, +375 29 346 11 53"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "vitebskaya-gorodskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 118078,
+   "name": "Витебская городская нотариальная контора",
+   "district": "Витебский нотариальный округ",
+   "address": "210015, ул. Марка Шагала, 7а, пом. 10, г. Витебск",
+   "phones": "+375 212 67-07-65, +375 212 66-01-97, +375 212 66-03-19"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-beshenkovichskogo-rayona",
+  "fields": {
+   "source_id": 13098,
+   "name": "Нотариальная контора Бешенковичского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211361, г.п. Бешенковичи, ул.К.Маркса,д.13",
+   "phones": "+375 2131 6-09-07, +375 29 686-68-40"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-braslavskogo-rayona",
+  "fields": {
+   "source_id": 13099,
+   "name": "Нотариальная контора Браславского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211969, г. Браслав, ул. Советская, д. 137",
+   "phones": "+375 29 669 82 90, +375 2153 3-78-20"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-verkhnedvinskogo-rayona",
+  "fields": {
+   "source_id": 13100,
+   "name": "Нотариальная контора Верхнедвинского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211631, г. Верхнедвинск, ул. Советская, д. 189",
+   "phones": "+375 2151 6-16-28, +375 2151 6-16-27, +375 29 669 93 87"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-vitebskogo-rayona",
+  "fields": {
+   "source_id": 13101,
+   "name": "Нотариальная контора Витебского района",
+   "district": "Витебский нотариальный округ",
+   "address": "210001, г. Витебск, ул. Локомотивная, д. 5, корп. 1",
+   "phones": "+375 212 61-95-49, +375 212 61-95-54 , +375 212 61-95-47"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-glubokskogo-rayona",
+  "fields": {
+   "source_id": 13102,
+   "name": "Нотариальная контора Глубокского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211793, г. Глубокое, ул. Ленина, д. 1-1",
+   "phones": "+375 2156 5-63-01, +375 2156 5-63-02, +375 2156 5-44-85 , +375 2156 5-50-75"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-gorodokskogo-rayona",
+  "fields": {
+   "source_id": 13103,
+   "name": "Нотариальная контора Городокского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211573, г. Городок, ул. Володарского, д. 15",
+   "phones": "+375 29 676-87-33, +375 2139 5-36-16, +375 2139 5-19-47, +375 2139 5-28-18"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-dokshitskogo-rayona",
+  "fields": {
+   "source_id": 13104,
+   "name": "Нотариальная контора Докшицкого района",
+   "district": "Витебский нотариальный округ",
+   "address": "211722, г. Докшицы, ул. Гайдара, д. 54",
+   "phones": "+375 2157 5-19-28, +375 29 677 49 37"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-dubrovenskogo-rayona",
+  "fields": {
+   "source_id": 13106,
+   "name": "Нотариальная контора Дубровенского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211587, г. Дубровно, ул. Комсомольская, д. 12",
+   "phones": "+375 29 678-82-43, +375 2137 5-22-41"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-zheleznodorozhnogo-rayona-goroda-vitebska",
+  "fields": {
+   "source_id": 13094,
+   "name": "Нотариальная контора Железнодорожного района г. Витебска",
+   "district": "Витебский нотариальный округ",
+   "address": "210001, г. Витебск, ул. Локомотивная, д. 5, корп. 1",
+   "phones": "+375 212 62-01-92, +375 212 61-95-63, +375 212 61-95-50, +375 29 667-53-07"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-lepelskogo-rayona",
+  "fields": {
+   "source_id": 13107,
+   "name": "Нотариальная контора Лепельского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211174, г. Лепель, ул. Советская, д. 50",
+   "phones": "+375 2132 6-81-81, +375 2132 6-89-32 , +375 29 667 85 70"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-lioznenskogo-rayona",
+  "fields": {
+   "source_id": 13108,
+   "name": "Нотариальная контора Лиозненского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211220, г.п. Лиозно, ул. Ленина, д. 45",
+   "phones": "+375 2138 5-06-81, +375 29 668-25-41, +375 2138 5-59-07"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-miorskogo-rayona",
+  "fields": {
+   "source_id": 13109,
+   "name": "Нотариальная контора Миорского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211287, г. Миоры, ул. Дзержинского, д. 22",
+   "phones": "+375 2152 5 27 69, +375 2152 5 27 64 , +375 29 683 86 10"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-oktyabrskogo-rayona-g-vitebska-1",
+  "fields": {
+   "source_id": 13236,
+   "name": "Нотариальная контора Октябрьского района г. Витебска №1",
+   "district": "Витебский нотариальный округ",
+   "address": "210029, г. Витебск, ул. Правды, д. 46",
+   "phones": "+375 212 65-76-34, +375 29 667-25-17, +375 212 65-76-10, +375 212 65-76-38, +375 212 65-76-27"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-oktyabrskogo-rayona-goroda-vitebska-2",
+  "fields": {
+   "source_id": 13095,
+   "name": "Нотариальная контора Октябрьского района г. Витебска №2",
+   "district": "Витебский нотариальный округ",
+   "address": "210009, г. Витебск, просп. Генерала Людникова, д. 15",
+   "phones": "+375 212 61-98-54, +375 29 667 92 64"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-orshanskogo-rayona-i-goroda-orshi",
+  "fields": {
+   "source_id": 13112,
+   "name": "Нотариальная контора Оршанского района и г. Орши",
+   "district": "Витебский нотариальный округ",
+   "address": "211391, г. Орша, ул. Мира, д. 14",
+   "phones": "+375 216 56-88-94, +375 216 54-35-30, +375 29 668 74 52"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-pervomayskogo-rayona-goroda-vitebska-1",
+  "fields": {
+   "source_id": 13096,
+   "name": "Нотариальная контора Первомайского района г. Витебска №1",
+   "district": "Витебский нотариальный округ",
+   "address": "210032, г. Витебск, ул. Воинов-Интернационалистов, д. 27",
+   "phones": "+375 212 61-95-89, +375 212 61-98-49 факс, +375 29 669 51 78"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-pervomayskogo-rayona-goroda-vitebska-2",
+  "fields": {
+   "source_id": 13097,
+   "name": "Нотариальная контора Первомайского района г. Витебска №2",
+   "district": "Витебский нотариальный округ",
+   "address": "210015 г. Витебск, пр-т Черняховского, 5-25",
+   "phones": "8 (0212) 64-35-27, 8 (0212) 64-35-28, 8 (0212) 60-31-69, 8 (0212) 64-35-25, +375 29 670-80-97"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-pervomayskogo-rayona-g-vitebska-3",
+  "fields": {
+   "source_id": 13241,
+   "name": "Нотариальная контора Первомайского района г. Витебска №3",
+   "district": "Витебский нотариальный округ",
+   "address": "210029, г. Витебск, Московский просп., д. 64А-95",
+   "phones": "+375 212 22-10-13, +375 29 687-51-35"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-polotskogo-rayona-i-goroda-polotska",
+  "fields": {
+   "source_id": 13114,
+   "name": "Нотариальная контора Полоцкого района и г. Полоцка",
+   "district": "Витебский нотариальный округ",
+   "address": "211415, г. Полоцк, ул. Успенская, д. 2",
+   "phones": "+375 214 49-26-12, +375 214 46-32-37, +375 214 46-34-33, +375 214 46-61-22, +375 214 49-26-14, +375 214 49-26-13, +375 29 684 49 53"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-postavskogo-rayona",
+  "fields": {
+   "source_id": 13125,
+   "name": "Нотариальная контора Поставского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211875, г. Поставы, ул. Юбилейная, д. 8",
+   "phones": "+375 2155 2-41-48, +375 2155 2-41-49, +375 2155 2-41-70, +375 29 669 24 52"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-rossonskogo-rayona",
+  "fields": {
+   "source_id": 13127,
+   "name": "Нотариальная контора Россонского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211471, г.п. Россоны, ул. Советская, д. 2",
+   "phones": "+375 2159 5-21-00, +375 29 684-90-65"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-sennenskogo-rayona",
+  "fields": {
+   "source_id": 13126,
+   "name": "Нотариальная контора Сенненского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211117, г. Сенно, ул. Советская 2а",
+   "phones": "+375 2135 5-37-22, +375 2135 5-37-05, +375 29 684 50 58"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-tolochinskogo-rayona",
+  "fields": {
+   "source_id": 13115,
+   "name": "Нотариальная контора Толочинского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211092, г. Толочин, пер. Ленина, д. 3",
+   "phones": "+375 2136 5-10-31, +375 2136 5-17-11, +375 29 684 81 37"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-ushachskogo-rayona",
+  "fields": {
+   "source_id": 13116,
+   "name": "Нотариальная контора Ушачского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211524, г.п. Ушачи, ул. Советская, д. 42",
+   "phones": "+375 2158 5-19-07, +375 29 684-13-70"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-chashnikskogo-rayona",
+  "fields": {
+   "source_id": 13117,
+   "name": "Нотариальная контора Чашникского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211149, г. Чашники, ул. Советская, д. 20, пом. 1",
+   "phones": "+375 2133 6-04-97, +375 29 685-71-42"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-sharkovshchinskogo-rayona",
+  "fields": {
+   "source_id": 13118,
+   "name": "Нотариальная контора Шарковщинского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211921, г.п. Шарковщина, ул. Комсомольская, д. 17",
+   "phones": "+375 2154 6-18-32, +375 29 685 67 68"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-shumilinskogo-rayona",
+  "fields": {
+   "source_id": 13119,
+   "name": "Нотариальная контора Шумилинского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211259, г.п. Шумилино, ул. Короткина, д. 13",
+   "phones": "+375 2130 5-54-70, +375 2130 5-54-75, +375 29 685 61 34"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-goroda-novolukomlya",
+  "fields": {
+   "source_id": 13110,
+   "name": "Нотариальная контора г. Новолукомля",
+   "district": "Витебский нотариальный округ",
+   "address": "211162, г. Новолукомль, ул. Энергетиков, д. 15",
+   "phones": "+375 2133 6-94-64, +375 2133 3-45-54, +375 29 683-93-68"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-goroda-novopolotska",
+  "fields": {
+   "source_id": 13111,
+   "name": "Нотариальная контора г. Новополоцка",
+   "district": "Витебский нотариальный округ",
+   "address": "211447, г. Новополоцк, ул. Калинина, д. 7",
+   "phones": "+375 214 52-60-75, +375 214 52-51-81, +375 214 52-21-41, +375 214 52-33-41, +375 214 52-64-49, +375 29 668 89 23"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-p-begoml-dokshitskogo-rayona",
+  "fields": {
+   "source_id": 13105,
+   "name": "Нотариальная контора г.п. Бегомль Докшицкого района",
+   "district": "Витебский нотариальный округ",
+   "address": "211730, г.п. Бегомль, ул. Советская, д. 14",
+   "phones": "+375 2157 5-33-19, +375 29 679 90 29"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-barani-orshanskogo-rayona",
+  "fields": {
+   "source_id": 13113,
+   "name": "Нотариальная контора города Барани Оршанского района",
+   "district": "Витебский нотариальный округ",
+   "address": "211011, г. Барань, ул. Оршанская, д. 5",
+   "phones": "+375 216 55-24-94, +375 216 54-89-97"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "pervaya-vitebskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 13093,
+   "name": "Первая Витебская нотариальная контора",
+   "district": "Витебский нотариальный округ",
+   "address": "210015, г. Витебск, проезд Гоголя, д. 11",
+   "phones": "+375 212 67-95-84, +375 29 667-30-21, +375 212 65-76-09, +375 212 67-10-08, +375 212 67-13-29, +375 212 67-61-24"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-braginskogo-rayona",
+  "fields": {
+   "source_id": 13012,
+   "name": "Нотариальная контора Брагинского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247632, г.п. Брагин, ул. Советская, д. 92",
+   "phones": "+375 2344 3-93-61"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-buda-koshelevskogo-rayona",
+  "fields": {
+   "source_id": 13011,
+   "name": "Нотариальная контора Буда-Кошелевского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247355, г. Буда-Кошелево, ул. Комсомольская, д. 17",
+   "phones": "+375 2336 7-74-75"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-vetkovskogo-rayona",
+  "fields": {
+   "source_id": 13013,
+   "name": "Нотариальная контора Ветковского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247131, г. Ветка, ул. Октябрьская, д. 37",
+   "phones": "+375 2330 4-27-72"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-gomelskogo-rayona-1",
+  "fields": {
+   "source_id": 13014,
+   "name": "Нотариальная контора Гомельского района №1",
+   "district": "Гомельский нотариальный округ",
+   "address": "246003, г. Гомель, ул. Новополесская, д. 2",
+   "phones": "+375 232 30-04-15, +375 232 30-04-14, +375 232 30-04-17, +375 232 30-49-64"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-gomelskogo-rayona-2",
+  "fields": {
+   "source_id": 13015,
+   "name": "Нотариальная контора Гомельского района №2",
+   "district": "Гомельский нотариальный округ",
+   "address": "246031, г. Гомель, ул. М. Ломоносова, д. 14Б",
+   "phones": "+375 232 99-90-02"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-dobrushskogo-rayona",
+  "fields": {
+   "source_id": 13016,
+   "name": "Нотариальная контора Добрушского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247054, г. Добруш, ул. Комарова, д. 2а",
+   "phones": "+375 2333 5-87-92, +375 2333 2-47-73"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-elskogo-rayona",
+  "fields": {
+   "source_id": 13017,
+   "name": "Нотариальная контора Ельского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247873, г. Ельск, ул. Дзержинского, д. 7",
+   "phones": "+375 2354 3-53-76"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-zhitkovichskogo-rayona",
+  "fields": {
+   "source_id": 13018,
+   "name": "Нотариальная контора Житковичского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247953, г. Житковичи, ул. Фрунзе, д. 67А",
+   "phones": "+375 2353 5-17-30, +375 2353 5-17-60"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kalinkovichskogo-rayona",
+  "fields": {
+   "source_id": 13022,
+   "name": "Нотариальная контора Калинковичского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247691, г. Калинковичи, ул. 50 лет Октября, д. 50",
+   "phones": "+375 2345 3-20-46, +375 2345 5-42-41, +375 2345 2-44-54"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kormyanskogo-rayona",
+  "fields": {
+   "source_id": 13023,
+   "name": "Нотариальная контора Кормянского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247173 г.п. Корма, ул. Ленина, д. 25 (здание Почты)",
+   "phones": "+375 2337 2-41-54"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-lelchitskogo-rayona",
+  "fields": {
+   "source_id": 13024,
+   "name": "Нотариальная контора Лельчицкого района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247841, г.п. Лельчицы, ул. Советская, д. 24",
+   "phones": "+375 2356 2-03-89"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-loevskogo-rayona",
+  "fields": {
+   "source_id": 13026,
+   "name": "Нотариальная контора Лоевского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247095, г.п. Лоев, ул. Синякова, д. 13",
+   "phones": "+375 2347 5-04-25, +375 2347 5-03-51"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-narovlyanskogo-rayona",
+  "fields": {
+   "source_id": 13028,
+   "name": "Нотариальная контора Наровлянского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247802, г. Наровля, ул. Комсомольская, д. 19",
+   "phones": "+375 2355 4-45-82"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-novobelitskogo-rayona-g-gomelya",
+  "fields": {
+   "source_id": 13009,
+   "name": "Нотариальная контора Новобелицкого района г. Гомеля",
+   "district": "Гомельский нотариальный округ",
+   "address": "246047, г. Гомель, ул. Разина, д. 8",
+   "phones": "+375 232 30-40-74, +375 232 30-37-50"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-oktyabrskogo-rayona",
+  "fields": {
+   "source_id": 13029,
+   "name": "Нотариальная контора Октябрьского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247319, г.п. Октябрьский, ул. Маяковского, д. 5",
+   "phones": "+375 2357 3-79-75"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-petrikovskogo-rayona",
+  "fields": {
+   "source_id": 13030,
+   "name": "Нотариальная контора Петриковского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247912, г. Петриков, ул. К. Маркса, д. 48",
+   "phones": "+375 2350 2-10-38, +375 2350 4-32-31"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-rechitskogo-rayona",
+  "fields": {
+   "source_id": 13031,
+   "name": "Нотариальная контора Речицкого района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247500, г. Речица, ул. Ленина, д. 49",
+   "phones": "+375 2340 4-49-89, +375 2340 7-89-80, +375 2340 3-61-59, +375 2340 4-94-78"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-svetlogorskogo-rayona",
+  "fields": {
+   "source_id": 13035,
+   "name": "Нотариальная контора Светлогорского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247434, г. Светлогорск, ул. Ленина, д. 6",
+   "phones": "+375 2342 7-20-30, +375 2342 7-20-70"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-khoynikskogo-rayona",
+  "fields": {
+   "source_id": 13036,
+   "name": "Нотариальная контора Хойникского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247622, г. Хойники, ул. Карася, д. 19",
+   "phones": "+375 2346 3-15-93"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-tsentralnogo-rayona-g-gomelya",
+  "fields": {
+   "source_id": 13010,
+   "name": "Нотариальная контора Центрального района г. Гомеля",
+   "district": "Гомельский нотариальный округ",
+   "address": "246050, г. Гомель, ул. Крестьянская, д. 22",
+   "phones": "+375 232 30-04-10, +375 232 30-04-11, +375 232 30-04-12, +375 232 30-04-13"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-checherskogo-rayona",
+  "fields": {
+   "source_id": 13037,
+   "name": "Нотариальная контора Чечерского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247152, г. Чечерск, ул. Советская, д. 17",
+   "phones": "+375 2332 7-89-55, +375 2332 7-70-98"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-turov-zhitkovichskogo-rayona",
+  "fields": {
+   "source_id": 13019,
+   "name": "Нотариальная контора г. Туров Житковичского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247980, г. Туров, ул. Ленинская, д. 15",
+   "phones": "+375 2353 5-50-24"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-zheleznodorozhnogo-rayona-g-gomelya",
+  "fields": {
+   "source_id": 13006,
+   "name": "Нотариальная контора №1 Железнодорожного района г. Гомеля",
+   "district": "Гомельский нотариальный округ",
+   "address": "246028, г. Гомель, ул. Кожара, д. 2",
+   "phones": "+375 232 30-56-21, +375 232 30-24-18"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-zhlobinskogo-rayona",
+  "fields": {
+   "source_id": 13020,
+   "name": "Нотариальная контора №1 Жлобинского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247200, г. Жлобин, микрорайон 16, д. 10, пом. 1a",
+   "phones": "+375 2334 2-80-45, +375 2334 2-22-48, +375 29 693-10-16"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-mozyrskogo-rayona",
+  "fields": {
+   "source_id": 13025,
+   "name": "Нотариальная контора №1 Мозырского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247777, г. Мозырь, пл. Ленина, 14а",
+   "phones": "+375 236 21-07-13"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-rogachevskogo-rayona",
+  "fields": {
+   "source_id": 13033,
+   "name": "Нотариальная контора №1 Рогачевского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247673, г. Рогачев, ул. Ленина, д. 55-2",
+   "phones": "+375 2339 9-03-83, +375 2339 9-03-82"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1sovetskogo-rayona",
+  "fields": {
+   "source_id": 13232,
+   "name": "Нотариальная контора №1 Советского района г. Гомеля",
+   "district": "Гомельский нотариальный округ",
+   "address": "246023, г. Гомель, ул. Брестская, д. 1",
+   "phones": "+375 232 29-95-69, +375 232 29-95-71, +375 232 29-95-67, +375 232 29-95-68"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-zheleznodorozhnogo-rayona-g-gomelya",
+  "fields": {
+   "source_id": 13007,
+   "name": "Нотариальная контора №2 Железнодорожного района г. Гомеля",
+   "district": "Гомельский нотариальный округ",
+   "address": "246018, г. Гомель, пр. Космонавтов, 34",
+   "phones": "+375 232 55-09-41, +375 232 55-09-47"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-zhlobinskogo-rayona",
+  "fields": {
+   "source_id": 13021,
+   "name": "Нотариальная контора №2 Жлобинского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247199, г. Жлобин, микрорайон 2, д.17",
+   "phones": "+375 2334 7-59-74, +375 2334 3-50-60, +375 2334 7-59-65"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-mozyrskogo-rayona",
+  "fields": {
+   "source_id": 13027,
+   "name": "Нотариальная контора №2 Мозырского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247777, г. Мозырь, ул. Ленинская, д. 75",
+   "phones": "+375 236 23-34-66"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-rogachevskogo-rayona",
+  "fields": {
+   "source_id": 13034,
+   "name": "Нотариальная контора №2 Рогачевского района",
+   "district": "Гомельский нотариальный округ",
+   "address": "247673, г. Рогачев, ул. К. Либкнехта, д. 107",
+   "phones": "+375 2339 4-68-02"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-sovetskogo-rayona",
+  "fields": {
+   "source_id": 13233,
+   "name": "Нотариальная контора №2 Советского района г. Гомеля",
+   "district": "Гомельский нотариальный округ",
+   "address": "246029, г. Гомель, просп. Октября, д. 38",
+   "phones": "+375 232 23-93-07, +375 232 23-93-17"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-zheleznodorozhnogo-rayona-g-gomelya",
+  "fields": {
+   "source_id": 13008,
+   "name": "Нотариальная контора №3 Железнодорожного района г. Гомеля",
+   "district": "Гомельский нотариальный округ",
+   "address": "246035, г. Гомель, ул. Сухого, д. 16",
+   "phones": "+375 232 53-98-45, +375 232 53-98-50"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "pervaya-gomelskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 13005,
+   "name": "Первая Гомельская нотариальная контора",
+   "district": "Гомельский нотариальный округ",
+   "address": "246050, г. Гомель, ул. Гагарина, д. 55",
+   "phones": "+375 232 34-29-58, +375 232 34-29-57, +375 232 34-29-55, +375 232 24-89-57"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "grodnenskaya-gorodskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 13128,
+   "name": "Гродненская городская нотариальная контора",
+   "district": "Гродненский нотариальный округ",
+   "address": "230025, г. Гродно, ул. Молодёжная, д. 4",
+   "phones": "+375 152 68-30-22"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-berestovitskogo-rayona",
+  "fields": {
+   "source_id": 13133,
+   "name": "Нотариальная контора Берестовицкого района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231778, г.п. Большая Берестовица, пл. Ратушная, д. 2",
+   "phones": "+375 1511 7-26-88"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-volkovysskogo-rayona",
+  "fields": {
+   "source_id": 13134,
+   "name": "Нотариальная контора Волковысского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231900, г. Волковыск, ул. Брестская, д. 59",
+   "phones": "+375 1512 2-73-01"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-voronovskogo-rayona",
+  "fields": {
+   "source_id": 13135,
+   "name": "Нотариальная контора Вороновского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231391, г.п. Вороново, ул. Советская, д. 66",
+   "phones": "+375 159 44-15-04"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-grodnenskogo-rayona",
+  "fields": {
+   "source_id": 13136,
+   "name": "Нотариальная контора Гродненского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "230025, г. Гродно, ул. Захарова, д. 24",
+   "phones": "+375 152 61-03-09"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-dyatlovskogo-rayona",
+  "fields": {
+   "source_id": 13138,
+   "name": "Нотариальная контора Дятловского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231471, г. Дятлово, ул. Красноармейская, д. 3",
+   "phones": "+375 156 33-27-17, +375 156 33-26-83"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-zelvenskogo-rayona",
+  "fields": {
+   "source_id": 13139,
+   "name": "Нотариальная контора Зельвенского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231940, г.п. Зельва, ул. Советская, д. 2",
+   "phones": "+375 156 47-40-95"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-ivevskogo-rayona",
+  "fields": {
+   "source_id": 13140,
+   "name": "Нотариальная контора Ивьевского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231337, г. Ивье, пл. Комсомольская, д. 11",
+   "phones": "+375 1595 6 18 92"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-korelichskogo-rayona",
+  "fields": {
+   "source_id": 13141,
+   "name": "Нотариальная контора Кореличского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231432, г.п. Кореличи, ул. Школьная, д. 19",
+   "phones": "+375 1596 7-49-41"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-leninskogo-rayona-g-grodno",
+  "fields": {
+   "source_id": 13129,
+   "name": "Нотариальная контора Ленинского района г. Гродно",
+   "district": "Гродненский нотариальный округ",
+   "address": "230009, г. Гродно, бульвар Ленинского комсомола, д. 16А",
+   "phones": "+375 152 44-20-83"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-lidskogo-rayona",
+  "fields": {
+   "source_id": 13142,
+   "name": "Нотариальная контора Лидского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231291, г. Лида, ул. Победы, д. 34",
+   "phones": "+375 154 64-65-56"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-mostovskogo-rayona",
+  "fields": {
+   "source_id": 13144,
+   "name": "Нотариальная контора Мостовского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231592, г. Мосты, ул. Советская, д. 21",
+   "phones": "+375 1515 6-78-18"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-novogrudskogo-rayona",
+  "fields": {
+   "source_id": 13145,
+   "name": "Нотариальная контора Новогрудского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231244, г. Новогрудок, пер. Ленина 1-й, д. 5А",
+   "phones": "+375 1597 3-44-62"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-oktyabrskogo-rayona-g-grodno",
+  "fields": {
+   "source_id": 13131,
+   "name": "Нотариальная контора Октябрьского района г. Гродно",
+   "district": "Гродненский нотариальный округ",
+   "address": "230010, г. Гродно, просп. Я. Купалы, д. 24",
+   "phones": "+375 152 71-90-11"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-ostrovetskogo-rayona",
+  "fields": {
+   "source_id": 13146,
+   "name": "Нотариальная контора Островецкого района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231201, г. Островец, ул. К. Маркса, д. 24",
+   "phones": "+375 159 12-98-75, +375 159 17-89-15"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-oshmyanskogo-rayona",
+  "fields": {
+   "source_id": 13147,
+   "name": "Нотариальная контора Ошмянского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231103, г. Ошмяны, ул. Советская, д. 39",
+   "phones": "+375 159 37-43-98"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-svislochskogo-rayona",
+  "fields": {
+   "source_id": 13153,
+   "name": "Нотариальная контора Свислочского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231969, г. Свислочь, ул. Советская, д. 3",
+   "phones": "+375 1513 7-32-11, +375 1513 7-32-12"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-slonimskogo-rayona",
+  "fields": {
+   "source_id": 13148,
+   "name": "Нотариальная контора Слонимского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231799, г. Слоним, ул. Красноармейская, д. 20/49",
+   "phones": "+375 1562 6-90-22"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-smorgonskogo-rayona",
+  "fields": {
+   "source_id": 13149,
+   "name": "Нотариальная контора Сморгонского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231042, г. Сморгонь, ул. Гастелло, д. 31",
+   "phones": "+375 159 22-99-66"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-shchuchinskogo-rayona",
+  "fields": {
+   "source_id": 13150,
+   "name": "Нотариальная контора Щучинского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231513, г. Щучин, ул. Гастелло, д. 19",
+   "phones": "+375 151 47-47-88, +375 151 47-66-05, +375 151 47-66-07"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-goroda-berezovka-lidskogo-rayona",
+  "fields": {
+   "source_id": 13154,
+   "name": "Нотариальная контора г. Берёзовка Лидского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231306 г. Берёзовка, ул. Корзюка, д. 7",
+   "phones": "+375 154 64-84-13 (город Берёзовка)"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-skidelya-grodnenskogo-rayona",
+  "fields": {
+   "source_id": 13137,
+   "name": "Нотариальная контора г. Скиделя Гродненского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231761, г. Скидель, ул. Ленина, д. 45",
+   "phones": "+375 152 60-11-35"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-leninskogo-rayona-g-grodno",
+  "fields": {
+   "source_id": 13130,
+   "name": "Нотариальная контора №2 Ленинского района г. Гродно",
+   "district": "Гродненский нотариальный округ",
+   "address": "230023, г. Гродно, ул. Тимирязева, д. 27/1 (1 этаж)",
+   "phones": "+375 152 55-00-85"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-lidskogo-rayona",
+  "fields": {
+   "source_id": 13143,
+   "name": "Нотариальная контора №2 Лидского района",
+   "district": "Гродненский нотариальный округ",
+   "address": "231281, г. Лида, ул. Чапаева, д. 8",
+   "phones": "+375 154 64-65-21"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-oktyabrskogo-rayona-g-grodno",
+  "fields": {
+   "source_id": 13132,
+   "name": "Нотариальная контора №2 Октябрьского района г. Гродно",
+   "district": "Гродненский нотариальный округ",
+   "address": "230024, г. Гродно, ул. Советских Пограничников, д. 95",
+   "phones": "+375 152 65-04-18"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-leninskogo-rayona-g-grodno",
+  "fields": {
+   "source_id": 14746,
+   "name": "Нотариальная контора №3 Ленинского района г. Гродно",
+   "district": "Гродненский нотариальный округ",
+   "address": "230029, г. Гродно, ул. Горького, д. 49 (2-й этаж)",
+   "phones": "+375 152 62-60-85"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-partizanskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13199,
+   "name": "Нотариальная контора Партизанского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220034, г. Минск, ул. Фрунзе, д. 3",
+   "phones": "+375 44 554-41-36, +375 17 337-84-66"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-tsentralnogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13208,
+   "name": "Нотариальная контора Центрального района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220029, г. Минск, ул. Чичерина, д. 3",
+   "phones": "+375 44 554-48-10, +375 17 351-44-70, +375 17 242-14-06"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-zavodskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13188,
+   "name": "Нотариальная контора №1 Заводского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220107, г. Минск, просп. Партизанский, д. 42",
+   "phones": "+375 17 258-87-43, +375 17 257-98-20"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-leninskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13191,
+   "name": "Нотариальная контора №1 Ленинского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220067, г. Минск, Игуменский тракт, д. 20",
+   "phones": "+375 44 554-46-63, +375 17 271-84-81"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-moskovskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13193,
+   "name": "Нотариальная контора №1 Московского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220036, г. Минск, ул. Р. Люксембург, д. 100",
+   "phones": "+375 44 554-43-88, +375 17 236-48-98 (факс)"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-oktyabrskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13197,
+   "name": "Нотариальная контора №1 Октябрьского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220039, г. Минск, ул. Чкалова, д. 1",
+   "phones": "+375 44 554-40-37, +375 17 260-32-13"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-pervomayskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13200,
+   "name": "Нотариальная контора №1 Первомайского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220114, г. Минск, просп. Независимости, д. 113",
+   "phones": "+375 44 554-41-47, +375 17 353-96-41, +375 17 353-87-56"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-sovetskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13202,
+   "name": "Нотариальная контора №1 Советского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220005, г. Минск, ул. Гикало, д. 3",
+   "phones": "+375 44 554-42-70, +375 17 326-33-44, +375 17 337-10-01, +375 17 271-63-92 (факс)"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-frunzenskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13205,
+   "name": "Нотариальная контора №1 Фрунзенского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220059, г. Минск, ул. Скрипникова, д. 1",
+   "phones": "+375 44 554-47-88, +375 17 337-39-89"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-zavodskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13189,
+   "name": "Нотариальная контора №2 Заводского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220102, г. Минск, ул. Алтайская, д. 64, корп. 1",
+   "phones": "+375 44 554-46-30, +375 17 258-65-83, +375 17 319-29-63 (факс)"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-leninskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13192,
+   "name": "Нотариальная контора №2 Ленинского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220033, г. Минск, ул. Фабричная, д. 19",
+   "phones": "+375 44 554-43-15, +375 17 282-12-54, +375 17 257-12-55"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-moskovskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13194,
+   "name": "Нотариальная контора №2 Московского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220025, г. Минск, ул. Есенина, д. 6, корп. 1",
+   "phones": "+375 44 554-43-93, +375 17 337-26-97, +375 17 337-26-98, +375 17 317-31-92"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-oktyabrskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13198,
+   "name": "Нотариальная контора №2 Октябрьского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220024, г. Минск, ул. Кижеватова, д. 78",
+   "phones": "+375 44 554-40-41, +375 17 378-36-57"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-partizanskogo-rayona-g-minska",
+  "fields": {
+   "source_id": 114309,
+   "name": "Нотариальная контора №2 Партизанского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220088, г. Минск, ул. Первомайская, д. 20, корп. 2",
+   "phones": "+375 17 235-03-88, +375 29 694-69-57"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-pervomayskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13201,
+   "name": "Нотариальная контора №2 Первомайского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220125, г. Минск, ул. Ложинская, д. 7",
+   "phones": "+375 44 554-42-68, +375 17 324-93-97, +375 17 324-97-37"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-sovetskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13203,
+   "name": "Нотариальная контора №2 Советского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220013, г. Минск, ул. Я. Коласа, д. 45, корп. 1",
+   "phones": "+375 44 554-47-60, +375 17 351-04-90, +375 17 352-07-92, +375 17 351-67-07"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-frunzenskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13206,
+   "name": "Нотариальная контора №2 Фрунзенского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220073, г. Минск, ул. Скрыганова, д. 2Б",
+   "phones": "+375 44 554-48-06, +375 17 310-82-46, +375 17 370-14-44 (факс)"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-tsentralnogo-rayona-goroda-minska-",
+  "fields": {
+   "source_id": 13186,
+   "name": "Нотариальная контора №2 Центрального района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220004, г. Минск, ул. М. Танка, д. 30",
+   "phones": "+375 17 368-67-04, +375 17 368-57-13, +375 44 554-48-18"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-zavodskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13190,
+   "name": "Нотариальная контора №3 Заводского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220066, г. Минск, ул. Ташкентская, д. 20, корп. 1",
+   "phones": "+375 44 554-46-36, +375 17 252-75-39"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-moskovskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13195,
+   "name": "Нотариальная контора №3 Московского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220089, г. Минск, ул. Железнодорожная, д. 33 А (пом. 202, 203)",
+   "phones": "+375 44 554-44-68, +375 17 342-88-78"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-oktyabrskogo-rayona-g-minska",
+  "fields": {
+   "source_id": 108854,
+   "name": "Нотариальная контора №3 Октябрьского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220065, г. Минск, ул. Авакяна, д. 34, корп.2",
+   "phones": "+375 17 270 91 01, +375 17 270 91 02, +375 44 554 43 34"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-sovetskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13204,
+   "name": "Нотариальная контора №3 Советского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220113, г. Минск, ул. Мележа, д. 5, корп. 2, пом. 205",
+   "phones": "+375 17 338-06-27"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-frunzenskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13207,
+   "name": "Нотариальная контора №3 Фрунзенского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220136, г. Минск, ул. Лобанка, д. 22",
+   "phones": "+375 44 554-48-09, +375 17 351-22-74, +375 17 353-10-22"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-3-tsentralnogo-rayona-g-minska",
+  "fields": {
+   "source_id": 117843,
+   "name": "Нотариальная контора №3 Центрального района г.Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220020, г. Минск, ул. Нарочанская, д. 11 (Центральный вход)",
+   "phones": "+375 17 318 55 04, +375 17 319 94 02, +375 29 611 25 28"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-4-moskovskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 13196,
+   "name": "Нотариальная контора №4 Московского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220004, г. Минск, ул. Немига, д. 38, оф. 503",
+   "phones": "+375 44 554-45-46, +375 17 257-50-78, +375 17 257-45-79"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-4-sovetskogo-rayona-g-minska",
+  "fields": {
+   "source_id": 117840,
+   "name": "Нотариальная контора №4 Советского района г.Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220123, г. Минск, ул. Веры Хоружей, д. 16Б",
+   "phones": "+375 17 388 90 12, +375 17 388 90 13, +375 29 639 07 98"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-4-frunzenskogo-rayona-goroda-minska",
+  "fields": {
+   "source_id": 37802,
+   "name": "Нотариальная контора №4 Фрунзенского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220092, г. Минск, ул. Дунина-Марцинкевича, д. 6",
+   "phones": "+375 17 249-57-65, +375 44 521-42-30"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-5-frunzenskogo-rayona-g-minska",
+  "fields": {
+   "source_id": 114307,
+   "name": "Нотариальная контора №5 Фрунзенского района г. Минска",
+   "district": "Минский городской нотариальный округ",
+   "address": "220017, г. Минск, ул. Матусевича, д. 90",
+   "phones": "+375 17 300-98-57, +375 17 300-59-01, +375 29 694-53-61"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "pervaya-minskaya-gorodskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 13185,
+   "name": "Первая Минская городская нотариальная контора",
+   "district": "Минский городской нотариальный округ",
+   "address": "220029, г. Минск, ул. Красная, д. 5",
+   "phones": "+375 44 554-40-82, +375 17 235-05-83, +375 17 242-92-37"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "minskaya-oblastnaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 12992,
+   "name": "Минская областная нотариальная контора",
+   "district": "Минский областной нотариальный округ",
+   "address": "220012, г. Минск, ул. Калинина, д. 7Б, 2-й этаж",
+   "phones": "+375 17 250-21-74, +375 17 250-28-02, +375 17 250-29-02, +375 17 250-56-38, +375 17 250-53-78, +375 17 250-35-08"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-berezinskogo-rayona",
+  "fields": {
+   "source_id": 12993,
+   "name": "Нотариальная контора Березинского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223311, г. Березино, ул. Пионерская, д. 5",
+   "phones": "+375 1715 6-39-52, +375 1715 6-39-51"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-borisovskogo-rayona",
+  "fields": {
+   "source_id": 12994,
+   "name": "Нотариальная контора Борисовского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222511, г. Борисов, ул. Даумана, д. 97",
+   "phones": "+375 177 78-49-62, +375 177 78 49 42, +375 177 78 49 43, +375 177 78 49 47, +375 177 78 49 41, +375 177 78-49-50, +375 177 78 49 58"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-vileyskogo-rayona",
+  "fields": {
+   "source_id": 12995,
+   "name": "Нотариальная контора Вилейского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222417, г. Вилейка, ул. 1 Мая, д. 52а",
+   "phones": "+375 1771 5-51-69, +375 1771 5-48-39"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-volozhinskogo-rayona",
+  "fields": {
+   "source_id": 12996,
+   "name": "Нотариальная контора Воложинского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222357, г. Воложин, ул. Партизанская, д.33",
+   "phones": "+375 1772 5-29-08, +375 1772 6-51-52, +375 1772 5-26-67, +375 1772 6-99-44"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-dzerzhinskogo-rayona-minskoy-oblasti",
+  "fields": {
+   "source_id": 12998,
+   "name": "Нотариальная контора Дзержинского района Минской области",
+   "district": "Минский областной нотариальный округ",
+   "address": "222712, г. Дзержинск, ул. Советская, д. 5",
+   "phones": "+375 1716 2-11-92"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kletskogo-rayona",
+  "fields": {
+   "source_id": 13003,
+   "name": "Нотариальная контора Клецкого района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222531, г. Клецк, ул. Панкратовская, д. 6",
+   "phones": "+375 1793 6-43-73, +375 1793 6-88-85"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kopylskogo-rayona",
+  "fields": {
+   "source_id": 13004,
+   "name": "Нотариальная контора Копыльского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223927, г. Копыль, пл. Ленина, д. 5",
+   "phones": "+375 1719 5-11-38"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-krupskogo-rayona",
+  "fields": {
+   "source_id": 13038,
+   "name": "Нотариальная контора Крупского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222001, г. Крупки, ул. Ленина, д. 5 А",
+   "phones": "+375 1796 2-78-65"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-logoyskogo-rayona",
+  "fields": {
+   "source_id": 13039,
+   "name": "Нотариальная контора Логойского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223141, г. Логойск, пер. Банный, д. 3",
+   "phones": "+375 1774 5-49-34, +375 1774 5-25-75"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-lyubanskogo-rayona",
+  "fields": {
+   "source_id": 13040,
+   "name": "Нотариальная контора Любанского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223812, г. Любань, ул. Первомайская, д. 35 (2-й этаж)",
+   "phones": "+375 1794 6-24-80, +375 1794 6-28-50, +375 1794 6-27-10"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-minskogo-rayona-1",
+  "fields": {
+   "source_id": 13041,
+   "name": "Нотариальная контора Минского района №1",
+   "district": "Минский областной нотариальный округ",
+   "address": "220073, г. Минск, ул. Ольшевского, д. 8",
+   "phones": "+375 17 351-79-47, +375 17 241-79-59, +375 17 378-70-66"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-minskogo-rayona-2",
+  "fields": {
+   "source_id": 13042,
+   "name": "Нотариальная контора Минского района №2",
+   "district": "Минский областной нотариальный округ",
+   "address": "220051, г. Минск, ул. Рафиева, д. 78",
+   "phones": "+375 17 276-02-82, +375 17 272-66-75, +375 17 272-80-16"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-minskogo-rayona-3",
+  "fields": {
+   "source_id": 13043,
+   "name": "Нотариальная контора Минского района №3",
+   "district": "Минский областной нотариальный округ",
+   "address": "223041, аг. Лесной, ул. Мирная, д. 17",
+   "phones": "+375 17 368-49-90, +375 17 235-37-27, +375 17 342-53-52"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-minskogo-rayona-4",
+  "fields": {
+   "source_id": 13044,
+   "name": "Нотариальная контора Минского района №4",
+   "district": "Минский областной нотариальный округ",
+   "address": "223028, аг. Ждановичи, ул. Парковая, д. 4",
+   "phones": "8 (017) 513-21-20"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-minskogo-rayona-5",
+  "fields": {
+   "source_id": 13247,
+   "name": "Нотариальная контора Минского района №5",
+   "district": "Минский областной нотариальный округ",
+   "address": "220084, г. Минск, ул. Руссиянова, д. 24",
+   "phones": "+375 17 221-40-36"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-minskogo-rayona-6",
+  "fields": {
+   "source_id": 30196,
+   "name": "Нотариальная контора Минского района №6",
+   "district": "Минский областной нотариальный округ",
+   "address": "220040, г. Минск, пер. Некрасова, д. 10",
+   "phones": "+375 17 251-18-38"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-minskogo-rayona-7",
+  "fields": {
+   "source_id": 95278,
+   "name": "Нотариальная контора Минского района №7",
+   "district": "Минский областной нотариальный округ",
+   "address": "223056, Минская область, Минский район, агрогородок Сеница, Слуцкое шоссе, 4, помещение 3",
+   "phones": "+375 29 606-43-14, +37517 504-16-02"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-molodechnenskogo-rayona-1",
+  "fields": {
+   "source_id": 13045,
+   "name": "Нотариальная контора Молодечненского района №1",
+   "district": "Минский областной нотариальный округ",
+   "address": "222307, г. Молодечно, ул. Б. Хмельницкого, д. 22",
+   "phones": "+375 176 50-55-74, +375 29 676-25-70"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-molodechnenskogo-rayona-2",
+  "fields": {
+   "source_id": 13046,
+   "name": "Нотариальная контора Молодечненского района №2",
+   "district": "Минский областной нотариальный округ",
+   "address": "222310, г. Молодечно, ул. Л. Толстого, д. 2",
+   "phones": "+375 176 54-40-56, +375 176 54-40-63, +375 176 53-63-91"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-molodechnenskogo-rayona-3",
+  "fields": {
+   "source_id": 13047,
+   "name": "Нотариальная контора Молодечненского района №3",
+   "district": "Минский областной нотариальный округ",
+   "address": "222320, д. Красное, ул. С. Новикова, д. 1",
+   "phones": "+375 176 70-28-10"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-myadelskogo-rayona",
+  "fields": {
+   "source_id": 13048,
+   "name": "Нотариальная контора Мядельского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222397, г. Мядель, ул. Н. Крупской, д. 15",
+   "phones": "+375 1797 2-64-52, +375 1797 2-64-53"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-nesvizhskogo-rayona",
+  "fields": {
+   "source_id": 13049,
+   "name": "Нотариальная контора Несвижского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222603, г. Несвиж, ул. Рокоссовского, д. 4",
+   "phones": "+375 1770 5-51-95, +375 1770 5-50-14, +375 1770 2-41-92"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-pukhovichskogo-rayona",
+  "fields": {
+   "source_id": 13051,
+   "name": "Нотариальная контора Пуховичского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222811, г. Марьина Горка, ул. Ленинская, д. 19а-1",
+   "phones": "+375 1713 3-64-99, +375 1713 3-59-74, +375 1713 3-65-01, +375 1713 4-57-48"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-slutskogo-rayona",
+  "fields": {
+   "source_id": 13053,
+   "name": "Нотариальная контора Слуцкого района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223610, г. Слуцк, ул. М. Богдановича, д. 3",
+   "phones": "+375 1795 4-15-05, +375 1795 4-80-21, +375 1795 4-80-20, +375 1795 5-37-09, +375 1795 5-27-01, +375 1795 4-15-06, +375 1795 4-80-23"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-smolevichskogo-rayona",
+  "fields": {
+   "source_id": 13054,
+   "name": "Нотариальная контора Смолевичского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222201, г. Смолевичи, ул. Советская, д. 148",
+   "phones": "+375 1776 28-7-79, +375 1776 28-9-15, +375 1776 28-7-44, +375 1776 28-7-43"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-soligorskogo-rayona",
+  "fields": {
+   "source_id": 13055,
+   "name": "Нотариальная контора Солигорского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223710, г. Солигорск, ул. Богомолова, д. 1",
+   "phones": "+375 174 25-65-86, +375 174 26-21-23, +375 174 26-21-74, +375 174 26-21-71, +375 174 26-21-72, +375 174 26-21-70, +375 174 26-21-75, +375 174 26-06-96, +375 174 26-26-17, +375 174 23-96-76"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-starodorozhskogo-rayona",
+  "fields": {
+   "source_id": 13056,
+   "name": "Нотариальная контора Стародорожского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222932, г. Старые Дороги, ул. Кирова, д. 26а",
+   "phones": "+375 1792 5-58-20, +375 1792 5-61-05"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-stolbtsovskogo-rayona",
+  "fields": {
+   "source_id": 13058,
+   "name": "Нотариальная контора Столбцовского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222666, г. Столбцы, ул. Тенистая, д. 1а",
+   "phones": "+375 1717 5-01-96, +375 1717 5-01-26"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-uzdenskogo-rayona",
+  "fields": {
+   "source_id": 13059,
+   "name": "Нотариальная контора Узденского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223411, г. Узда, бул. Дзержинского, д. 7",
+   "phones": "+375 1718 5-49-51, +375 1718 5-49-60"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-chervenskogo-rayona",
+  "fields": {
+   "source_id": 13060,
+   "name": "Нотариальная контора Червенского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223232, г. Червень, пл. Свободы, д. 1 (здание Червенского районного исполнительного комитета), каб. 9",
+   "phones": "+375 1714 2-80-98, +375 1714 2-79-82"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-zhodino-1",
+  "fields": {
+   "source_id": 13000,
+   "name": "Нотариальная контора г. Жодино №1",
+   "district": "Минский областной нотариальный округ",
+   "address": "222160, г. Жодино, просп. Мира, д. 5",
+   "phones": "+375 1775 4-87-30, +375 1775 4-98-61, +375 1775 4-96-87"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-zhodino-2",
+  "fields": {
+   "source_id": 13001,
+   "name": "Нотариальная контора г. Жодино №2",
+   "district": "Минский областной нотариальный округ",
+   "address": "222161, г. Жодино, ул. 50 лет Октября, д. 14",
+   "phones": "+375 1775 4-51-20, +375 1775 4-45-57"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-zaslavlya",
+  "fields": {
+   "source_id": 13002,
+   "name": "Нотариальная контора г. Заславля",
+   "district": "Минский областной нотариальный округ",
+   "address": "223034, Минский район, город Заславль, ул.Советская, 100А",
+   "phones": "+375 17 517-46-02, +375 17 517-46-01"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-fanipol-dzerzhinskogo-rayona",
+  "fields": {
+   "source_id": 12999,
+   "name": "Нотариальная контора г. Фаниполь Дзержинского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222750, г. Фаниполь, ул. Комсомольская, д. 20/2",
+   "phones": "+375 1716 6-39-09"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-p-gorodeya-nesvizhskogo-rayona",
+  "fields": {
+   "source_id": 13050,
+   "name": "Нотариальная контора г.п. Городея Несвижского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222610, г.п. Городея, ул. Крупской, д. 3",
+   "phones": "+375 1770 3-78-08, +375 1770 2- 31-86"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-p-ivenets-volozhinskogo-rayona",
+  "fields": {
+   "source_id": 12997,
+   "name": "Нотариальная контора г.п. Ивенец Воложинского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222370, г.п. Ивенец, ул. Комсомольская, д. 21",
+   "phones": "+375 1772 5-12-48"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-p-rudensk-pukhovichskogo-rayona",
+  "fields": {
+   "source_id": 13052,
+   "name": "Нотариальная контора г.п. Руденск Пуховичского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "222850, г.п. Руденск, ул. Ленинская, д. 17",
+   "phones": "+375 1713 9-00-91, +375 1713 9-03-87"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-g-p-smilovichi-chervenskogo-rayona",
+  "fields": {
+   "source_id": 13061,
+   "name": "Нотариальная контора г.п. Смиловичи Червенского района",
+   "district": "Минский областной нотариальный округ",
+   "address": "223216, г.п. Смиловичи, ул. Горького, д. 8, каб. 6",
+   "phones": "+375 1714 2-30-03"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-belynichskogo-rayona",
+  "fields": {
+   "source_id": 13162,
+   "name": "Нотариальная контора Белыничского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213051, г. Белыничи, ул. Ленинская, д. 57",
+   "phones": "+375 2232 7-17-95"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-bobruyskogo-rayona",
+  "fields": {
+   "source_id": 13164,
+   "name": "Нотариальная контора Бобруйского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213826, г. Бобруйск, ул. К.Либкнехта, д. 77-62",
+   "phones": "+375 225 72-92-45, +375 225 74-78-39, +375 225 71-74-45"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-bykhovskogo-rayona",
+  "fields": {
+   "source_id": 13163,
+   "name": "Нотариальная контора Быховского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213352, г. Быхов, ул. Дорохова, д. 2",
+   "phones": "+375 2231 7-13-85"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-glusskogo-rayona",
+  "fields": {
+   "source_id": 13167,
+   "name": "Нотариальная контора Глусского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213879, г.п. Глуск, ул. Комсомольская, д. 6",
+   "phones": "+375 2230 7-49-55"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-goretskogo-rayona",
+  "fields": {
+   "source_id": 13168,
+   "name": "Нотариальная контора Горецкого района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213404, г. Горки, ул. Советская, 9",
+   "phones": "+375 2233 4-14-04"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-dribinskogo-rayona",
+  "fields": {
+   "source_id": 13169,
+   "name": "Нотариальная контора Дрибинского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213971, г.п. Дрибин, ул. Ленина, д. 37",
+   "phones": "+375 2248 7-14-50"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kirovskogo-rayona",
+  "fields": {
+   "source_id": 13174,
+   "name": "Нотариальная контора Кировского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213931, г. Кировск, ул. Пушкинская, д. 21",
+   "phones": "+375 2237 7-86-67"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-klimovichskogo-rayona",
+  "fields": {
+   "source_id": 13170,
+   "name": "Нотариальная контора Климовичского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213633, г. Климовичи, ул. Пролетарская, д. 16",
+   "phones": "+375 2244 3-71-78"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-klichevskogo-rayona",
+  "fields": {
+   "source_id": 13171,
+   "name": "Нотариальная контора Кличевского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213910, г. Кличев, ул. Ленинская, д. 68",
+   "phones": "+375 2236 7-87-37"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kostyukovichskogo-rayona",
+  "fields": {
+   "source_id": 13176,
+   "name": "Нотариальная контора Костюковичского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213653, г. Костюковичи, ул. Бонч-Бруевича, строение 2",
+   "phones": "+375 2245 7-16-60, +375 2245 7-17-85"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-krasnopolskogo-rayona",
+  "fields": {
+   "source_id": 13172,
+   "name": "Нотариальная контора Краснопольского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213561, г.п. Краснополье, ул. Ленинская, д. 2",
+   "phones": "+375 2238 7-18-52"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-krichevskogo-rayona",
+  "fields": {
+   "source_id": 13173,
+   "name": "Нотариальная контора Кричевского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213498, г. Кричев, ул. Советская, д. 44",
+   "phones": "+375 2241 2-36-24, +375 2241 2-36-25"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-kruglyanskogo-rayona",
+  "fields": {
+   "source_id": 13175,
+   "name": "Нотариальная контора Круглянского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213188, г. Круглое, ул. Советская, д. 45",
+   "phones": "+375 2234 78-551"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-mogilyevskogo-rayona",
+  "fields": {
+   "source_id": 13161,
+   "name": "Нотариальная контора Могилёвского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "212039, г. Могилев, ул. Минское шоссе, д.4-1",
+   "phones": "+375 222 62-64-32"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-mstislavskogo-rayona",
+  "fields": {
+   "source_id": 13177,
+   "name": "Нотариальная контора Мстиславского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213453, г. Мстиславль, ул. Ленина, д. 26",
+   "phones": "+375 2240 59-641"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-osipovichskogo-rayona",
+  "fields": {
+   "source_id": 13178,
+   "name": "Нотариальная контора Осиповичского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213763, г. Осиповичи, ул. Сумченко, д. 42",
+   "phones": "+375 2235 4-35-04"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-pervomayskogo-rayona-g-bobruyska",
+  "fields": {
+   "source_id": 13166,
+   "name": "Нотариальная контора Первомайского района г. Бобруйска",
+   "district": "Могилевский нотариальный округ",
+   "address": "213811, г. Бобруйск, ул. Рокоссовского, д. 78",
+   "phones": "+375 225 78-75-67"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-slavgorodskogo-rayona",
+  "fields": {
+   "source_id": 13179,
+   "name": "Нотариальная контора Славгородского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213245, г. Славгород, ул. К. Маркса, д. 5",
+   "phones": "+375 2246 7-83-69, +375 2246 7-01-24"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-khotimskogo-rayona",
+  "fields": {
+   "source_id": 13180,
+   "name": "Нотариальная контора Хотимского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213677, г.п. Хотимск, пл. Ленина, д. 2",
+   "phones": "+375 2247 7-92-40"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-chausskogo-rayona",
+  "fields": {
+   "source_id": 13181,
+   "name": "Нотариальная контора Чаусского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213206, г. Чаусы, ул. Советская, д. 9-1",
+   "phones": "+375 2242 7-95-18"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-cherikovskogo-rayona",
+  "fields": {
+   "source_id": 13182,
+   "name": "Нотариальная контора Чериковского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213533, г. Чериков, ул. Рокоссовского, д. 1",
+   "phones": "+375 2243 71-770"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-shklovskogo-rayona",
+  "fields": {
+   "source_id": 13183,
+   "name": "Нотариальная контора Шкловского района",
+   "district": "Могилевский нотариальный округ",
+   "address": "213004, г. Шклов, ул. Ленинская, д. 76",
+   "phones": "+375 2239 7-81-94"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-leninskogo-rayona-g-bobruyska",
+  "fields": {
+   "source_id": 13165,
+   "name": "Нотариальная контора №1 Ленинского района г. Бобруйска",
+   "district": "Могилевский нотариальный округ",
+   "address": "213815, г. Бобруйск, ул. Пролетарская, д. 31а",
+   "phones": "+375 225 70-81-10"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-leninskogo-rayona-g-mogilyeva",
+  "fields": {
+   "source_id": 13156,
+   "name": "Нотариальная контора №1 Ленинского района г. Могилёва",
+   "district": "Могилевский нотариальный округ",
+   "address": "212001, г. Могилев, пер. Крупской, д. 5",
+   "phones": "+375 222 63-62-19"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-1-oktyabrskogo-rayona-g-mogilyeva",
+  "fields": {
+   "source_id": 13158,
+   "name": "Нотариальная контора №1 Октябрьского района г. Могилёва",
+   "district": "Могилевский нотариальный округ",
+   "address": "212027, г. Могилев, просп. Шмидта, д.2б",
+   "phones": "+375 222 72-58-81, +375 222 41-15-35"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-leninskogo-rayona-g-bobruyska",
+  "fields": {
+   "source_id": 13237,
+   "name": "Нотариальная контора №2 Ленинского района г. Бобруйска",
+   "district": "Могилевский нотариальный округ",
+   "address": "213826, г. Бобруйск, ул. Пушкина, д. 159",
+   "phones": "+375 225 71-41-82"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-leninskogo-rayona-g-mogilyeva",
+  "fields": {
+   "source_id": 13157,
+   "name": "Нотариальная контора №2 Ленинского района г. Могилёва",
+   "district": "Могилевский нотариальный округ",
+   "address": "212003, г. Могилев, ул. Челюскинцев, д. 62",
+   "phones": "+375 222 74-34-23, +375 222 62-80-26 (факс)"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "notarialnaya-kontora-2-oktyabrskogo-rayona-g-mogilyeva",
+  "fields": {
+   "source_id": 13160,
+   "name": "Нотариальная контора №2 Октябрьского района г. Могилёва",
+   "district": "Могилевский нотариальный округ",
+   "address": "212004, г. Могилев, просп. Витебский, д. 39А",
+   "phones": "+375 222 64-32-42"
+  }
+ },
+ {
+  "model": "nsi.notaryoffice",
+  "pk": "pervaya-mogilyevskaya-notarialnaya-kontora",
+  "fields": {
+   "source_id": 13155,
+   "name": "Первая Могилёвская нотариальная контора",
+   "district": "Могилевский нотариальный округ",
+   "address": "212030, г. Могилев, ул. Дзержинского, д. 9",
+   "phones": "+375 222 76-92-16"
+  }
+ }
+]

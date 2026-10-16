@@ -6,7 +6,7 @@ import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, Ro
 import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
 import { DateFieldComponent } from '../../core/date-field.component';
-import { ApiService, AssignedAccount, ClaimCase, Named, errorMessage } from '../../core/api.service';
+import { ApiService, AssignedAccount, ClaimCase, Named, NotaryOffice, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
@@ -155,7 +155,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (dialog()) {
         <div class="backdrop" (click)="closeDialog()">
-          <form class="modal" (click)="pickerOpen.set(false); $event.stopPropagation()" (ngSubmit)="save(false)">
+          <form class="modal" (click)="closePickers($event)" (ngSubmit)="save(false)">
             <h2>Добавление исполнительной надписи</h2>
             <p class="hint">
               Пакет собирается из шаблона и вложений. Переход «Направлено нотариусу» возможен только с датой вручения предупреждения и нотариальным тарифом.
@@ -221,9 +221,26 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <label class="total">Итого к взысканию <span class="sum-box"><app-money [value]="grand()" [blank]="false" /></span></label>
 
             <h3>Нотариус</h3>
-            <label>Нотариальная контора
-              <input value="Справочник контор ещё не подключён" disabled />
-            </label>
+            <div class="picker office-picker" (click)="$event.stopPropagation()">
+              <label>Нотариальная контора
+                <input [(ngModel)]="office" name="office" autocomplete="off" placeholder="Название, округ или адрес"
+                       (focus)="officeOpen.set(true)" (input)="officeOpen.set(true)" />
+              </label>
+              @if (officeOpen()) {
+                <div class="picks">
+                  @if (!officeHits().length) {
+                    <p>В справочнике такой конторы нет. Можно оставить вписанное название.</p>
+                  } @else {
+                    @for (row of officeHits(); track row.code) {
+                      <button type="button" [class.on]="office === row.name" (click)="chooseOffice(row)">
+                        {{ row.name }}
+                        <small>{{ row.district }}</small>
+                      </button>
+                    }
+                  }
+                </div>
+              }
+            </div>
 
             <h3>Пакет документов</h3>
             <ul class="pack">
@@ -397,7 +414,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .picks p { margin: 4px; color: var(--erip-muted); font-size: 13px; }
     .picks button, .chosen { font-size: 13px; }
-    .picks button { text-align: left; border: 1px solid var(--erip-border); background: #fff; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+    .picks button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; border: 1px solid var(--erip-border); background: #fff; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+    .picks button small { color: var(--erip-muted); font-size: 12px; }
     .picks button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .check { margin: 0 0 0 220px; font-size: 13px; color: var(--erip-danger); }
     .check.ok { color: var(--erip-success); }
@@ -495,6 +513,9 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly Number = Number;
   protected warningDate = '';
   protected tariff = '';
+  protected office = '';
+  protected readonly officeOpen = signal(false);
+  protected readonly offices = signal<NotaryOffice[]>([]);
 
   ngOnInit(): void {
     this.trackCase();
@@ -505,6 +526,10 @@ export class ClaimsBoardComponent implements OnInit {
     const module = this.route.snapshot.queryParamMap.get('module');
     if (module === 'court' || module === 'notary') this.module.set(module);
     this.query.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe((value) => this.lookup(value));
+    this.api.notaryOffices().subscribe({
+      next: (page) => this.offices.set(page.results),
+      error: () => this.offices.set([]),
+    });
     const account = this.route.snapshot.queryParamMap.get('account');
     if (account) {
       this.api.openClaim(Number(account)).subscribe({
@@ -852,6 +877,8 @@ export class ClaimsBoardComponent implements OnInit {
     this.picked.set(null);
     this.warningDate = '';
     this.tariff = '';
+    this.office = '';
+    this.officeOpen.set(false);
     this.sendTried.set(false);
     this.query.setValue('');
     this.found.set([]);
@@ -868,6 +895,27 @@ export class ClaimsBoardComponent implements OnInit {
     this.picked.set(row);
     this.pickerOpen.set(false);
     if (!this.warningDate && row.warning_handed_on) this.warningDate = row.warning_handed_on;
+  }
+
+  protected officeHits(): NotaryOffice[] {
+    const query = this.office.trim().toLowerCase();
+    const rows = this.offices();
+    const matched = query
+      ? rows.filter((row) => `${row.name} ${row.district} ${row.address}`.toLowerCase().includes(query))
+      : rows;
+    return matched.slice(0, 12);
+  }
+
+  protected chooseOffice(row: NotaryOffice): void {
+    this.office = row.name;
+    this.officeOpen.set(false);
+  }
+
+  protected closePickers(event: Event): void {
+    event.stopPropagation();
+    const target = event.target as HTMLElement | null;
+    this.pickerOpen.set(false);
+    if (!target?.closest('.office-picker')) this.officeOpen.set(false);
   }
 
   protected closeDialog(): void {
@@ -902,6 +950,7 @@ export class ClaimsBoardComponent implements OnInit {
     this.api.patchClaim(claim.id, {
       warning_delivered_on: this.warningDate || null,
       notary_tariff: this.tariff || null,
+      notary_office: this.office.trim(),
     }).subscribe({
       next: (saved) => {
         if (!send) {
@@ -940,6 +989,7 @@ export class ClaimsBoardComponent implements OnInit {
         this.editing.set(row);
         this.warningDate = row.warning_delivered_on || '';
         this.tariff = row.notary_tariff || '';
+        this.office = row.notary_office || '';
         this.dialog.set(true);
         this.api.account(row.account).subscribe({
           next: (account) => this.picked.set(account),

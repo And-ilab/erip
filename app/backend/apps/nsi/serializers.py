@@ -7,6 +7,7 @@ from .models import (
     CalculationSettings,
     DebtGroupScale,
     DebtorCategory,
+    NotaryOffice,
     PrintForm,
     ScenarioDefinition,
     ScenarioRule,
@@ -186,6 +187,12 @@ class BnpServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = BnpService
         fields = ["service_id", "type_id", "name", "debt_types", "is_active"]
+
+
+class NotaryOfficeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotaryOffice
+        fields = ["code", "name", "district", "address", "phones", "is_active"]
 
 
 class BnpDocTypeSerializer(serializers.ModelSerializer):

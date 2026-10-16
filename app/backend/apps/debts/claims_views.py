@@ -50,7 +50,7 @@ from .services.pris_nsi import load_pris_dictionaries
 from .services.pris_submit import refresh_pris, repay_pris, save_pris_draft, submit_pris
 
 EDITABLE = (
-    "warning_delivered_on", "notary_tariff", "application_withdrawn", "notary_note", "lawsuit_number", "lawsuit_kind",
+    "warning_delivered_on", "notary_tariff", "notary_office", "application_withdrawn", "notary_note", "lawsuit_number", "lawsuit_kind",
     "lawsuit_filed_on", "state_duty", "defendant_name", "package_filed_on", "lawsuit_note", "court_status",
     "eviction_stage", "skip_reason",
 )

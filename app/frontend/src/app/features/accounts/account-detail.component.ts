@@ -15,7 +15,7 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize, forkJoin } from 'rxjs';
 
-import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, NotaryOffice, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -353,7 +353,7 @@ import {
           </mat-tab>
 
           <mat-tab label="Исполнительная надпись">
-            <p class="muted tab-note">Надпись создаётся по этому лицевому счёту. Период можно сузить до свободных предъявленных месяцев: предыдущий и текущий месяц в долг не входят. Долг, пеня, ФИО и тариф за выбранный период читаются из выгрузки и не правятся. Дата вручения или дата акта о невручении подставляется из мероприятия и правится. Срок погашения — 7 календарных дней и тоже правится. Нотариальную контору выбирают из уже указанных или вписывают новую. Тарифа в файле АИС нет.</p>
+            <p class="muted tab-note">Надпись создаётся по этому лицевому счёту. Период можно сузить до свободных предъявленных месяцев: предыдущий и текущий месяц в долг не входят. Долг, пеня, ФИО и тариф за выбранный период читаются из выгрузки и не правятся. Дата вручения или дата акта о невручении подставляется из мероприятия и правится. Срок погашения — 7 календарных дней и тоже правится. Нотариальную контору выбирают из справочника Белорусской нотариальной палаты или вписывают, если её там нет. Тарифа в файле АИС нет.</p>
             @for (msg of writBlockers(); track msg) { <p class="alert danger">{{ msg }}</p> }
             @if (writError()) { <p class="alert danger">{{ writError() }}</p> }
             <div class="filters">
@@ -365,7 +365,9 @@ import {
               <mat-form-field class="reason"><mat-label>Нотариальная контора</mat-label>
                 <input matInput [(ngModel)]="writOffice" [matAutocomplete]="officeList" />
                 <mat-autocomplete #officeList="matAutocomplete">
-                  @for (name of writPreview()?.offices || []; track name) { <mat-option [value]="name">{{ name }}</mat-option> }
+                  @for (row of officeChoices(); track row.code) {
+                    <mat-option [value]="row.name">{{ row.name }}@if (row.district) { — {{ row.district }} }</mat-option>
+                  }
                 </mat-autocomplete>
               </mat-form-field>
             </div>
@@ -784,6 +786,7 @@ export class AccountDetailComponent implements OnInit {
   protected writAct = '';
   protected writDays = 7;
   protected writOffice = '';
+  protected readonly notaryOffices = signal<NotaryOffice[]>([]);
   protected writError = signal('');
   protected readonly serviceCatalog = this.accountServiceColumns();
   private serviceHidden = new Set(['months_debt', 'supplier', 'debt_group']);
@@ -821,6 +824,10 @@ export class AccountDetailComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.api.notaryOffices().subscribe({
+      next: (page) => this.notaryOffices.set(page.results),
+      error: () => this.notaryOffices.set([]),
+    });
     const id = Number(this.id());
     forkJoin({
       account: this.api.account(id),
@@ -1405,6 +1412,18 @@ export class AccountDetailComponent implements OnInit {
 
   protected writPreview(): WritDraft | null {
     return this.writ();
+  }
+
+  protected officeChoices(): NotaryOffice[] {
+    const query = this.writOffice.trim().toLowerCase();
+    const catalog = this.notaryOffices();
+    const rows = catalog.length
+      ? catalog
+      : (this.writPreview()?.offices || []).map((name) => ({ code: name, name, district: '', address: '', phones: '' }));
+    const matched = query
+      ? rows.filter((row) => `${row.name} ${row.district} ${row.address}`.toLowerCase().includes(query))
+      : rows;
+    return matched.slice(0, 30);
   }
 
   protected writBlockers(): string[] {
