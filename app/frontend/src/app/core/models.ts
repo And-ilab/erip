@@ -540,6 +540,7 @@ export interface MeasureDetail extends MeasureRow {
   call_legal: boolean;
   group_from: number | null;
   group_to: number | null;
+  dialed?: number;
 }
 
 /** Строка экрана «Готовы к отключению»: срок предупреждения истёк, долг не погашен. */

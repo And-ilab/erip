@@ -96,6 +96,16 @@ const DELIVERY_METHODS = [
           </mat-card-content></mat-card>
         </div>
 
+        @if (canDial(m)) {
+          <mat-card class="action">
+            <mat-card-content>
+              <h3>Провести обзвон</h3>
+              <p class="muted">Звонки уходят в голосовой шлюз по номерам этой партии. Окно: {{ hhmm(m.time_from) }}–{{ hhmm(m.time_to) }}.</p>
+              <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="dial()">Провести обзвон</button>
+            </mat-card-content>
+          </mat-card>
+        }
+
         @if (auth.canWrite()) {
           <mat-card class="action">
             <mat-card-content>
@@ -564,6 +574,33 @@ export class MeasureDetailComponent {
       this.rowId.set(null);
       this.load(id);
     }, { allowSignalWrites: true });
+  }
+
+  protected canDial(measure: MeasureDetail): boolean {
+    return measure.kind === 'call'
+      && (measure.status === 'assigned' || measure.status === 'running')
+      && this.auth.canWrite()
+      && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected dial(): void {
+    this.busy.set(true);
+    this.api.dialMeasure(this.measureId()).subscribe({
+      next: (detail) => {
+        this.busy.set(false);
+        const count = detail.dialed ?? 0;
+        const text = count
+          ? `Прозвонено ${count}. Результат в строках партии.`
+          : 'Новых звонков нет: номер уже обработан, нет +375 или повтор ещё не подошёл.';
+        this.snack.open(text, 'OK', { duration: 5000 });
+        this.measure.set(detail);
+        this.selected.set(new Set());
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.snack.open(errorMessage(err), 'OK');
+      },
+    });
   }
 
   protected recordingLink(value: string): boolean {

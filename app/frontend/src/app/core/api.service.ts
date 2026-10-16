@@ -338,6 +338,10 @@ export class ApiService {
     return this.http.post<MeasureRow>(`${this.base}/measures/`, body);
   }
 
+  dialMeasure(id: number): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/dial/`, {});
+  }
+
   addMeasureTask(id: number, title: string, dueOn = ''): Observable<MeasureDetail> {
     return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/tasks/`, { title, due_on: dueOn || null });
   }

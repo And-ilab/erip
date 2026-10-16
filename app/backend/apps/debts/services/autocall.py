@@ -63,15 +63,24 @@ def dial_due_calls(at: datetime | None = None) -> dict:
         if not _campaign_open(measure, moment):
             continue
         in_window += 1
-        start, end = call_window(measure.source_scenario, moment.date()) if measure.source_scenario_id else (
-            measure.time_from, measure.time_to,
-        )
-        if measure.time_from != start or measure.time_to != end:
-            measure.time_from = start
-            measure.time_to = end
-            measure.save(update_fields=["time_from", "time_to", "updated_at"])
+        start = _sync_window(measure, moment)
         dialed += _dial_measure(measure, moment, start)
     return {"dialed": dialed, "open_parties": open_parties, "in_window": in_window}
+
+
+def conduct_call_measure(measure: Measure, at: datetime | None = None) -> dict:
+    """Провести одну открытую партию. Вне её окна строки не пишутся."""
+    from apps.debts.services.measures import MeasureLaunchError
+
+    moment = _local(at)
+    if measure.kind != Measure.Kind.CALL:
+        raise MeasureLaunchError({"kind": "Проведение доступно для автообзвона"})
+    if measure.status not in OPEN_PARTY:
+        raise MeasureLaunchError({"status": "Партия уже закрыта"})
+    if not _campaign_open(measure, moment):
+        raise MeasureLaunchError({"window": _window_reason(measure, moment)})
+    start = _sync_window(measure, moment)
+    return {"dialed": _dial_measure(measure, moment, start)}
 
 
 def _local(at: datetime | None) -> datetime:
@@ -94,6 +103,30 @@ def _campaign_open(measure: Measure, moment: datetime) -> bool:
         return False
     clock = moment.time().replace(microsecond=0)
     return start <= clock <= end
+
+
+def _sync_window(measure: Measure, moment: datetime) -> time:
+    start, end = call_window(measure.source_scenario, moment.date()) if measure.source_scenario_id else (
+        measure.time_from, measure.time_to,
+    )
+    if measure.time_from != start or measure.time_to != end:
+        measure.time_from = start
+        measure.time_to = end
+        measure.save(update_fields=["time_from", "time_to", "updated_at"])
+    return start
+
+
+def _window_reason(measure: Measure, moment: datetime) -> str:
+    scenario = measure.source_scenario
+    if scenario is not None and moment.day < (scenario.call_from_day or START_DAY):
+        day = scenario.call_from_day or START_DAY
+        return f"Обзвон этой партии начинается с {day}-го числа"
+    start, end = call_window(scenario, moment.date()) if scenario is not None else (
+        measure.time_from, measure.time_to,
+    )
+    if start is None or end is None:
+        return "У партии не задано окно обзвона"
+    return f"Сейчас вне окна {start:%H:%M}–{end:%H:%M}"
 
 
 def _dial_measure(measure: Measure, moment: datetime, window_start: time) -> int:

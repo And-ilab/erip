@@ -277,3 +277,73 @@ def test_standard_window_replaces_the_office_hours_placeholder(org_a):
     scenario = ScenarioDefinition.objects.get(pk=party.source_scenario_id)
     assert (party.time_from, party.time_to) == call_window(scenario, timezone.localdate())
     assert party.time_from != time(9, 0)
+
+
+def _open_call(api, admin, account):
+    created = api(admin).post(
+        "/api/v1/measures/",
+        {
+            "kind": "call",
+            "account_ids": [account.id],
+            "template_name": "Напоминание",
+            "time_from": "00:00",
+            "time_to": "23:59:59",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    return created.json()["id"]
+
+
+@pytest.mark.django_db
+def test_specialist_dials_open_party_from_the_card(api, admin_a, specialist_a, account_a, fake_gateway):
+    party_id = _open_call(api, admin_a, account_a)
+    response = api(specialist_a).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["dialed"] == 1
+    item = MeasureItem.objects.get(measure_id=party_id)
+    assert item.call_result == MeasureItem.CallResult.ANSWERED
+    assert item.external_call is False
+    again = api(specialist_a).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert again.status_code == 400
+    assert "закрыта" in again.content.decode()
+
+
+@pytest.mark.django_db
+def test_dial_outside_the_measure_window_keeps_the_row(api, admin_a, specialist_a, account_a, fake_gateway):
+    now = timezone.localtime()
+    other = (now.hour + 12) % 24
+    created = api(admin_a).post(
+        "/api/v1/measures/",
+        {
+            "kind": "call",
+            "account_ids": [account_a.id],
+            "template_name": "Напоминание",
+            "time_from": f"{other:02d}:00",
+            "time_to": f"{other:02d}:10",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    response = api(specialist_a).post(f"/api/v1/measures/{created.json()['id']}/dial/", {}, format="json")
+    assert response.status_code == 400
+    assert "окна" in response.content.decode()
+    item = MeasureItem.objects.get(measure_id=created.json()["id"])
+    assert item.call_result == ""
+
+
+@pytest.mark.django_db
+def test_observer_and_supplier_cannot_dial(api, admin_a, observer_a, account_a, org_a, fake_gateway):
+    from apps.users.models import User
+
+    from .conftest import make_user
+
+    party_id = _open_call(api, admin_a, account_a)
+    observer = api(observer_a).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert observer.status_code == 403
+    supplier = make_user("sup_dial", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    denied = api(supplier).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert denied.status_code == 403
+    item = MeasureItem.objects.get(measure_id=party_id)
+    assert item.call_result == ""

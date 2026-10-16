@@ -15,7 +15,7 @@ import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
-import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
+import { AccountRow, CalendarEvent, KanbanColumn, MeasureRow, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
@@ -1178,10 +1178,7 @@ export class AccountsListComponent implements OnInit {
       : { kind: draft.kind, filters: this.query(), all_matching: true };
     this.fillEvent(body, draft);
     this.api.createMeasure(body).subscribe({
-      next: (measure) => {
-        this.snack.open(`${measure.kind_display}: ${measure.status_display}`, 'OK', { duration: 5000 });
-        this.loadCalendar();
-      },
+      next: (measure) => this.afterCallLaunch(measure, () => this.loadCalendar()),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
@@ -1606,11 +1603,32 @@ export class AccountsListComponent implements OnInit {
       body['due_on'] = this.dueOn.value;
     }
     this.api.createMeasure(body).subscribe({
-      next: (measure) => {
-        const file = measure.artifact ? ` Файл: ${measure.artifact}` : '';
-        this.snack.open(`${measure.kind_display}: ${measure.status_display}.${file}`, 'OK', { duration: 5000 });
-      },
+      next: (measure) => this.afterCallLaunch(measure),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  private afterCallLaunch(measure: MeasureRow, done?: () => void): void {
+    if (measure.kind !== 'call') {
+      this.snack.open(`${measure.kind_display}: ${measure.status_display}`, 'OK', { duration: 5000 });
+      done?.();
+      return;
+    }
+    this.api.dialMeasure(measure.id).subscribe({
+      next: (detail) => {
+        const count = detail.dialed ?? 0;
+        const text = count
+          ? `Прозвонено ${count}. Результат на карточке партии.`
+          : 'Партия создана. Новых звонков нет: номер уже обработан или повтор ещё не подошёл.';
+        this.snack.open(text, 'OK', { duration: 6000 });
+        done?.();
+        this.router.navigate(['/measures', measure.id]);
+      },
+      error: (e) => {
+        this.snack.open(errorMessage(e), 'OK', { duration: 8000 });
+        done?.();
+        this.router.navigate(['/measures', measure.id]);
+      },
     });
   }
 

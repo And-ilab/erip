@@ -1232,7 +1232,7 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     def get_serializer_class(self):
         if self.action in {
             "retrieve", "create", "confirm", "accept", "cancel", "approve", "reject", "deliver", "send",
-            "result", "move", "tasks", "task_status", "task_checks",
+            "result", "move", "tasks", "task_status", "task_checks", "dial",
         }:
             return MeasureDetailSerializer
         return MeasureSerializer
@@ -1423,6 +1423,30 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             request, AuditLog.Action.UPDATE, measure, after={"status": request.data.get("status")},
         )
         return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def dial(self, request, pk=None):
+        """Провести открытую партию обзвона из карточки, без входа на сервер."""
+        from apps.users.models import User
+
+        if request.user.role not in {User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN, User.Role.SPECIALIST}:
+            raise PermissionDenied("Обзвон проводит специалист, локальный администратор или суперадминистратор")
+        if request.user.contour == User.Contour.SUPPLIER:
+            raise PermissionDenied("Обзвон проводит специалист начисляющей организации")
+        measure = self.get_object()
+        outcome: dict = {}
+
+        def runner():
+            from .services.autocall import conduct_call_measure
+
+            outcome.update(conduct_call_measure(measure))
+
+        response = self._act(request, measure, runner)
+        response.data["dialed"] = outcome.get("dialed", 0)
+        record_action(
+            request, AuditLog.Action.UPDATE, measure, after={"dialed": outcome.get("dialed", 0)},
+        )
+        return response
 
     @action(detail=True, methods=["post"], url_path="result")
     def result(self, request, pk=None):
