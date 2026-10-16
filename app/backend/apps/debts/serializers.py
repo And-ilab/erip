@@ -696,6 +696,7 @@ class MeasureSerializer(serializers.ModelSerializer):
     progress = serializers.SerializerMethodField()
     account_item_status = serializers.SerializerMethodField()
     account_call_line = serializers.SerializerMethodField()
+    manual = serializers.SerializerMethodField()
 
     class Meta:
         model = Measure
@@ -704,7 +705,7 @@ class MeasureSerializer(serializers.ModelSerializer):
             "scenario_name", "note", "assignee", "assignee_name", "started_on", "due_on", "days",
             "time_from", "time_to", "created_at", "accounts_count", "artifact", "title",
             "debtor_name", "debtor_account", "debtor_id", "rating_label", "effective_group", "next_action", "progress",
-            "account_item_status", "account_call_line", "needs_approval", "approval", "approval_note",
+            "account_item_status", "account_call_line", "manual", "needs_approval", "approval", "approval_note",
             "suspension_confirmed_on", "suspension_source", "resumed_on", "resume_source",
             "owner_provider_id", "owner_name",
         ]
@@ -715,6 +716,9 @@ class MeasureSerializer(serializers.ModelSerializer):
             cached = debtor_fields(obj)
             obj.__dict__["_debtor_cache"] = cached
         return cached
+
+    def get_manual(self, obj) -> bool:
+        return obj.source_scenario_id is None
 
     def get_accounts_count(self, obj) -> int:
         return accounts_count(obj)

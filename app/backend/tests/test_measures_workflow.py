@@ -77,6 +77,7 @@ def test_call_keeps_only_accounts_with_belarus_phone(api, admin_a, specialist_a,
     assert reasons["00003001"].startswith("Юридическое лицо")
     assert "Нет номера" in reasons["00003002"]
     assert body["accounts_count"] == 1
+    assert body["manual"] is True
     item = MeasureItem.objects.get(measure_id=body["id"])
     assert item.phone.startswith("+375")
     assert item.status == MeasureItem.Status.ASSIGNED

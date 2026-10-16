@@ -288,11 +288,11 @@ interface GroupSection {
         <div class="measure">
           <p class="hint">
             @if (selectedCount()) {
-              Мероприятие уйдёт по {{ selectedCount() }} выбранным лицевым счетам.
+              Мероприятие назначается по {{ selectedCount() }} выбранным лицевым счетам.
             } @else {
-              Мероприятие уйдёт по всем лицевым счетам текущего фильтра.
+              Мероприятие назначается по всем лицевым счетам текущего фильтра.
             }
-            Шаблон выбирается из списка. Поставщик отмечает свои услуги: в партию попадут только они.
+            Запуск — на карточке мероприятия. Партия сценария идёт сама, кнопка ей не нужна.
           </p>
           <div class="filters">
             <mat-form-field>
@@ -306,7 +306,7 @@ interface GroupSection {
                 <mat-label>Шаблон</mat-label>
                 <mat-select [formControl]="templateId">
                   @for (item of templateOptions(); track item.id) {
-                    <mat-option [value]="item.id">{{ item.name }} ({{ item.channel_display }})</mat-option>
+                    <mat-option [value]="item.id">{{ templateLabel(item) }}</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -343,7 +343,13 @@ interface GroupSection {
               <mat-form-field><mat-label>Исполнитель (id)</mat-label><input matInput [formControl]="assignee" /></mat-form-field>
               <mat-form-field><mat-label>Срок</mat-label><input matInput type="date" [formControl]="dueOn" /></mat-form-field>
             }
-            <button mat-flat-button color="primary" (click)="launch()">Запустить</button>
+            @if (measureKind.value === 'call') {
+              <p class="hint">В справочнике тексты заведены с каналом e-mail. Для обзвона берётся текст, письмо не отправляется.</p>
+            }
+            @if (measureKind.value === 'notice' && !templateOptions().length) {
+              <p class="hint">Для канала «{{ channel.value === 'sms' ? 'SMS' : 'E-mail' }}» шаблонов нет. Загруженные тексты заведены как e-mail.</p>
+            }
+            <button mat-flat-button color="primary" (click)="launch()">Назначить</button>
           </div>
         </div>
       }
@@ -1561,10 +1567,11 @@ export class AccountsListComponent implements OnInit {
   templateOptions(): MessageTemplate[] {
     const all = this.templates();
     if (this.measureKind.value !== 'notice') return all;
-    const channel = this.channel.value;
-    if (channel !== 'email' && channel !== 'sms') return all;
-    const matched = all.filter((item) => item.channel === channel);
-    return matched.length ? matched : all;
+    return all.filter((item) => item.channel === this.channel.value);
+  }
+
+  templateLabel(item: MessageTemplate): string {
+    return this.measureKind.value === 'notice' ? `${item.name} (${item.channel_display})` : item.name;
   }
 
   launch(): void {
@@ -1609,27 +1616,9 @@ export class AccountsListComponent implements OnInit {
   }
 
   private afterCallLaunch(measure: MeasureRow, done?: () => void): void {
-    if (measure.kind !== 'call') {
-      this.snack.open(`${measure.kind_display}: ${measure.status_display}`, 'OK', { duration: 5000 });
-      done?.();
-      return;
-    }
-    this.api.dialMeasure(measure.id).subscribe({
-      next: (detail) => {
-        const count = detail.dialed ?? 0;
-        const text = count
-          ? `Прозвонено ${count}. Результат на карточке партии.`
-          : 'Партия создана. Новых звонков нет: номер уже обработан или повтор ещё не подошёл.';
-        this.snack.open(text, 'OK', { duration: 6000 });
-        done?.();
-        this.router.navigate(['/measures', measure.id]);
-      },
-      error: (e) => {
-        this.snack.open(errorMessage(e), 'OK', { duration: 8000 });
-        done?.();
-        this.router.navigate(['/measures', measure.id]);
-      },
-    });
+    this.snack.open('Мероприятие назначено. Запуск — на карточке мероприятия.', 'OK', { duration: 5000 });
+    done?.();
+    if (!done) this.router.navigate(['/measures', measure.id]);
   }
 
   private keepTemplateInList(): void {

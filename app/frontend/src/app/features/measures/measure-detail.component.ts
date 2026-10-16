@@ -101,8 +101,16 @@ const DELIVERY_METHODS = [
           <mat-card class="action">
             <mat-card-content>
               <h3>Провести обзвон</h3>
-              <p class="muted">Звонки уходят в голосовой шлюз по номерам этой партии. Окно: {{ hhmm(m.time_from) }}–{{ hhmm(m.time_to) }}.</p>
+              <p class="muted">Партия назначена в реестре. Звонки уходят в голосовой шлюз по её номерам. Окно: {{ hhmm(m.time_from) }}–{{ hhmm(m.time_to) }}. Кнопку видит специалист, локальный администратор или суперадминистратор начисляющей организации.</p>
               <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="dial()">Провести обзвон</button>
+            </mat-card-content>
+          </mat-card>
+        }
+        @if (m.kind === 'call' && m.manual === false && (m.status === 'assigned' || m.status === 'running')) {
+          <mat-card class="action">
+            <mat-card-content>
+              <h3>Автообзвон по сценарию</h3>
+              <p class="muted">Партия сценария проводится по расписанию. Отдельная кнопка запуска не показывается.</p>
             </mat-card-content>
           </mat-card>
         }
@@ -557,7 +565,8 @@ export class MeasureDetailComponent {
   }
 
   protected canDial(measure: MeasureDetail): boolean {
-    return measure.kind === 'call'
+    return measure.manual !== false
+      && measure.kind === 'call'
       && (measure.status === 'assigned' || measure.status === 'running')
       && this.auth.canWrite()
       && this.auth.me()?.contour !== 'supplier';

@@ -454,6 +454,7 @@ export interface MeasureRow {
   channel?: string;
   template_name?: string;
   scenario_name?: string;
+  manual?: boolean;
   owner_name?: string;
   note?: string;
   started_on?: string | null;
