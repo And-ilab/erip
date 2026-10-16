@@ -16,6 +16,7 @@ import { RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { MeasureDetail, MeasureItemRow } from '../../core/models';
+import { MeasureTasksComponent } from './measure-tasks.component';
 
 const CALL_RESULTS = [
   { value: 'answered', label: 'Дозвон' },
@@ -35,7 +36,7 @@ const DELIVERY_METHODS = [
   standalone: true,
   imports: [
     DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MatInputModule,
-    MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatIconModule, MatTooltipModule,
+    MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatIconModule, MatTooltipModule, MeasureTasksComponent,
   ],
   template: `
     <div class="page" [class]="'page kind-' + (measure()?.kind || '')">
@@ -106,30 +107,12 @@ const DELIVERY_METHODS = [
           </mat-card>
         }
 
-        @if (auth.canWrite()) {
+        @if (auth.canWrite() || (m.tasks || []).length) {
           <mat-card class="action">
             <mat-card-content>
               <h3>Задания</h3>
-              <p class="muted">Внутри мероприятия можно завести задания и пункты чек-листа.</p>
-              @for (task of m.tasks || []; track task.id) {
-                <div class="task">
-                  <mat-checkbox [checked]="task.status === 'done'" (change)="toggleTask(task.id, $event.checked)">{{ task.title }}</mat-checkbox>
-                  @if (task.due_on) { <span class="muted"> до {{ task.due_on }}</span> }
-                  @if (task.assignee_name) { <span class="muted"> · {{ task.assignee_name }}</span> }
-                  @for (check of task.checks; track check.id) {
-                    <div class="check"><mat-checkbox [checked]="check.done" (change)="toggleCheck(check.id, $event.checked)">{{ check.title }}</mat-checkbox></div>
-                  }
-                  <div class="filters">
-                    <mat-form-field class="wide"><mat-label>Новый пункт чек-листа</mat-label><input matInput [(ngModel)]="checkDraft[task.id]" /></mat-form-field>
-                    <button mat-stroked-button type="button" [disabled]="busy()" (click)="addCheck(task.id)">Добавить пункт</button>
-                  </div>
-                </div>
-              }
-              <div class="filters">
-                <mat-form-field class="wide"><mat-label>Новое задание</mat-label><input matInput [(ngModel)]="taskTitle" /></mat-form-field>
-                <mat-form-field><mat-label>Срок</mat-label><input matInput type="date" [(ngModel)]="taskDue" /></mat-form-field>
-                <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="addTask()">Добавить задание</button>
-              </div>
+              <p class="muted">Задание — отдельная работа со статусом и сроком. Галочка ставится только на пункт внутри задания.</p>
+              <app-measure-tasks [measureId]="m.id" [tasks]="m.tasks || []" [canWrite]="auth.canWrite()" (changed)="reload()" />
             </mat-card-content>
           </mat-card>
         }
@@ -522,9 +505,6 @@ export class MeasureDetailComponent {
   protected rowDuration: number | null = null;
   protected rowListen: number | null = null;
   protected rowReason = '';
-  protected taskTitle = '';
-  protected taskDue = '';
-  protected checkDraft: Record<number, string> = {};
 
   protected readonly openItems = computed(() => (this.measure()?.items ?? []).filter((item) => this.isOpen(item)));
   protected readonly done = computed(
@@ -718,35 +698,8 @@ export class MeasureDetailComponent {
     this.run(this.api.cancelMeasure(this.measureId(), this.cancelReason.trim()), 'Задание отменено');
   }
 
-  protected addTask(): void {
-    const title = this.taskTitle.trim();
-    if (!title) {
-      this.snack.open('Укажите задание', 'OK');
-      return;
-    }
-    this.run(this.api.addMeasureTask(this.measureId(), title, this.taskDue), 'Задание добавлено', () => {
-      this.taskTitle = '';
-      this.taskDue = '';
-    });
-  }
-
-  protected toggleTask(id: number, done: boolean): void {
-    this.run(this.api.setMeasureTaskStatus(this.measureId(), id, done ? 'done' : 'open'), 'Задание обновлено');
-  }
-
-  protected addCheck(taskId: number): void {
-    const title = (this.checkDraft[taskId] || '').trim();
-    if (!title) {
-      this.snack.open('Укажите пункт чек-листа', 'OK');
-      return;
-    }
-    this.run(this.api.addTaskCheck(this.measureId(), taskId, title), 'Пункт добавлен', () => {
-      this.checkDraft[taskId] = '';
-    });
-  }
-
-  protected toggleCheck(id: number, done: boolean): void {
-    this.run(this.api.setTaskCheck(this.measureId(), id, done), 'Чек-лист обновлён');
+  protected reload(): void {
+    this.load(this.measureId());
   }
 
   private approved(measure: MeasureDetail): boolean {

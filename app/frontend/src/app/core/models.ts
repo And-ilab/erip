@@ -663,20 +663,13 @@ export interface Registration {
   sheet?: { label: string; value: string }[];
 }
 
-export interface ScenarioTask {
-  id: number;
-  title: string;
-  status: string;
-  status_label: string;
-}
-
 export interface ScenarioMeasure {
   id: number;
   kind: string;
   kind_label: string;
   status: string;
   status_label: string;
-  tasks: ScenarioTask[];
+  tasks: MeasureTaskRow[];
 }
 
 export interface ScenarioStep {

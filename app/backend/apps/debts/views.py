@@ -496,7 +496,9 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         from apps.debts.services.scenario_board import scenario_outline
 
         account = self.get_object()
-        account = Account.objects.prefetch_related("measures__tasks").get(pk=account.pk)
+        account = Account.objects.prefetch_related(
+            "measures__tasks__checks", "measures__tasks__assignee",
+        ).get(pk=account.pk)
         return Response(scenario_outline(account))
 
     @action(detail=True, url_path="dial-number")

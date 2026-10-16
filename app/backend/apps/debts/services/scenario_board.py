@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from apps.debts.models import AccountScenarioRun, Measure
+from apps.debts.services.tasks import task_row
 from apps.nsi.services.scenario_engine import ACTION_KIND
 
 DEFAULT_STEPS = (
@@ -100,14 +101,5 @@ def _measure(measure: Measure) -> dict:
         "status": measure.status,
         "status_label": measure.get_status_display(),
         "source_action": measure.source_action,
-        "tasks": [
-            {
-                "id": task.pk,
-                "title": task.title,
-                "status": task.status,
-                "status_label": task.get_status_display(),
-                "due_on": task.due_on.isoformat() if task.due_on else None,
-            }
-            for task in measure.tasks.all()
-        ],
+        "tasks": [task_row(task) for task in measure.tasks.all()],
     }

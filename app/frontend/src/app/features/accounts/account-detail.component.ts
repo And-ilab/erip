@@ -21,6 +21,7 @@ import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail, AccountRow, AccountService, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioStep, WorkItem, WritDraft,
 } from '../../core/models';
+import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 
 @Component({
   selector: 'app-account-detail',
@@ -28,6 +29,7 @@ import {
   imports: [
     DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
     MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule, MatAutocompleteModule,
+    MeasureTasksComponent,
   ],
   template: `
     <div class="page">
@@ -155,7 +157,7 @@ import {
                 <button mat-stroked-button (click)="skipStep()">Пропустить текущий шаг</button>
               </div>
             }
-            <p class="muted">Сценарий {{ scenarioName() || 'не назначен' }}. Шаг раскрывается в задания. Мероприятия, которые специалист начал сам, лежат в группе «Инициировано вручную».</p>
+            <p class="muted">Сценарий {{ scenarioName() || 'не назначен' }}. Задание — отдельная работа со статусом и сроком. Галочка ставится только на пункт внутри задания. Мероприятия, которые специалист начал сам, лежат в группе «Инициировано вручную».</p>
             @for (step of scenarioSteps(); track step.order + step.action) {
               <details class="step" [open]="stepOpen(step)">
                 <summary>{{ step.title }}</summary>
@@ -164,20 +166,11 @@ import {
                 }
                 @for (row of step.measures; track row.id) {
                   <div class="step-measure">
-                    <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
-                    <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
-                    @for (task of row.tasks; track task.id) {
-                      <label class="task-line">
-                        <input type="checkbox" [checked]="task.status === 'done'" (change)="toggleTask(row.id, task)" />
-                        {{ task.title }}
-                      </label>
-                    }
-                    @if (auth.canWrite()) {
-                      <div class="filters">
-                        <mat-form-field><mat-label>Новое задание</mat-label><input matInput [(ngModel)]="taskDraft[row.id]" /></mat-form-field>
-                        <button mat-stroked-button type="button" (click)="addStepTask(row.id)">+ Добавить задание</button>
-                      </div>
-                    }
+                    <div class="step-head">
+                      <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
+                      <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
+                    </div>
+                    <app-measure-tasks [measureId]="row.id" [tasks]="row.tasks" [canWrite]="auth.canWrite()" (changed)="reloadScenario()" />
                   </div>
                 }
                 @if (!step.measures.length) {
@@ -196,8 +189,11 @@ import {
               <summary>Инициировано вручную</summary>
               @for (row of scenarioManual(); track row.id) {
                 <div class="step-measure">
-                  <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
-                  <span>{{ row.status_label }}</span>
+                  <div class="step-head">
+                    <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
+                    <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
+                  </div>
+                  <app-measure-tasks [measureId]="row.id" [tasks]="row.tasks" [canWrite]="auth.canWrite()" (changed)="reloadScenario()" />
                 </div>
               } @empty { <p class="muted">Отдельных мероприятий нет.</p> }
             </details>
@@ -566,7 +562,8 @@ import {
     .contact-mode { margin-left: auto; }
     .step { border: 1px solid var(--erip-border); border-radius: 8px; margin: 8px 0; padding: 8px 12px; background: #fff; }
     .step summary { cursor: pointer; font-weight: 600; }
-    .step-measure, .check-line, .task-line { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
+    .step-measure { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 8px 0; }
+    .step-head, .check-line { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
     .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; }
     .sheet dt { color: var(--erip-muted); font-size: 12px; }
     .sheet dd { margin: 0; }
@@ -777,7 +774,6 @@ export class AccountDetailComponent implements OnInit {
   protected serviceMenuTop = 0;
   protected serviceMenuLeft = 0;
   protected paymentPicker = false;
-  protected taskDraft: Record<number, string> = {};
   protected warningDelivered = '';
   protected warningFile: File | null = null;
   protected writFrom = '';
@@ -1550,26 +1546,6 @@ export class AccountDetailComponent implements OnInit {
     return extra?.value || '—';
   }
 
-  protected toggleTask(measureId: number, task: { id: number; status: string }): void {
-    const status = task.status === 'done' ? 'open' : 'done';
-    this.api.setMeasureTaskStatus(measureId, task.id, status).subscribe({
-      next: () => this.reloadScenario(),
-      error: (e) => this.snack.open(errorMessage(e), 'OK'),
-    });
-  }
-
-  protected addStepTask(measureId: number): void {
-    const title = (this.taskDraft[measureId] || '').trim();
-    if (!title) return;
-    this.api.addMeasureTask(measureId, title).subscribe({
-      next: () => {
-        this.taskDraft[measureId] = '';
-        this.reloadScenario();
-      },
-      error: (e) => this.snack.open(errorMessage(e), 'OK'),
-    });
-  }
-
   protected onWarningFile(event: Event): void {
     this.warningFile = (event.target as HTMLInputElement).files?.[0] || null;
   }
@@ -1640,7 +1616,7 @@ export class AccountDetailComponent implements OnInit {
     });
   }
 
-  private reloadScenario(): void {
+  protected reloadScenario(): void {
     const account = this.account();
     if (!account) return;
     this.api.accountScenario(account.id).subscribe((board) => this.scenario.set(board));

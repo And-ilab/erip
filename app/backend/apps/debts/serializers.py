@@ -841,17 +841,10 @@ class MeasureDetailSerializer(MeasureSerializer):
         ]
 
     def get_tasks(self, obj):
-        rows = []
-        for task in obj.tasks.select_related("assignee").prefetch_related("checks"):
-            rows.append({
-                "id": task.id,
-                "title": task.title,
-                "due_on": task.due_on.isoformat() if task.due_on else None,
-                "status": task.status,
-                "assignee_name": task.assignee.display_name if task.assignee_id else "",
-                "checks": [{"id": item.id, "title": item.title, "done": item.done} for item in task.checks.all()],
-            })
-        return rows
+        from apps.debts.services.tasks import task_row
+
+        tasks = obj.tasks.select_related("assignee").prefetch_related("checks")
+        return [task_row(task) for task in tasks]
 
 
 class RefreshRequestSerializer(serializers.ModelSerializer):

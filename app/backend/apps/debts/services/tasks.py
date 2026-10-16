@@ -56,6 +56,19 @@ def set_check(measure: Measure, check_id: int, done: bool) -> TaskCheck:
     return row
 
 
+def task_row(task: MeasureTask) -> dict:
+    """Один вид задания для карточки партии и для вкладки «Мероприятия» на ЛС."""
+    return {
+        "id": task.id,
+        "title": task.title,
+        "due_on": task.due_on.isoformat() if task.due_on else None,
+        "status": task.status,
+        "status_label": task.get_status_display(),
+        "assignee_name": task.assignee.display_name if task.assignee_id else "",
+        "checks": [{"id": item.id, "title": item.title, "done": item.done} for item in task.checks.all()],
+    }
+
+
 def _date(value):
     if not value:
         return None

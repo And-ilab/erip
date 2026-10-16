@@ -124,6 +124,15 @@ def test_specialist_adds_a_task_and_a_checklist(api, admin_a, specialist_a, acco
         format="json",
     )
     assert marked.json()["tasks"][0]["checks"][0]["done"] is True
+    board = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/scenario/")
+    assert board.status_code == 200, board.content
+    body = board.json()
+    rows = [row for step in body["steps"] for row in step["measures"]] + body["manual"]
+    same = next(row for row in rows if row["id"] == measure_id)
+    assert same["tasks"][0]["title"] == "Позвонить повторно"
+    assert same["tasks"][0]["due_on"] == "2026-10-20"
+    assert same["tasks"][0]["status_label"] == "Открыто"
+    assert same["tasks"][0]["checks"][0]["done"] is True
 
 
 @pytest.mark.django_db
