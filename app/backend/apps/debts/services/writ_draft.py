@@ -13,7 +13,6 @@ from django.db.models import Q
 
 from apps.core.exceptions import ServiceError
 from apps.debts.models import ClaimCase, ClaimEvent, ClaimPackage, Measure, MeasureItem, ServiceDebtPeriod
-from apps.debts.services.claims import _claim_ready
 
 
 class WritDraftError(ServiceError):
@@ -21,27 +20,42 @@ class WritDraftError(ServiceError):
     default_code = "writ_draft"
 
 
-def writ_preview(account) -> dict:
+def writ_preview(account, payload: dict | None = None) -> dict:
+    """Суммы и ФИО за выбранное окно. Без payload берётся свободный предъявленный период и даты из мероприятий."""
     eligible = _eligible_periods(account)
     cases = list(_writs(account))
     uncovered = _uncovered(eligible, cases)
-    records = [_record(case) for case in cases]
-    warning = _warning_date(account)
-    start, end = _bounds(uncovered)
-    principal, penalty = _sums(uncovered)
-    blockers = _blockers(account, uncovered, warning, None)
+    stored_warning, stored_act = _warning_marks(account)
+    if payload:
+        warning = _optional_date(payload.get("warning_delivered_on")) if "warning_delivered_on" in payload else stored_warning
+        act_on = _optional_date(payload.get("non_delivery_act_on")) if "non_delivery_act_on" in payload else stored_act
+        start = _optional_date(payload.get("debt_from")) if payload.get("debt_from") else None
+        end = _optional_date(payload.get("debt_to")) if payload.get("debt_to") else None
+    else:
+        warning, act_on = stored_warning, stored_act
+        start, end = None, None
+    if start and end:
+        if end < start:
+            raise WritDraftError("Дата окончания периода раньше даты начала")
+        chosen = [row for row in eligible if start <= row.period <= end]
+    else:
+        chosen = uncovered
+        start, end = _bounds(uncovered)
+    principal, penalty = _sums(chosen)
     return {
         "eligible_from": _iso(start),
         "eligible_to": _iso(end),
-        "months": len({(row.period.year, row.period.month) for row in uncovered}),
+        "months": len({(row.period.year, row.period.month) for row in chosen}),
         "warning_delivered_on": _iso(warning),
+        "non_delivery_act_on": _iso(act_on),
         "defendant_name": _defendant(account, start, end),
         "principal": _money(principal),
         "penalty": _money(penalty),
         "tariff": None,
         "repayment_days": 7,
-        "blockers": blockers,
-        "records": records,
+        "offices": _offices(account),
+        "blockers": _blockers(chosen, warning, act_on),
+        "records": [_record(case) for case in cases],
     }
 
 
@@ -74,8 +88,6 @@ def create_writ(account, user, payload: dict) -> ClaimCase:
                 f"{case.debt_from.strftime('%d.%m.%Y')}–{case.debt_to.strftime('%d.%m.%Y')} "
                 "исполнительная надпись уже сформирована",
             )
-    if not _claim_ready(account):
-        raise WritDraftError("Исполнительная надпись открывается с группы 3")
     principal, penalty = _sums(chosen)
     case = ClaimCase.objects.create(
         organization=account.organization,
@@ -160,15 +172,31 @@ def _sums(periods) -> tuple[Decimal, Decimal]:
     return principal, penalty
 
 
-def _warning_date(account):
+def _warning_marks(account):
+    """Последняя дата предупреждения: отказ — это акт о невручении, иначе дата вручения."""
     row = (
         MeasureItem.objects.filter(
             account=account, measure__kind=Measure.Kind.WARNING, delivered_on__isnull=False,
         )
-        .order_by("-delivered_on")
+        .order_by("-delivered_on", "-id")
         .first()
     )
-    return row.delivered_on if row else None
+    if row is None:
+        return None, None
+    if row.refused:
+        return None, row.delivered_on
+    return row.delivered_on, None
+
+
+def _offices(account) -> list[str]:
+    names = (
+        ClaimCase.objects.filter(organization_id=account.organization_id)
+        .exclude(notary_office="")
+        .order_by("notary_office")
+        .values_list("notary_office", flat=True)
+        .distinct()
+    )
+    return list(names)
 
 
 def _defendant(account, start, end) -> str:
@@ -191,11 +219,9 @@ def _defendant(account, start, end) -> str:
     return account.short_fio or ""
 
 
-def _blockers(account, uncovered, warning, act_on) -> list[str]:
+def _blockers(periods, warning, act_on) -> list[str]:
     messages = []
-    if not _claim_ready(account):
-        messages.append("Исполнительная надпись открывается с группы 3")
-    if len({(row.period.year, row.period.month) for row in uncovered}) < 2:
+    if len({(row.period.year, row.period.month) for row in periods}) < 2:
         messages.append("Нет двух и более предъявленных расчётных периодов без уже созданной надписи")
     if not warning and not act_on:
         messages.append("Нет даты вручения предупреждения и нет даты акта о невручении")

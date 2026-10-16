@@ -123,6 +123,32 @@ def _remember_columns(pref, request, allowed: list[str]) -> tuple[list[str], lis
     return column_layout(pref.columns, allowed)
 
 
+# Порядок «Услуги» — как в замечании к карточке, затем остальные колонки файла.
+# Месяцы, поставщик и группа — поля ПМ, по умолчанию скрыты.
+CARD_SERVICE_COLUMNS = [
+    "service_list_id", "service_id", "service_name", "provider_id", "shot_name",
+    "start_date", "stop_date", "tarrif", "spent_fact", "calc_sum", "calc_result_sum",
+    "calc_priv_sum", "mulct_sum", "recalc_sum", "netting_sum",
+    "balance_in", "balance_mulct_in", "balance_mulct_out", "balance_out",
+    "subs_pay", "calc_date", "mulct_recalc_sum", "overdue_debt", "debt_period",
+    "share_service_summ", "share_mulct_summ",
+    "report_group_id", "netting_mulct_sum", "ais_account_id", "calculation_id",
+    "sort_code", "service_name_report", "full_name",
+    "months_debt", "supplier", "debt_group",
+]
+CARD_SERVICE_HIDDEN = frozenset({"months_debt", "supplier", "debt_group"})
+CARD_PAYMENT_COLUMNS = [
+    "execution_id", "source_receipt_id", "receipt_id", "ais_account_id", "package_id",
+    "otdel", "pp_num", "house_address", "account_address", "payer_address_file",
+    "bank_id", "bank_name", "pay_date", "bank_date", "client_account", "client_account_file",
+    "provider_short_name", "account_provider_id", "acc_oper_date",
+    "pay_mulct_summ", "pay_service_summ", "provider_id", "notes",
+    "share_mulct_sum", "share_service_sum", "receipt_id_ges", "share_status", "package_status",
+    "refund_sum", "commission_summ", "service_id", "service_name",
+    "payer_reg_name", "client_name", "payment_type_display",
+]
+
+
 def _supplier_ids(user):
     if getattr(user, "contour", "") != "supplier":
         return None
@@ -357,7 +383,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=True)
     def payments(self, request, pk=None):
         account = self.get_object()
-        qs = account.payments.all()
+        qs = account.payments.select_related("account")
         if getattr(request.user, "contour", "") == "supplier":
             providers = AccessScope(request.user).provider_ids()
             if providers:
@@ -457,7 +483,11 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
         account = self.get_object()
         if request.method == "GET":
-            return Response(writ_preview(account))
+            keys = ("debt_from", "debt_to", "warning_delivered_on", "non_delivery_act_on")
+            payload = {key: request.query_params.get(key, "") for key in keys} if any(
+                key in request.query_params for key in keys
+            ) else None
+            return Response(writ_preview(account, payload))
         case = create_writ(account, request.user, request.data)
         return Response(case_payload(case), status=status.HTTP_201_CREATED)
 
@@ -728,6 +758,28 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         )
         chosen, order = _remember_columns(pref, request, allowed)
         return Response({"columns": chosen, "available": allowed, "order": order})
+
+    @action(detail=False, methods=["get", "put"], url_path="card-columns")
+    def card_columns(self, request):
+        """Столбцы вкладок «Услуги» и «Оплата». Набор хранится у пользователя, не в браузере."""
+        from .services.column_layout import explicit_layout
+
+        board = request.query_params.get("board") or request.data.get("board") or "services"
+        if board == "services":
+            allowed = list(CARD_SERVICE_COLUMNS)
+            hidden = CARD_SERVICE_HIDDEN
+            target = "card_services"
+        elif board == "payments":
+            allowed = list(CARD_PAYMENT_COLUMNS)
+            hidden = frozenset()
+            target = "card_payments"
+        else:
+            raise ValidationError({"board": "services или payments"})
+        pref, _created = RegistryPreference.objects.get_or_create(
+            user=request.user, target=target, defaults={"columns": explicit_layout(allowed, hidden)},
+        )
+        chosen, order = _remember_columns(pref, request, allowed)
+        return Response({"columns": chosen, "available": allowed, "order": order, "board": board})
 
 
 class _ChildViewSet(ScopedQuerysetMixin, viewsets.ReadOnlyModelViewSet):

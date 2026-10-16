@@ -59,7 +59,12 @@ export function accountDomainFields(): DomainField[] {
     { id: 'balance_out', label: 'Исходящее сальдо', kind: 'number' },
     { id: 'debt_started_on', label: 'Наиболее ранний период возникновения долга', kind: 'date' },
     { id: 'contract_number', label: 'Номер договора', kind: 'text' },
+    { id: 'contract_date', label: 'Дата договора', kind: 'date' },
     { id: 'service_provider', label: 'Поставщик услуги', kind: 'text' },
+    { id: 'initial_principal', label: 'Первоначальная сумма задолженности', kind: 'number' },
+    { id: 'initial_penalty', label: 'Первоначальная сумма пени', kind: 'number' },
+    { id: 'period_balances', label: 'Остатки задолженности и пени по периодам', kind: 'date' },
+    { id: 'repayment_due_on', label: 'Срок погашения по договору', kind: 'date' },
     { id: 'last_payment_date', label: 'Дата последней оплаты', kind: 'date' },
     { id: 'inheritance_case', label: 'Наследственное дело', kind: 'bool' },
   ];

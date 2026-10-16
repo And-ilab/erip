@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -11,10 +12,10 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
 import { MatTabsModule } from '@angular/material/tabs';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize, forkJoin } from 'rxjs';
 
-import { ApiService, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -26,7 +27,7 @@ import {
   standalone: true,
   imports: [
     DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
-    MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
+    MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule, MatAutocompleteModule,
   ],
   template: `
     <div class="page">
@@ -78,7 +79,7 @@ import {
           </div>
         </section>
 
-        <mat-tab-group class="surface tabs">
+        <mat-tab-group class="surface tabs" [selectedIndex]="tabIndex()" (selectedIndexChange)="tabIndex.set($event)">
         <mat-tab label="Общие">
             <div class="grid">
               <mat-card><mat-card-content>
@@ -95,11 +96,16 @@ import {
                   <dt>Кол-во комнат</dt><dd>{{ a.room_count ?? '—' }}</dd>
                   <dt>Кол-во проживающих</dt><dd>{{ a.subj_count ?? '—' }}</dd>
                   <dt>Кол-во льготников</dt><dd>{{ a.priv_acc_count ?? '—' }}</dd>
+                  <dt>id типа объекта</dt><dd>{{ a.acc_category_id ?? '—' }}</dd>
                   <dt>Тип объекта жилфонда</dt><dd>{{ a.acc_category_full || a.acc_category_short || '—' }}</dd>
+                  <dt>Код категории жилого фонда</dt><dd>{{ a.housing_category_code ?? '—' }}</dd>
                   <dt>Категория жилого фонда</dt><dd>{{ a.category_name || a.category_short_name || '—' }}</dd>
+                  <dt>Код типа собственности</dt><dd>{{ a.ownership_type_code ?? '—' }}</dd>
                   <dt>Тип собственности</dt><dd>{{ a.ownership_type_name || '—' }}</dd>
                   <dt>ID признака уникальности</dt><dd>{{ a.uniq_attr ?? '—' }}</dd>
+                  <dt>ID доп. информации 1</dt><dd>{{ a.info_param_id1 ?? '—' }}</dd>
                   <dt>Доп. информация 1</dt><dd>{{ a.info_param_value1 || '—' }}</dd>
+                  <dt>ID доп. информации 2</dt><dd>{{ a.info_param_id2 ?? '—' }}</dd>
                   <dt>Доп. информация 2</dt><dd>{{ a.info_param_value2 || '—' }}</dd>
                   <dt>Телефон</dt><dd>{{ a.phone || '—' }}</dd>
                   <dt>Контактный телефон</dt><dd>{{ a.contact_phone || '—' }}</dd>
@@ -324,10 +330,12 @@ import {
             </div>
             @if (paymentPicker) {
               <div class="picker">
-                @for (col of paymentCatalog; track col) {
+                @for (col of paymentCatalog; track col; let i = $index) {
                   <label>
                     <input type="checkbox" [checked]="paymentVisible(col)" (change)="togglePaymentColumn(col, $any($event.target).checked)" />
                     {{ paymentLabel(col) }}
+                    <button type="button" (click)="$event.preventDefault(); movePaymentColumn(i, -1)">↑</button>
+                    <button type="button" (click)="$event.preventDefault(); movePaymentColumn(i, 1)">↓</button>
                   </label>
                 }
               </div>
@@ -345,21 +353,26 @@ import {
           </mat-tab>
 
           <mat-tab label="Исполнительная надпись">
-            <p class="muted tab-note">Надпись создаётся по этому лицевому счёту. Период, ФИО, долг и тариф приходят из АИС и не правятся. Дата предупреждения и 7 календарных дней на погашение правятся. Нотариальная контора указывается вручную: справочника контор нет. Тариф нотариуса в карточке АИС не передаётся.</p>
+            <p class="muted tab-note">Надпись создаётся по этому лицевому счёту. Период можно сузить до свободных предъявленных месяцев: предыдущий и текущий месяц в долг не входят. Долг, пеня, ФИО и тариф за выбранный период читаются из выгрузки и не правятся. Дата вручения или дата акта о невручении подставляется из мероприятия и правится. Срок погашения — 7 календарных дней и тоже правится. Нотариальную контору выбирают из уже указанных или вписывают новую. Тарифа в файле АИС нет.</p>
             @for (msg of writBlockers(); track msg) { <p class="alert danger">{{ msg }}</p> }
             @if (writError()) { <p class="alert danger">{{ writError() }}</p> }
             <div class="filters">
-              <mat-form-field><mat-label>Период с</mat-label><input matInput type="date" [(ngModel)]="writFrom" /></mat-form-field>
-              <mat-form-field><mat-label>Период по</mat-label><input matInput type="date" [(ngModel)]="writTo" /></mat-form-field>
-              <mat-form-field><mat-label>Дата вручения предупреждения</mat-label><input matInput type="date" [(ngModel)]="writWarning" /></mat-form-field>
-              <mat-form-field><mat-label>Дата акта о невручении</mat-label><input matInput type="date" [(ngModel)]="writAct" /></mat-form-field>
+              <mat-form-field><mat-label>Период с</mat-label><input matInput type="date" [(ngModel)]="writFrom" (change)="refreshWritWindow()" /></mat-form-field>
+              <mat-form-field><mat-label>Период по</mat-label><input matInput type="date" [(ngModel)]="writTo" (change)="refreshWritWindow()" /></mat-form-field>
+              <mat-form-field><mat-label>Дата вручения предупреждения</mat-label><input matInput type="date" [(ngModel)]="writWarning" (change)="refreshWritWindow()" /></mat-form-field>
+              <mat-form-field><mat-label>Дата акта о невручении</mat-label><input matInput type="date" [(ngModel)]="writAct" (change)="refreshWritWindow()" /></mat-form-field>
               <mat-form-field><mat-label>Дней на погашение</mat-label><input matInput type="number" [(ngModel)]="writDays" /></mat-form-field>
-              <mat-form-field class="reason"><mat-label>Нотариальная контора</mat-label><input matInput [(ngModel)]="writOffice" /></mat-form-field>
+              <mat-form-field class="reason"><mat-label>Нотариальная контора</mat-label>
+                <input matInput [(ngModel)]="writOffice" [matAutocomplete]="officeList" />
+                <mat-autocomplete #officeList="matAutocomplete">
+                  @for (name of writPreview()?.offices || []; track name) { <mat-option [value]="name">{{ name }}</mat-option> }
+                </mat-autocomplete>
+              </mat-form-field>
             </div>
             <dl class="sheet">
               <div><dt>Долг по услугам</dt><dd>{{ writPreview()?.principal || '—' }}</dd></div>
               <div><dt>Пеня</dt><dd>{{ writPreview()?.penalty || '—' }}</dd></div>
-              <div><dt>Тариф нотариуса</dt><dd>не передано из АИС</dd></div>
+              <div><dt>Тариф нотариуса</dt><dd>{{ writPreview()?.tariff || 'не передано из АИС' }}</dd></div>
               <div><dt>ФИО ответчика</dt><dd>{{ writPreview()?.defendant_name || '—' }}</dd></div>
             </dl>
             @if (auth.canWrite()) {
@@ -368,9 +381,13 @@ import {
             @for (row of writPreview()?.records || []; track row.id) {
               <article class="step-measure">
                 <b>{{ row.debt_from }} — {{ row.debt_to }}</b>
+                <span>{{ row.defendant_name }}</span>
+                <span>долг {{ row.principal || '—' }}, пеня {{ row.penalty || '—' }}</span>
+                <span>тариф {{ row.tariff || 'не передано из АИС' }}</span>
                 <span>{{ row.stage_label }}</span>
                 <span>{{ row.notary_office }}</span>
-                <span>погашение {{ row.repayment_days }} дн.</span>
+                <span>вручение {{ row.warning_delivered_on || '—' }}, акт {{ row.non_delivery_act_on || '—' }}</span>
+                <span>погашение {{ row.repayment_days }} календарных дн.</span>
                 @for (doc of row.documents; track doc.id) { <span>{{ doc.name }}</span> }
                 <a [routerLink]="['/claims', row.id]" [queryParams]="{ tab: 'pack' }">Пакет</a>
               </article>
@@ -682,11 +699,13 @@ import {
 export class AccountDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   protected readonly auth = inject(AuthService);
   protected skipReason = '';
   private readonly snack = inject(MatSnackBar);
   readonly id = input.required<string>();
 
+  protected readonly tabIndex = signal(0);
   protected readonly account = signal<AccountDetail | null>(null);
   protected readonly peers = signal<AccountRow[] | null>(null);
   protected readonly shares = signal<DebtShare[]>([]);
@@ -772,12 +791,15 @@ export class AccountDetailComponent implements OnInit {
 
   private accountServiceColumns(): string[] {
     return [
-      'report_group_id', 'netting_mulct_sum', 'netting_sum', 'calc_sum', 'balance_in', 'balance_mulct_in',
-      'start_date', 'stop_date', 'balance_mulct_out', 'balance_out', 'service_list_id', 'ais_account_id',
-      'calculation_id', 'provider_id', 'sort_code', 'service_id', 'debt_period', 'shot_name', 'calc_priv_sum',
-      'service_name', 'service_name_report', 'calc_result_sum', 'spent_fact', 'mulct_sum', 'recalc_sum',
-      'mulct_recalc_sum', 'full_name', 'overdue_debt', 'share_mulct_summ', 'share_service_summ', 'subs_pay',
-      'tarrif', 'calc_date', 'months_debt', 'supplier', 'debt_group',
+      'service_list_id', 'service_id', 'service_name', 'provider_id', 'shot_name',
+      'start_date', 'stop_date', 'tarrif', 'spent_fact', 'calc_sum', 'calc_result_sum',
+      'calc_priv_sum', 'mulct_sum', 'recalc_sum', 'netting_sum',
+      'balance_in', 'balance_mulct_in', 'balance_mulct_out', 'balance_out',
+      'subs_pay', 'calc_date', 'mulct_recalc_sum', 'overdue_debt', 'debt_period',
+      'share_service_summ', 'share_mulct_summ',
+      'report_group_id', 'netting_mulct_sum', 'ais_account_id', 'calculation_id',
+      'sort_code', 'service_name_report', 'full_name',
+      'months_debt', 'supplier', 'debt_group',
     ];
   }
 
@@ -816,6 +838,8 @@ export class AccountDetailComponent implements OnInit {
       categories: this.api.categories(),
       measures: this.api.accountMeasures(id),
       checks: this.api.writChecks(id),
+      serviceColumns: this.api.cardColumns('services'),
+      paymentColumns: this.api.cardColumns('payments'),
     }).subscribe({
       next: (r) => {
         this.account.set(r.account);
@@ -842,8 +866,11 @@ export class AccountDetailComponent implements OnInit {
         this.writFrom = r.writ.eligible_from || '';
         this.writTo = r.writ.eligible_to || '';
         this.writWarning = r.writ.warning_delivered_on || '';
+        this.writAct = r.writ.non_delivery_act_on || '';
         this.writDays = r.writ.repayment_days || 7;
-        this.restoreColumns();
+        this.applyCardColumns('services', r.serviceColumns);
+        this.applyCardColumns('payments', r.paymentColumns);
+        if (this.route.snapshot.queryParamMap.get('tab') === 'writ') this.tabIndex.set(6);
         const group = r.account.effective_group;
         const list = r.templates.results.filter((t) => (['email', 'sms', 'voice'] as Channel[]).includes(t.channel));
         const forGroup = group == null ? [] : list.filter((t) => t.debt_group === group);
@@ -1424,12 +1451,12 @@ export class AccountDetailComponent implements OnInit {
     if (on) this.serviceHidden.delete(col);
     else this.serviceHidden.add(col);
     if (this.serviceCatalog.every((item) => this.serviceHidden.has(item))) this.serviceHidden.delete('service_name');
-    this.persistColumns('services', this.serviceHidden);
+    this.persistCard('services');
   }
 
   protected setServiceColumns(on: boolean): void {
     this.serviceHidden = on ? new Set() : new Set(this.serviceCatalog.filter((col) => col !== 'service_name'));
-    this.persistColumns('services', this.serviceHidden);
+    this.persistCard('services');
   }
 
   protected moveServiceColumn(index: number, shift: number): void {
@@ -1437,21 +1464,24 @@ export class AccountDetailComponent implements OnInit {
     if (next < 0 || next >= this.serviceCatalog.length) return;
     const [item] = this.serviceCatalog.splice(index, 1);
     this.serviceCatalog.splice(next, 0, item);
-    this.persistOrder('services', this.serviceCatalog);
+    this.persistCard('services');
   }
 
   protected readonly paymentCatalog = [
-    'receipt_id', 'source_receipt_id', 'receipt_id_ges', 'execution_id', 'package_id', 'package_status',
-    'otdel', 'pp_num', 'client_account', 'client_account_file', 'house_address', 'account_address',
-    'payer_address_file', 'payer_reg_name', 'client_name', 'bank_id', 'bank_name', 'pay_date', 'bank_date',
-    'acc_oper_date', 'account_provider_id', 'provider_id', 'provider_short_name', 'service_id', 'service_name',
-    'pay_service_summ', 'pay_mulct_summ', 'share_service_sum', 'share_mulct_sum', 'share_status', 'refund_sum',
-    'commission_summ', 'notes', 'payment_type_display',
+    'execution_id', 'source_receipt_id', 'receipt_id', 'ais_account_id', 'package_id',
+    'otdel', 'pp_num', 'house_address', 'account_address', 'payer_address_file',
+    'bank_id', 'bank_name', 'pay_date', 'bank_date', 'client_account', 'client_account_file',
+    'provider_short_name', 'account_provider_id', 'acc_oper_date',
+    'pay_mulct_summ', 'pay_service_summ', 'provider_id', 'notes',
+    'share_mulct_sum', 'share_service_sum', 'receipt_id_ges', 'share_status', 'package_status',
+    'refund_sum', 'commission_summ', 'service_id', 'service_name',
+    'payer_reg_name', 'client_name', 'payment_type_display',
   ];
 
   protected paymentLabel(col: string): string {
     const labels: Record<string, string> = {
       receipt_id: 'ID квитанции', source_receipt_id: 'ID исх. квитанции', receipt_id_ges: 'Связь с квитанцией',
+      ais_account_id: 'ID ЛС',
       execution_id: 'ID документа на взыскание', package_id: 'ID пачки', package_status: 'Статус пачки',
       otdel: '№ операции в ЦУ', pp_num: '№ ПП', client_account: 'Лицевой счет', client_account_file: 'Лицевой счет из файла',
       house_address: 'Адрес дома', account_address: 'Адрес', payer_address_file: 'Адрес плательщика из файла',
@@ -1478,12 +1508,20 @@ export class AccountDetailComponent implements OnInit {
     if (on) this.paymentHidden.delete(col);
     else this.paymentHidden.add(col);
     if (this.paymentCatalog.every((item) => this.paymentHidden.has(item))) this.paymentHidden.delete('receipt_id');
-    this.persistColumns('payments', this.paymentHidden);
+    this.persistCard('payments');
   }
 
   protected setPaymentColumns(on: boolean): void {
     this.paymentHidden = on ? new Set() : new Set(this.paymentCatalog.filter((col) => col !== 'receipt_id'));
-    this.persistColumns('payments', this.paymentHidden);
+    this.persistCard('payments');
+  }
+
+  protected movePaymentColumn(index: number, shift: number): void {
+    const next = index + shift;
+    if (next < 0 || next >= this.paymentCatalog.length) return;
+    const [item] = this.paymentCatalog.splice(index, 1);
+    this.paymentCatalog.splice(next, 0, item);
+    this.persistCard('payments');
   }
 
   protected paymentCell(row: Payment, col: string): string {
@@ -1527,6 +1565,20 @@ export class AccountDetailComponent implements OnInit {
         this.snack.open('Файл добавлен во вложения', 'OK', { duration: 2500 });
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected refreshWritWindow(): void {
+    const account = this.account();
+    if (!account) return;
+    this.api.writDraft(account.id, {
+      debt_from: this.writFrom,
+      debt_to: this.writTo,
+      warning_delivered_on: this.writWarning,
+      non_delivery_act_on: this.writAct,
+    }).subscribe({
+      next: (draft) => this.writ.set(draft),
+      error: (e) => this.writError.set(errorMessage(e)),
     });
   }
 
@@ -1575,32 +1627,26 @@ export class AccountDetailComponent implements OnInit {
     this.api.accountScenario(account.id).subscribe((board) => this.scenario.set(board));
   }
 
-  private columnUser(): string {
-    return this.auth.me()?.username || 'local';
-  }
-
-  private restoreColumns(): void {
-    try {
-      const services = localStorage.getItem(`erip.cardColumns.${this.columnUser()}.services`);
-      const payments = localStorage.getItem(`erip.cardColumns.${this.columnUser()}.payments`);
-      if (services) this.serviceHidden = new Set(JSON.parse(services) as string[]);
-      if (payments) this.paymentHidden = new Set(JSON.parse(payments) as string[]);
-      const order = localStorage.getItem(`erip.cardColumns.${this.columnUser()}.services.order`);
-      if (order) {
-        const saved = JSON.parse(order) as string[];
-        this.serviceCatalog.sort((a, b) => saved.indexOf(a) - saved.indexOf(b));
-      }
-    } catch {
-      this.serviceHidden = new Set(['months_debt', 'supplier', 'debt_group']);
-      this.paymentHidden = new Set();
+  private applyCardColumns(board: 'services' | 'payments', prefs: ColumnPrefs): void {
+    const catalog = board === 'services' ? this.serviceCatalog : this.paymentCatalog;
+    const known = new Set(catalog);
+    const order = (prefs.order || []).filter((name) => known.has(name));
+    for (const name of [...catalog]) {
+      if (!order.includes(name)) order.push(name);
     }
+    catalog.splice(0, catalog.length, ...order);
+    const visible = new Set(prefs.columns?.length ? prefs.columns : catalog);
+    const hidden = new Set(catalog.filter((name) => !visible.has(name)));
+    if (board === 'services') this.serviceHidden = hidden;
+    else this.paymentHidden = hidden;
   }
 
-  private persistColumns(board: string, hidden: Set<string>): void {
-    localStorage.setItem(`erip.cardColumns.${this.columnUser()}.${board}`, JSON.stringify([...hidden]));
-  }
-
-  private persistOrder(board: string, order: string[]): void {
-    localStorage.setItem(`erip.cardColumns.${this.columnUser()}.${board}.order`, JSON.stringify(order));
+  private persistCard(board: 'services' | 'payments'): void {
+    const catalog = board === 'services' ? this.serviceCatalog : this.paymentCatalog;
+    const hidden = board === 'services' ? this.serviceHidden : this.paymentHidden;
+    const visible = catalog.filter((name) => !hidden.has(name));
+    this.api.saveCardColumns(board, visible, [...catalog]).subscribe({
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
   }
 }

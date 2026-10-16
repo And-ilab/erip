@@ -161,8 +161,12 @@ export class ApiService {
     return this.http.get<ScenarioBoard>(`${this.base}/accounts/${id}/scenario/`);
   }
 
-  writDraft(id: number): Observable<WritDraft> {
-    return this.http.get<WritDraft>(`${this.base}/accounts/${id}/writ-draft/`);
+  writDraft(id: number, params?: Record<string, string>): Observable<WritDraft> {
+    let httpParams = new HttpParams();
+    if (params) {
+      for (const [key, value] of Object.entries(params)) httpParams = httpParams.set(key, value ?? '');
+    }
+    return this.http.get<WritDraft>(`${this.base}/accounts/${id}/writ-draft/`, { params: httpParams });
   }
 
   createWrit(id: number, body: object): Observable<{ id: number }> {
@@ -199,6 +203,14 @@ export class ApiService {
 
   exportAccounts(params: Params): Observable<Blob> {
     return this.http.get(`${this.base}/accounts/export/`, { params: toParams(params), responseType: 'blob' });
+  }
+
+  cardColumns(board: 'services' | 'payments'): Observable<ColumnPrefs> {
+    return this.http.get<ColumnPrefs>(`${this.base}/accounts/card-columns/`, { params: toParams({ board }) });
+  }
+
+  saveCardColumns(board: 'services' | 'payments', columns: string[], order: string[]): Observable<ColumnPrefs> {
+    return this.http.put<ColumnPrefs>(`${this.base}/accounts/card-columns/`, { board, columns, order });
   }
 
   columns(): Observable<ColumnPrefs> {

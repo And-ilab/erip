@@ -274,7 +274,10 @@ class AccountDetailSerializer(serializers.ModelSerializer):
     def get_receipt_pay(self, obj) -> str:
         from django.db.models import Sum
 
-        totals = obj.payments.aggregate(services=Sum("pay_service_summ"), penalty=Sum("pay_mulct_summ"))
+        payments = obj.payments.all()
+        if obj.operational_date:
+            payments = payments.filter(acc_oper_date=obj.operational_date)
+        totals = payments.aggregate(services=Sum("pay_service_summ"), penalty=Sum("pay_mulct_summ"))
         return _add_money(totals["services"], totals["penalty"])
 
     def get_heritage_from_file(self, obj) -> bool:
@@ -514,7 +517,11 @@ class AccountServiceSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     payment_type_display = serializers.CharField(source="get_payment_type_display", read_only=True)
+    ais_account_id = serializers.SerializerMethodField()
     file_fields = serializers.SerializerMethodField()
+
+    def get_ais_account_id(self, obj) -> int:
+        return obj.account.account_id
 
     class Meta:
         model = Payment

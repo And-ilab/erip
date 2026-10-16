@@ -196,8 +196,13 @@ export interface AccountDetail extends AccountRow {
   category_short_name?: string;
   uniq_attr?: number | null;
   uniq_attr_name?: string;
+  info_param_id1?: number | null;
   info_param_value1?: string;
+  info_param_id2?: number | null;
   info_param_value2?: string;
+  acc_category_id?: number | null;
+  housing_category_code?: number | null;
+  ownership_type_code?: number | null;
   pay_sum_writeoff?: string | null;
   unshared_sum?: string | null;
   receipt_pay?: string | null;
@@ -691,7 +696,13 @@ export interface WritRecord {
   stage_label: string;
   debt_from: string | null;
   debt_to: string | null;
+  warning_delivered_on: string | null;
+  non_delivery_act_on: string | null;
   repayment_days: number;
+  principal: string | null;
+  penalty: string | null;
+  tariff: string | null;
+  defendant_name: string;
   notary_office: string;
   documents: { id: number; name: string }[];
 }
@@ -700,10 +711,13 @@ export interface WritDraft {
   eligible_from: string | null;
   eligible_to: string | null;
   warning_delivered_on: string | null;
+  non_delivery_act_on: string | null;
   defendant_name: string;
   principal: string;
   penalty: string;
+  tariff: string | null;
   repayment_days: number;
+  offices: string[];
   blockers: string[];
   records: WritRecord[];
 }

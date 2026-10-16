@@ -720,7 +720,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
           next: (next) => {
             this.apply(next);
             this.downloadArchive();
-            this.router.navigate(['/accounts', row.account]);
+            this.router.navigate(['/accounts', row.account], { queryParams: { tab: 'writ' } });
           },
           error: (err) => this.snack.open(errorMessage(err), 'OK'),
         });
