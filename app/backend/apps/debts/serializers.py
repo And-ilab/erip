@@ -674,7 +674,7 @@ class MeasureItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "account", "client_account", "debtor_name", "status", "status_display",
             "phone", "call_result", "call_result_display", "duration_sec", "listen_percent",
-            "provider_message_id", "caller_id", "external_call",
+            "recording_ref", "provider_message_id", "caller_id", "external_call",
             "recipient", "delivery_error", "delivery_method", "delivery_method_display",
             "delivered_on", "recipient_name", "refused", "postal_id", "postal_status",
             "suspended_on", "resumed_on", "note", "warning_item", "acted_at",
@@ -796,10 +796,14 @@ class MeasureSerializer(serializers.ModelSerializer):
             return ""
         parts = [item.get_call_result_display()]
         if item.duration_sec is not None:
-            listen = 0 if item.listen_percent is None else item.listen_percent
-            parts.append(f"{item.duration_sec} с, прослушано {listen}%")
+            if item.listen_percent is None:
+                parts.append(f"{item.duration_sec} с")
+            else:
+                parts.append(f"{item.duration_sec} с, прослушано {item.listen_percent}%")
         if item.caller_id:
             parts.append(f"исходящий {item.caller_id}")
+        if item.recording_ref:
+            parts.append(f"запись {item.recording_ref}")
         line = ", ".join(parts)
         if item.external_call is False:
             line = f"{line}. Внешний вызов не выполнялся"

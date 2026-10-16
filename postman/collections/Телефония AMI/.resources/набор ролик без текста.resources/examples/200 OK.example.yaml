@@ -1,0 +1,28 @@
+$kind: http-example
+name: '200 OK'
+request:
+  method: POST
+  url: '{{base_url}}/gw/v1/voice/dial'
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "data": {
+          "phone": "+375291112233",
+          "status": "answered",
+          "error": "",
+          "duration_sec": 36,
+          "listen_percent": 72,
+          "provider_message_id": "voice-0123456789ab",
+          "external_call": false,
+          "caller_id": "",
+          "recording_ref": ""
+        },
+        "meta": {"request_id": "req", "duration_ms": 1}
+      }

@@ -28,12 +28,23 @@ class AdapterRegistry:
 
 
 def build_default_registry() -> AdapterRegistry:
+    from ..core.config import get_settings
     from .email_stub import EmailStubAdapter
     from .inbox import InboxAdapter
     from .sms_stub import SmsStubAdapter
-    from .voice_stub import VoiceStubAdapter
 
     registry = AdapterRegistry()
-    for adapter in (InboxAdapter(), EmailStubAdapter(), SmsStubAdapter(), VoiceStubAdapter()):
+    for adapter in (InboxAdapter(), EmailStubAdapter(), SmsStubAdapter(), voice_adapter(get_settings())):
         registry.register(adapter)
     return registry
+
+
+def voice_adapter(settings):
+    """stub остаётся, пока GW_VOICE_MODE не ami. Сценарий и карточка этого не знают."""
+    if settings.voice_mode == "ami":
+        from .voice_ami import AmiVoiceAdapter
+
+        return AmiVoiceAdapter(settings)
+    from .voice_stub import VoiceStubAdapter
+
+    return VoiceStubAdapter()

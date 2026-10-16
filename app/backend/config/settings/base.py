@@ -135,6 +135,8 @@ AUTH_COOKIE_NAME = "erip_refresh"
 # ---------- Интеграция со шлюзом ----------
 GATEWAY_URL = env("GATEWAY_URL", "http://localhost:8001")
 GATEWAY_TIMEOUT = float(env("GATEWAY_TIMEOUT", "10"))
+# Дольше ожидания AMI (GW_AMI_WAIT_SEC), иначе Django оборвёт звонок раньше станции.
+GATEWAY_DIAL_TIMEOUT = float(env("GATEWAY_DIAL_TIMEOUT", "100"))
 INTERNAL_TOKEN = env("INTERNAL_TOKEN", "dev-internal-token")
 # Сроки хранения: raw выгрузок, журнал аудита, журнал ошибок. Чистит manage.py purge_retained.
 RAW_RETENTION_DAYS = int(env("RAW_RETENTION_DAYS", "90"))

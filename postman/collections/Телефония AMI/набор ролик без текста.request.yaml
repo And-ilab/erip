@@ -1,0 +1,31 @@
+$kind: http-request
+method: POST
+url: '{{base_url}}/gw/v1/voice/dial'
+order: 7000
+headers:
+  - key: X-Internal-Token
+    value: '{{internal_token}}'
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "phone": "+375291112233",
+      "audio": "custom/debt",
+      "record": true
+    }
+examples: './.resources/набор ролик без текста.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const data = pm.response.json().data;
+      const mode = pm.collectionVariables.get('voice_mode') || 'stub';
+      pm.test('200', function () { pm.response.to.have.status(200); });
+      if (mode !== 'ami') {
+          pm.test('заглушка принимает ролик', function () {
+              pm.expect(data.status).to.eql('answered');
+              pm.expect(data.external_call).to.eql(false);
+          });
+      }

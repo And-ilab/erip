@@ -45,16 +45,16 @@ class HttpGatewayClient(GatewayClient):
         self.timeout = timeout
         self.transport = transport
 
-    def _client(self) -> httpx.AsyncClient:
+    def _client(self, timeout: float | None = None) -> httpx.AsyncClient:
         # Клиент создаётся на вызов: async_to_sync может выполнять вызовы в разных event loop
         return httpx.AsyncClient(
-            base_url=self.base_url, timeout=self.timeout, transport=self.transport,
+            base_url=self.base_url, timeout=self.timeout if timeout is None else timeout, transport=self.transport,
             headers={REQUEST_ID_HEADER: get_request_id(), "X-Internal-Token": settings.INTERNAL_TOKEN},
         )
 
-    async def _post(self, path: str, payload: dict) -> dict:
+    async def _post(self, path: str, payload: dict, timeout: float | None = None) -> dict:
         try:
-            async with self._client() as client:
+            async with self._client(timeout) as client:
                 response = await client.post(path, json=payload)
                 response.raise_for_status()
                 return response.json()
@@ -75,7 +75,8 @@ class HttpGatewayClient(GatewayClient):
         return body.get("data", body)["text"]
 
     async def dial(self, payload: dict) -> dict:
-        body = await self._post("/gw/v1/voice/dial", payload)
+        # AMI держит ответ до конца звонка, общий таймаут оповещений для этого короткий.
+        body = await self._post("/gw/v1/voice/dial", payload, timeout=settings.GATEWAY_DIAL_TIMEOUT)
         return body.get("data", body)
 
 

@@ -30,11 +30,46 @@ class Settings(BaseSettings):
     # Время жизни токена ПРИС по регламенту — 30 минут
     pris_token_ttl_seconds: int = 30 * 60
 
+    # stub — набор не выполняется. ami — Asterisk AMI, когда заказчик дал доступ к станции.
+    voice_mode: str = "stub"
+    ami_host: str = ""
+    ami_port: int = 5038
+    ami_username: str = ""
+    ami_secret: str = ""
+    ami_context: str = ""
+    ami_exten: str = "s"
+    ami_priority: int = 1
+    # Шаблон канала абонента: {phone} это +375..., {digits} это 375...
+    ami_channel: str = ""
+    ami_timeout_ms: int = 30000
+    ami_wait_sec: int = 90
+
+    def ami_missing(self) -> list[str]:
+        missing = []
+        if not self.ami_host.strip():
+            missing.append("GW_AMI_HOST")
+        if not self.ami_username.strip():
+            missing.append("GW_AMI_USERNAME")
+        if not self.ami_secret.strip():
+            missing.append("GW_AMI_SECRET")
+        if not self.ami_context.strip():
+            missing.append("GW_AMI_CONTEXT")
+        channel = self.ami_channel
+        if "{phone}" not in channel and "{digits}" not in channel:
+            missing.append("GW_AMI_CHANNEL")
+        return missing
+
     def assert_prod(self) -> None:
+        if self.voice_mode not in {"stub", "ami"}:
+            raise RuntimeError("GW_VOICE_MODE должен быть stub или ami")
         if self.environment != "prod":
             return
         if self.internal_token in {"", "change-me", "change-me-internal", "dev-internal-token", "dev"}:
             raise RuntimeError("GW_INTERNAL_TOKEN в prod не может быть заготовкой из примера")
+        if self.voice_mode == "ami" and self.ami_missing():
+            raise RuntimeError(
+                "GW_VOICE_MODE=ami в prod требует хост, логин, секрет, контекст и шаблон канала AMI"
+            )
 
 
 @lru_cache

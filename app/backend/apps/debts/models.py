@@ -687,6 +687,10 @@ class MeasureItem(AisRecord):
     call_result = models.CharField("Результат звонка", max_length=20, choices=CallResult.choices, blank=True)
     duration_sec = models.PositiveIntegerField("Длительность, с", null=True, blank=True)
     listen_percent = models.PositiveSmallIntegerField("Доля прослушивания, %", null=True, blank=True)
+    recording_ref = models.CharField(
+        "Запись разговора", max_length=500, blank=True,
+        help_text="Ссылка или путь, который прислала станция. Файл в ПМ не хранится.",
+    )
     provider_message_id = models.CharField("Идентификатор отправления", max_length=64, blank=True)
     caller_id = models.CharField("Исходящий номер", max_length=30, blank=True)
     external_call = models.BooleanField(

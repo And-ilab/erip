@@ -488,6 +488,7 @@ export interface MeasureItemRow {
   call_result_display: string;
   duration_sec: number | null;
   listen_percent: number | null;
+  recording_ref?: string;
   provider_message_id?: string;
   caller_id?: string;
   external_call?: boolean | null;

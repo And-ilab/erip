@@ -701,6 +701,7 @@ def write_call_result(
     external_call: bool | None = None,
     provider_message_id: str = "",
     caller_id: str = "",
+    recording_ref: str | None = None,
     acted_at=None,
 ) -> MeasureItem:
     """Один и тот же набор полей для заглушки AMI, боевого адаптера и ручного звонка."""
@@ -727,6 +728,10 @@ def write_call_result(
     item.delivery_error = error[:500]
     item.provider_message_id = (provider_message_id or "")[:64]
     item.caller_id = (caller_id or "")[:30]
+    if recording_ref is not None:
+        item.recording_ref = recording_ref[:500]
+    elif "recording_ref" in data:
+        item.recording_ref = str(data.get("recording_ref") or "")[:500]
     item.external_call = external_call
     item.acted_by = user if getattr(user, "is_authenticated", False) else None
     item.acted_at = acted_at or timezone.now()
@@ -740,6 +745,8 @@ def write_call_result(
         reason = ". ".join(parts)
     else:
         reason = note or item.get_call_result_display()
+        if item.recording_ref:
+            reason = f"{reason}. Запись: {item.recording_ref}"
     log_event(measure, item, item.acted_by, old, item.status, reason)
     rollup(measure)
     return item

@@ -9,6 +9,7 @@ _TMP = Path(tempfile.mkdtemp(prefix="gw-tests-"))
 os.environ["GW_DATABASE_URL"] = f"sqlite+aiosqlite:///{(_TMP / 'gateway.db').as_posix()}"
 os.environ["GW_BACKEND_URL"] = "http://backend.test"
 os.environ["GW_INTERNAL_TOKEN"] = "test-internal"
+os.environ["GW_VOICE_MODE"] = "stub"
 os.environ.pop("GW_DB_SCHEMA", None)
 os.environ.pop("GW_REDIS_URL", None)
 

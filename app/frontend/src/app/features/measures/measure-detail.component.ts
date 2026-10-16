@@ -297,7 +297,21 @@ const DELIVERY_METHODS = [
                             <div class="muted">Исходящий {{ item.caller_id }}</div>
                           }
                           @if (item.duration_sec !== null) {
-                            <div class="muted">{{ item.duration_sec }} с, прослушано {{ item.listen_percent ?? 0 }}%</div>
+                            <div class="muted">
+                              {{ item.duration_sec }} с
+                              @if (item.listen_percent !== null) {
+                                <span>, прослушано {{ item.listen_percent }}%</span>
+                              }
+                            </div>
+                          }
+                          @if (item.recording_ref) {
+                            <div class="muted">
+                              @if (recordingLink(item.recording_ref)) {
+                                <a [href]="item.recording_ref" target="_blank" rel="noopener">Запись разговора</a>
+                              } @else {
+                                Запись {{ item.recording_ref }}
+                              }
+                            </div>
                           }
                           @if (item.provider_message_id) {
                             <div class="muted">{{ item.provider_message_id }}</div>
@@ -550,6 +564,10 @@ export class MeasureDetailComponent {
       this.rowId.set(null);
       this.load(id);
     }, { allowSignalWrites: true });
+  }
+
+  protected recordingLink(value: string): boolean {
+    return value.startsWith('https://') || value.startsWith('http://');
   }
 
   protected isOpen(item: MeasureItemRow): boolean {

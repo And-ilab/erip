@@ -1,0 +1,27 @@
+$kind: http-request
+method: GET
+url: '{{base_url}}/gw/v1/voice/status'
+order: 1000
+headers:
+  - key: X-Internal-Token
+    value: '{{internal_token}}'
+examples: './.resources/состояние канала.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const body = pm.response.json();
+      pm.test('200', function () {
+          pm.response.to.have.status(200);
+      });
+      pm.test('режим stub или ami', function () {
+          pm.expect(['stub', 'ami']).to.include(body.data.mode);
+          pm.expect(body.data.system).to.eql('Asterisk AMI');
+      });
+      pm.collectionVariables.set('voice_mode', body.data.mode);
+      if (body.data.mode === 'stub') {
+          pm.test('заглушка не звонит', function () {
+              pm.expect(body.data.places_calls).to.eql(false);
+              pm.expect(body.data.connected).to.eql(false);
+          });
+      }

@@ -83,6 +83,7 @@ def test_uc_evt_01_stub_fills_statuses_without_manual_entry(api, admin_a, org_a,
     assert item.duration_sec == 36
     assert item.listen_percent == 72
     assert item.external_call is False
+    assert item.recording_ref == ""
     assert item.caller_id == "+375172000001"
     assert item.provider_message_id.startswith("voice-")
     assert item.phone == "+375291112233"
@@ -149,7 +150,10 @@ def test_manual_call_writes_the_same_row_without_the_stub_sentence(api, admin_a,
     item_id = created.json()["items"][0]["id"]
     result = api(admin_a).post(
         f"/api/v1/measures/{measure_id}/result/",
-        {"item_id": item_id, "call_result": "answered", "duration_sec": 40, "listen_percent": 80},
+        {
+            "item_id": item_id, "call_result": "answered", "duration_sec": 40, "listen_percent": 80,
+            "recording_ref": "https://pbx.example/rec/1.wav",
+        },
         format="json",
     )
     assert result.status_code == 200, result.content
@@ -158,10 +162,12 @@ def test_manual_call_writes_the_same_row_without_the_stub_sentence(api, admin_a,
     assert item["duration_sec"] == 40
     assert item["listen_percent"] == 80
     assert item["external_call"] is None
+    assert item["recording_ref"] == "https://pbx.example/rec/1.wav"
     assert MeasureItem.objects.filter(measure_id=measure_id).count() == 1
     card = api(admin_a).get(f"/api/v1/accounts/{account_a.id}/measures/")
     line = next(row["account_call_line"] for row in card.json()["results"] if row["id"] == measure_id)
     assert "Дозвон" in line
+    assert "запись https://pbx.example/rec/1.wav" in line
     assert "не выполнялся" not in line
 
 

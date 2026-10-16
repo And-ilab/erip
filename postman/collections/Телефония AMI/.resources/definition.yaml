@@ -1,0 +1,18 @@
+$kind: collection
+name: Телефония AMI
+description: |-
+  Контракт шлюза ПМ с Asterisk AMI. На станцию уходят номер +375 и текст для TTS или ролик.
+  Обратно: дозвон, недозвон, занято, неверный номер, длительность, при возможности доля прослушивания и ссылка на запись.
+  По умолчанию GW_VOICE_MODE=stub: набор не выполняется, исход задают две последние цифры номера (00 неверный, 01 занято, 02 недозвон, иначе дозвон).
+  GW_VOICE_MODE=ami звонит по-настоящему. Для проверки конверта оставьте stub.
+  Диалплан станции читает ERIP_TEXT, ERIP_AUDIO, ERIP_RECORD, ERIP_TRANSFER.
+  Сначала выполните «состояние канала»: от него зависит, какие проверки ждут заглушку, а какие станцию.
+variables:
+  - key: base_url
+    value: 'http://127.0.0.1:8001'
+    description: 'Шлюз напрямую. Через Docker — http://localhost:8080'
+  - key: internal_token
+    value: dev
+    description: 'GW_INTERNAL_TOKEN. Локально без Docker в README это dev'
+  - key: voice_mode
+    value: stub

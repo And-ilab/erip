@@ -139,6 +139,7 @@ def _dial_measure(measure: Measure, moment: datetime, window_start: time) -> int
             external_call=False if outcome.get("external_call") is False else outcome.get("external_call"),
             provider_message_id=str(outcome.get("provider_message_id") or ""),
             caller_id=str(outcome.get("caller_id") or caller),
+            recording_ref=str(outcome.get("recording_ref") or ""),
             acted_at=moment,
         )
         count += 1

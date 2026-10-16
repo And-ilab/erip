@@ -33,7 +33,12 @@ class VoiceStubAdapter(StubAdapter):
                 "transfer": bool(message.meta.get("transfer")),
             },
         )
-        outcome = call_outcome(message.recipient, message.text, str(message.meta.get("caller_id") or ""))
+        outcome = call_outcome(
+            message.recipient,
+            message.text,
+            str(message.meta.get("caller_id") or ""),
+            str(message.meta.get("audio") or ""),
+        )
         return DeliveryResult(
             delivered=outcome["status"] == "answered",
             provider_message_id=outcome["provider_message_id"],
@@ -42,4 +47,5 @@ class VoiceStubAdapter(StubAdapter):
             duration_sec=outcome["duration_sec"],
             listen_percent=outcome["listen_percent"],
             external_call=False,
+            recording_ref="",
         )
