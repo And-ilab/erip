@@ -157,7 +157,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                 <button mat-stroked-button (click)="skipStep()">Пропустить текущий шаг</button>
               </div>
             }
-            <p class="muted">Сценарий {{ scenarioName() || 'не назначен' }}. Задание — отдельная работа со статусом и сроком. Галочка ставится только на пункт внутри задания. Мероприятия, которые специалист начал сам, лежат в группе «Инициировано вручную».</p>
+            <p class="muted">Сценарий {{ scenarioName() || 'не назначен' }}. Задание — отдельная работа: название, срок и статус. Мероприятия, которые специалист начал сам, лежат в группе «Инициировано вручную».</p>
             @for (step of scenarioSteps(); track step.order + step.action) {
               <details class="step" [open]="stepOpen(step)">
                 <summary>{{ step.title }}</summary>

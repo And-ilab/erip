@@ -111,7 +111,7 @@ const DELIVERY_METHODS = [
           <mat-card class="action">
             <mat-card-content>
               <h3>Задания</h3>
-              <p class="muted">Задание — отдельная работа со статусом и сроком. Галочка ставится только на пункт внутри задания.</p>
+              <p class="muted">Задание — отдельная работа: название, срок и статус «Открыто» или «Выполнено».</p>
               <app-measure-tasks [measureId]="m.id" [tasks]="m.tasks || []" [canWrite]="auth.canWrite()" (changed)="reload()" />
             </mat-card-content>
           </mat-card>
