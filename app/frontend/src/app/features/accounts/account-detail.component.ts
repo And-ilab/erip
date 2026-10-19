@@ -1,7 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -15,7 +14,7 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize, forkJoin } from 'rxjs';
 
-import { ApiService, ColumnPrefs, NotaryOffice, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -28,7 +27,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
   standalone: true,
   imports: [
     DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
-    MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule, MatAutocompleteModule,
+    MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
     MeasureTasksComponent,
   ],
   template: `
@@ -384,33 +383,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
           </mat-tab>
 
           <mat-tab label="Исполнительная надпись">
-            <p class="muted tab-note">Надпись создаётся по этому лицевому счёту. Период можно сузить до свободных предъявленных месяцев: предыдущий и текущий месяц в долг не входят. Долг, пеня, ФИО и тариф за выбранный период читаются из выгрузки и не правятся. Дата вручения или дата акта о невручении подставляется из мероприятия и правится. Срок погашения — 7 календарных дней и тоже правится. Нотариальную контору выбирают из справочника Белорусской нотариальной палаты или вписывают, если её там нет. Тарифа в файле АИС нет.</p>
-            @for (msg of writBlockers(); track msg) { <p class="alert danger">{{ msg }}</p> }
-            @if (writError()) { <p class="alert danger">{{ writError() }}</p> }
-            <div class="filters">
-              <mat-form-field><mat-label>Период с</mat-label><input matInput type="date" [(ngModel)]="writFrom" (change)="refreshWritWindow()" /></mat-form-field>
-              <mat-form-field><mat-label>Период по</mat-label><input matInput type="date" [(ngModel)]="writTo" (change)="refreshWritWindow()" /></mat-form-field>
-              <mat-form-field><mat-label>Дата вручения предупреждения</mat-label><input matInput type="date" [(ngModel)]="writWarning" (change)="refreshWritWindow()" /></mat-form-field>
-              <mat-form-field><mat-label>Дата акта о невручении</mat-label><input matInput type="date" [(ngModel)]="writAct" (change)="refreshWritWindow()" /></mat-form-field>
-              <mat-form-field><mat-label>Дней на погашение</mat-label><input matInput type="number" [(ngModel)]="writDays" /></mat-form-field>
-              <mat-form-field class="reason"><mat-label>Нотариальная контора</mat-label>
-                <input matInput [(ngModel)]="writOffice" [matAutocomplete]="officeList" />
-                <mat-autocomplete #officeList="matAutocomplete">
-                  @for (row of officeChoices(); track row.code) {
-                    <mat-option [value]="row.name">{{ row.name }}@if (row.district) { — {{ row.district }} }</mat-option>
-                  }
-                </mat-autocomplete>
-              </mat-form-field>
-            </div>
-            <dl class="sheet">
-              <div><dt>Долг по услугам</dt><dd>{{ writPreview()?.principal || '—' }}</dd></div>
-              <div><dt>Пеня</dt><dd>{{ writPreview()?.penalty || '—' }}</dd></div>
-              <div><dt>Тариф нотариуса</dt><dd>{{ writPreview()?.tariff || 'не передано из АИС' }}</dd></div>
-              <div><dt>ФИО ответчика</dt><dd>{{ writPreview()?.defendant_name || '—' }}</dd></div>
-            </dl>
-            @if (auth.canWrite()) {
-              <button mat-flat-button color="primary" (click)="saveWrit()">Сохранить и открыть пакет документов</button>
-            }
+            <p class="muted tab-note">Новый период создаётся в претензионно-исковой работе, кнопка «Добавить исполнительную надпись». Здесь остаются пакеты этого счёта.</p>
             @if ((writPreview()?.records || []).length > 1) {
               <p class="muted tab-note">По этому счёту несколько пакетов. У каждого свой комплект: почта, документы и архив одного в другом не появляются.</p>
             }
@@ -439,6 +412,8 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                   </div>
                 }
               </article>
+            } @empty {
+              <p class="muted">Пакетов пока нет.</p>
             }
           </mat-tab>
 
@@ -757,14 +732,6 @@ export class AccountDetailComponent implements OnInit {
   protected paymentPicker = false;
   protected warningDelivered = '';
   protected warningFile: File | null = null;
-  protected writFrom = '';
-  protected writTo = '';
-  protected writWarning = '';
-  protected writAct = '';
-  protected writDays = 7;
-  protected writOffice = '';
-  protected readonly notaryOffices = signal<NotaryOffice[]>([]);
-  protected writError = signal('');
   protected readonly serviceCatalog = this.accountServiceColumns();
   private serviceHidden = new Set(['months_debt', 'supplier', 'debt_group']);
   private paymentHidden = new Set<string>();
@@ -801,10 +768,6 @@ export class AccountDetailComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.api.notaryOffices().subscribe({
-      next: (page) => this.notaryOffices.set(page.results),
-      error: () => this.notaryOffices.set([]),
-    });
     const id = Number(this.id());
     forkJoin({
       account: this.api.account(id),
@@ -847,11 +810,6 @@ export class AccountDetailComponent implements OnInit {
         this.checks.set(r.checks);
         this.scenario.set(r.scenario);
         this.writ.set(r.writ);
-        this.writFrom = r.writ.eligible_from || '';
-        this.writTo = r.writ.eligible_to || '';
-        this.writWarning = r.writ.warning_delivered_on || '';
-        this.writAct = r.writ.non_delivery_act_on || '';
-        this.writDays = r.writ.repayment_days || 7;
         this.applyCardColumns('services', r.serviceColumns);
         this.applyCardColumns('payments', r.paymentColumns);
         if (this.route.snapshot.queryParamMap.get('tab') === 'writ') this.tabIndex.set(6);
@@ -1391,22 +1349,6 @@ export class AccountDetailComponent implements OnInit {
     return this.writ();
   }
 
-  protected officeChoices(): NotaryOffice[] {
-    const query = this.writOffice.trim().toLowerCase();
-    const catalog = this.notaryOffices();
-    const rows = catalog.length
-      ? catalog
-      : (this.writPreview()?.offices || []).map((name) => ({ code: name, name, district: '', address: '', phones: '' }));
-    const matched = query
-      ? rows.filter((row) => `${row.name} ${row.district} ${row.address}`.toLowerCase().includes(query))
-      : rows;
-    return matched.slice(0, 30);
-  }
-
-  protected writBlockers(): string[] {
-    return this.writ()?.blockers || [];
-  }
-
   protected serviceLabel(col: string): string {
     const labels: Record<string, string> = {
       service_list_id: 'Код договора на услугу', service_id: 'Код услуги', service_name: 'Наименование услуги',
@@ -1544,20 +1486,6 @@ export class AccountDetailComponent implements OnInit {
     });
   }
 
-  protected refreshWritWindow(): void {
-    const account = this.account();
-    if (!account) return;
-    this.api.writDraft(account.id, {
-      debt_from: this.writFrom,
-      debt_to: this.writTo,
-      warning_delivered_on: this.writWarning,
-      non_delivery_act_on: this.writAct,
-    }).subscribe({
-      next: (draft) => this.writ.set(draft),
-      error: (e) => this.writError.set(errorMessage(e)),
-    });
-  }
-
   protected writOpen(id: number): boolean {
     return this.openWrits().has(id);
   }
@@ -1579,19 +1507,6 @@ export class AccountDetailComponent implements OnInit {
   protected writPeriod(value: string | null): string {
     const [year, month, day] = (value || '').slice(0, 10).split('-');
     return day && month && year ? `${day}.${month}.${year}` : '—';
-  }
-
-  protected saveWrit(): void {
-    const account = this.account();
-    if (!account) return;
-    this.writError.set('');
-    this.api.createWrit(account.id, {
-      debt_from: this.writFrom, debt_to: this.writTo, warning_delivered_on: this.writWarning,
-      non_delivery_act_on: this.writAct, repayment_days: this.writDays, notary_office: this.writOffice,
-    }).subscribe({
-      next: (row) => this.router.navigate(['/claims', row.id], { queryParams: { tab: 'pack' } }),
-      error: (e) => this.writError.set(errorMessage(e)),
-    });
   }
 
   protected downloadFile(row: AttachmentRow): void {

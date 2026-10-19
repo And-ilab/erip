@@ -5,11 +5,10 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
-import { DateFieldComponent } from '../../core/date-field.component';
 import { ApiService, AssignedAccount, ClaimCase, Named, NotaryOffice, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
-import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
+import { AccountRow, CalendarEvent, KanbanColumn, WritDraft } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
@@ -25,7 +24,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
-    DateFieldComponent, KanbanDebtorComponent, GridResizeDirective,
+    KanbanDebtorComponent, GridResizeDirective,
   ],
   template: `
     <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()">
@@ -160,13 +159,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (dialog()) {
         <div class="backdrop" (click)="closeDialog()">
-          <form class="modal" (click)="closePickers($event)" (ngSubmit)="save(false)">
+          <form class="modal" (click)="closePickers($event)" (ngSubmit)="saveWrit()">
             <h2>Добавление исполнительной надписи</h2>
-            <p class="hint">
-              Пакет собирается из шаблона и вложений. Переход «Направлено нотариусу» возможен только с датой вручения предупреждения и нотариальным тарифом.
-              Названия, порядок и обязательность этапов задаёт чек-лист шага «Исполнительная надпись» в конструкторе сценариев.
-              Дальше пакет собирается на карточке: манифест, PDF и файлы ЭЦП .pdf.sgn / .pdf.p7s. В личный кабинет БНП отправка не идёт.
-            </p>
+            <p class="hint">Новый период — отдельный пакет. Документы и почта уже открытых пакетов в него не копируются.</p>
 
             <h3>Дело</h3>
             <div class="picker" (click)="$event.stopPropagation()">
@@ -191,79 +186,59 @@ import { RegistryViewsComponent } from '../registry-views.component';
             </div>
             @if (picked(); as row) {
               <p class="chosen">{{ row.client_account }} — {{ row.short_fio || 'без ФИО' }} (Группа {{ groupOf(row) || '—' }})</p>
-              @if (early(row)) {
-                <p class="warn">
-                  Группа {{ groupOf(row) }}: исполнительная надпись не открывается.
-                  Для группы 2 — предупреждение и приостановление услуг в реестре мероприятий.
-                  Модуль включается с группы 3.
-                </p>
-              }
               @if ((groupOf(row) || 0) >= 4) {
                 <p class="hint">Группа {{ groupOf(row) }}: после надписи доступны иск о выселении и отчуждении жилья.</p>
               }
-              @if (already(); as open) {
-                <p class="hint">Дело уже есть: {{ open.stage_label }}. <a [routerLink]="['/claims', open.id]" (click)="closeDialog()">Открыть</a></p>
-              }
-            }
-            <label>Период задолженности
-              <input [value]="periodText()" readonly />
-            </label>
-            <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="warningDate = $event" />
-            <p class="check" [class.ok]="!!warningDate">
-              {{ warningDate ? 'Вручено — условие чек-листа выполнено' : 'Нет даты вручения предупреждения' }}
-            </p>
-
-            <h3>Суммы</h3>
-            <label>Исходящее сальдо с пенями <span class="sum-box"><app-money [value]="picked()?.balance_out ?? editing()?.balance_out ?? null" /></span></label>
-            <label>Исходящее сальдо пени <span class="sum-box"><app-money [value]="picked()?.mulct_total ?? editing()?.penalty ?? null" /></span></label>
-            <label [class.miss]="sendTried() && !(Number(tariff) > 0)">Нотариальный тариф
-              <span class="with-sign">
-                <input [(ngModel)]="tariff" name="tariff" placeholder="считает АИС, пока можно внести" />
-                <app-byn-sign />
-              </span>
-            </label>
-            <p class="aside-note">Рассчитывается в АИС и относится на должника. ПМ сумму начисления не меняет.</p>
-            <label class="total">Итого к взысканию <span class="sum-box"><app-money [value]="grand()" [blank]="false" /></span></label>
-
-            <h3>Нотариус</h3>
-            <div class="picker office-picker" (click)="$event.stopPropagation()">
-              <label>Нотариальная контора
-                <input [(ngModel)]="office" name="office" autocomplete="off" placeholder="Название, округ или адрес"
-                       (focus)="officeOpen.set(true)" (input)="officeOpen.set(true)" />
-              </label>
-              @if (officeOpen()) {
-                <div class="picks">
-                  @if (!officeHits().length) {
-                    <p>В справочнике такой конторы нет. Можно оставить вписанное название.</p>
-                  } @else {
-                    @for (row of officeHits(); track row.code) {
-                      <button type="button" [class.on]="office === row.name" (click)="chooseOffice(row)">
-                        {{ row.name }}
-                        <small>{{ row.district }}</small>
-                      </button>
-                    }
+              <div class="writ-form">
+                <label>Период с
+                  <input type="date" name="writFrom" [(ngModel)]="writFrom" (change)="refreshWritWindow()" />
+                </label>
+                <label>Период по
+                  <input type="date" name="writTo" [(ngModel)]="writTo" (change)="refreshWritWindow()" />
+                </label>
+                <label>Дата вручения предупреждения
+                  <input type="date" name="writWarning" [(ngModel)]="writWarning" (change)="refreshWritWindow()" />
+                </label>
+                <label>Дата акта о невручении
+                  <input type="date" name="writAct" [(ngModel)]="writAct" (change)="refreshWritWindow()" />
+                </label>
+                <label>Дней на погашение
+                  <input type="number" name="writDays" min="1" [(ngModel)]="writDays" />
+                </label>
+                <div class="picker office-picker wide" (click)="$event.stopPropagation()">
+                  <label>Нотариальная контора
+                    <input [(ngModel)]="office" name="office" autocomplete="off" placeholder="Название, округ или адрес"
+                           (focus)="officeOpen.set(true)" (input)="officeOpen.set(true)" />
+                  </label>
+                  @if (officeOpen()) {
+                    <div class="picks">
+                      @if (!officeHits().length) {
+                        <p>В справочнике такой конторы нет. Можно оставить вписанное название.</p>
+                      } @else {
+                        @for (item of officeHits(); track item.code) {
+                          <button type="button" [class.on]="office === item.name" (click)="chooseOffice(item)">
+                            {{ item.name }}
+                            <small>{{ item.district }}</small>
+                          </button>
+                        }
+                      }
+                    </div>
                   }
                 </div>
-              }
-            </div>
-
-            <h3>Пакет документов</h3>
-            <ul class="pack">
-              <li><span>Заявление о совершении исполнительной надписи</span><em class="wait">из шаблона при направлении</em></li>
-              <li>
-                <span>Расчёт задолженности по ЛС {{ picked()?.client_account || editing()?.client_account || '' }}</span>
-                <em class="ok">из АИС</em>
-              </li>
-              <li>
-                <span>Копия предупреждения с отметкой о вручении</span>
-                <em [class.ok]="!!warningDate" [class.wait]="!warningDate">{{ warningDate ? 'дата есть' : 'нет даты' }}</em>
-              </li>
-              <li><span>Выписка о зарегистрированных лицах</span><em class="wait">ожидает загрузки на карточку</em></li>
-            </ul>
-
+              </div>
+              <dl class="writ-sheet">
+                <div><dt>Долг по услугам</dt><dd>{{ writ()?.principal || '—' }}</dd></div>
+                <div><dt>Пеня</dt><dd>{{ writ()?.penalty || '—' }}</dd></div>
+                <div><dt>Тариф нотариуса</dt><dd>{{ writ()?.tariff || 'не передано из АИС' }}</dd></div>
+                <div><dt>ФИО ответчика</dt><dd>{{ writ()?.defendant_name || '—' }}</dd></div>
+              </dl>
+              @for (msg of writ()?.blockers || []; track msg) { <p class="warn">{{ msg }}</p> }
+              @if (writError()) { <p class="warn">{{ writError() }}</p> }
+            } @else {
+              <p class="hint">Сначала выберите лицевой счёт.</p>
+            }
             <div class="actions">
-              <button type="button" class="primary" [disabled]="busy() || !canSend()" (click)="save(true)">Сохранить и открыть пакет</button>
-              <button type="submit" class="ghost" [disabled]="busy() || !canDraft()">Сохранить черновик</button>
+              <button type="submit" class="primary" [disabled]="busy() || !picked()">Сохранить и открыть пакет документов</button>
               <button type="button" class="ghost" (click)="closeDialog()">Отмена</button>
             </div>
           </form>
@@ -395,10 +370,21 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .empty h2 { margin: 0 0 8px; color: var(--erip-primary-dark); font-size: 18px; }
     .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(20, 40, 55, .45); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
     .modal {
-      box-sizing: border-box; width: 720px; max-width: calc(100vw - 32px);
-      height: min(640px, calc(100vh - 48px)); overflow: auto;
+      box-sizing: border-box; width: min(1080px, calc(100vw - 32px)); max-width: calc(100vw - 32px);
+      height: auto; max-height: calc(100vh - 48px); overflow: auto;
       background: #fff; border-radius: 12px; padding: 20px 22px 16px; box-shadow: 0 16px 40px rgba(16, 42, 67, .25);
     }
+    .writ-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px; }
+    .modal .writ-form label {
+      display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 1 1 170px;
+      margin: 0; grid-template-columns: none; font-size: 12px; color: var(--erip-muted);
+    }
+    .modal .writ-form .wide { flex: 1 1 100%; position: relative; }
+    .modal .writ-form input { width: 100%; box-sizing: border-box; color: #1f2933; font-size: 14px; }
+    .writ-form .picks { left: 0; }
+    .writ-sheet { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 16px; margin: 14px 0 0; }
+    .writ-sheet dt { color: var(--erip-muted); font-size: 12px; }
+    .writ-sheet dd { margin: 4px 0 0; font-weight: 600; }
     .modal h2 { margin: 0 0 6px; font-size: 20px; color: #1f2933; }
     .modal h3 { margin: 14px 0 8px; font-size: 12px; letter-spacing: .04em; color: var(--erip-muted); }
     .modal label { display: grid; grid-template-columns: 220px 1fr; gap: 8px; align-items: center; margin: 6px 0; font-size: 14px; }
@@ -441,6 +427,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
       .modal label { grid-template-columns: 1fr; }
       .picks { left: 0; }
       .check, .aside-note { margin-left: 0; }
+      .writ-sheet { grid-template-columns: 1fr 1fr; }
       .toolbar { flex-wrap: wrap; }
     }
   `,
@@ -513,13 +500,16 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly dialog = signal(false);
   protected readonly found = signal<AccountRow[]>([]);
   protected readonly picked = signal<AccountRow | null>(null);
-  protected readonly editing = signal<ClaimCase | null>(null);
   protected readonly busy = signal(false);
-  protected readonly sendTried = signal(false);
   protected readonly query = new FormControl('', { nonNullable: true });
   protected readonly Number = Number;
-  protected warningDate = '';
-  protected tariff = '';
+  protected readonly writ = signal<WritDraft | null>(null);
+  protected readonly writError = signal('');
+  protected writFrom = '';
+  protected writTo = '';
+  protected writWarning = '';
+  protected writAct = '';
+  protected writDays = 7;
   protected office = '';
   protected readonly officeOpen = signal(false);
   protected readonly offices = signal<NotaryOffice[]>([]);
@@ -806,28 +796,9 @@ export class ClaimsBoardComponent implements OnInit {
     });
   }
 
-  protected early(row: AccountRow): boolean {
-    const group = this.groupOf(row);
-    return group != null && group < 3;
-  }
-
   protected groupOf(row: AccountRow | null): number | null {
     if (!row) return null;
     return row.effective_group ?? row.debt_group;
-  }
-
-  protected already(): ClaimCase | undefined {
-    const id = this.picked()?.id;
-    if (!id || this.editing()) return undefined;
-    return this.cards().find((card) => card.account === id);
-  }
-
-  protected periodText(): string {
-    const row = this.picked();
-    if (!row?.debt_started_on) return 'Дата возникновения в выгрузке не указана';
-    const started = this.dotDate(row.debt_started_on);
-    const months = row.months_debt ? `, ${row.months_debt} мес.` : '';
-    return `с ${started}${months}`;
   }
 
   protected letter(label: string): string {
@@ -877,29 +848,17 @@ export class ClaimsBoardComponent implements OnInit {
     return palette[hash];
   }
 
-  protected grand(): number {
-    const debt = Number(this.picked()?.balance_out || this.editing()?.balance_out || 0);
-    const penalty = Number(this.picked()?.mulct_total || this.editing()?.penalty || 0);
-    const tariff = Number(this.tariff || 0);
-    return debt + penalty + tariff;
-  }
-
-  protected canDraft(): boolean {
-    return !!this.picked() && !this.tooEarly();
-  }
-
-  protected canSend(): boolean {
-    return this.canDraft() && !!this.warningDate && Number(this.tariff) > 0;
-  }
-
   protected openCreate(): void {
-    this.editing.set(null);
     this.picked.set(null);
-    this.warningDate = '';
-    this.tariff = '';
+    this.writ.set(null);
+    this.writError.set('');
+    this.writFrom = '';
+    this.writTo = '';
+    this.writWarning = '';
+    this.writAct = '';
+    this.writDays = 7;
     this.office = '';
     this.officeOpen.set(false);
-    this.sendTried.set(false);
     this.query.setValue('');
     this.found.set([]);
     this.pickerOpen.set(false);
@@ -914,7 +873,61 @@ export class ClaimsBoardComponent implements OnInit {
   protected choose(row: AccountRow): void {
     this.picked.set(row);
     this.pickerOpen.set(false);
-    if (!this.warningDate && row.warning_handed_on) this.warningDate = row.warning_handed_on;
+    this.writError.set('');
+    this.loadWrit(row.id, true);
+  }
+
+  protected refreshWritWindow(): void {
+    const row = this.picked();
+    if (!row) return;
+    this.loadWrit(row.id, false);
+  }
+
+  protected saveWrit(): void {
+    const row = this.picked();
+    if (!row || this.busy()) return;
+    this.busy.set(true);
+    this.writError.set('');
+    this.api.createWrit(row.id, {
+      debt_from: this.writFrom,
+      debt_to: this.writTo,
+      warning_delivered_on: this.writWarning,
+      non_delivery_act_on: this.writAct,
+      repayment_days: this.writDays,
+      notary_office: this.office.trim(),
+    }).subscribe({
+      next: (created) => {
+        this.busy.set(false);
+        this.dialog.set(false);
+        this.reload();
+        this.router.navigate(['/claims', created.id], { queryParams: { tab: 'pack', writ: null }, queryParamsHandling: 'merge' });
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.writError.set(errorMessage(err));
+      },
+    });
+  }
+
+  private loadWrit(id: number, fill: boolean): void {
+    const params = fill ? undefined : {
+      debt_from: this.writFrom,
+      debt_to: this.writTo,
+      warning_delivered_on: this.writWarning,
+      non_delivery_act_on: this.writAct,
+    };
+    this.api.writDraft(id, params).subscribe({
+      next: (draft) => {
+        this.writ.set(draft);
+        if (!fill) return;
+        this.writFrom = draft.eligible_from || '';
+        this.writTo = draft.eligible_to || '';
+        this.writWarning = draft.warning_delivered_on || '';
+        this.writAct = draft.non_delivery_act_on || '';
+        this.writDays = draft.repayment_days || 7;
+      },
+      error: (err) => this.writError.set(errorMessage(err)),
+    });
   }
 
   protected officeHits(): NotaryOffice[] {
@@ -943,76 +956,18 @@ export class ClaimsBoardComponent implements OnInit {
     this.router.navigate([], { queryParams: { writ: null }, queryParamsHandling: 'merge' });
   }
 
-  protected save(send: boolean): void {
-    const row = this.picked();
-    if (!row || this.tooEarly()) return;
-    if (send) this.sendTried.set(true);
-    if (send && !this.canSend()) return;
-    const existing = this.already();
-    this.busy.set(true);
-    const opened = existing
-      ? this.api.claim(existing.id)
-      : this.editing()
-        ? this.api.claim(this.editing()!.id)
-        : this.api.openClaim(row.id);
-    opened.subscribe({
-      next: (claim) => this.patchAndMaybeSend(claim, send),
-      error: (err) => this.fail(err),
-    });
-  }
-
-  private tooEarly(): boolean {
-    const group = this.groupOf(this.picked());
-    return group != null && group < 3;
-  }
-
-  private patchAndMaybeSend(claim: ClaimCase, send: boolean): void {
-    this.api.patchClaim(claim.id, {
-      warning_delivered_on: this.warningDate || null,
-      notary_tariff: this.tariff || null,
-      notary_office: this.office.trim(),
-    }).subscribe({
-      next: (saved) => {
-        if (!send) {
-          this.busy.set(false);
-          this.finish(saved, 'Черновик сохранён');
-          return;
-        }
-        this.busy.set(false);
-        this.dialog.set(false);
-        this.mode.set('list');
-        this.snack.open('Дата и тариф сохранены. Соберите пакет на карточке: в кабинет БНП он не уходит.', 'OK', { duration: 4000 });
-        this.router.navigate(['/claims', saved.id]);
-        this.reload();
-      },
-      error: (err) => this.fail(err),
-    });
-  }
-
-  private finish(row: ClaimCase, text: string): void {
-    this.dialog.set(false);
-    this.snack.open(text, 'OK', { duration: 2500 });
-    this.reload();
-    this.router.navigate(['/claims', row.id], { queryParams: { writ: null }, queryParamsHandling: 'merge' });
-  }
-
-  private fail(err: unknown): void {
-    this.busy.set(false);
-    this.snack.open(errorMessage(err), 'OK');
-  }
-
   private openFromRoute(): void {
     const id = Number(this.route.firstChild?.snapshot.paramMap.get('id') || this.router.url.match(/\/claims\/(\d+)/)?.[1]);
     if (!id) return;
     this.api.claim(id).subscribe({
       next: (row) => {
-        this.editing.set(row);
-        this.warningDate = row.warning_delivered_on || '';
-        this.tariff = row.notary_tariff || '';
         this.office = row.notary_office || '';
         this.dialog.set(true);
         this.api.account(row.account).subscribe({
-          next: (account) => this.picked.set(account),
+          next: (account) => {
+            this.picked.set(account);
+            this.loadWrit(account.id, true);
+          },
           error: (err) => this.snack.open(errorMessage(err), 'OK'),
         });
       },
