@@ -86,9 +86,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td [class.amount-danger]="+(row.mulct_total || 0) > 0"><app-money [value]="row.mulct_total" [blank]="false" /></td>
                       <td>{{ stageLabel(row.funnel_stage) }}</td>
                       <td>
-                        @for (claim of claimsOf(row); track claim.id) {
+                        @for (claim of datedClaims(row); track claim.id) {
                           <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: 'pack' }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
-                        } @empty { не открыто }
+                        } @empty { не заведена }
                       </td>
                     </tr>
                   }
@@ -703,7 +703,11 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected claimOf(row: AccountRow): ClaimCase | undefined {
-    return this.claimsOf(row)[0];
+    return this.datedClaims(row)[0];
+  }
+
+  protected datedClaims(row: AccountRow): ClaimCase[] {
+    return this.claimsOf(row).filter((claim) => claim.debt_from && claim.debt_to);
   }
 
   protected claimsOf(row: AccountRow): ClaimCase[] {
@@ -755,30 +759,33 @@ export class ClaimsBoardComponent implements OnInit {
       this.openDebtor(row);
       return;
     }
-    const card = this.cards().find((item) => item.account === event.account_id);
-    if (card) {
+    const dated = this.cards()
+      .filter((item) => item.account === event.account_id && item.debt_from && item.debt_to)
+      .sort((left, right) => (left.debt_from || '').localeCompare(right.debt_from || ''));
+    if (dated.length) {
       this.mode.set('list');
-      this.router.navigate(['/claims', card.id]);
+      this.router.navigate(['/claims', dated[0].id]);
       return;
     }
-    this.router.navigate(['/accounts', event.account_id]);
+    this.missingWrit();
   }
 
   protected openDebtor(row: AccountRow): void {
     const claim = this.claimOf(row);
-    if (claim) {
-      this.mode.set('list');
-      setTimeout(() => this.router.navigate(['/claims', claim.id]));
+    if (!claim) {
+      this.missingWrit();
       return;
     }
-    this.openAssigned({
-      account: row.id,
-      client_account: row.client_account,
-      short_fio: row.short_fio,
-      debt_group: row.effective_group,
-      account_address: row.account_address,
-      funnel_stage: row.funnel_stage,
-    });
+    this.mode.set('list');
+    setTimeout(() => this.router.navigate(['/claims', claim.id]));
+  }
+
+  private missingWrit(): void {
+    this.snack.open(
+      'Исполнительная надпись ещё не заведена. Создайте её кнопкой «Добавить исполнительную надпись» и укажите период.',
+      'OK',
+      { duration: 6000 },
+    );
   }
 
   protected openAssigned(row: AssignedAccount): void {
