@@ -72,6 +72,11 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   (tariffChange)="setTariff($event)"
                   (withdrawnChange)="setWithdrawn($event)"
                   (changed)="replace($event)" />
+                <mat-form-field class="wide">
+                  <mat-label>E-mail для уведомлений нотариуса</mat-label>
+                  <input matInput [ngModel]="notificationEmail" (ngModelChange)="setNotificationEmail($event)" placeholder="notary@example.by, copy@example.by" />
+                </mat-form-field>
+                <p class="muted">Адрес, на который нотариус пришлёт уведомление. Несколько адресов — через запятую. Контакт должника сюда не подставляется.</p>
                 <div class="bar">
                   <button mat-stroked-button type="button" (click)="signDocuments()">Подписать</button>
                   <button mat-flat-button color="primary" type="button" (click)="formPackage()">Собрать архив</button>
@@ -493,6 +498,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   private warningDirty = false;
   private tariffDirty = false;
   private withdrawnDirty = false;
+  private emailDirty = false;
 
   protected readonly Number = Number;
   protected readonly tabs = [
@@ -509,6 +515,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected warningDate = '';
   protected tariff = '';
   protected checklistSkip = '';
+  protected notificationEmail = '';
   protected withdrawn = false;
   protected note = '';
   protected lawsuitNote = '';
@@ -593,6 +600,11 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.flushNotarySave();
   }
 
+  protected setNotificationEmail(value: string): void {
+    this.notificationEmail = value;
+    this.emailDirty = true;
+  }
+
   protected setWarningDate(value: string | null): void {
     const next = value || '';
     if (next === this.warningDate) return;
@@ -634,12 +646,12 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   }
 
   protected periodLine(row: ClaimCase): string {
-    if (!row.debt_from || !row.debt_to) return '';
+    if (!row.debt_from || !row.debt_to) return 'Пакет без периода';
     return `Пакет за период ${this.dotDate(row.debt_from)}–${this.dotDate(row.debt_to)}`;
   }
 
   protected periodOf(item: WritRecord): string {
-    if (!item.debt_from || !item.debt_to) return 'период не указан';
+    if (!item.debt_from || !item.debt_to) return 'без периода';
     return `${this.dotDate(item.debt_from)}–${this.dotDate(item.debt_to)}`;
   }
 
@@ -744,7 +756,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.api.claimAction(row.id, 'package', {
       service_id: serviceId,
       contact_data: pack.contact_data,
-      notification_email: pack.notification_email,
+      notification_email: this.notificationEmail.trim(),
       user_message: pack.user_message,
       debtors: pack.debtors,
       debts: (pack.debts || []).map((debt) => ({
@@ -758,6 +770,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       next: () => {
         this.api.claimAction(row.id, 'package/form', {}).subscribe({
           next: (next) => {
+            this.emailDirty = false;
             this.apply(next);
             this.downloadArchive();
             this.router.navigate(['/accounts', row.account], { queryParams: { tab: 'writ' } });
@@ -952,6 +965,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.warningDirty = false;
     this.tariffDirty = false;
     this.withdrawnDirty = false;
+    this.emailDirty = false;
     this.notaryEpoch += 1;
     this.api.claim(id).subscribe({
       next: (row) => {
@@ -1078,6 +1092,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.prisCurr = String(claimant['curr_code'] || '933');
     this.prisBudget = String(claimant['budget_code'] || '');
     this.eviction = row.eviction_stage;
+    if (!this.emailDirty) this.notificationEmail = row.package?.notification_email || '';
     this.note = row.notary_note || '';
     this.lawsuitNote = row.lawsuit_note || '';
   }

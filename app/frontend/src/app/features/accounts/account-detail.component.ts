@@ -412,11 +412,16 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               <button mat-flat-button color="primary" (click)="saveWrit()">Сохранить и открыть пакет документов</button>
             }
             @if ((writPreview()?.records || []).length > 1) {
-              <p class="muted tab-note">По этому счёту несколько пакетов. У каждого свой период и свой комплект документов.</p>
+              <p class="muted tab-note">По этому счёту несколько пакетов. У каждого свой комплект: почта, документы и архив одного в другом не появляются.</p>
             }
             @for (row of writPreview()?.records || []; track row.id) {
               <article class="step-measure">
-                <b>Пакет за период {{ writPeriod(row.debt_from) }}–{{ writPeriod(row.debt_to) }}</b>
+                @if (row.debt_from && row.debt_to) {
+                  <b>Пакет за период {{ writPeriod(row.debt_from) }}–{{ writPeriod(row.debt_to) }}</b>
+                } @else {
+                  <b>Пакет без периода</b>
+                  <span>Его открывает претензионно-исковая работа. Период задолженности здесь не задан.</span>
+                }
                 <span>{{ row.defendant_name }}</span>
                 <span>долг {{ row.principal || '—' }}, пеня {{ row.penalty || '—' }}</span>
                 <span>тариф {{ row.tariff || 'не передано из АИС' }}</span>

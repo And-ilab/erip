@@ -725,7 +725,7 @@ export class ClaimsBoardComponent implements OnInit {
     if (claim.debt_from && claim.debt_to) {
       return `${this.dotDate(claim.debt_from)}–${this.dotDate(claim.debt_to)} · ${claim.stage_label}`;
     }
-    return claim.stage_label;
+    return `без периода · ${claim.stage_label}`;
   }
 
   protected stageLabel(id: string): string {

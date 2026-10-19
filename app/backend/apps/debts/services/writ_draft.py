@@ -23,8 +23,8 @@ class WritDraftError(ServiceError):
 def writ_preview(account, payload: dict | None = None) -> dict:
     """Суммы и ФИО за выбранное окно. Без payload берётся свободный предъявленный период и даты из мероприятий."""
     eligible = _eligible_periods(account)
-    cases = list(_writs(account))
-    uncovered = _uncovered(eligible, cases)
+    dated = list(_writs(account))
+    uncovered = _uncovered(eligible, dated)
     stored_warning, stored_act = _warning_marks(account)
     if payload:
         warning = _optional_date(payload.get("warning_delivered_on")) if "warning_delivered_on" in payload else stored_warning
@@ -55,7 +55,7 @@ def writ_preview(account, payload: dict | None = None) -> dict:
         "repayment_days": 7,
         "offices": _offices(account),
         "blockers": _blockers(chosen, warning, act_on),
-        "records": [_record(case) for case in cases],
+        "records": [_record(case) for case in _cases(account)],
     }
 
 
@@ -120,6 +120,11 @@ def create_writ(account, user, payload: dict) -> ClaimCase:
 
 def _writs(account):
     return ClaimCase.objects.filter(account=account).exclude(debt_from__isnull=True).order_by("debt_from", "id")
+
+
+def _cases(account):
+    """Все дела счёта: надпись с периодом и дело, открытое из претензионно-исковой работы без периода."""
+    return ClaimCase.objects.filter(account=account).order_by("debt_from", "id")
 
 
 def _eligible_periods(account) -> list[ServiceDebtPeriod]:
