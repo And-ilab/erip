@@ -1,6 +1,6 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 import {
   AccountDetail,
@@ -227,6 +227,18 @@ export class ApiService {
 
   saveContractColumns(board: 'persons' | 'services', columns: string[], order: string[]): Observable<ColumnPrefs> {
     return this.http.put<ColumnPrefs>(`${this.base}/contracts/columns/`, { board, columns, order });
+  }
+
+  boardWidths(board: string): Observable<Record<string, number>> {
+    return this.http.get<{ widths: Record<string, number> }>(`${this.base}/board-widths/${board}/`).pipe(
+      map((body) => body.widths ?? {}),
+    );
+  }
+
+  saveBoardWidths(board: string, widths: Record<string, number>): Observable<Record<string, number>> {
+    return this.http.put<{ widths: Record<string, number> }>(`${this.base}/board-widths/${board}/`, { widths }).pipe(
+      map((body) => body.widths ?? {}),
+    );
   }
 
   contracts(params: Params): Observable<Page<AccountService>> {

@@ -1079,11 +1079,12 @@ class RefreshRequest(AisRecord):
 
 
 class RegistryPreference(TimeStampedModel):
-    """Какие колонки реестра включены и в каком порядке, включая скрытые."""
+    """Колонки и ширина грида этой учётной записи. Чужому пользователю не отдаются."""
 
     user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="registry_preferences")
-    target = models.CharField("Реестр", max_length=20)
+    target = models.CharField("Реестр", max_length=40)
     columns = models.JSONField("Колонки", default=list)
+    widths = models.JSONField("Ширина столбцов", default=dict, blank=True)
 
     class Meta:
         constraints = [

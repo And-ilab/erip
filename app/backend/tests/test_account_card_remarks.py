@@ -155,6 +155,43 @@ def test_card_columns_belong_to_the_user(api, specialist_a, org_a):
 
 
 @pytest.mark.django_db
+def test_board_widths_belong_to_the_user(api, specialist_a, org_a):
+    other = make_user("spec_widths", User.Role.SPECIALIST, org_a)
+    watcher = make_user("watch_widths", User.Role.OBSERVER, org_a)
+    saved = api(specialist_a).put(
+        "/api/v1/board-widths/accounts/",
+        {"widths": {"client_account": 180, "short_fio": 90, "bad name": 10, "select": True}},
+        format="json",
+    )
+    assert saved.status_code == 200
+    assert saved.json()["widths"] == {"client_account": 180, "short_fio": 90}
+    own = api(specialist_a).get("/api/v1/board-widths/accounts/").json()
+    assert own["widths"]["client_account"] == 180
+    assert api(other).get("/api/v1/board-widths/accounts/").json()["widths"] == {}
+    watched = api(watcher).put(
+        "/api/v1/board-widths/claims/",
+        {"widths": {"debtor": 240}},
+        format="json",
+    )
+    assert watched.status_code == 200
+    assert api(specialist_a).get("/api/v1/board-widths/claims/").json()["widths"] == {}
+    assert api(watcher).get("/api/v1/board-widths/claims/").json()["widths"] == {"debtor": 240}
+    layout = api(specialist_a).get("/api/v1/accounts/columns/")
+    assert layout.status_code == 200
+    order = layout.json()["order"]
+    one = order[0]
+    narrow = api(specialist_a).put(
+        "/api/v1/accounts/columns/",
+        {"columns": [one], "order": order},
+        format="json",
+    )
+    assert narrow.status_code == 200, narrow.content
+    assert api(specialist_a).get("/api/v1/board-widths/accounts/").json()["widths"]["client_account"] == 180
+    assert api(specialist_a).get("/api/v1/accounts/columns/").json()["columns"] == [one]
+    assert api(specialist_a).put("/api/v1/board-widths/unknown/", {"widths": {}}, format="json").status_code == 400
+
+
+@pytest.mark.django_db
 def test_registry_filters_contract_columns(api, specialist_a, org_a):
     hit = make_account(org_a, 3111, client_account="00003111")
     miss = make_account(org_a, 3112, client_account="00003112")

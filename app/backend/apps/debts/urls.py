@@ -1,5 +1,7 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from .board_widths import BoardWidthView
 from .claims_views import ClaimCaseViewSet
 from .views import (
     AccountServiceViewSet,
@@ -27,4 +29,7 @@ router.register("attachments", AttachmentViewSet, basename="attachment")
 router.register("measures", MeasureViewSet, basename="measure")
 router.register("saved-filters", SavedFilterViewSet, basename="savedfilter")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("board-widths/<slug:board>/", BoardWidthView.as_view(), name="board-widths"),
+    *router.urls,
+]

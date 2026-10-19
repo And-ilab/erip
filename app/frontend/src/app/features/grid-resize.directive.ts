@@ -1,10 +1,12 @@
 import { AfterViewInit, Directive, ElementRef, Input, OnDestroy, inject } from '@angular/core';
 
+import { ApiService } from '../core/api.service';
+
 const MIN_WIDTH = 36;
 const MAX_WIDTH = 1600;
-const STORAGE_PREFIX = 'erip.grid-widths.';
+const SHARED_PREFIX = 'erip.grid-widths.';
 
-/** Правый край заголовка меняет ширину одного столбца. Остальные остаются как были. */
+/** Правый край заголовка меняет ширину одного столбца. Ширина пишется на учётную запись. */
 @Directive({
   selector: 'table[appGridResize]',
   standalone: true,
@@ -14,8 +16,11 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
   @Input() appGridResize = '';
 
   private readonly host = inject(ElementRef<HTMLTableElement>);
+  private readonly api = inject(ApiService);
   private observer?: MutationObserver;
   private frame = 0;
+  private alive = true;
+  private touched = false;
   private readonly widths = new Map<string, number>();
   private locked = false;
   private layoutTries = 0;
@@ -47,13 +52,15 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
   };
 
   ngAfterViewInit(): void {
-    this.readStorage();
+    this.forgetSharedBrowser();
+    this.loadOwn();
     this.sync();
     this.observer = new MutationObserver(() => this.schedule());
     this.observer.observe(this.host.nativeElement, { childList: true, subtree: true });
   }
 
   ngOnDestroy(): void {
+    this.alive = false;
     this.observer?.disconnect();
     cancelAnimationFrame(this.frame);
     this.stopDrag();
@@ -121,6 +128,7 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    this.touched = true;
     const headers = this.headerCells();
     const index = headers.findIndex((cell, cellIndex) => this.columnId(cell, cellIndex) === id);
     if (index < 0 || !this.paintAll(headers)) return;
@@ -216,35 +224,43 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
     document.removeEventListener('pointercancel', this.onUp);
   }
 
-  private storageKey(): string {
-    return `${STORAGE_PREFIX}${this.appGridResize}`;
+  private forgetSharedBrowser(): void {
+    try {
+      const stale: string[] = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key && key.startsWith(SHARED_PREFIX)) stale.push(key);
+      }
+      stale.forEach((key) => localStorage.removeItem(key));
+    } catch {
+      /* браузер без хранилища оставляет ширину только на экране */
+    }
   }
 
-  private readStorage(): void {
+  private loadOwn(): void {
     if (!this.appGridResize) return;
-    try {
-      const raw = localStorage.getItem(this.storageKey());
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      for (const [id, value] of Object.entries(parsed)) {
-        if (typeof value === 'number' && Number.isFinite(value)) this.widths.set(id, clamp(value));
-      }
-    } catch {
-      /* повреждённая запись не мешает менять ширину заново */
-    }
+    this.api.boardWidths(this.appGridResize).subscribe({
+      next: (widths) => {
+        if (!this.alive || this.touched) return;
+        this.widths.clear();
+        for (const [id, value] of Object.entries(widths)) {
+          if (typeof value === 'number' && Number.isFinite(value)) this.widths.set(id, clamp(value));
+        }
+        if (this.widths.size) this.sync();
+      },
+    });
   }
 
   private persist(): void {
     if (!this.appGridResize) return;
+    this.touched = true;
     const payload: Record<string, number> = {};
     this.widths.forEach((width, id) => {
       payload[id] = width;
     });
-    try {
-      localStorage.setItem(this.storageKey(), JSON.stringify(payload));
-    } catch {
-      /* приватный режим может запретить запись, ширина остаётся на экране */
-    }
+    this.api.saveBoardWidths(this.appGridResize, payload).subscribe({
+      error: () => undefined,
+    });
   }
 }
 
