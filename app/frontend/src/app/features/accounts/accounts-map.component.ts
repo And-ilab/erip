@@ -384,7 +384,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     if (placed.length === 1) {
       map.jumpTo({
         center: [placed[0].longitude as number, placed[0].latitude as number],
-        zoom: this.zoom(placed[0].kind),
+        zoom: this.zoom(placed[0].kind, level.parent?.kind),
       });
       return;
     }
@@ -395,8 +395,8 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     }
   }
 
-  private zoom(kind: string): number {
-    if (kind === 'oblast') return 7;
+  private zoom(kind: string, parentKind?: string): number {
+    if (kind === 'oblast' || (kind === 'settlement' && parentKind === 'country')) return 7;
     if (kind === 'settlement') return 11;
     if (kind === 'district' || kind === 'microdistrict') return 12;
     if (kind === 'street') return 14;

@@ -2,7 +2,7 @@
 
 У лицевого счёта хранится только текст адреса. Узел создаётся из этого текста,
 родитель один, как колонка «Родительская задача». Пустой адрес узел не получает.
-Город Минск вешается на Минскую область.
+Город Минск — сосед Минской области, оба висят на Беларуси.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import math
 import re
 from decimal import Decimal
 
+from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import Coalesce
 
@@ -19,15 +20,16 @@ from apps.debts.models import Account, Territory, TerritoryLink
 from apps.debts.services.street_catalog import StreetCatalog, default_catalog
 from apps.debts.services.street_names import STREET_PREFIX as _STREET_PREFIX
 from apps.debts.services.street_names import STREET_RE as _STREET
-from apps.debts.services.street_names import norm, title_name as _title
+from apps.debts.services.street_names import norm
+from apps.debts.services.street_names import title_name as _title
 
 COUNTRY = "Беларусь"
 UNKNOWN_OBLAST = "Без области"
 UNKNOWN_SETTLEMENT = "Без населённого пункта"
 
-# Город без слова «область» в адресе. Минск специально лежит в Минской области.
+# Город без слова «область» в адресе. Минск в этот список не входит:
+# на карте он стоит рядом с Минской областью, а не внутри неё.
 CITY_OBLAST = {
-    "минск": "Минская область",
     "фаниполь": "Минская область",
     "дзержинск": "Минская область",
     "борисов": "Минская область",
@@ -231,12 +233,13 @@ class AddressPath:
         self._drop_far_place(parts)
         settlement_key = norm(parts["settlement"]) if parts["settlement"] else ""
         district_key = norm(parts["district"]).removesuffix(" район") if parts["district"] else ""
-        oblast_name = parts["oblast"] or CITY_OBLAST.get(settlement_key) or UNKNOWN_OBLAST
+        minsk_city = settlement_key == "минск" or district_key in MINSK_DISTRICTS
         chain: list[tuple[str, str, str]] = [
             (Territory.Kind.COUNTRY, COUNTRY, norm(COUNTRY)),
-            (Territory.Kind.OBLAST, oblast_name, norm(oblast_name)),
         ]
-        minsk_city = settlement_key == "минск" or district_key in MINSK_DISTRICTS
+        if not minsk_city:
+            oblast_name = parts["oblast"] or CITY_OBLAST.get(settlement_key) or UNKNOWN_OBLAST
+            chain.append((Territory.Kind.OBLAST, oblast_name, norm(oblast_name)))
         if minsk_city:
             chain.append((Territory.Kind.SETTLEMENT, "Минск", "минск"))
             if district_key:
@@ -352,6 +355,60 @@ class AddressPath:
         return found
 
 
+def lift_minsk_city() -> None:
+    """Переносит уже построенный Минск с Минской области на Беларусь.
+
+    Раньше город был ребёнком области. Счета остаются на тех же домах,
+    меняется только родитель города и связи предков.
+    """
+    with transaction.atomic():
+        city = (
+            Territory.objects.select_for_update()
+            .filter(
+                kind=Territory.Kind.SETTLEMENT,
+                name_key="минск",
+                parent__kind=Territory.Kind.OBLAST,
+                parent__name_key="минская область",
+            )
+            .select_related("parent")
+            .first()
+        )
+        if city is None:
+            return
+        country = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
+        if country is None:
+            return
+        if Territory.objects.filter(
+            parent=country, kind=Territory.Kind.SETTLEMENT, name_key="минск",
+        ).exclude(pk=city.pk).exists():
+            return
+        city.parent = country
+        city.save(update_fields=["parent", "updated_at"])
+        _rewire_ancestors(city)
+
+
+def _rewire_ancestors(node: Territory) -> None:
+    """Внешние предки поддерева заменяются цепочкой нового родителя. Внутри поддерева связи те же."""
+    subtree = list(TerritoryLink.objects.filter(ancestor=node).values_list("descendant_id", "depth"))
+    if not subtree:
+        TerritoryIndex._link(node, node.parent)
+        subtree = [(node.pk, 0)]
+    descendant_ids = [item[0] for item in subtree]
+    TerritoryLink.objects.filter(descendant_id__in=descendant_ids).exclude(ancestor_id__in=descendant_ids).delete()
+    ancestors: list[tuple[int, int]] = []
+    current = node.parent
+    depth = 1
+    while current is not None:
+        ancestors.append((current.pk, depth))
+        current = current.parent
+        depth += 1
+    TerritoryLink.objects.bulk_create([
+        TerritoryLink(ancestor_id=ancestor_id, descendant_id=descendant_id, depth=ancestor_depth + descendant_depth)
+        for descendant_id, descendant_depth in subtree
+        for ancestor_id, ancestor_depth in ancestors
+    ])
+
+
 class TerritoryIndex:
     """Кладёт лицевой счёт на дом (или на самый глубокий распознанный узел)."""
 
@@ -361,6 +418,7 @@ class TerritoryIndex:
         self._parser = AddressPath(self._catalog)
 
     def assign_queryset(self, queryset: QuerySet) -> int:
+        lift_minsk_city()
         changed: list[Account] = []
         updated = 0
         # Реестр уже делает select_related("organization"). only() без сброса
@@ -431,6 +489,7 @@ class TerritoryMap:
     """Один уровень дерева: дети текущего узла и число лицевых счетов в поддереве."""
 
     def level(self, accounts: QuerySet, parent: Territory | None) -> dict:
+        lift_minsk_city()
         if parent is None:
             parent = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
         accounts = accounts.order_by()
