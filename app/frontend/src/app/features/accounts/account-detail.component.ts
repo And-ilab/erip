@@ -415,22 +415,29 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               <p class="muted tab-note">По этому счёту несколько пакетов. У каждого свой комплект: почта, документы и архив одного в другом не появляются.</p>
             }
             @for (row of writPreview()?.records || []; track row.id) {
-              <article class="step-measure">
-                @if (row.debt_from && row.debt_to) {
-                  <b>Пакет за период {{ writPeriod(row.debt_from) }}–{{ writPeriod(row.debt_to) }}</b>
-                } @else {
-                  <b>Пакет без периода</b>
-                  <span>Его открывает претензионно-исковая работа. Период задолженности здесь не задан.</span>
+              <article class="writ-pack">
+                <div class="writ-pack-head">
+                  <button type="button" class="writ-pack-toggle" (click)="toggleWrit(row.id)">
+                    <span class="writ-caret" [class.open]="writOpen(row.id)"></span>
+                    <span>{{ writTitle(row) }}</span>
+                  </button>
+                  <a class="writ-pack-go" [routerLink]="['/claims', row.id]" [queryParams]="{ tab: 'pack' }">Перейти в пакет</a>
+                </div>
+                @if (writOpen(row.id)) {
+                  <div class="writ-pack-body">
+                    @if (!row.debt_from || !row.debt_to) {
+                      <span>Его открывает претензионно-исковая работа. Период задолженности здесь не задан.</span>
+                    }
+                    <span>{{ row.defendant_name }}</span>
+                    <span>долг {{ row.principal || '—' }}, пеня {{ row.penalty || '—' }}</span>
+                    <span>тариф {{ row.tariff || 'не передано из АИС' }}</span>
+                    <span>{{ row.stage_label }}</span>
+                    <span>{{ row.notary_office }}</span>
+                    <span>вручение {{ row.warning_delivered_on || '—' }}, акт {{ row.non_delivery_act_on || '—' }}</span>
+                    <span>погашение {{ row.repayment_days }} календарных дн.</span>
+                    @for (doc of row.documents; track doc.id) { <span>{{ doc.name }}</span> }
+                  </div>
                 }
-                <span>{{ row.defendant_name }}</span>
-                <span>долг {{ row.principal || '—' }}, пеня {{ row.penalty || '—' }}</span>
-                <span>тариф {{ row.tariff || 'не передано из АИС' }}</span>
-                <span>{{ row.stage_label }}</span>
-                <span>{{ row.notary_office }}</span>
-                <span>вручение {{ row.warning_delivered_on || '—' }}, акт {{ row.non_delivery_act_on || '—' }}</span>
-                <span>погашение {{ row.repayment_days }} календарных дн.</span>
-                @for (doc of row.documents; track doc.id) { <span>{{ doc.name }}</span> }
-                <a [routerLink]="['/claims', row.id]" [queryParams]="{ tab: 'pack' }">Открыть этот пакет</a>
               </article>
             }
           </mat-tab>
@@ -526,6 +533,13 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
     .uen { margin: 0 0 8px; color: #6b7280; font-size: 13px; }
     .contact-add { align-items: flex-end; }
     .contact-mode { margin-left: auto; }
+    .writ-pack { border: 1px solid var(--erip-border); border-radius: 8px; margin: 8px 0; background: #fff; }
+    .writ-pack-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+    .writ-pack-toggle { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; cursor: pointer; font: inherit; font-weight: 700; text-align: left; color: inherit; }
+    .writ-caret { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid currentColor; flex: 0 0 auto; }
+    .writ-caret.open { transform: rotate(90deg); }
+    .writ-pack-go { flex: 0 0 auto; padding: 4px 10px; border: 1px solid var(--erip-border); border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600; color: var(--erip-link); background: #fff; }
+    .writ-pack-body { display: flex; flex-direction: column; gap: 4px; padding: 0 12px 10px 34px; }
     .step { border: 1px solid var(--erip-border); border-radius: 8px; margin: 8px 0; padding: 8px 12px; background: #fff; }
     .step summary { cursor: pointer; font-weight: 600; }
     .step-measure { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 8px 0; }
@@ -716,6 +730,7 @@ export class AccountDetailComponent implements OnInit {
   protected readonly measures = signal<MeasureRow[]>([]);
   protected readonly scenario = signal<ScenarioBoard | null>(null);
   protected readonly writ = signal<WritDraft | null>(null);
+  private readonly openWrits = signal<ReadonlySet<number>>(new Set());
   protected readonly checks = signal<{ code: string; title: string; done: boolean }[]>([]);
   protected workTab = 'docs';
   protected workPrincipal = '';
@@ -1541,6 +1556,24 @@ export class AccountDetailComponent implements OnInit {
       next: (draft) => this.writ.set(draft),
       error: (e) => this.writError.set(errorMessage(e)),
     });
+  }
+
+  protected writOpen(id: number): boolean {
+    return this.openWrits().has(id);
+  }
+
+  protected toggleWrit(id: number): void {
+    const next = new Set(this.openWrits());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.openWrits.set(next);
+  }
+
+  protected writTitle(row: { debt_from: string | null; debt_to: string | null }): string {
+    if (row.debt_from && row.debt_to) {
+      return `Пакет за период ${this.writPeriod(row.debt_from)}–${this.writPeriod(row.debt_to)}`;
+    }
+    return 'Пакет без периода';
   }
 
   protected writPeriod(value: string | null): string {
