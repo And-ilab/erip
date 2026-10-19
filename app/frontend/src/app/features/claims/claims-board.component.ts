@@ -14,6 +14,7 @@ import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
 import { briefText } from '../group-title';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
@@ -24,7 +25,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
-    DateFieldComponent, KanbanDebtorComponent,
+    DateFieldComponent, KanbanDebtorComponent, GridResizeDirective,
   ],
   template: `
     <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()">
@@ -60,18 +61,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
               </div>
             } @else {
               <div class="list-pane">
-              <table>
+              <table appGridResize="claims">
                 <thead>
                   <tr>
-                    <th>Должник</th>
-                    <th>Лицевой счёт (Номер ЛС)</th>
-                    <th>Адрес ЛС запросом (Адрес)</th>
-                    <th>Группа</th>
-                    <th>Рейтинг</th>
-                    <th>Исходящее сальдо с пенями <app-byn-sign /></th>
-                    <th>Исходящее сальдо пени <app-byn-sign /></th>
-                    <th>Этап</th>
-                    <th>Дело</th>
+                    <th data-col="debtor">Должник</th>
+                    <th data-col="account">Лицевой счёт (Номер ЛС)</th>
+                    <th data-col="address">Адрес ЛС запросом (Адрес)</th>
+                    <th data-col="group">Группа</th>
+                    <th data-col="rating">Рейтинг</th>
+                    <th data-col="debt">Исходящее сальдо с пенями <app-byn-sign /></th>
+                    <th data-col="mulct">Исходящее сальдо пени <app-byn-sign /></th>
+                    <th data-col="stage">Этап</th>
+                    <th data-col="case">Дело</th>
                   </tr>
                 </thead>
                 <tbody>

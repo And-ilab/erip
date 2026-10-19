@@ -15,6 +15,7 @@ import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix, Measur
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryChoice, RegistryFilterQuery } from '../registry-filter.component';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
@@ -25,6 +26,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     DatePipe, FormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
     MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, KanbanDebtorComponent,
+    GridResizeDirective,
   ],
   template: `
     <div class="page">
@@ -68,17 +70,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
         @if (groups().length) {
           <section class="surface registry main">
             <div class="list-pane">
-            <table class="wide">
+            <table class="wide" appGridResize="measures">
               <thead>
                 <tr>
-                  <th class="tick">
+                  <th class="tick" data-col="select">
                     <input type="checkbox" aria-label="Выбрать видимые" [checked]="allVisible()" (change)="toggleVisible()" />
                   </th>
-                  <th>Мероприятие</th>
-                  <th>Должник</th>
-                  <th class="who">Исполнитель</th>
-                  <th>Следующее действие</th>
-                  <th>Статус</th>
+                  <th data-col="title">Мероприятие</th>
+                  <th data-col="debtor">Должник</th>
+                  <th class="who" data-col="assignee">Исполнитель</th>
+                  <th data-col="next">Следующее действие</th>
+                  <th data-col="status">Статус</th>
                 </tr>
               </thead>
               <tbody>
@@ -166,12 +168,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
             }
             @if (grid.results.length) {
               <div class="matrix-wrap list-pane">
-                <table class="matrix">
+                <table class="matrix" appGridResize="measures-matrix">
                   <thead>
                     <tr>
-                      <th>ФИО должника</th>
-                      <th>ЛС</th>
-                      @for (kind of grid.kinds; track kind.code) { <th>{{ kind.label }}</th> }
+                      <th data-col="debtor">ФИО должника</th>
+                      <th data-col="account">ЛС</th>
+                      @for (kind of grid.kinds; track kind.code) { <th [attr.data-col]="kind.code">{{ kind.label }}</th> }
                     </tr>
                   </thead>
                   <tbody>
@@ -260,14 +262,14 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <p class="muted pad">Счетов, готовых к отключению, сейчас нет.</p>
           } @else {
             <div class="list-pane">
-            <table>
+            <table appGridResize="measures-ready">
               <thead>
                 <tr>
-                  <th class="tick"></th>
-                  <th>Должник</th>
-                  <th>Предупреждение вручено</th>
-                  <th>Срок оплаты истёк</th>
-                  <th>Услуги</th>
+                  <th class="tick" data-col="select"></th>
+                  <th data-col="debtor">Должник</th>
+                  <th data-col="delivered">Предупреждение вручено</th>
+                  <th data-col="due">Срок оплаты истёк</th>
+                  <th data-col="services">Услуги</th>
                 </tr>
               </thead>
               <tbody>

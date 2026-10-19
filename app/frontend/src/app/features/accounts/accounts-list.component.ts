@@ -21,6 +21,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { DomainFilterComponent, DomainRule, accountDomainFields, parseDomain } from '../domain-filter.component';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { AccountsMapComponent } from './accounts-map.component';
 
@@ -134,7 +135,7 @@ interface GroupSection {
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
     CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent, DomainFilterComponent,
-    KanbanDebtorComponent,
+    KanbanDebtorComponent, GridResizeDirective,
   ],
   template: `
     <div class="registry">
@@ -367,7 +368,7 @@ interface GroupSection {
 
         @if (view() === 'list') {
           <div class="list-pane fill">
-          <table mat-table [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
+          <table mat-table appGridResize="accounts" [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef>
                 <input type="checkbox" aria-label="Выбрать страницу" [checked]="pageAllSelected()" (change)="togglePage($event)" />
@@ -415,11 +416,11 @@ interface GroupSection {
             <p class="hint">По этому отбору лицевых счетов нет.</p>
           }
           @if (sections().length) {
-            <table class="grouped-board">
+            <table class="grouped-board" appGridResize="accounts">
               <thead>
                 <tr>
                   @for (name of shownColumns(); track name) {
-                    <th [attr.title]="name === 'select' ? '' : label(name)">@if (name !== 'select') { <span class="col-head" [style.width.ch]="columnCh(name)">{{ shortLabel(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }</span> }</th>
+                    <th [attr.data-col]="name" [attr.title]="name === 'select' ? '' : label(name)">@if (name !== 'select') { <span class="col-head" [style.width.ch]="columnCh(name)">{{ shortLabel(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }</span> }</th>
                   }
                 </tr>
               </thead>
@@ -1295,6 +1296,10 @@ export class AccountsListComponent implements OnInit {
   }
 
   protected startColumn(event: DragEvent, name: string): void {
+    if (event.target instanceof Element && event.target.closest('.col-resize')) {
+      event.preventDefault();
+      return;
+    }
     this.draggedColumn = name;
     event.dataTransfer?.setData('text/plain', name);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';

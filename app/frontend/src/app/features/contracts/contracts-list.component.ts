@@ -16,6 +16,7 @@ import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { DomainFilterComponent, DomainRule, contractDomainFields, parseDomain } from '../domain-filter.component';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
@@ -107,7 +108,7 @@ const COLUMN_LABELS: Record<string, string> = {
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
-    DomainFilterComponent, KanbanDebtorComponent,
+    DomainFilterComponent, KanbanDebtorComponent, GridResizeDirective,
   ],
   template: `
     <div class="registry">
@@ -281,7 +282,7 @@ const COLUMN_LABELS: Record<string, string> = {
         }
         @if (view() === 'suppliers') {
           <div class="list-pane">
-          <table mat-table [dataSource]="summary()?.suppliers ?? []">
+          <table mat-table appGridResize="contracts-suppliers" [dataSource]="summary()?.suppliers ?? []">
             <ng-container matColumnDef="name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.name }}</td></ng-container>
             <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
             <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
@@ -302,7 +303,7 @@ const COLUMN_LABELS: Record<string, string> = {
         @if (error()) { <p class="status-failed">{{ error() }}</p> }
         @if (view() === 'persons') {
           <div class="list-pane">
-          <table mat-table [dataSource]="persons()">
+          <table mat-table appGridResize="contracts-persons" [dataSource]="persons()">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef></th>
               <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
@@ -344,7 +345,7 @@ const COLUMN_LABELS: Record<string, string> = {
         }
         @if (view() === 'services') {
           <div class="list-pane">
-          <table mat-table [dataSource]="rows()">
+          <table mat-table appGridResize="contracts-services" [dataSource]="rows()">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef></th>
               <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
@@ -443,11 +444,11 @@ const COLUMN_LABELS: Record<string, string> = {
             <p class="hint">По этому отбору договоров нет.</p>
           }
           @if (sections().length) {
-            <table class="grouped-board">
+            <table class="grouped-board" appGridResize="contracts-persons">
               <thead>
                 <tr>
                   @for (name of shownPersons(); track name) {
-                    <th>{{ name === 'select' ? '' : columnLabel(name) }}</th>
+                    <th [attr.data-col]="name">{{ name === 'select' ? '' : columnLabel(name) }}</th>
                   }
                 </tr>
               </thead>

@@ -77,6 +77,23 @@ a:not(.mat-mdc-button-base):not(.mat-mdc-list-item) { color: var(--erip-link); t
   background: #fff;
 }
 .list-pane.fill table.mat-mdc-table { width: max-content; min-width: 100%; }
+table.grid-resize .col-resize {
+  position: absolute; top: 0; right: 0; z-index: 4; width: 10px; height: 100%;
+  cursor: col-resize; touch-action: none;
+  &::after {
+    content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 1px; background: #d5dee6;
+  }
+  &:hover::after { width: 3px; background: var(--erip-primary); }
+}
+body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-select: none !important; }
+table.grid-resize.widths-locked {
+  table-layout: fixed !important;
+  min-width: 0 !important;
+  th, td { overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+  td[colspan] { overflow: visible; text-overflow: clip; }
+  .col-head { display: block; width: auto !important; max-width: 100% !important; box-sizing: border-box; }
+  .mat-sort-header-container { max-width: 100%; overflow: hidden; }
+}
 .list-pane.fill .mat-column-account_address { white-space: nowrap; }
 .list-pane.cards { --list-row: 116px; max-height: min(calc(10 * var(--list-row)), calc(100vh - 260px)); }
 .list-pane.lines {
