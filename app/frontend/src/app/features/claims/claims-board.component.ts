@@ -85,7 +85,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td><app-money [value]="row.debt_total" [blank]="false" /></td>
                       <td [class.amount-danger]="+(row.mulct_total || 0) > 0"><app-money [value]="row.mulct_total" [blank]="false" /></td>
                       <td>{{ stageLabel(row.funnel_stage) }}</td>
-                      <td>{{ claimOf(row)?.stage_label || 'не открыто' }}</td>
+                      <td>
+                        @for (claim of claimsOf(row); track claim.id) {
+                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: 'pack' }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
+                        } @empty { не открыто }
+                      </td>
                     </tr>
                   }
                 </tbody>
@@ -283,6 +287,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: #f7f9fb; }
     .account-no { color: var(--erip-link); }
+    .pack-link { display: block; color: var(--erip-link); text-decoration: none; }
+    .pack-link + .pack-link { margin-top: 4px; }
     .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
     .k-col { width: 268px; flex: 0 0 268px; }
     .k-col h3 {
@@ -706,7 +712,20 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected claimOf(row: AccountRow): ClaimCase | undefined {
-    return this.cards().find((card) => card.account === row.id);
+    return this.claimsOf(row)[0];
+  }
+
+  protected claimsOf(row: AccountRow): ClaimCase[] {
+    return this.cards()
+      .filter((card) => card.account === row.id)
+      .sort((left, right) => (left.debt_from || '').localeCompare(right.debt_from || ''));
+  }
+
+  protected packageLabel(claim: ClaimCase): string {
+    if (claim.debt_from && claim.debt_to) {
+      return `${this.dotDate(claim.debt_from)}–${this.dotDate(claim.debt_to)} · ${claim.stage_label}`;
+    }
+    return claim.stage_label;
   }
 
   protected stageLabel(id: string): string {

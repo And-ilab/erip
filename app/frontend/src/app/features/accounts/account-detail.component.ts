@@ -411,9 +411,12 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             @if (auth.canWrite()) {
               <button mat-flat-button color="primary" (click)="saveWrit()">Сохранить и открыть пакет документов</button>
             }
+            @if ((writPreview()?.records || []).length > 1) {
+              <p class="muted tab-note">По этому счёту несколько пакетов. У каждого свой период и свой комплект документов.</p>
+            }
             @for (row of writPreview()?.records || []; track row.id) {
               <article class="step-measure">
-                <b>{{ row.debt_from }} — {{ row.debt_to }}</b>
+                <b>Пакет за период {{ writPeriod(row.debt_from) }}–{{ writPeriod(row.debt_to) }}</b>
                 <span>{{ row.defendant_name }}</span>
                 <span>долг {{ row.principal || '—' }}, пеня {{ row.penalty || '—' }}</span>
                 <span>тариф {{ row.tariff || 'не передано из АИС' }}</span>
@@ -422,7 +425,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                 <span>вручение {{ row.warning_delivered_on || '—' }}, акт {{ row.non_delivery_act_on || '—' }}</span>
                 <span>погашение {{ row.repayment_days }} календарных дн.</span>
                 @for (doc of row.documents; track doc.id) { <span>{{ doc.name }}</span> }
-                <a [routerLink]="['/claims', row.id]" [queryParams]="{ tab: 'pack' }">Пакет</a>
+                <a [routerLink]="['/claims', row.id]" [queryParams]="{ tab: 'pack' }">Открыть этот пакет</a>
               </article>
             }
           </mat-tab>
@@ -1533,6 +1536,11 @@ export class AccountDetailComponent implements OnInit {
       next: (draft) => this.writ.set(draft),
       error: (e) => this.writError.set(errorMessage(e)),
     });
+  }
+
+  protected writPeriod(value: string | null): string {
+    const [year, month, day] = (value || '').slice(0, 10).split('-');
+    return day && month && year ? `${day}.${month}.${year}` : '—';
   }
 
   protected saveWrit(): void {

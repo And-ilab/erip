@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
@@ -11,6 +12,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { DateFieldComponent, HoldDraftDirective } from '../../core/date-field.component';
 import { ApiService, ClaimCase, PrisDictRow, PrisExchangeRow, errorMessage } from '../../core/api.service';
+import { WritRecord } from '../../core/models';
 import { ClaimChecklistComponent } from './claim-checklist.component';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
@@ -19,7 +21,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   selector: 'app-claim-detail',
   standalone: true,
   imports: [
-    FormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatAutocompleteModule,
+    FormsModule, RouterLink, DatePipe, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatAutocompleteModule,
     MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimChecklistComponent,
     DateFieldComponent, HoldDraftDirective,
   ],
@@ -32,9 +34,20 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
             <h2>{{ row.short_fio || 'Должник не указан' }}</h2>
             <p>ЛС {{ row.client_account }} · {{ row.account_address || 'Адрес не указан' }}</p>
             <p class="muted">Группа {{ row.debt_group || '—' }} · рейтинг {{ row.rating || '—' }}</p>
+            @if (periodLine(row)) { <p class="muted">{{ periodLine(row) }}</p> }
           </div>
           <span class="stage">{{ row.stage_label }}</span>
         </header>
+        @if (packages().length > 1) {
+          <nav class="packages" aria-label="Пакеты по периодам">
+            @for (item of packages(); track item.id) {
+              <a [routerLink]="['/claims', item.id]" [queryParams]="{ tab: tab() }" [class.on]="item.id === row.id">
+                <b>Пакет {{ periodOf(item) }}</b>
+                <small>{{ item.stage_label }}</small>
+              </a>
+            }
+          </nav>
+        }
         @if (row.debt_group != null && row.debt_group < 3) {
           <p class="banner">Группа {{ row.debt_group }} ведётся в мероприятиях. Исполнительная надпись — с группы 3. <a routerLink="/measures">Реестр мероприятий</a></p>
         }
@@ -399,8 +412,11 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
           <aside>
             <h3>История</h3>
             <ul>
-              @for (event of recent(row); track $index) {
-                <li><b>{{ event.actor }}</b> {{ event.reason || event.new_stage }}</li>
+              @for (event of journal(row); track $index) {
+                <li>
+                  <time>{{ event.at | date: 'dd.MM.yyyy HH:mm' }}</time>
+                  <span><b>{{ event.actor }}</b> {{ event.reason || event.new_stage }}</span>
+                </li>
               } @empty {
                 <li class="muted">Записей пока нет</li>
               }
@@ -430,6 +446,13 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
       color: var(--erip-muted); padding: 8px 12px; cursor: pointer;
     }
     .tabs button.on { color: var(--erip-primary-dark); border-bottom-color: var(--erip-primary); }
+    .packages { display: flex; flex-wrap: wrap; gap: 8px; }
+    .packages a {
+      display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit;
+      border: 1px solid var(--erip-border); border-radius: 8px; background: #fff; padding: 8px 10px;
+    }
+    .packages a.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .packages small { color: var(--erip-muted); }
     .work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; }
     .pane { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; }
     .sums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -444,7 +467,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .need { color: var(--erip-danger); }
     aside { background: #f7f8fa; border-radius: 10px; padding: 12px; min-height: 0; overflow: auto; }
     aside ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-    aside li { font-size: 13px; }
+    aside li { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+    aside time { color: var(--erip-muted); font-size: 12px; }
     .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; margin: 0; }
     .blockers { color: var(--erip-warning); margin: 0; padding-left: 18px; }
     .acts { margin: 0; padding-left: 18px; }
@@ -481,6 +505,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected readonly tab = signal<(typeof this.tabs)[number]['id']>('pack');
   protected readonly focusSlot = signal('');
   protected readonly claim = signal<ClaimCase | null>(null);
+  protected readonly packages = signal<WritRecord[]>([]);
   protected warningDate = '';
   protected tariff = '';
   protected checklistSkip = '';
@@ -608,8 +633,23 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     return (row.blockers || []).filter((item) => item.includes('вручения') || item.includes('тариф'));
   }
 
-  protected recent(row: ClaimCase): ClaimCase['events'] {
-    return (row.events || []).slice(-8).reverse();
+  protected periodLine(row: ClaimCase): string {
+    if (!row.debt_from || !row.debt_to) return '';
+    return `Пакет за период ${this.dotDate(row.debt_from)}–${this.dotDate(row.debt_to)}`;
+  }
+
+  protected periodOf(item: WritRecord): string {
+    if (!item.debt_from || !item.debt_to) return 'период не указан';
+    return `${this.dotDate(item.debt_from)}–${this.dotDate(item.debt_to)}`;
+  }
+
+  protected journal(row: ClaimCase): ClaimCase['events'] {
+    return row.events || [];
+  }
+
+  private dotDate(iso: string): string {
+    const [year, month, day] = iso.slice(0, 10).split('-');
+    return day && month && year ? `${day}.${month}.${year}` : iso;
   }
 
   protected grand(row: ClaimCase): number {
@@ -898,6 +938,13 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     };
   }
 
+  private loadPackages(accountId: number): void {
+    this.api.writDraft(accountId).subscribe({
+      next: (draft) => this.packages.set(draft.records || []),
+      error: () => this.packages.set([]),
+    });
+  }
+
   private load(id: number): void {
     if (id === this.viewedId) return;
     this.flushNotarySave();
@@ -910,6 +957,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       next: (row) => {
         if (!this.alive || this.viewedId !== id) return;
         this.apply(row);
+        this.loadPackages(row.account);
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });

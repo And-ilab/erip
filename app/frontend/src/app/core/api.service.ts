@@ -779,6 +779,8 @@ export interface ClaimCase {
   balance_out: string | null;
   stage: string;
   stage_label: string;
+  debt_from?: string | null;
+  debt_to?: string | null;
   warning_delivered_on: string | null;
   notary_office: string;
   notary_tariff: string | null;
