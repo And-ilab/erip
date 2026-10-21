@@ -1,6 +1,6 @@
 """Дело взыскания — та же строка, что реестр мероприятий. Иначе ЛС есть в исковой работе и нет в мероприятиях."""
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 from apps.debts.models import Account, AccountScenarioRun, ClaimCase, Measure, MeasureItem
@@ -81,10 +81,23 @@ def sync_claim_measure(case: ClaimCase) -> Measure:
 
 
 def backfill_visible_measures(accounts: QuerySet) -> None:
-    """Открытие реестра добирает строки: дело взыскания и счёт с группой долга без мероприятия."""
+    """Открытие реестра добирает строки: дело взыскания и счёт с группой долга без мероприятия.
+
+    Уже связанные дела не переписываются: этап обновляет сама карточка взыскания.
+    """
     if not accounts.exists():
         return
-    for case in ClaimCase.objects.filter(account__in=accounts).select_related("account"):
+    linked = Measure.objects.filter(accounts=OuterRef("account_id")).filter(
+        Q(source_action="claim") | Q(kind=Measure.Kind.COLLECTION, source_action="writ"),
+    )
+    missing = (
+        ClaimCase.objects.filter(account__in=accounts)
+        .annotate(_linked=Exists(linked))
+        .filter(_linked=False)
+        .select_related("account")
+        .defer("raw", "pris_request", "pris_inquiry", "account__raw")
+    )
+    for case in missing[:500]:
         sync_claim_measure(case)
     claimed = ClaimCase.objects.filter(account__in=accounts).values("account_id")
     # order_by() снимает сортировку модели. Иначе PostgreSQL отвергает GROUP BY по id
@@ -94,10 +107,10 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
         .exclude(pk__in=claimed)
         .order_by()
     )
+    has_measure = Measure.objects.filter(accounts=OuterRef("pk"))
     bare = (
-        owing.values("pk")
-        .annotate(measure_count=Count("measures"))
-        .filter(measure_count=0)
+        owing.annotate(_has_measure=Exists(has_measure))
+        .filter(_has_measure=False)
         .order_by("pk")
         .values_list("pk", flat=True)[:2000]
     )

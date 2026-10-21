@@ -423,6 +423,8 @@ export class OrgDirectoryComponent implements OnInit {
     { title: 'Наблюдатель', text: 'Просмотр данных своей схемы без изменений.' },
   ];
 
+  private searchTimer = 0;
+
   ngOnInit(): void {
     this.loadOrgs();
   }
@@ -492,13 +494,16 @@ export class OrgDirectoryComponent implements OnInit {
 
   protected onSearch(value: string): void {
     this.query.set(value);
-    const visible = this.visibleOrgs();
-    if (this.selectedId() != null && !visible.some((org) => org.id === this.selectedId())) {
-      this.selectedId.set(visible[0]?.id ?? null);
-      const selected = this.selectedId();
-      if (selected != null) this.loadPris(selected);
-    }
-    this.loadUsers();
+    window.clearTimeout(this.searchTimer);
+    this.searchTimer = window.setTimeout(() => {
+      const visible = this.visibleOrgs();
+      if (this.selectedId() != null && !visible.some((org) => org.id === this.selectedId())) {
+        this.selectedId.set(visible[0]?.id ?? null);
+        const selected = this.selectedId();
+        if (selected != null) this.loadPris(selected);
+      }
+      this.loadUsers();
+    }, 300);
   }
 
   protected pick(id: number): void {

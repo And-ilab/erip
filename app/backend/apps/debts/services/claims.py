@@ -307,8 +307,15 @@ def decide_writeoff(case: ClaimCase, user, decision: str, reason: str = "") -> C
     return move_case(case, ClaimCase.Stage.WRITEOFF, user, "Согласовали все участники маршрута")
 
 
+def _cached(instance, name, fallback):
+    cache = getattr(instance, "_prefetched_objects_cache", {})
+    if name in cache:
+        return cache[name]
+    return fallback
+
+
 def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
-    acts = [{"id": act.pk, "title": act.title} for act in case.acts.all()]
+    acts = [{"id": act.pk, "title": act.title} for act in _cached(case, "acts", case.acts.all())]
     approvals = [
         {
             "id": item.pk,
@@ -317,7 +324,7 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
             "decision": item.decision,
             "reason": item.reason,
         }
-        for item in case.approvals.select_related("approver")
+        for item in _cached(case, "approvals", case.approvals.select_related("approver"))
     ]
     account = case.account
     penalty = sum(
@@ -380,7 +387,7 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
                 "name": item.original_name,
                 "role": _file_role(item.doc_type, item.original_name),
             }
-            for item in account.attachments.all()[:30]
+            for item in list(_cached(account, "attachments", account.attachments.all()))[:30]
         ],
         "acts": acts,
         "acts_count": len(acts),
@@ -394,7 +401,7 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
                 "actor": event.actor.display_name if event.actor_id else "",
                 "at": event.created_at.isoformat(),
             }
-            for event in case.events.select_related("actor")[:20]
+            for event in list(_cached(case, "events", case.events.select_related("actor")))[:20]
         ],
     }
     if with_choices:
@@ -433,9 +440,10 @@ def blockers(case: ClaimCase) -> list[str]:
         missing.append("Нет даты вручения предупреждения")
     if case.application_withdrawn or case.notary_tariff is None or case.notary_tariff <= 0:
         missing.append("Нет нотариального тарифа")
-    if case.acts.count() < 1:
+    act_count = len(case.acts.all())
+    if act_count < 1:
         missing.append("Нет акта ОПИ для статуса «Невозможность взыскания»")
-    if case.acts.count() < 3:
+    if act_count < 3:
         missing.append("Для списания нужно три акта ОПИ")
     if not case.tariff_received or not case.ais_debt_cleared:
         missing.append("Статус «Взыскано» ждёт выгрузку АИС: погашены долг, пеня и тариф")

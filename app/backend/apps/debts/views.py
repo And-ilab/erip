@@ -1,6 +1,6 @@
 import csv
 
-from django.db.models import CharField, Count, IntegerField, Max, Min, OuterRef, Prefetch, Q, Subquery, Sum, Value
+from django.db.models import CharField, Count, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -35,7 +35,7 @@ from .models import (
     StatusHistory,
     Territory,
 )
-from .repositories import AccountRepository
+from .repositories import AccountRepository, supplier_annotations
 from .services.charts import DebtCharts
 from .serializers import (
     AccountDetailSerializer,
@@ -352,26 +352,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         # добавляют GROUP BY по лицевому счёту, и один населённый пункт
         # распадается на пузырь «1» для каждого счёта.
         if providers is not None and self.action in {"list", "export", "kanban", "retrieve"}:
-            allowed = providers or [-1]
-            service_filter = Q(services__provider_id__in=allowed)
-            debt_filter = service_filter & (
-                Q(services__balance_out__gt=0) | Q(services__balance_mulct_out__gt=0) | Q(services__overdue_debt__gt=0)
-            )
-            qs = qs.annotate(
-                supplier_principal=Sum("services__balance_out", filter=service_filter),
-                supplier_penalty=Sum("services__balance_mulct_out", filter=service_filter),
-                supplier_services=Count("services", filter=service_filter, distinct=True),
-                supplier_balance_in=Sum("services__balance_in", filter=service_filter),
-                supplier_calc=Sum("services__calc_sum", filter=service_filter),
-                supplier_paid=Sum("services__share_service_summ", filter=service_filter),
-                supplier_subsidy=Sum("services__calc_result_sum", filter=service_filter),
-                supplier_group=Max(
-                    Coalesce("services__debt_group_manual", "services__debt_group"),
-                    filter=debt_filter,
-                ),
-                supplier_months=Max("services__debt_period", filter=debt_filter),
-                supplier_started=Min("services__debt_started_on", filter=debt_filter),
-            )
+            qs = qs.annotate(**supplier_annotations(list(providers)))
         if "bucket" in self.request.query_params:
             from apps.debts.services.group_buckets import restrict_account_bucket
 
@@ -982,7 +963,7 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     queryset = AccountService.objects.select_related(
         "account", "account__debtor_category", "account__organization", "account__assigned_to",
         "account__scenario_run__scenario",
-    ).annotate(
+    ).defer("raw", "account__raw").annotate(
         registered_count=Coalesce(Subquery(
             Registration.objects.filter(account_id=OuterRef("account_id"))
             .order_by()
@@ -991,7 +972,9 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
             .values("total"),
             output_field=IntegerField(),
         ), 0),
-    ).prefetch_related("debt_periods")
+    ).prefetch_related(
+        Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
+    )
     serializer_class = AccountServiceSerializer
     permission_classes = [RolePermission]
     scope_organization_field = "organization"
@@ -1376,8 +1359,34 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         supplier_filter = _supplier_measure_filter(self.request.user)
         if supplier_filter is not None:
             matched = matched.filter(supplier_filter)
+        # Имя должника и счётчики не считаются на всём реестре: их добавляет
+        # _decorate только к строкам страницы. Иначе поиск и count() гоняют
+        # восемь подзапросов по каждой партии.
+        return Measure.objects.filter(pk__in=matched.values("id")).select_related("assignee", "created_by")
+
+    def _decorate(self, ids):
+        if not ids:
+            return []
+        visible = _visible_accounts(self.request.user)
         search = self.request.query_params.get("search") or ""
-        return annotate_registry(Measure.objects.filter(pk__in=matched.values("id")), visible, search)
+        found = {
+            item.pk: item
+            for item in annotate_registry(
+                Measure.objects.filter(pk__in=ids).select_related("assignee", "created_by"),
+                visible,
+                search,
+            )
+        }
+        return [found[pk] for pk in ids if pk in found]
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else list(queryset)
+        serializer = self.get_serializer(self._decorate([row.pk for row in rows]), many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     def _record_registry(self, request, count: int, view: str) -> None:
         params = {}
@@ -1412,7 +1421,8 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             count = chunk.count()
             if not count:
                 continue
-            rows = self.get_serializer(chunk[start:start + GROUP_LIMIT], many=True).data
+            ids = list(chunk.values_list("pk", flat=True)[start:start + GROUP_LIMIT])
+            rows = self.get_serializer(self._decorate(ids), many=True).data
             total += count
             groups.append({
                 "status": code, "label": labels[code], "total": count, "shown": len(rows),

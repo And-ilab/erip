@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.db.models import Prefetch
 from django.db.models.functions import Coalesce
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -15,7 +16,7 @@ from apps.audit.services import record_action
 from apps.core.permissions import RolePermission
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
-from .models import Account, ClaimCase
+from .models import Account, AccountService, Attachment, ClaimCase
 from .services.bnp_package import (
     delete_document,
     form_package,
@@ -63,17 +64,28 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     scope_provider_field = "account__provider_id"
 
     def list(self, request):
-        rows = [
-            case_payload(case)
-            for case in self.get_queryset().select_related("account__assigned_to").prefetch_related(
-                "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
-                "account__registrations", "package__documents",
+        cases = list(
+            self.get_queryset()
+            .select_related("account__assigned_to")
+            .defer("raw", "pris_request", "pris_inquiry", "account__raw")
+            .prefetch_related(
+                "acts",
+                "approvals__approver",
+                "events__actor",
+                Prefetch(
+                    "account__services",
+                    queryset=AccountService.objects.only("id", "account_id", "balance_mulct_out"),
+                ),
+                Prefetch(
+                    "account__attachments",
+                    queryset=Attachment.objects.only("id", "account_id", "doc_type", "original_name"),
+                ),
             )
-        ]
+        )
         return Response({
-            "results": rows,
+            "results": [case_payload(case) for case in cases],
             "stages": [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices],
-            "assigned": self._assigned([case.account_id for case in self.get_queryset()]),
+            "assigned": self._assigned([case.account_id for case in cases]),
         })
 
     def retrieve(self, request, pk=None):

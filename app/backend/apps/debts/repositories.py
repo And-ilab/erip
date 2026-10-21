@@ -2,7 +2,9 @@
 
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, Exists, IntegerField, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import (
+    Count, DateField, DecimalField, Exists, IntegerField, Max, Min, OuterRef, Q, QuerySet, Subquery, Sum,
+)
 from django.db.models.functions import Coalesce
 
 from .models import Account, AccountService, ClaimCase, Measure, MeasureItem, Registration
@@ -34,6 +36,51 @@ def _sum_services(field: str):
         ),
         Decimal("0"),
     )
+
+
+def supplier_annotations(provider_ids: list[int]) -> dict:
+    """Суммы поставщика отдельными подзапросами, без JOIN услуг к каждому ЛС.
+
+    Прежний Sum по services заставлял группировать строку счёта и тормозил поиск.
+    Пустая выборка поставщика остаётся NULL у сумм и 0 у числа услуг, как раньше.
+    """
+    allowed = provider_ids or [-1]
+    debt = Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0)
+
+    def scoped():
+        return AccountService.objects.filter(account_id=OuterRef("pk"), provider_id__in=allowed)
+
+    def total(field: str):
+        return Subquery(
+            scoped().order_by().values("account_id").annotate(total=Sum(field)).values("total")[:1],
+            output_field=DecimalField(max_digits=20, decimal_places=2),
+        )
+
+    def extreme(agg, field, output):
+        return Subquery(
+            scoped().filter(debt).order_by().values("account_id").annotate(total=agg(field)).values("total")[:1],
+            output_field=output,
+        )
+
+    counted = Coalesce(
+        Subquery(
+            scoped().order_by().values("account_id").annotate(total=Count("pk")).values("total")[:1],
+            output_field=IntegerField(),
+        ),
+        0,
+    )
+    return {
+        "supplier_principal": total("balance_out"),
+        "supplier_penalty": total("balance_mulct_out"),
+        "supplier_services": counted,
+        "supplier_balance_in": total("balance_in"),
+        "supplier_calc": total("calc_sum"),
+        "supplier_paid": total("share_service_summ"),
+        "supplier_subsidy": total("calc_result_sum"),
+        "supplier_group": extreme(Max, Coalesce("debt_group_manual", "debt_group"), IntegerField()),
+        "supplier_months": extreme(Max, "debt_period", IntegerField()),
+        "supplier_started": extreme(Min, "debt_started_on", DateField()),
+    }
 
 
 class AccountRepository:
@@ -82,7 +129,9 @@ class AccountRepository:
                 account_id=int(term)
             )
         condition |= Q(payer_identifier__icontains=term) | Q(payer_unp__icontains=term)
-        return qs.filter(condition).distinct()
+        # Все условия — поля счёта или связь «один к одному». distinct() здесь
+        # заставлял PostgreSQL сортировать всю выборку перед каждой страницей поиска.
+        return qs.filter(condition)
 
     def group_summary(self) -> list[dict]:
         rows = (

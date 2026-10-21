@@ -75,7 +75,7 @@ def annotate_registry(qs: QuerySet, visible: QuerySet, search: str = "") -> Quer
     visible_ids = visible.values("id")
     any_account = Account.objects.filter(pk__in=visible_ids, measures=OuterRef("pk")).order_by("client_account")
     preferred = _sample(visible_ids, search)
-    return qs.select_related("assignee").annotate(
+    return qs.select_related("assignee", "created_by").annotate(
         accounts_count=Count("accounts", filter=Q(accounts__in=visible_ids), distinct=True),
         items_total=Count("items", filter=Q(items__account__in=visible_ids), distinct=True),
         items_done=Count(
