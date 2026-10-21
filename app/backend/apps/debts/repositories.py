@@ -1,9 +1,39 @@
 """Запросы к данным реестра ЛС (сложные выборки вынесены из вьюх)."""
 
-from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery, Sum
+from decimal import Decimal
+
+from django.db.models import Count, DecimalField, Exists, IntegerField, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import Coalesce
 
-from .models import Account, ClaimCase, Measure, MeasureItem, Registration
+from .models import Account, AccountService, ClaimCase, Measure, MeasureItem, Registration
+
+
+def _count_by_account(model):
+    return Coalesce(
+        Subquery(
+            model.objects.filter(account_id=OuterRef("pk"))
+            .order_by()
+            .values("account_id")
+            .annotate(total=Count("pk"))
+            .values("total")[:1],
+            output_field=IntegerField(),
+        ),
+        0,
+    )
+
+
+def _sum_services(field: str):
+    return Coalesce(
+        Subquery(
+            AccountService.objects.filter(account_id=OuterRef("pk"))
+            .order_by()
+            .values("account_id")
+            .annotate(total=Sum(field))
+            .values("total")[:1],
+            output_field=DecimalField(max_digits=20, decimal_places=2),
+        ),
+        Decimal("0"),
+    )
 
 
 class AccountRepository:
@@ -11,14 +41,19 @@ class AccountRepository:
         self.base = base if base is not None else Account.objects.all()
 
     def registry(self) -> QuerySet:
-        """Реестр ЛС: итоги по услугам считаются в одном запросе."""
-        # Meta.ordering не применяется к запросам с GROUP BY — порядок задаётся явно
+        """Реестр ЛС: итоги по услугам — отдельные подзапросы, без GROUP BY всей карточки.
+
+        Соединение услуг и регистраций в одном JOIN раздувало сумму долга и заставляло
+        PostgreSQL группировать исходный JSON выгрузки.
+        """
         legal = Registration.objects.filter(account_id=OuterRef("pk"), subj_legal_entity=True)
-        return self.base.select_related("assigned_to", "debtor_category", "scenario_run__scenario").annotate(
-            services_count=Count("services", distinct=True),
-            debt_total=Sum("services__balance_out"),
-            mulct_total=Sum("services__balance_mulct_out"),
-            registered_count=Count("registrations", distinct=True),
+        return self.base.defer("raw").select_related(
+            "assigned_to", "debtor_category", "scenario_run__scenario",
+        ).annotate(
+            services_count=_count_by_account(AccountService),
+            debt_total=_sum_services("balance_out"),
+            mulct_total=_sum_services("balance_mulct_out"),
+            registered_count=_count_by_account(Registration),
             is_legal=Exists(legal),
             sort_group=Coalesce("debt_group_manual", "debt_group"),
         ).order_by("client_account", "id")

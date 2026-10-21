@@ -1,6 +1,6 @@
 import csv
 
-from django.db.models import Count, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
+from django.db.models import CharField, Count, IntegerField, Max, Min, OuterRef, Prefetch, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -25,6 +25,7 @@ from .models import (
     Contact,
     DebtWorkItem,
     Measure,
+    MeasureItem,
     Payment,
     RefreshRequest,
     Registration,
@@ -243,12 +244,12 @@ def _service_board_prefetch(user):
     """Услуги и периоды текущей страницы грида или канбана. Поставщик видит только свои."""
     from django.db.models import Prefetch
 
-    services = AccountService.objects.order_by("service_name", "id")
+    services = AccountService.objects.order_by("service_name", "id").defer("raw")
     providers = _supplier_ids(user)
     if providers is not None:
         services = services.filter(provider_id__in=providers or [-1])
     services = services.prefetch_related(
-        Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period")),
+        Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
     )
     return Prefetch("services", queryset=services)
 
@@ -281,11 +282,34 @@ def _supplier_measure_filter(user):
 
 
 def _own_measures(user, account):
-    qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks", "items")
+    """Мероприятия одного ЛС. Без подзапросов по всей схеме: должник уже известен."""
+    qs = Measure.objects.filter(accounts=account).select_related("assignee", "created_by")
     supplier_filter = _supplier_measure_filter(user)
     if supplier_filter is not None:
-        qs = qs.filter(supplier_filter)
-    return annotate_registry(qs.distinct(), _visible_accounts(user)).order_by("-created_at", "-id")
+        qs = qs.filter(supplier_filter).distinct()
+    org_accounts = Q()
+    org_items = Q()
+    if not getattr(user, "is_superadmin", False) and getattr(user, "organization_id", None):
+        org_accounts = Q(accounts__organization_id=user.organization_id)
+        org_items = Q(items__account__organization_id=user.organization_id)
+    return qs.annotate(
+        accounts_count=Count("accounts", filter=org_accounts or None, distinct=True),
+        items_total=Count("items", filter=org_items or None, distinct=True),
+        items_done=Count(
+            "items",
+            filter=(org_items & Q(items__status=Measure.Status.DONE)) if org_items else Q(items__status=Measure.Status.DONE),
+            distinct=True,
+        ),
+        debtor_name=Value(account.short_fio or "", output_field=CharField()),
+        debtor_account=Value(account.client_account or "", output_field=CharField()),
+        debtor_id=Value(account.id, output_field=IntegerField()),
+        debtor_rating=Value(account.rating or "", output_field=CharField()),
+        debtor_rating_repeat=Value(account.rating_repeat or 0, output_field=IntegerField()),
+        debtor_debt_group=Value(account.debt_group, output_field=IntegerField(null=True)),
+        debtor_debt_group_manual=Value(account.debt_group_manual, output_field=IntegerField(null=True)),
+    ).prefetch_related(
+        Prefetch("items", queryset=MeasureItem.objects.filter(account=account).defer("raw")),
+    ).order_by("-created_at", "-id")
 
 
 def _page_offset(raw) -> int:
@@ -384,7 +408,12 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
         from django.db.models import Q
 
-        qs = _services_for(request.user, self.get_object())
+        qs = _services_for(request.user, self.get_object()).select_related(
+            "account__organization", "account__assigned_to", "account__debtor_category",
+            "account__scenario_run__scenario",
+        ).defer("raw").prefetch_related(
+            Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
+        )
         if request.query_params.get("with_debt") == "1":
             qs = qs.filter(
                 Q(balance_out__gt=Decimal("0")) | Q(balance_mulct_out__gt=Decimal("0")) | Q(overdue_debt__gt=0)
@@ -403,7 +432,8 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True)
     def registrations(self, request, pk=None):
-        return self._nested("registrations", RegistrationSerializer)
+        account = self.get_object()
+        return self._nested("", RegistrationSerializer, account.registrations.select_related("account"))
 
     @action(detail=True)
     def contacts(self, request, pk=None):
@@ -412,14 +442,14 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=True, url_path="balance-history")
     def balance_history(self, request, pk=None):
         account = self.get_object()
-        qs = account.balance_history.select_related("service")
+        qs = account.balance_history.select_related("service").defer("raw", "service__raw")
         service_ids = _services_for(request.user, account).values_list("pk", flat=True)
         return self._nested("", BalanceHistorySerializer, qs.filter(service_id__in=service_ids))
 
     @action(detail=True, url_path="status-history")
     def status_history(self, request, pk=None):
         account = self.get_object()
-        qs = account.status_history.select_related("service", "author")
+        qs = account.status_history.select_related("service", "author").defer("raw", "service__raw")
         providers = _supplier_ids(request.user)
         if providers is not None:
             qs = qs.filter(Q(service__isnull=True) | Q(service__provider_id__in=providers or [-1]))

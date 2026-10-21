@@ -128,6 +128,8 @@ class Account(AisRecord):
         indexes = [
             models.Index(fields=["organization", "provider_id", "debt_group"], name="account_scope_group"),
             models.Index(fields=["organization", "balance_out"], name="account_org_balance"),
+            models.Index(fields=["organization", "client_account"], name="account_org_number"),
+            models.Index(fields=["organization", "funnel_stage"], name="account_org_stage"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["organization", "provider_id", "account_id"], name="uniq_account_in_scope")
@@ -258,6 +260,9 @@ class AccountService(AisRecord):
 
     class Meta:
         ordering = ["sort_code", "service_name"]
+        indexes = [
+            models.Index(fields=["account", "provider_id"], name="service_account_provider"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["account", "service_list_id"], name="uniq_service_contract")
         ]
@@ -312,6 +317,9 @@ class ServiceDebtPeriod(AisRecord):
 
     class Meta:
         ordering = ["period"]
+        indexes = [
+            models.Index(fields=["account", "period"], name="debt_period_account_period"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["service", "period"], name="uniq_service_debt_period"),
         ]
@@ -369,6 +377,9 @@ class Payment(AisRecord):
 
     class Meta:
         ordering = ["-pay_date"]
+        indexes = [
+            models.Index(fields=["account", "acc_oper_date"], name="payment_account_oper"),
+        ]
         constraints = [models.UniqueConstraint(fields=["account", "receipt_id"], name="uniq_payment_receipt")]
         verbose_name = "Оплата"
         verbose_name_plural = "Оплаты"
@@ -433,6 +444,7 @@ class Registration(AisRecord):
         ordering = ["-subj_is_main", "fam", "im"]
         indexes = [
             models.Index(fields=["personal_num"], name="registration_personal_num"),
+            models.Index(fields=["account", "subj_is_main"], name="registration_account_main"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["account", "registration_id"], name="uniq_registration")
@@ -489,6 +501,9 @@ class BalanceHistory(AisRecord):
 
     class Meta:
         ordering = ["-period", "service_id"]
+        indexes = [
+            models.Index(fields=["account", "-period"], name="balance_account_period"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["service", "period"], name="uniq_service_period_balance"),
         ]
@@ -526,6 +541,9 @@ class StatusHistory(AisRecord):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["account", "-created_at"], name="status_account_created"),
+        ]
         verbose_name = "История статуса"
         verbose_name_plural = "История статусов"
 
@@ -724,6 +742,10 @@ class MeasureItem(AisRecord):
 
     class Meta:
         ordering = ["account_id", "id"]
+        indexes = [
+            models.Index(fields=["account", "delivered_on"], name="measure_item_delivered"),
+            models.Index(fields=["account", "status"], name="measure_item_status"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["measure", "account"], name="uniq_measure_item"),
         ]
@@ -920,6 +942,10 @@ class ClaimCase(AisRecord):
     writeoff_note = models.CharField("Итог списания", max_length=500, blank=True)
 
     class Meta:
+        indexes = [
+            models.Index(fields=["account", "debt_from"], name="claim_account_period"),
+            models.Index(fields=["organization", "notary_office"], name="claim_org_office"),
+        ]
         verbose_name = "Дело взыскания"
         verbose_name_plural = "Дела взыскания"
 

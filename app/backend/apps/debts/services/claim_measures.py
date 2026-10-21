@@ -3,7 +3,7 @@
 from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
-from apps.debts.models import Account, ClaimCase, Measure, MeasureItem
+from apps.debts.models import Account, AccountScenarioRun, ClaimCase, Measure, MeasureItem
 
 STAGE_STATUS = {
     ClaimCase.Stage.PREP: Measure.Status.ASSIGNED,
@@ -119,14 +119,22 @@ def backfill_visible_measures(accounts: QuerySet) -> None:
 
 
 def backfill_account(account: Account) -> None:
-    case = ClaimCase.objects.filter(account=account).first()
+    case = (
+        ClaimCase.objects.filter(account=account)
+        .select_related("account")
+        .defer("raw", "pris_request", "pris_inquiry")
+        .first()
+    )
     if case is not None:
         sync_claim_measure(case)
         return
-    if account.effective_group:
-        from apps.nsi.services.scenario_engine import ensure_imported_run
+    if not account.effective_group or account.inheritance_case:
+        return
+    if AccountScenarioRun.objects.filter(account=account).exists():
+        return
+    from apps.nsi.services.scenario_engine import ensure_imported_run
 
-        ensure_imported_run(account)
+    ensure_imported_run(account)
 
 
 def _item_status(status: str) -> str:

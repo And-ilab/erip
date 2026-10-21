@@ -124,7 +124,13 @@ def _writs(account):
 
 def _cases(account):
     """Все дела счёта: надпись с периодом и дело, открытое из претензионно-исковой работы без периода."""
-    return ClaimCase.objects.filter(account=account).order_by("debt_from", "id")
+    return (
+        ClaimCase.objects.filter(account=account)
+        .defer("raw", "pris_request", "pris_inquiry")
+        .select_related("package")
+        .prefetch_related("package__documents")
+        .order_by("debt_from", "id")
+    )
 
 
 def _eligible_periods(account) -> list[ServiceDebtPeriod]:
@@ -132,7 +138,7 @@ def _eligible_periods(account) -> list[ServiceDebtPeriod]:
     rows = list(
         ServiceDebtPeriod.objects.filter(account=account, period__lt=cutoff).filter(
             Q(principal__gt=0) | Q(penalty__gt=0),
-        ).order_by("period", "id")
+        ).defer("raw").order_by("period", "id")
     )
     return rows
 
@@ -205,7 +211,7 @@ def _offices(account) -> list[str]:
 
 
 def _defendant(account, start, end) -> str:
-    people = list(account.registrations.all())
+    people = list(account.registrations.defer("raw"))
     mains = [row for row in people if row.subj_is_main]
     pool = mains or people[:1]
 
@@ -234,7 +240,10 @@ def _blockers(periods, warning, act_on) -> list[str]:
 
 
 def _record(case: ClaimCase) -> dict:
-    package = ClaimPackage.objects.filter(case=case).prefetch_related("documents").first()
+    try:
+        package = case.package
+    except ClaimPackage.DoesNotExist:
+        package = None
     documents = []
     if package is not None:
         documents = [
