@@ -80,7 +80,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
           </div>
         </section>
 
-        <mat-tab-group class="surface tabs" [selectedIndex]="tabIndex()" (selectedIndexChange)="tabIndex.set($event)">
+        <mat-tab-group class="surface tabs" [selectedIndex]="tabIndex()" (selectedIndexChange)="openTab($event)">
         <mat-tab label="Общие">
             <div class="grid">
               <mat-card><mat-card-content>
@@ -836,8 +836,51 @@ export class AccountDetailComponent implements OnInit {
     });
   }
 
+  private readonly loadedParts = new Set<string>();
+
   ngOnInit(): void {
     const id = Number(this.id());
+    const started = performance.now();
+    this.api.account(id).subscribe({
+      next: (account) => {
+        this.applyAccount(account);
+        agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card visible', {
+          ms: Math.round(performance.now() - started),
+        });
+        const openWrit = this.route.snapshot.queryParamMap.get('tab') === 'writ';
+        if (openWrit) this.tabIndex.set(6);
+        this.loadHeader(id);
+        if (openWrit) this.ensureTab(6);
+      },
+      error: (e) => {
+        agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card forkJoin failed', {
+          totalMs: Math.round(performance.now() - started),
+          marks: {},
+        });
+        this.error.set(errorMessage(e));
+      },
+    });
+  }
+
+  protected openTab(index: number): void {
+    this.tabIndex.set(index);
+    this.ensureTab(index);
+  }
+
+  private applyAccount(account: AccountDetail): void {
+    this.account.set(account);
+    this.manualGroup = account.debt_group_manual;
+    this.manualReason = account.debt_group_manual_reason;
+    this.contactMode = account.contact_source_mode || 'combined';
+    this.categoryId = account.debtor_category;
+    this.residence = account.residence_note;
+    this.inheritance = account.inheritance_case;
+    this.inheritanceUntil = this.showDate(account.inheritance_until);
+  }
+
+  private loadHeader(id: number): void {
+    if (this.loadedParts.has('header')) return;
+    this.loadedParts.add('header');
     const started = performance.now();
     const marks: Record<string, number> = {};
     const timed = <T>(name: string, source: Observable<T>): Observable<T> => {
@@ -847,69 +890,140 @@ export class AccountDetailComponent implements OnInit {
       }));
     };
     forkJoin({
-      account: timed('account', this.api.account(id)),
       services: timed('services', this.api.accountServices(id, false)),
-      scenario: timed('scenario', this.api.accountScenario(id)),
-      writ: timed('writ', this.api.writDraft(id)),
-      payments: timed('payments', this.api.accountPayments(id)),
       registrations: timed('registrations', this.api.accountRegistrations(id)),
-      templates: timed('templates', this.api.templates({ is_active: true, page_size: 100 })),
-      balances: timed('balances', this.api.accountBalances(id)),
-      history: timed('history', this.api.accountHistory(id)),
-      work: timed('work', this.api.accountWork(id)),
-      contacts: timed('contacts', this.api.accountContacts(id)),
-      files: timed('files', this.api.accountFiles(id)),
       categories: timed('categories', this.api.categories()),
-      measures: timed('measures', this.api.accountMeasures(id)),
-      checks: timed('checks', this.api.writChecks(id)),
-      serviceColumns: timed('serviceColumns', this.api.cardColumns('services')),
-      paymentColumns: timed('paymentColumns', this.api.cardColumns('payments')),
     }).subscribe({
       next: (r) => {
         agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card forkJoin', {
           totalMs: Math.round(performance.now() - started),
           marks,
         });
-        this.account.set(r.account);
-        this.manualGroup = r.account.debt_group_manual;
-        this.manualReason = r.account.debt_group_manual_reason;
-        this.contactMode = r.account.contact_source_mode || 'combined';
-        this.categoryId = r.account.debtor_category;
-        this.categoryText = r.categories.results.find((item) => item.id === r.account.debtor_category)?.name ?? '';
-        this.residence = r.account.residence_note;
-        this.inheritance = r.account.inheritance_case;
-        this.inheritanceUntil = this.showDate(r.account.inheritance_until);
         this.services.set(r.services.results);
-        this.payments.set(r.payments.results);
         this.registrations.set(r.registrations.results);
-        this.balances.set(r.balances.results);
-        this.history.set(r.history.results);
-        this.work.set(r.work.results);
-        this.contacts.set(r.contacts.results);
-        this.files.set(r.files.results);
         this.categories.set(r.categories.results);
-        this.measures.set(r.measures.results);
-        this.checks.set(r.checks);
-        this.scenario.set(r.scenario);
-        this.writ.set(r.writ);
-        this.applyCardColumns('services', r.serviceColumns);
-        this.applyCardColumns('payments', r.paymentColumns);
-        if (this.route.snapshot.queryParamMap.get('tab') === 'writ') this.tabIndex.set(6);
-        const group = r.account.effective_group;
-        const list = r.templates.results.filter((t) => (['email', 'sms', 'voice'] as Channel[]).includes(t.channel));
-        const forGroup = group == null ? [] : list.filter((t) => t.debt_group === group);
-        this.templates.set(forGroup.length ? forGroup : list);
-        this.templateId = (forGroup[0] ?? list[0])?.id ?? null;
-        this.loadPeers(r.account);
+        if (!this.categoryText) {
+          this.categoryText = r.categories.results.find((item) => item.id === this.categoryId)?.name ?? '';
+        }
+        const account = this.account();
+        if (account) this.loadPeers(account);
       },
-      error: (e) => {
+      error: () => {
+        this.loadedParts.delete('header');
         agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card forkJoin failed', {
           totalMs: Math.round(performance.now() - started),
           marks,
         });
-        this.error.set(errorMessage(e));
       },
     });
+  }
+
+  private ensureTab(index: number): void {
+    const id = Number(this.id());
+    if (!id) return;
+    const key = `tab-${index}`;
+    if (this.loadedParts.has(key)) return;
+    const started = performance.now();
+    const marks: Record<string, number> = {};
+    const timed = <T>(name: string, source: Observable<T>): Observable<T> => {
+      const mark = performance.now();
+      return source.pipe(finalize(() => {
+        marks[name] = Math.round(performance.now() - mark);
+      }));
+    };
+    const batch = this.tabBatch(index, id, timed);
+    if (!batch) return;
+    this.loadedParts.add(key);
+    forkJoin(batch).subscribe({
+      next: (result) => {
+        agentDbg('A', 'account-detail.component.ts:ensureTab', 'card forkJoin', {
+          totalMs: Math.round(performance.now() - started),
+          tab: index,
+          marks,
+        });
+        this.applyTab(index, result);
+      },
+      error: () => {
+        this.loadedParts.delete(key);
+        agentDbg('A', 'account-detail.component.ts:ensureTab', 'card forkJoin failed', {
+          totalMs: Math.round(performance.now() - started),
+          tab: index,
+          marks,
+        });
+      },
+    });
+  }
+
+  private tabBatch(
+    index: number,
+    id: number,
+    timed: <T>(name: string, source: Observable<T>) => Observable<T>,
+  ): Record<string, Observable<unknown>> | null {
+    if (index === 2) {
+      return {
+        scenario: timed('scenario', this.api.accountScenario(id)),
+        measures: timed('measures', this.api.accountMeasures(id)),
+        templates: timed('templates', this.api.templates({ is_active: true, page_size: 100 })),
+      };
+    }
+    if (index === 3) return { contacts: timed('contacts', this.api.accountContacts(id)) };
+    if (index === 4) return { serviceColumns: timed('serviceColumns', this.api.cardColumns('services')) };
+    if (index === 5) {
+      return {
+        payments: timed('payments', this.api.accountPayments(id)),
+        paymentColumns: timed('paymentColumns', this.api.cardColumns('payments')),
+      };
+    }
+    if (index === 6) {
+      return {
+        writ: timed('writ', this.api.writDraft(id)),
+        checks: timed('checks', this.api.writChecks(id)),
+      };
+    }
+    if (index === 7) {
+      return {
+        files: timed('files', this.api.accountFiles(id)),
+        work: timed('work', this.api.accountWork(id)),
+      };
+    }
+    if (index === 8) {
+      return {
+        history: timed('history', this.api.accountHistory(id)),
+        balances: timed('balances', this.api.accountBalances(id)),
+      };
+    }
+    return null;
+  }
+
+  private applyTab(index: number, result: Record<string, unknown>): void {
+    if (index === 2) {
+      const scenario = result['scenario'] as ScenarioBoard;
+      const measures = result['measures'] as { results: MeasureRow[] };
+      const templates = result['templates'] as { results: MessageTemplate[] };
+      this.scenario.set(scenario);
+      this.measures.set(measures.results);
+      const group = this.account()?.effective_group;
+      const list = templates.results.filter((item) => (['email', 'sms', 'voice'] as Channel[]).includes(item.channel));
+      const forGroup = group == null ? [] : list.filter((item) => item.debt_group === group);
+      this.templates.set(forGroup.length ? forGroup : list);
+      this.templateId = (forGroup[0] ?? list[0])?.id ?? null;
+    } else if (index === 3) {
+      this.contacts.set((result['contacts'] as { results: ContactRow[] }).results);
+    } else if (index === 4) {
+      this.applyCardColumns('services', result['serviceColumns'] as ColumnPrefs);
+    } else if (index === 5) {
+      this.payments.set((result['payments'] as { results: Payment[] }).results);
+      this.applyCardColumns('payments', result['paymentColumns'] as ColumnPrefs);
+    } else if (index === 6) {
+      this.writ.set(result['writ'] as WritDraft);
+      this.checks.set(result['checks'] as { code: string; title: string; done: boolean }[]);
+    } else if (index === 7) {
+      this.files.set((result['files'] as { results: AttachmentRow[] }).results);
+      this.work.set((result['work'] as { results: WorkItem[] }).results);
+    } else if (index === 8) {
+      this.history.set((result['history'] as { results: HistoryRow[] }).results);
+      this.balances.set((result['balances'] as { results: BalanceRow[] }).results);
+    }
   }
 
   refreshNow(): void {
