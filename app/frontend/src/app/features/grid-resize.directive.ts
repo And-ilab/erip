@@ -166,12 +166,16 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
   }
 
   private applyColumn(index: number, width: number): void {
-    const px = `${width}px`;
-    const cols = this.ensureCols(this.headerCells().length);
+    const headers = this.headerCells();
+    const used = Math.max(width, headerFloor(headers[index]));
+    const id = headers[index] ? this.columnId(headers[index], index) : '';
+    if (id) this.widths.set(id, used);
+    const px = `${used}px`;
+    const cols = this.ensureCols(headers.length);
     const col = cols[index];
     if (col) col.style.width = px;
     for (const cell of this.cellsInColumn(index)) {
-      if (cell.style.width === px) continue;
+      if (cell.style.width === px && cell.style.maxWidth === px) continue;
       cell.style.width = px;
       cell.style.minWidth = px;
       cell.style.maxWidth = px;
@@ -266,4 +270,12 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
 
 function clamp(width: number): number {
   return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(width)));
+}
+
+/** Заголовок остаётся одной строкой: столбец не уже подписи. */
+function headerFloor(cell: HTMLTableCellElement | undefined): number {
+  if (!cell) return MIN_WIDTH;
+  const text = (cell.innerText || '').replace(/\s+/g, ' ').trim();
+  if (text.length < 2) return MIN_WIDTH;
+  return Math.min(320, Math.max(MIN_WIDTH, Math.ceil(text.length * 7.2 + 28)));
 }

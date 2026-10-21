@@ -71,18 +71,28 @@ import { RegistryViewsComponent } from '../registry-views.component';
           <section class="surface registry main">
             <div class="list-pane">
             <table class="wide" appGridResize="measures">
+              <colgroup>
+                <col class="c-tick" />
+                <col class="c-kind" />
+                <col class="c-period" />
+                <col class="c-init" />
+                <col class="c-account" />
+                <col class="c-who" />
+                <col class="c-next" />
+                <col class="c-status" />
+              </colgroup>
               <thead>
                 <tr>
                   <th class="tick" data-col="select">
                     <input type="checkbox" aria-label="Выбрать видимые" [checked]="allVisible()" (change)="toggleVisible()" />
                   </th>
-                  <th data-col="title">Тип мероприятия</th>
-                  <th data-col="period">Период выполнения</th>
-                  <th data-col="initiator">Инициатор</th>
-                  <th data-col="debtor">Номер ЛС</th>
-                  <th class="who" data-col="assignee">Исполнитель</th>
-                  <th data-col="next">Следующее действие</th>
-                  <th data-col="status">Статус</th>
+                  <th data-col="title" title="Тип мероприятия">Тип мероприятия</th>
+                  <th data-col="period" title="Период выполнения">Период выполнения</th>
+                  <th data-col="initiator" title="Инициатор">Инициатор</th>
+                  <th data-col="debtor" title="Номер ЛС">Номер ЛС</th>
+                  <th data-col="assignee" title="Исполнитель">Исполнитель</th>
+                  <th data-col="next" title="Следующее действие">Следующее действие</th>
+                  <th data-col="status" title="Статус">Статус</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,7 +108,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                         <td class="tick">
                           <input type="checkbox" [attr.aria-label]="'Выбрать ' + row.title" [checked]="pickedRows().has(row.id)" (change)="toggleRow(row.id)" />
                         </td>
-                        <td>
+                        <td class="stack">
                           <a class="title" [routerLink]="['/measures', row.id]">{{ row.kind_display || row.title }}</a>
                           @if (row.progress && row.progress.total > 1) {
                             <div class="mini">
@@ -108,9 +118,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
                           }
                           @if (row.artifact) { <div><a [href]="row.artifact">Файл</a></div> }
                         </td>
-                        <td>{{ row.started_on ? (row.started_on | date: 'dd.MM.yyyy') : '…' }} — {{ row.finished_on ? (row.finished_on | date: 'dd.MM.yyyy') : '…' }}</td>
-                        <td>{{ row.initiator_name || '—' }}</td>
-                        <td>
+                        <td class="clip">{{ row.started_on ? (row.started_on | date: 'dd.MM.yyyy') : '…' }} — {{ row.finished_on ? (row.finished_on | date: 'dd.MM.yyyy') : '…' }}</td>
+                        <td class="clip">{{ row.initiator_name || '—' }}</td>
+                        <td class="stack">
                           @if (row.debtor_id) {
                             <a class="title" [routerLink]="['/accounts', row.debtor_id]">{{ row.debtor_account || 'ЛС' }}</a>
                           } @else {
@@ -121,7 +131,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                             <div class="muted">ещё {{ row.accounts_count - 1 }} ЛС</div>
                           }
                         </td>
-                        <td>
+                        <td class="who">
                           @if (row.assignee_name) {
                             <span class="person" [matTooltip]="row.assignee_name">
                               <span class="face t{{ tone(row.assignee_name) }}">{{ initials(row.assignee_name) }}</span>
@@ -130,15 +140,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
                             <span class="dash">—</span>
                           }
                         </td>
-                        <td><span class="action-dot {{ row.status }}"></span>{{ row.next_action }}</td>
-                        <td><span class="status-pill {{ row.status }}" [title]="row.status_display">{{ statusText(row) }}</span></td>
+                        <td class="clip next"><span class="action-dot {{ row.status }}"></span>{{ row.next_action }}</td>
+                        <td class="clip"><span class="status-pill {{ row.status }}" [title]="row.status_display">{{ statusText(row) }}</span></td>
                       </tr>
                     }
                     @if (groupedByStatus() && group.results.length < group.total) {
                       <tr class="more-row">
                         <td colspan="8">
-                          <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
-                          <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
+                          <div class="more-line">
+                            <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
+                            <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
+                          </div>
                         </td>
                       </tr>
                     }
@@ -378,36 +390,53 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .ready-title { margin: 0; color: var(--erip-muted); flex: 1; }
     .registry { margin: 12px 16px 0; overflow: visible; background: #fff; }
     .registry.main { display: block; }
-    .registry.main .list-pane, .matrix-card .list-pane { max-height: none; overflow: visible; }
+    .registry.main .list-pane, .matrix-card .list-pane { max-height: none; overflow: auto; }
     .matrix-card { display: block; max-height: none; margin: 16px 16px 0; }
     .matrix-card.fill { flex: 1; max-height: none; }
     .matrix-card .list-pane { flex: 1; max-height: none; min-height: 0; }
-    table.wide td, table.wide th { overflow-wrap: break-word; }
-    .band td { background: #f7f9fb; padding: 0; }
+    .band td { background: #f7f9fb; padding: 0; overflow: visible; white-space: normal; }
     .band button {
       display: block; width: 100%; border: 0; background: transparent;
       padding: 10px 12px; font: inherit; font-size: 13px; font-weight: 700; color: #1f2933; cursor: pointer; text-align: left;
     }
-    table { border: 0; border-radius: 0; }
-    table.wide { width: 100%; table-layout: fixed; }
-    table.wide th:nth-child(1), table.wide td:nth-child(1) { width: 36px; }
-    table.wide th:nth-child(2), table.wide td:nth-child(2) { width: 32%; }
-    table.wide th:nth-child(3), table.wide td:nth-child(3) { width: 26%; }
-    table.wide th:nth-child(4), table.wide td:nth-child(4) { width: 120px; text-align: center; white-space: nowrap; }
-    table.wide th:nth-child(5), table.wide td:nth-child(5) { width: 18%; }
-    table.wide th:nth-child(6), table.wide td:nth-child(6) { width: 120px; }
+    table { border: 0; border-radius: 0; border-collapse: collapse; }
+    table.wide {
+      width: 100%; min-width: 1180px; table-layout: fixed; border-collapse: collapse;
+    }
+    table.wide col.c-tick { width: 4%; }
+    table.wide col.c-kind { width: 17%; }
+    table.wide col.c-period { width: 15%; }
+    table.wide col.c-init { width: 15%; }
+    table.wide col.c-account { width: 16%; }
+    table.wide col.c-who { width: 10%; }
+    table.wide col.c-next { width: 14%; }
+    table.wide col.c-status { width: 9%; }
     tr.picked td { background: #f3f8fb; }
-    th { text-align: left; font-size: 12px; font-weight: 600; color: var(--erip-muted); padding: 8px 12px; background: #fff; }
+    th {
+      text-align: left; font-size: 12px; font-weight: 600; color: var(--erip-muted);
+      padding: 10px 12px; background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     td { padding: 10px 12px; border-top: 1px solid var(--erip-border); vertical-align: middle; }
+    table.wide td.clip, table.wide td.who, table.wide td.stack {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    table.wide td.stack { white-space: normal; }
+    table.wide td.stack .title, table.wide td.stack .muted {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    table.wide td.who { text-align: left; }
+    table.wide td.next .action-dot { flex: 0 0 auto; }
     .title { font-weight: 600; color: inherit; }
     .mini { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
     .track { display: block; width: 72px; height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; }
     .track span { display: block; height: 100%; background: #16a34a; }
     .person { display: inline-flex; }
     .dash { color: var(--erip-muted); }
-    .more-row td { display: flex; align-items: center; gap: 12px; }
+    .more-row td { overflow: visible; white-space: normal; }
+    .more-line { display: flex; align-items: center; gap: 12px; }
     .more { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 12px 12px; }
-    .tick { width: 40px; }
+    .tick { width: auto; text-align: center; }
     .pad { padding: 0 12px 8px; }
     a.cell { text-decoration: none; }
     h3 {
@@ -422,7 +451,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .count { min-width: 22px; padding: 1px 8px; border-radius: 10px; background: #fff; font-size: 12px; font-weight: 700; }
     .matrix-wrap { overflow: auto; }
-    .matrix { width: 100%; min-width: 720px; }
+    .matrix { width: 100%; min-width: 720px; table-layout: auto; }
+    .matrix th, .matrix td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
     .cell {
       display: inline-flex; align-items: center; justify-content: center; min-width: 52px; padding: 3px 8px;
       border-radius: 10px; font-size: 12px; font-weight: 700; text-decoration: none;
