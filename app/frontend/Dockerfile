@@ -23,7 +23,21 @@ RUN set -eux; \
     curl -fsSL -o /tmp/pmtiles.tar.gz "https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_${arch}.tar.gz"; \
     tar -xzf /tmp/pmtiles.tar.gz -C /usr/local/bin pmtiles; \
     mkdir -p /maps; \
-    pmtiles extract "https://build.protomaps.com/20261005.pmtiles" /maps/belarus.pmtiles \
+    now=$(date +%s); \
+    found=""; \
+    i=0; \
+    while [ "$i" -le 21 ]; do \
+      day=$(date -u -d "@$((now - i * 86400))" +%Y%m%d); \
+      url="https://build.protomaps.com/${day}.pmtiles"; \
+      if curl -fsI -o /dev/null --retry 2 --retry-delay 1 "$url"; then \
+        found="$url"; \
+        break; \
+      fi; \
+      i=$((i + 1)); \
+    done; \
+    echo "pmtiles source: ${found}"; \
+    test -n "$found"; \
+    pmtiles extract "$found" /maps/belarus.pmtiles \
       --bbox=23.17,51.26,32.78,56.18 --maxzoom=14 --download-threads=8; \
     test "$(stat -c%s /maps/belarus.pmtiles)" -gt 100000000
 
