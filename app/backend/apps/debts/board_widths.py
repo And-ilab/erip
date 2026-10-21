@@ -20,6 +20,23 @@ BOARDS = frozenset({
     "claims",
     "card-services",
     "card-payments",
+    "account-registrations",
+    "account-contacts",
+    "account-files",
+    "account-balances",
+    "account-history",
+    "account-shares",
+    "contract-measures",
+    "measure-items",
+    "measure-events",
+    "errors",
+    "notifications",
+    "import-queue",
+    "import-jobs",
+    "org-users",
+    "scenario-steps",
+    "rating-groups",
+    "rating-letters",
 })
 _KEY = re.compile(r"^[A-Za-z0-9_]{1,80}$")
 _MIN = 36

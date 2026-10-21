@@ -7,21 +7,27 @@ import { forkJoin } from 'rxjs';
 
 import { ApiService, DebtGroupBand, ScenarioRuleRow, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { DialSettings } from '../../core/models';
 
 @Component({
   selector: 'app-rating-rules',
   standalone: true,
-  imports: [FormsModule, MatButtonModule, MatCheckboxModule, MatSnackBarModule],
+  imports: [FormsModule, MatButtonModule, MatCheckboxModule, MatSnackBarModule, GridResizeDirective],
   template: `
     <p class="crumb">Настройка · Правила присвоения рейтинга и группы задолженности</p>
     <div class="rules">
       <section class="card">
         <h2>Группы задолженности</h2>
         <p class="muted">Границы групп по давности долга. Пересчёт выполняется при каждом обновлении данных из АИС «Расчет-ЖКУ». Изменение границ применяется со следующего регламентного пересчёта. Шкала — группы 1–6.</p>
-        <table>
+        <table appGridResize="rating-groups">
           <thead>
-            <tr><th>Группа</th><th>Просрочка от</th><th>Просрочка до</th><th>Базовый сценарий</th></tr>
+            <tr>
+              <th data-col="group">Группа</th>
+              <th data-col="from">Просрочка от</th>
+              <th data-col="to">Просрочка до</th>
+              <th data-col="scenario">Базовый сценарий</th>
+            </tr>
           </thead>
           <tbody>
             @for (band of bands(); track band.group) {
@@ -63,8 +69,8 @@ import { DialSettings } from '../../core/models';
       <section class="card">
         <h2>Правила рейтинга должника</h2>
         <p class="muted">Рейтинг рассчитывается по всем ЛС и договорам должника и отображается в реестрах, карточках и на канбан-доске. Буквы A–E: нормальный, уязвимый, негативный, критический, безнадёжный.</p>
-        <table class="letters">
-          <thead><tr><th>Рейтинг</th><th>Условие присвоения</th></tr></thead>
+        <table class="letters" appGridResize="rating-letters">
+          <thead><tr><th data-col="letter">Рейтинг</th><th data-col="rule">Условие присвоения</th></tr></thead>
           <tbody>
             @for (row of letters(); track row.letter) {
               <tr>
@@ -114,7 +120,7 @@ import { DialSettings } from '../../core/models';
     .muted { margin: 0; color: var(--erip-muted); font-size: 13px; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--erip-border); font-size: 13px; vertical-align: middle; }
-    th { color: var(--erip-muted); font-weight: 600; }
+    th { color: #5c6b7a; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; background: #f7f9fb; white-space: nowrap; }
     .g-pill {
       display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; white-space: nowrap;
       &.g1 { background: #dcfce7; color: #166534; }

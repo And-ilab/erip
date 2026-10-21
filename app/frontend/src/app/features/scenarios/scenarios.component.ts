@@ -10,6 +10,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, WritChecklistItem, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DialSettings, MessageTemplate } from '../../core/models';
+import { GridResizeDirective } from '../grid-resize.directive';
 const ACTIONS = [
   { id: 'call', label: 'Автообзвон' },
   { id: 'manual_call', label: 'Ручной звонок' },
@@ -38,7 +39,7 @@ function defaultWritChecklist(): WritChecklistItem[] {
   standalone: true,
   imports: [
     FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule,
+    MatCheckboxModule, MatSnackBarModule, GridResizeDirective,
   ],
   template: `
     <div>
@@ -90,8 +91,8 @@ function defaultWritChecklist(): WritChecklistItem[] {
             </div>
             @if (steps.length) {
               <div class="list-pane">
-                <table>
-                  <thead><tr><th>№</th><th>Мера</th><th>Дней</th><th>Режим</th><th></th></tr></thead>
+                <table appGridResize="scenario-steps">
+                  <thead><tr><th data-col="order">№</th><th data-col="action">Мера</th><th data-col="days">Дней</th><th data-col="mode">Режим</th><th data-col="open"></th></tr></thead>
                   <tbody>
                     @for (step of steps; track $index) {
                       <tr (click)="openStep($index)">

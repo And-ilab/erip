@@ -14,6 +14,7 @@ import { Observable } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DirectoryUser, OrganizationOption, Role, ServiceOrganizationOption } from '../../core/models';
+import { GridResizeDirective } from '../grid-resize.directive';
 
 interface UserDraft {
   last_name: string;
@@ -210,6 +211,7 @@ export class UserDraftDialog {
   standalone: true,
   imports: [
     FormsModule, MatButtonModule, MatIconModule, MatTooltipModule, MatSnackBarModule, MatDialogModule,
+    GridResizeDirective,
   ],
   template: `
     <div class="bar">
@@ -276,9 +278,16 @@ export class UserDraftDialog {
           </div>
           @if (tab() === 'users') {
             <div class="list-pane">
-              <table>
+              <table appGridResize="org-users">
                 <thead>
-                  <tr><th>Пользователь</th><th>Логин</th><th>Роль</th><th>Статус</th><th>Последний вход</th><th></th></tr>
+                  <tr>
+                    <th data-col="name">Пользователь</th>
+                    <th data-col="login">Логин</th>
+                    <th data-col="role">Роль</th>
+                    <th data-col="status">Статус</th>
+                    <th data-col="seen">Последний вход</th>
+                    <th data-col="open"></th>
+                  </tr>
                 </thead>
                 <tbody>
                   @for (user of users(); track user.id) {

@@ -21,6 +21,7 @@ import { AuthService } from '../../core/auth.service';
 import {
   AccountDetail, AccountRow, AccountService, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioStep, WorkItem, WritDraft,
 } from '../../core/models';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 
 @Component({
@@ -30,7 +31,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
     DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
     MatAutocompleteModule,
     MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
-    MeasureTasksComponent,
+    MeasureTasksComponent, GridResizeDirective,
   ],
   template: `
     <div class="page">
@@ -174,26 +175,29 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 
           <mat-tab label="Регистрация ({{ registrations().length }})">
             <div class="columns-wrap">
-              <button mat-stroked-button type="button" (click)="regPicker = !regPicker">Настройка таблицы</button>
-              @if (regPicker) {
-                <button mat-button type="button" (click)="setRegColumns(true)">Отметить все</button>
-                <button mat-button type="button" (click)="setRegColumns(false)">Снять все</button>
+              <button mat-stroked-button type="button" (click)="toggleColumnMenu('registration', $event)">Столбцы</button>
+              @if (columnMenu === 'registration') {
+                <div class="picker-back" (click)="columnMenu = ''"></div>
+                <div class="picker-menu" role="listbox" aria-label="Столбцы регистрации"
+                     [style.top.px]="columnMenuTop" [style.left.px]="columnMenuLeft"
+                     [style.max-height]="'calc(100vh - ' + (columnMenuTop + 12) + 'px)'">
+                  <div class="picker-actions">
+                    <button type="button" (click)="setRegColumns(true)">Отметить все</button>
+                    <button type="button" (click)="setRegColumns(false)">Снять все</button>
+                  </div>
+                  @for (col of regCatalog; track col; let i = $index) {
+                    <label>
+                      <input type="checkbox" [checked]="regVisible(col)" (change)="toggleRegColumn(col, $any($event.target).checked)" />
+                      <span>{{ regLabel(col) }}</span>
+                      <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, -1)">↑</button>
+                      <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, 1)">↓</button>
+                    </label>
+                  }
+                </div>
               }
             </div>
-            @if (regPicker) {
-              <div class="picker">
-                @for (col of regCatalog; track col; let i = $index) {
-                  <label>
-                    <input type="checkbox" [checked]="regVisible(col)" (change)="toggleRegColumn(col, $any($event.target).checked)" />
-                    {{ regLabel(col) }}
-                    <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, -1)">↑</button>
-                    <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, 1)">↓</button>
-                  </label>
-                }
-              </div>
-            }
-            <div class="list-pane"><table class="plain">
-              <thead><tr>@for (col of visibleRegColumns(); track col) { <th>{{ regLabel(col) }}</th> }</tr></thead>
+            <div class="list-pane"><table class="plain" appGridResize="account-registrations">
+              <thead><tr>@for (col of visibleRegColumns(); track col) { <th [attr.data-col]="col">{{ regLabel(col) }}</th> }</tr></thead>
               <tbody>
                 @for (person of registrations(); track person.id) {
                   <tr>@for (col of visibleRegColumns(); track col) { <td>{{ regCell(person, col) }}</td> }</tr>
@@ -288,7 +292,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               </span>
             </div>
             }
-            <div class="list-pane"><table mat-table [dataSource]="contacts()">
+            <div class="list-pane"><table mat-table [dataSource]="contacts()" appGridResize="account-contacts">
               <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let r">{{ contactKindLabel(r.kind) }}</td></ng-container>
               <ng-container matColumnDef="value"><th mat-header-cell *matHeaderCellDef>Значение</th><td mat-cell *matCellDef="let r">{{ r.value }}</td></ng-container>
               <ng-container matColumnDef="source"><th mat-header-cell *matHeaderCellDef>Источник</th><td mat-cell *matCellDef="let r">{{ contactSourceLabel(r.source) }}@if (r.source === 'ais' && r.ais_updated_at) { · {{ r.ais_updated_at | date: 'dd.MM.yyyy' }} }</td></ng-container>
@@ -306,12 +310,12 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 
           <mat-tab label="Услуги ({{ services().length }})">
             <div class="columns-wrap">
-              <button mat-stroked-button type="button" (click)="toggleServicePicker($event)">Столбцы</button>
-              @if (servicePicker) {
-                <div class="picker-back" (click)="servicePicker = false"></div>
+              <button mat-stroked-button type="button" (click)="toggleColumnMenu('services', $event)">Столбцы</button>
+              @if (columnMenu === 'services') {
+                <div class="picker-back" (click)="columnMenu = ''"></div>
                 <div class="picker-menu" role="listbox" aria-label="Столбцы услуг"
-                     [style.top.px]="serviceMenuTop" [style.left.px]="serviceMenuLeft"
-                     [style.max-height]="'calc(100vh - ' + (serviceMenuTop + 12) + 'px)'">
+                     [style.top.px]="columnMenuTop" [style.left.px]="columnMenuLeft"
+                     [style.max-height]="'calc(100vh - ' + (columnMenuTop + 12) + 'px)'">
                   <div class="picker-actions">
                     <button type="button" (click)="setServiceColumns(true)">Отметить все</button>
                     <button type="button" (click)="setServiceColumns(false)">Снять все</button>
@@ -327,7 +331,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                 </div>
               }
             </div>
-            <div class="list-pane service-pane"><table mat-table [dataSource]="services()">
+            <div class="list-pane service-pane"><table mat-table [dataSource]="services()" appGridResize="card-services">
               <ng-container matColumnDef="report_group_id"><th mat-header-cell *matHeaderCellDef>ID группы отчёта</th><td mat-cell *matCellDef="let s">{{ s.report_group_id ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="netting_mulct_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_mulct_sum" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="netting_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет по услуге <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_sum" [blank]="false" /></td></ng-container>
@@ -380,27 +384,30 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
           </mat-tab>
 
           <mat-tab label="Оплата ({{ payments().length }})">
-            <div class="filters" style="justify-content: flex-end">
-              <button mat-stroked-button type="button" (click)="paymentPicker = !paymentPicker">Настройка таблицы</button>
-              @if (paymentPicker) {
-                <button mat-button type="button" (click)="setPaymentColumns(true)">Отметить все</button>
-                <button mat-button type="button" (click)="setPaymentColumns(false)">Снять все</button>
+            <div class="columns-wrap">
+              <button mat-stroked-button type="button" (click)="toggleColumnMenu('payments', $event)">Столбцы</button>
+              @if (columnMenu === 'payments') {
+                <div class="picker-back" (click)="columnMenu = ''"></div>
+                <div class="picker-menu" role="listbox" aria-label="Столбцы оплаты"
+                     [style.top.px]="columnMenuTop" [style.left.px]="columnMenuLeft"
+                     [style.max-height]="'calc(100vh - ' + (columnMenuTop + 12) + 'px)'">
+                  <div class="picker-actions">
+                    <button type="button" (click)="setPaymentColumns(true)">Отметить все</button>
+                    <button type="button" (click)="setPaymentColumns(false)">Снять все</button>
+                  </div>
+                  @for (col of paymentCatalog; track col; let i = $index) {
+                    <label>
+                      <input type="checkbox" [checked]="paymentVisible(col)" (change)="togglePaymentColumn(col, $any($event.target).checked)" />
+                      <span>{{ paymentLabel(col) }}</span>
+                      <button type="button" (click)="$event.preventDefault(); movePaymentColumn(i, -1)">↑</button>
+                      <button type="button" (click)="$event.preventDefault(); movePaymentColumn(i, 1)">↓</button>
+                    </label>
+                  }
+                </div>
               }
             </div>
-            @if (paymentPicker) {
-              <div class="picker">
-                @for (col of paymentCatalog; track col; let i = $index) {
-                  <label>
-                    <input type="checkbox" [checked]="paymentVisible(col)" (change)="togglePaymentColumn(col, $any($event.target).checked)" />
-                    {{ paymentLabel(col) }}
-                    <button type="button" (click)="$event.preventDefault(); movePaymentColumn(i, -1)">↑</button>
-                    <button type="button" (click)="$event.preventDefault(); movePaymentColumn(i, 1)">↓</button>
-                  </label>
-                }
-              </div>
-            }
             <div class="list-pane">
-              <table class="plain">
+              <table class="plain" appGridResize="card-payments">
                 <thead>
                   @if (paymentHasGroups()) {
                     <tr>
@@ -408,17 +415,17 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                         @if (cell.span > 1) {
                           <th [attr.colspan]="cell.span">{{ cell.title }}</th>
                         } @else {
-                          <th rowspan="2">{{ cell.title }}</th>
+                          <th rowspan="2" [attr.data-col]="cell.key">{{ cell.title }}</th>
                         }
                       }
                     </tr>
                     <tr>
                       @for (col of visiblePaymentColumns(); track col) {
-                        @if (paymentSub(col); as sub) { <th>{{ sub }}</th> }
+                        @if (paymentSub(col); as sub) { <th [attr.data-col]="col">{{ sub }}</th> }
                       }
                     </tr>
                   } @else {
-                    <tr>@for (col of visiblePaymentColumns(); track col) { <th>{{ paymentLabel(col) }}</th> }</tr>
+                    <tr>@for (col of visiblePaymentColumns(); track col) { <th [attr.data-col]="col">{{ paymentLabel(col) }}</th> }</tr>
                   }
                 </thead>
                 <tbody>
@@ -473,8 +480,8 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                 <input type="file" (change)="onFile($event)" />
               </div>
             }
-            <div class="list-pane"><table class="plain">
-              <thead><tr><th>Тип</th><th>Документ</th><th>Когда</th><th></th></tr></thead>
+            <div class="list-pane"><table class="plain" appGridResize="account-files">
+              <thead><tr><th data-col="type">Тип</th><th data-col="name">Документ</th><th data-col="when">Когда</th><th data-col="actions"></th></tr></thead>
               <tbody>
                 @for (file of files(); track file.id) {
                   <tr>
@@ -508,7 +515,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             </div>
             @if (historyPane === 'sums') {
               <p class="muted tab-note">Текущие остатки по периоду и услуге: основной долг и пеня раздельно. Отдельного журнала «было / стало» по ночным загрузкам нет.</p>
-              <div class="list-pane"><table mat-table [dataSource]="balances()">
+              <div class="list-pane"><table mat-table [dataSource]="balances()" appGridResize="account-balances">
                 <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
                 <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
                 <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Остаток основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
@@ -518,7 +525,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               </table></div>
             } @else {
             <p class="muted tab-note">Группа и рейтинг — отдельно. Этап, сценарий, контакты и остальные изменения — на кнопке «Прочие».</p>
-            <div class="list-pane"><table mat-table [dataSource]="historyRows()">
+            <div class="list-pane"><table mat-table [dataSource]="historyRows()" appGridResize="account-history">
               <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Когда</th><td mat-cell *matCellDef="let r">{{ r.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
               <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Что</th><td mat-cell *matCellDef="let r">{{ historyKind(r.kind) }}</td></ng-container>
               <ng-container matColumnDef="old_value"><th mat-header-cell *matHeaderCellDef>Было</th><td mat-cell *matCellDef="let r">{{ r.old_value || '—' }}</td></ng-container>
@@ -535,8 +542,8 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
           <div class="backdrop" (click)="sharesOpen.set(false)">
             <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Состав долга">
               <h3>Кому должен лицевой счёт {{ a.client_account }}</h3>
-              <div class="list-pane"><table class="shares">
-                <thead><tr><th>Краткое наименование поставщика</th><th>Исходящее сальдо с пенями <app-byn-sign /></th><th>Исходящее сальдо пени <app-byn-sign /></th><th>Итого <app-byn-sign /></th></tr></thead>
+              <div class="list-pane"><table class="shares" appGridResize="account-shares">
+                <thead><tr><th data-col="supplier">Краткое наименование поставщика</th><th data-col="principal">Исходящее сальдо с пенями <app-byn-sign /></th><th data-col="penalty">Исходящее сальдо пени <app-byn-sign /></th><th data-col="total">Итого <app-byn-sign /></th></tr></thead>
                 <tbody>
                   @for (row of shares(); track row.provider_name + row.principal + row.penalty) {
                     <tr>
@@ -602,6 +609,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
     .picker-menu label button { border: 0; background: transparent; cursor: pointer; }
     table.plain { border-collapse: collapse; width: max-content; min-width: 100%; }
     table.plain th, table.plain td { border-bottom: 1px solid var(--erip-border); padding: 6px 10px; text-align: left; white-space: nowrap; }
+    table.plain th { background: #f7f9fb; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; color: #5c6b7a; }
     .text-btn { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; font-size: 13px; padding: 0 10px 0 0; }
     .crumbs b { color: #1f2933; }
     .sep { opacity: .6; }
@@ -795,10 +803,9 @@ export class AccountDetailComponent implements OnInit {
   protected manualGroup: number | null = null;
   protected manualReason = '';
   protected templateId: number | null = null;
-  protected servicePicker = false;
-  protected serviceMenuTop = 0;
-  protected serviceMenuLeft = 0;
-  protected paymentPicker = false;
+  protected columnMenu = '';
+  protected columnMenuTop = 0;
+  protected columnMenuLeft = 0;
   protected warningDelivered = '';
   protected warningFile: File | null = null;
   protected readonly serviceCatalog = this.accountServiceColumns();
@@ -1690,12 +1697,16 @@ export class AccountDetailComponent implements OnInit {
     return !this.serviceHidden.has(col);
   }
 
-  protected toggleServicePicker(event: Event): void {
+  protected toggleColumnMenu(name: string, event: Event): void {
+    if (this.columnMenu === name) {
+      this.columnMenu = '';
+      return;
+    }
     const button = event.currentTarget as HTMLElement;
     const box = button.getBoundingClientRect();
-    this.serviceMenuTop = box.bottom + 4;
-    this.serviceMenuLeft = Math.min(box.left, window.innerWidth - 376);
-    this.servicePicker = !this.servicePicker;
+    this.columnMenuTop = box.bottom + 4;
+    this.columnMenuLeft = Math.min(Math.max(8, box.left), window.innerWidth - 376);
+    this.columnMenu = name;
   }
 
   protected toggleServiceColumn(col: string, on: boolean): void {
@@ -1718,7 +1729,6 @@ export class AccountDetailComponent implements OnInit {
     this.persistCard('services');
   }
 
-  protected regPicker = false;
   protected regHidden = new Set<string>();
   protected readonly regCatalog = [
     'payer', 'registered', 'beneficiary', 'fam', 'im', 'ot', 'check_in_date', 'check_out_date',

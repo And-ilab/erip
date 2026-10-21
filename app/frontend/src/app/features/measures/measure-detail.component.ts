@@ -16,6 +16,7 @@ import { RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { MeasureDetail, MeasureItemRow } from '../../core/models';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { MeasureTasksComponent } from './measure-tasks.component';
 
 const CALL_RESULTS = [
@@ -37,6 +38,7 @@ const DELIVERY_METHODS = [
   imports: [
     DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MatInputModule,
     MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatIconModule, MatTooltipModule, MeasureTasksComponent,
+    GridResizeDirective,
   ],
   template: `
     <div class="page" [class]="'page kind-' + (measure()?.kind || '')">
@@ -224,24 +226,24 @@ const DELIVERY_METHODS = [
             <p class="muted pad">В вашем контуре нет лицевых счетов этого мероприятия.</p>
           } @else {
             <div class="list-pane campaign">
-            <table>
+            <table appGridResize="measure-items">
               <thead>
                 <tr>
                   @if (selectable()) {
-                    <th class="tick">
+                    <th class="tick" data-col="tick">
                       <mat-checkbox [checked]="allPicked()" [indeterminate]="somePicked()" (change)="toggleAll()" />
                     </th>
                   }
-                  <th>Должник</th>
-                  <th>Статус</th>
+                  <th data-col="debtor">Должник</th>
+                  <th data-col="status">Статус</th>
                   @switch (m.kind) {
-                    @case ('call') { <th>Телефон</th><th>Результат</th> }
-                    @case ('notice') { <th>Адресат</th><th>Доставка</th> }
-                    @case ('warning') { <th>Вручение</th><th>Отправление</th> }
-                    @case ('disconnect') { <th>Приостановлено</th><th>Возобновлено</th> }
-                    @default { <th>Отметка</th><th>Примечание</th> }
+                    @case ('call') { <th data-col="phone">Телефон</th><th data-col="result">Результат</th> }
+                    @case ('notice') { <th data-col="address">Адресат</th><th data-col="delivery">Доставка</th> }
+                    @case ('warning') { <th data-col="served">Вручение</th><th data-col="post">Отправление</th> }
+                    @case ('disconnect') { <th data-col="stopped">Приостановлено</th><th data-col="resumed">Возобновлено</th> }
+                    @default { <th data-col="mark">Отметка</th><th data-col="note">Примечание</th> }
                   }
-                  <th></th>
+                  <th data-col="open"></th>
                 </tr>
               </thead>
               <tbody>
@@ -389,9 +391,9 @@ const DELIVERY_METHODS = [
           <section class="surface group">
             <div class="group-head"><span>Журнал переходов</span></div>
             <div class="list-pane">
-            <table>
+            <table appGridResize="measure-events">
               <thead>
-                <tr><th>Когда</th><th>Кто</th><th>Переход</th><th>Основание</th></tr>
+                <tr><th data-col="when">Когда</th><th data-col="who">Кто</th><th data-col="move">Переход</th><th data-col="reason">Основание</th></tr>
               </thead>
               <tbody>
                 @for (event of m.events; track event.id) {

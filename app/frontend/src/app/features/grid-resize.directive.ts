@@ -83,9 +83,33 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
   }
 
   private headerCells(): HTMLTableCellElement[] {
-    const row = this.host.nativeElement.querySelector('thead tr');
-    if (!row) return [];
-    return (Array.from(row.children) as Element[]).filter((cell): cell is HTMLTableCellElement => cell.tagName === 'TH');
+    const head = this.host.nativeElement.tHead;
+    if (!head?.rows.length) return [];
+    const grid: HTMLTableCellElement[][] = [];
+    const rows = Array.from(head.rows) as HTMLTableRowElement[];
+    rows.forEach((row, rowIndex) => {
+      let column = 0;
+      const cells = Array.from(row.cells) as HTMLTableCellElement[];
+      for (const cell of cells) {
+        while (grid[rowIndex]?.[column]) column += 1;
+        const rowSpan = cell.rowSpan || 1;
+        const colSpan = cell.colSpan || 1;
+        for (let down = 0; down < rowSpan; down += 1) {
+          const line = grid[rowIndex + down] ?? (grid[rowIndex + down] = []);
+          for (let across = 0; across < colSpan; across += 1) line[column + across] = cell;
+        }
+        column += colSpan;
+      }
+    });
+    const last = grid[grid.length - 1] ?? [];
+    const leaves: HTMLTableCellElement[] = [];
+    let previous: HTMLTableCellElement | undefined;
+    for (const cell of last) {
+      if (!cell || cell === previous || cell.colSpan > 1) continue;
+      leaves.push(cell);
+      previous = cell;
+    }
+    return leaves.length ? leaves : Array.from(head.rows[0].cells);
   }
 
   private columnId(cell: HTMLElement, index: number): string {
@@ -198,12 +222,16 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
 
   private cellsInColumn(index: number): HTMLTableCellElement[] {
     const cells: HTMLTableCellElement[] = [];
-    const rows = Array.from(this.host.nativeElement.rows) as HTMLTableRowElement[];
-    for (const row of rows) {
-      const rowCells = Array.from(row.cells) as HTMLTableCellElement[];
-      if (rowCells.some((cell) => cell.colSpan > 1)) continue;
-      const cell = row.cells.item(index);
-      if (cell) cells.push(cell);
+    const header = this.headerCells()[index];
+    if (header) cells.push(header);
+    const bodies = Array.from(this.host.nativeElement.tBodies) as HTMLTableSectionElement[];
+    for (const body of bodies) {
+      for (const row of Array.from(body.rows)) {
+        const rowCells = Array.from(row.cells) as HTMLTableCellElement[];
+        if (rowCells.some((cell) => cell.colSpan > 1)) continue;
+        const cell = row.cells.item(index);
+        if (cell) cells.push(cell);
+      }
     }
     return cells;
   }

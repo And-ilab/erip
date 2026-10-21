@@ -13,6 +13,7 @@ import { RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
+import { GridResizeDirective } from '../grid-resize.directive';
 import {
   AccountDetail,
   AccountService,
@@ -29,7 +30,7 @@ import {
   standalone: true,
   imports: [
     DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
-    MatInputModule, MatSelectModule, MatCheckboxModule, MatSnackBarModule,
+    MatInputModule, MatSelectModule, MatCheckboxModule, MatSnackBarModule, GridResizeDirective,
   ],
   template: `
     <div class="page">
@@ -242,14 +243,14 @@ import {
         <p><a routerLink="/measures">Реестр мероприятий</a></p>
         @if (measures().length) {
         <div class="list-pane">
-          <table>
+          <table appGridResize="contract-measures">
             <thead>
               <tr>
-                <th>Мероприятие</th>
-                <th>Следующее действие</th>
-                <th>Статус</th>
-                <th>Срок</th>
-                <th></th>
+                <th data-col="kind">Мероприятие</th>
+                <th data-col="next">Следующее действие</th>
+                <th data-col="status">Статус</th>
+                <th data-col="due">Срок</th>
+                <th data-col="open"></th>
               </tr>
             </thead>
             <tbody>

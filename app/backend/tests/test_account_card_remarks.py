@@ -189,6 +189,13 @@ def test_board_widths_belong_to_the_user(api, specialist_a, org_a):
     assert api(specialist_a).get("/api/v1/board-widths/accounts/").json()["widths"]["client_account"] == 180
     assert api(specialist_a).get("/api/v1/accounts/columns/").json()["columns"] == [one]
     assert api(specialist_a).put("/api/v1/board-widths/unknown/", {"widths": {}}, format="json").status_code == 400
+    card = api(specialist_a).put(
+        "/api/v1/board-widths/account-registrations/",
+        {"widths": {"payer": 160}},
+        format="json",
+    )
+    assert card.status_code == 200
+    assert card.json()["widths"]["payer"] == 160
 
 
 @pytest.mark.django_db
