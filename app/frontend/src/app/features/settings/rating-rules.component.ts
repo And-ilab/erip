@@ -78,7 +78,7 @@ import { DialSettings } from '../../core/models';
           <div class="thresholds">
             <label>B с группы <input type="number" [(ngModel)]="ratingB" name="ratingB" /></label>
             <label>C с группы <input type="number" [(ngModel)]="ratingCFrom" name="ratingCFrom" /></label>
-            <label>C по группу <input type="number" [(ngModel)]="ratingCTo" name="ratingCTo" /></label>
+            <label>D по группу <input type="number" [(ngModel)]="ratingCTo" name="ratingCTo" /></label>
             <label>E с группы <input type="number" [(ngModel)]="ratingE" name="ratingE" /></label>
           </div>
         }

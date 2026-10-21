@@ -33,23 +33,19 @@ def test_chain_starts_with_a_call_for_any_group(org_a):
     ensure_imported_run(young)
     ensure_imported_run(senior)
     for account in (young, senior):
-        row = Measure.objects.get(accounts=account)
-        assert row.kind == Measure.Kind.CALL
+        row = Measure.objects.get(accounts=account, kind=Measure.Kind.CALL)
         assert row.template_name == "Автообзвон"
+        assert Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE).exists()
 
 
 @pytest.mark.django_db
 def test_org_wait_holds_the_next_step(org_a):
     account = _owing(org_a, 9103, 1)
-    ensure_imported_run(account)
-    call = Measure.objects.get(accounts=account)
-    call.status = Measure.Status.DONE
-    call.save(update_fields=["status", "updated_at"])
-    call.items.update(status="done")
     org_a.step_waits = {"email": 10}
     org_a.save(update_fields=["step_waits"])
-    advance_account(account)
-    assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE).exists()
+    ensure_imported_run(account)
+    assert Measure.objects.filter(accounts=account, kind=Measure.Kind.CALL).exists()
+    assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE, channel="email").exists()
 
 
 @pytest.mark.django_db

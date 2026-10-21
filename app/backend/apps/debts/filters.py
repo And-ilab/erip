@@ -76,7 +76,13 @@ class AccountFilter(django_filters.FilterSet):
 
     @staticmethod
     def _shown_group(value):
-        return Q(debt_group_manual=value) | Q(debt_group_manual__isnull=True, debt_group=value)
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return Q(pk__in=[])
+        if number == 0:
+            return Q(debt_group_manual__isnull=True, debt_group__isnull=True)
+        return Q(debt_group_manual=number) | Q(debt_group_manual__isnull=True, debt_group=number)
 
     def filter_effective_group(self, queryset, name, value):
         return queryset.filter(self._shown_group(value))

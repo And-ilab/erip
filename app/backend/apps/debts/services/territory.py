@@ -202,13 +202,17 @@ def _catalog_point(
 
 def _point(
     kind: str, name_key: str, parent: Territory | None, catalog: StreetCatalog | None = None,
-) -> tuple[Decimal, Decimal]:
-    # Справочник точнее ручного списка: ул. Кольцова в нём на севере Минска, а не в Грушевке.
-    if catalog is not None and kind in (Territory.Kind.STREET, Territory.Kind.SETTLEMENT, Territory.Kind.HOUSE):
+) -> tuple[Decimal, Decimal] | None:
+    # Справочник точнее ручного списка. Дом, которого в нём нет, не сдвигается _spread на газон:
+    # точка остаётся на родителе (улица или район), а не в стороне от дома.
+    catalog_ready = catalog is not None and not catalog.is_empty
+    if catalog_ready and kind in (Territory.Kind.STREET, Territory.Kind.SETTLEMENT, Territory.Kind.HOUSE):
         found = _catalog_point(kind, name_key, parent, catalog)
         if found:
             lat, lon = found
             return Decimal(str(lat)), Decimal(str(lon))
+        if kind in (Territory.Kind.STREET, Territory.Kind.HOUSE) and parent is not None and parent.latitude is not None:
+            return parent.latitude, parent.longitude
     known = KNOWN_POINTS.get((kind, name_key))
     if known:
         lat, lon = known
@@ -355,6 +359,59 @@ class AddressPath:
         return found
 
 
+def pin_minsk_city() -> None:
+    """Город Минск стоит на своих координатах и виден на Беларуси, а не у Колодищ."""
+    lat, lon = KNOWN_POINTS[("settlement", "минск")]
+    city = Territory.objects.filter(kind=Territory.Kind.SETTLEMENT, name_key="минск").first()
+    if city is None:
+        return
+    fields = []
+    point_lat, point_lon = Decimal(str(lat)), Decimal(str(lon))
+    if city.latitude != point_lat or city.longitude != point_lon:
+        city.latitude = point_lat
+        city.longitude = point_lon
+        fields.extend(["latitude", "longitude"])
+    country = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
+    if (
+        country is not None
+        and city.parent_id != country.pk
+        and city.parent is not None
+        and city.parent.kind == Territory.Kind.OBLAST
+    ):
+        city.parent = country
+        fields.append("parent")
+    if not fields:
+        return
+    fields.append("updated_at")
+    city.save(update_fields=fields)
+    if "parent" in fields:
+        _rewire_ancestors(city)
+
+
+def release_unlisted_houses(catalog: StreetCatalog | None = None) -> int:
+    """Дом без точки в справочнике не рисуется: счёт уходит в «Без адреса», а не на газон."""
+    book = default_catalog() if catalog is None else catalog
+    if book.is_empty:
+        return 0
+    released = 0
+    houses = Territory.objects.filter(kind=Territory.Kind.HOUSE).iterator(chunk_size=200)
+    for house in houses:
+        street = _ancestor(house, Territory.Kind.STREET)
+        settlement = _ancestor(house, Territory.Kind.SETTLEMENT)
+        oblast = _ancestor(house, Territory.Kind.OBLAST)
+        number = house.name_key.removeprefix("д.").strip()
+        found = None
+        if street is not None and settlement is not None and number:
+            found = book.house_point(
+                street.name_key, number, settlement.name_key, oblast.name_key if oblast else "",
+            )
+        if found is not None:
+            continue
+        updated = Account.objects.filter(territory=house).update(territory=None)
+        released += updated
+    return released
+
+
 def lift_minsk_city() -> None:
     """Переносит уже построенный Минск с Минской области на Беларусь.
 
@@ -448,8 +505,13 @@ class TerritoryIndex:
     def place_for(self, text: str, hint: str = "") -> Territory | None:
         parent = None
         node = None
-        for kind, name, name_key in self._parser.steps(text, hint):
+        steps = self._parser.steps(text, hint)
+        if not steps:
+            return None
+        for kind, name, name_key in steps:
             node = self._node(parent, kind, name, name_key)
+            if node is None:
+                return None
             parent = node
         return node
 
@@ -458,7 +520,10 @@ class TerritoryIndex:
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
-        latitude, longitude = _point(kind, name_key, parent, self._catalog)
+        point = _point(kind, name_key, parent, self._catalog)
+        if point is None:
+            return None
+        latitude, longitude = point
         node, created = Territory.objects.get_or_create(
             parent=parent,
             kind=kind,
@@ -490,6 +555,7 @@ class TerritoryMap:
 
     def level(self, accounts: QuerySet, parent: Territory | None) -> dict:
         lift_minsk_city()
+        pin_minsk_city()
         if parent is None:
             parent = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
         accounts = accounts.order_by()

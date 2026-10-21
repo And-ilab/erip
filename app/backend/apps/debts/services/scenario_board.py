@@ -75,10 +75,11 @@ def _title(action: str) -> str:
     labels = dict(DEFAULT_STEPS)
     labels.update({
         "manual_call": "Ручной обзвон",
-        "sms": "Уведомление",
+        "sms": "СМС",
         "email": "Уведомление",
         "disconnect": "Отключение",
-        "lawsuit": "Иск",
+        "lawsuit": "Исковое заявление",
+        "opi": "ОПИ",
     })
     return labels.get(action, action or "Шаг")
 
@@ -101,5 +102,40 @@ def _measure(measure: Measure) -> dict:
         "status": measure.status,
         "status_label": measure.get_status_display(),
         "source_action": measure.source_action,
+        "started_on": measure.started_on.isoformat() if measure.started_on else None,
+        "finished_on": measure.finished_on.isoformat() if measure.finished_on else None,
+        "finish_reason": measure.finish_reason,
+        "stopped": measure.stopped,
         "tasks": [task_row(task) for task in measure.tasks.all()],
+        "calls": _calls(measure),
     }
+
+
+def _calls(measure: Measure) -> list[dict]:
+    if measure.kind != Measure.Kind.CALL:
+        return []
+    rows = []
+    for item in measure.items.all():
+        attempts = list(item.call_attempts.all())
+        if attempts:
+            for attempt in attempts:
+                local = attempt.attempted_at
+                rows.append({
+                    "at": local.isoformat() if local else None,
+                    "duration_sec": attempt.duration_sec,
+                    "status": attempt.get_status_display(),
+                    "listen_percent": attempt.listen_percent,
+                    "recording_ref": attempt.recording_ref if attempt.external_call else "",
+                    "external_call": attempt.external_call,
+                })
+            continue
+        if item.acted_at or item.call_result:
+            rows.append({
+                "at": item.acted_at.isoformat() if item.acted_at else None,
+                "duration_sec": item.duration_sec,
+                "status": item.get_call_result_display() or item.get_status_display(),
+                "listen_percent": item.listen_percent,
+                "recording_ref": item.recording_ref if item.external_call else "",
+                "external_call": item.external_call,
+            })
+    return rows

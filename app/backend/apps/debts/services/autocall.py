@@ -246,10 +246,20 @@ def _call_step(measure: Measure) -> dict:
 
 
 def _attempt_due(item: MeasureItem, rule: dict, moment: datetime) -> bool:
+    measure = item.measure
+    if measure.stopped or measure.finished_on:
+        return False
     if item.status not in OPEN_ITEM:
         return False
-    if item.call_result == MeasureItem.CallResult.ANSWERED:
+    if measure.source_scenario_id:
+        if _heard_today(item, moment):
+            return False
+        if rule.get("once"):
+            return item.acted_at is None and not item.call_result
+    elif item.call_result == MeasureItem.CallResult.ANSWERED:
         return False
+    elif rule.get("once"):
+        return item.acted_at is None and not item.call_result
     if rule.get("once"):
         return item.acted_at is None and not item.call_result
     try:
@@ -262,6 +272,12 @@ def _attempt_due(item: MeasureItem, rule: dict, moment: datetime) -> bool:
         return True
     last = timezone.localtime(item.acted_at).date()
     return (moment.date() - last).days >= every
+
+
+def _heard_today(item: MeasureItem, moment: datetime) -> bool:
+    if item.listen_percent is None or item.listen_percent < 70 or item.acted_at is None:
+        return False
+    return timezone.localtime(item.acted_at).date() == moment.date()
 
 
 def _next_caller(organization_id: int) -> str:

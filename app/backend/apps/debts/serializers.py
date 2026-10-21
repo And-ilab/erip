@@ -692,6 +692,7 @@ class MeasureSerializer(serializers.ModelSerializer):
     rating_label = serializers.SerializerMethodField()
     effective_group = serializers.SerializerMethodField()
     assignee_name = serializers.SerializerMethodField()
+    initiator_name = serializers.SerializerMethodField()
     next_action = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
     account_item_status = serializers.SerializerMethodField()
@@ -702,7 +703,8 @@ class MeasureSerializer(serializers.ModelSerializer):
         model = Measure
         fields = [
             "id", "kind", "kind_display", "status", "status_display", "channel", "template_name",
-            "scenario_name", "note", "assignee", "assignee_name", "started_on", "due_on", "days",
+            "scenario_name", "note", "assignee", "assignee_name", "started_on", "finished_on",
+            "finish_reason", "stopped", "initiator_name", "due_on", "days",
             "time_from", "time_to", "created_at", "accounts_count", "artifact", "title",
             "debtor_name", "debtor_account", "debtor_id", "rating_label", "effective_group", "next_action", "progress",
             "account_item_status", "account_call_line", "manual", "needs_approval", "approval", "approval_note",
@@ -762,6 +764,10 @@ class MeasureSerializer(serializers.ModelSerializer):
     def get_assignee_name(self, obj) -> str:
         user = obj.assignee
         return user.display_name if user is not None else ""
+
+    def get_initiator_name(self, obj) -> str:
+        user = obj.created_by
+        return user.registry_name if user is not None else ""
 
     def get_next_action(self, obj) -> str:
         return next_action(obj)

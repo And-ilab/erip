@@ -76,8 +76,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
                   <th class="tick" data-col="select">
                     <input type="checkbox" aria-label="Выбрать видимые" [checked]="allVisible()" (change)="toggleVisible()" />
                   </th>
-                  <th data-col="title">Мероприятие</th>
-                  <th data-col="debtor">Должник</th>
+                  <th data-col="title">Тип мероприятия</th>
+                  <th data-col="period">Период выполнения</th>
+                  <th data-col="initiator">Инициатор</th>
+                  <th data-col="debtor">Номер ЛС</th>
                   <th class="who" data-col="assignee">Исполнитель</th>
                   <th data-col="next">Следующее действие</th>
                   <th data-col="status">Статус</th>
@@ -86,7 +88,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
               <tbody>
                 @for (group of bands(); track group.status) {
                   <tr class="band">
-                    <td colspan="6">
+                    <td colspan="8">
                       <button type="button" (click)="toggle(group.status)">{{ group.label }} ({{ group.total }})</button>
                     </td>
                   </tr>
@@ -97,7 +99,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                           <input type="checkbox" [attr.aria-label]="'Выбрать ' + row.title" [checked]="pickedRows().has(row.id)" (change)="toggleRow(row.id)" />
                         </td>
                         <td>
-                          <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
+                          <a class="title" [routerLink]="['/measures', row.id]">{{ row.kind_display || row.title }}</a>
                           @if (row.progress && row.progress.total > 1) {
                             <div class="mini">
                               <span class="track"><span [style.width.%]="share(row)"></span></span>
@@ -106,13 +108,15 @@ import { RegistryViewsComponent } from '../registry-views.component';
                           }
                           @if (row.artifact) { <div><a [href]="row.artifact">Файл</a></div> }
                         </td>
+                        <td>{{ row.started_on ? (row.started_on | date: 'dd.MM.yyyy') : '…' }} — {{ row.finished_on ? (row.finished_on | date: 'dd.MM.yyyy') : '…' }}</td>
+                        <td>{{ row.initiator_name || '—' }}</td>
                         <td>
                           @if (row.debtor_id) {
-                            <a [routerLink]="['/accounts', row.debtor_id]">{{ row.debtor_name || 'ЛС' }}</a>
+                            <a class="title" [routerLink]="['/accounts', row.debtor_id]">{{ row.debtor_account || 'ЛС' }}</a>
                           } @else {
-                            <span>{{ row.debtor_name || '—' }}</span>
+                            <span class="title">{{ row.debtor_account || '—' }}</span>
                           }
-                          @if (row.debtor_account) { <div class="muted">ЛС {{ row.debtor_account }}</div> }
+                          @if (row.debtor_name) { <div class="muted">{{ row.debtor_name }}</div> }
                           @if (row.accounts_count > 1) {
                             <div class="muted">ещё {{ row.accounts_count - 1 }} ЛС</div>
                           }
@@ -132,7 +136,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                     }
                     @if (groupedByStatus() && group.results.length < group.total) {
                       <tr class="more-row">
-                        <td colspan="6">
+                        <td colspan="8">
                           <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
                           <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
                         </td>

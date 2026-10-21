@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.debts.models import Account, AccountScenarioRun, Measure, MeasureItem
@@ -28,6 +27,7 @@ ACTION_KIND = {
     "disconnect": ("disconnect", ""),
     "writ": ("collection", ""),
     "lawsuit": ("collection", ""),
+    "opi": ("collection", "opi"),
 }
 
 
@@ -42,29 +42,12 @@ def ensure_imported_runs(account_ids: list[int]) -> None:
 def ensure_imported_run(account: Account) -> None:
     if account.inheritance_case or not account.effective_group:
         return
-    from apps.nsi.services.scenarios import ensure_standard_scenario, upgrade_legacy_scenario
+    from apps.nsi.services.scenarios import ensure_standard_scenario
 
     ensure_standard_scenario()
-    run = AccountScenarioRun.objects.filter(account=account).select_related("scenario").first()
-    if run is None:
-        scenario = _scenario_for_import(account)
-        if scenario is None:
-            return
-        try:
-            run, _created = AccountScenarioRun.objects.get_or_create(
-                account=account,
-                defaults={
-                    "organization": account.organization, "scenario": scenario, "version": scenario.version,
-                },
-            )
-        except IntegrityError:
-            run = AccountScenarioRun.objects.filter(account=account).first()
-        if run is None:
-            return
-    if run.paused:
-        return
-    upgrade_legacy_scenario(run.scenario)
-    advance_account(account)
+    from apps.debts.services.scenario_flow import bind_imported_run
+
+    bind_imported_run(account)
 
 
 def _scenario_for_import(account: Account):
@@ -157,7 +140,12 @@ def advance_after_measure(measure: Measure) -> None:
 
 
 def advance_account(account: Account) -> None:
-    if account.pk in _advancing:
+    if account.pk in _advancing or account.inheritance_case:
+        return
+    run = AccountScenarioRun.objects.filter(account=account).only(
+        "awaiting_start", "finished_on", "paused",
+    ).first()
+    if run is not None and (run.awaiting_start or run.finished_on or run.paused):
         return
     _advancing.add(account.pk)
     try:
@@ -166,6 +154,21 @@ def advance_account(account: Account) -> None:
                 break
     finally:
         _advancing.discard(account.pk)
+
+
+def _already_started(measures: list[Measure], step: dict) -> bool:
+    """Повторно не открываем тот же шаг. Сорвавшийся шаг с другим шаблоном можно заменить."""
+    action = step.get("action") or ""
+    order = step.get("order")
+    template = step.get("template") or ""
+    for item in measures:
+        if item.source_step != order or (item.source_action or "") != action:
+            continue
+        if item.status != Measure.Status.FAILED:
+            return True
+        if not template or (item.template_name or "") == template:
+            return True
+    return False
 
 
 def _step_for(steps: list[dict], measure: Measure) -> dict | None:
@@ -203,13 +206,18 @@ def _advance_once(account: Account) -> bool:
     for order in sorted({step.get("order") for step in steps}):
         if order in done_orders:
             continue
-        if any(item.source_step == order and item.status in OPEN for item in measures):
-            continue
-        candidates = [step for step in steps if step.get("order") == order and _matches(step, account, previous)]
+        if any(item.source_step == order and item.status in OPEN and _blocks(steps, item) for item in measures):
+            return False
+        candidates = [
+            step for step in steps
+            if step.get("order") == order
+            and not _already_started(measures, step)
+            and _matches(step, account, previous)
+        ]
         if not candidates:
             continue
         step = candidates[0]
-        if not _wait_elapsed(account, run, previous, step):
+        if not step.get("after_delivered") and not _wait_elapsed(account, run, previous, step):
             return False
         if step.get("action") == "messenger":
             skipped.add(order)
@@ -224,7 +232,7 @@ def _advance_once(account: Account) -> bool:
             run.last_skip = reason
             run.save(update_fields=["last_skip", "updated_at"])
             _remember_blocked(account, run, step, reason)
-            return False
+            return step.get("blocks_next", True) is False
         _forget_blocked(account, run, step)
         run.last_skip = ""
         run.save(update_fields=["last_skip", "updated_at"])
@@ -260,6 +268,15 @@ def _wait_elapsed(account: Account, run: AccountScenarioRun, previous: Measure |
 
 
 def _matches(step: dict, account: Account, previous: Measure | None) -> bool:
+    months = account.months_debt
+    minimum_months = step.get("months_from")
+    if minimum_months not in (None, ""):
+        if (months if months is not None else 0) < int(minimum_months):
+            return False
+    if step.get("action") == "call" and months is not None and months <= 1 and not _call_day_open(account):
+        return False
+    if not _delivery_ready(account, step):
+        return False
     group = account.effective_group
     groups = step.get("groups") or []
     if groups and group not in [int(item) for item in groups]:
@@ -300,6 +317,35 @@ def _matches(step: dict, account: Account, previous: Measure | None) -> bool:
     if require_status and (previous is None or previous.status != require_status):
         return False
     return True
+
+
+def _call_day_open(account: Account) -> bool:
+    run = AccountScenarioRun.objects.filter(account=account).select_related("scenario").first()
+    day = 27
+    if run is not None and run.scenario.call_from_day:
+        day = int(run.scenario.call_from_day)
+    return timezone.localdate().day >= day
+
+
+def _delivery_ready(account: Account, step: dict) -> bool:
+    action = step.get("after_delivered") or ""
+    if not action:
+        return True
+    days = int(step.get("wait_days") or 5)
+    item = (
+        MeasureItem.objects.filter(
+            account=account, measure__source_action=action, delivered_on__isnull=False,
+        )
+        .order_by("-delivered_on")
+        .first()
+    )
+    if item is None or item.delivered_on is None:
+        return False
+    from apps.debts.services.scenario_flow import account_is_clear
+
+    if account_is_clear(account):
+        return False
+    return timezone.localdate() >= item.delivered_on + timedelta(days=days)
 
 
 def step_template_name(step: dict, fallback: str) -> str:

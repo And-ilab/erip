@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -27,6 +28,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
   standalone: true,
   imports: [
     DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
+    MatAutocompleteModule,
     MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
     MeasureTasksComponent,
   ],
@@ -38,23 +40,21 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
         <div class="crumbs">
           <a routerLink="/accounts">Реестр ЛС</a>
           <span class="sep">›</span>
-          <span>{{ personKindPlural() }}</span>
-          <span class="sep">›</span>
           <b>{{ a.client_account }}</b>
         </div>
 
         <section class="surface head debtor">
           <div class="debtor-top">
             <div class="who">
-              <h2>{{ a.client_account }}</h2>
-              <p class="uen">УЕН {{ a.unified_account || 'не передан' }}</p>
-              <div class="meta">
-                <span class="k">Плательщик</span>
-                <b>{{ personName() }}</b>
-              </div>
+              <h2>Лицевой счет {{ a.client_account }}</h2>
+              <p class="uen">УЕН ЛС {{ a.unified_account || 'не передан' }}</p>
               <div class="meta">
                 <span class="k">Адрес</span>
                 <b>{{ a.account_address || a.house_address || '—' }}</b>
+              </div>
+              <div class="meta">
+                <span class="k">Плательщик</span>
+                <b>{{ personName() }}</b>
               </div>
             </div>
             <div class="who-side">
@@ -87,23 +87,16 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                 <dl>
                   <dt>Код ЛС</dt><dd>{{ a.account_id }}</dd>
                   <dt>Обслуживающая организация</dt><dd>{{ a.provider_short_name || '—' }}</dd>
-                  <dt>Код обслуживающей организации</dt><dd>{{ a.provider_id ?? '—' }}</dd>
                   @if (auth.showSchema()) { <dt>Код схемы</dt><dd>{{ a.schema_name || a.schema_label || '—' }}</dd> }
                   <dt>ЧУП</dt><dd>{{ a.is_private_enterprise ? 'есть' : 'нет' }}</dd>
-                  <dt>Код дома</dt><dd>{{ a.house_id ?? '—' }}</dd>
-                  <dt>Адрес дома</dt><dd>{{ a.house_address || '—' }}</dd>
-                  <dt>Номер квартиры</dt><dd>{{ a.flat_number || '—' }}</dd>
                   <dt>Общая площадь</dt><dd>{{ a.acc_total_space ?? '—' }}</dd>
                   <dt>Кол-во комнат</dt><dd>{{ a.room_count ?? '—' }}</dd>
                   <dt>Кол-во проживающих</dt><dd>{{ a.subj_count ?? '—' }}</dd>
                   <dt>Кол-во льготников</dt><dd>{{ a.priv_acc_count ?? '—' }}</dd>
-                  <dt>id типа объекта</dt><dd>{{ a.acc_category_id ?? '—' }}</dd>
+                  <dt>Кол-во месяцев долга</dt><dd>{{ a.months_debt ?? '—' }}</dd>
                   <dt>Тип объекта жилфонда</dt><dd>{{ a.acc_category_full || a.acc_category_short || '—' }}</dd>
-                  <dt>Код категории жилого фонда</dt><dd>{{ a.housing_category_code ?? '—' }}</dd>
                   <dt>Категория жилого фонда</dt><dd>{{ a.category_name || a.category_short_name || '—' }}</dd>
-                  <dt>Код типа собственности</dt><dd>{{ a.ownership_type_code ?? '—' }}</dd>
                   <dt>Тип собственности</dt><dd>{{ a.ownership_type_name || '—' }}</dd>
-                  <dt>ID признака уникальности</dt><dd>{{ a.uniq_attr ?? '—' }}</dd>
                   <dt>ID доп. информации 1</dt><dd>{{ a.info_param_id1 ?? '—' }}</dd>
                   <dt>Доп. информация 1</dt><dd>{{ a.info_param_value1 || '—' }}</dd>
                   <dt>ID доп. информации 2</dt><dd>{{ a.info_param_id2 ?? '—' }}</dd>
@@ -121,7 +114,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                   <dt>В т.ч. списано <app-byn-sign /></dt><dd><app-money [value]="a.pay_sum_writeoff" [blank]="false" /></dd>
                   <dt>Исходящее сальдо <app-byn-sign /></dt><dd><app-money [value]="a.balance_out" [blank]="false" /></dd>
                   <dt>Квит. оплата <app-byn-sign /></dt><dd><app-money [value]="a.receipt_pay" [blank]="false" /></dd>
-                  <dt>Нераспределенный остаток <app-byn-sign /></dt><dd><app-money [value]="a.unshared_sum" [blank]="false" /></dd>
+                  <dt>Нераспр. остаток <app-byn-sign /></dt><dd><app-money [value]="a.unshared_sum" [blank]="false" /></dd>
                   <dt>Сумма субсидии <app-byn-sign /></dt><dd><app-money [value]="a.calc_result_sum" [blank]="false" /></dd>
                   <dt>Сумма основного долга <app-byn-sign /></dt><dd class="money-line"><button type="button" class="sum-btn" (click)="openShares()"><app-money [value]="principalTotal()" [blank]="false" /></button></dd>
                   <dt>Сумма пени <app-byn-sign /></dt><dd class="money-line amount-danger"><app-money [value]="penaltyTotal()" [blank]="false" /></dd>
@@ -134,35 +127,45 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                 </dl>
                 <p class="flag" [class.bad]="riskOn()">Признаки банкротства / недееспособности — {{ riskOn() ? 'есть' : 'нет' }}</p>
                 @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
-                  <h4>Ручная группа</h4>
-                  <div class="filters">
-                    <mat-form-field>
-                      <mat-label>Группа задолженности</mat-label>
-                      <mat-select [(ngModel)]="manualGroup">
-                        <mat-option [value]="null">По расчёту</mat-option>
-                        @for (g of [1, 2, 3, 4, 5, 6]; track g) { <mat-option [value]="g">{{ g }}</mat-option> }
-                      </mat-select>
-                    </mat-form-field>
-                    <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="manualReason" /></mat-form-field>
-                    <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
+                  <div class="framed">
+                    <h4>Ручное изменение группы задолженности</h4>
+                    <div class="filters">
+                      <mat-form-field>
+                        <mat-label>Группа задолженности</mat-label>
+                        <mat-select [(ngModel)]="manualGroup">
+                          <mat-option [value]="null">По расчёту</mat-option>
+                          @for (g of [1, 2, 3, 4, 5, 6]; track g) { <mat-option [value]="g">{{ g }}</mat-option> }
+                        </mat-select>
+                      </mat-form-field>
+                      <mat-form-field class="reason" [class.invalid]="groupInvalid">
+                        <mat-label>Причина</mat-label>
+                        <input matInput [(ngModel)]="manualReason" />
+                      </mat-form-field>
+                      <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
+                    </div>
                   </div>
                 }
                 @if (auth.canWrite()) {
-                  <div class="filters">
-                    <mat-form-field>
-                      <mat-label>Категория</mat-label>
-                      <mat-select [(ngModel)]="categoryId">
-                        <mat-option [value]="null">Не задана</mat-option>
-                        @for (item of categories(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
-                      </mat-select>
-                    </mat-form-field>
-                    <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
-                    <mat-checkbox [(ngModel)]="inheritance">Наследственное дело</mat-checkbox>
-                    <mat-form-field><mat-label>Приостановка до</mat-label><input matInput type="date" [(ngModel)]="inheritanceUntil" /></mat-form-field>
-                    <button mat-stroked-button (click)="saveProfile()">Сохранить</button>
-                    <mat-form-field><mat-label>Новая категория</mat-label><input matInput [(ngModel)]="newCategory" /></mat-form-field>
-                    <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
-                    <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
+                  <div class="framed">
+                    <h4>Категория должника</h4>
+                    <p class="muted">Фактическое проживание — заметка ПМ, выгрузка АИС её не затирает. Наследственное дело останавливает автомеры, пока флаг не снят, не вышел срок или в АИС не появился новый плательщик. «Приостановка до» — этот срок.</p>
+                    <div class="filters">
+                      <mat-form-field class="reason">
+                        <mat-label>Категория должника</mat-label>
+                        <input matInput [(ngModel)]="categoryText" [matAutocomplete]="catAuto" />
+                        <mat-autocomplete #catAuto="matAutocomplete" (optionSelected)="pickCategory($event.option.value)">
+                          @for (item of categoryMatches(); track item.id) {
+                            <mat-option [value]="item.name">{{ item.name }}</mat-option>
+                          }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <button mat-stroked-button (click)="applyCategory()">Выбрать или добавить</button>
+                      <button mat-stroked-button (click)="clearCategory()">Очистить</button>
+                      <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
+                      <mat-checkbox [(ngModel)]="inheritance">Наследственное дело</mat-checkbox>
+                      <mat-form-field><mat-label>Приостановка до</mat-label><input matInput placeholder="дд.мм.гггг" [(ngModel)]="inheritanceUntil" /></mat-form-field>
+                      <button mat-stroked-button (click)="saveProfile()">Сохранить</button>
+                    </div>
                   </div>
                 }
               </mat-card-content></mat-card>
@@ -170,17 +173,33 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
           </mat-tab>
 
           <mat-tab label="Регистрация ({{ registrations().length }})">
-            <p class="muted tab-note">Все поля файла регистрации. Роль «Солидарный должник» не ставится лицу, которое на дату возникновения долга уже снято с учёта.</p>
-            @for (person of registrations(); track person.id) {
-              <details class="step" [open]="person.subj_is_main">
-                <summary>{{ person.full_name }} — {{ person.debtor_role }}</summary>
-                <dl class="sheet">
-                  @for (field of person.sheet || []; track field.label) {
-                    <div><dt>{{ field.label }}</dt><dd>{{ field.value || '—' }}</dd></div>
-                  }
-                </dl>
-              </details>
+            <div class="columns-wrap">
+              <button mat-stroked-button type="button" (click)="regPicker = !regPicker">Настройка таблицы</button>
+              @if (regPicker) {
+                <button mat-button type="button" (click)="setRegColumns(true)">Отметить все</button>
+                <button mat-button type="button" (click)="setRegColumns(false)">Снять все</button>
+              }
+            </div>
+            @if (regPicker) {
+              <div class="picker">
+                @for (col of regCatalog; track col; let i = $index) {
+                  <label>
+                    <input type="checkbox" [checked]="regVisible(col)" (change)="toggleRegColumn(col, $any($event.target).checked)" />
+                    {{ regLabel(col) }}
+                    <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, -1)">↑</button>
+                    <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, 1)">↓</button>
+                  </label>
+                }
+              </div>
             }
+            <div class="list-pane"><table class="plain">
+              <thead><tr>@for (col of visibleRegColumns(); track col) { <th>{{ regLabel(col) }}</th> }</tr></thead>
+              <tbody>
+                @for (person of registrations(); track person.id) {
+                  <tr>@for (col of visibleRegColumns(); track col) { <td>{{ regCell(person, col) }}</td> }</tr>
+                }
+              </tbody>
+            </table></div>
           </mat-tab>
 
           <mat-tab [label]="'Мероприятия (' + measures().length + ')'">
@@ -194,7 +213,11 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             <p class="muted">Сценарий {{ scenarioName() || 'не назначен' }}. Задание — отдельная работа: название, срок и статус. Мероприятия, которые специалист начал сам, лежат в группе «Инициировано вручную».</p>
             @for (step of scenarioSteps(); track step.order + step.action) {
               <details class="step" [open]="stepOpen(step)">
-                <summary>{{ step.title }}</summary>
+                <summary>
+                  <button type="button" class="step-no" [class.on]="stepDone(step)" (click)="$event.preventDefault(); $event.stopPropagation(); toggleStep(step)">{{ step.order }}</button>
+                  {{ step.title }}
+                  <span class="muted">{{ stepSpan(step) }}</span>
+                </summary>
                 @for (item of step.checklist; track item) {
                   <p class="check-line">{{ item }}</p>
                 }
@@ -205,6 +228,12 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                       <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
                     </div>
                     <app-measure-tasks [measureId]="row.id" [tasks]="row.tasks" [canWrite]="auth.canWrite()" (changed)="reloadScenario()" />
+                    @for (call of row.calls || []; track call.at) {
+                      <p class="muted">{{ showDateTime(call.at) }} · {{ call.duration_sec ?? '—' }} с · {{ call.status }}
+                        @if (call.external_call && call.recording_ref) { · <a [href]="call.recording_ref">запись</a> }
+                        @if (call.external_call === false) { · внешний вызов не выполнялся }
+                      </p>
+                    }
                   </div>
                 }
                 @if (!step.measures.length) {
@@ -237,7 +266,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             <p class="muted">Приоритет ставит режим: выбранный источник получает 1, другой — 0. Телефон и e-mail добавляются отдельно, без источника и без приоритета.</p>
             @if (auth.canWrite()) {
             <div class="filters contact-add">
-              <mat-form-field><mat-label>Телефон или e-mail</mat-label><input matInput [(ngModel)]="contactValue" /></mat-form-field>
+              <mat-form-field [class.invalid]="contactInvalid"><mat-label>Телефон или e-mail</mat-label><input matInput [(ngModel)]="contactValue" /></mat-form-field>
               <mat-form-field>
                 <mat-label>Тип</mat-label>
                 <mat-select [(ngModel)]="contactKind">
@@ -309,12 +338,12 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               <ng-container matColumnDef="stop_date"><th mat-header-cell *matHeaderCellDef>Дата по</th><td mat-cell *matCellDef="let s">{{ (s.stop_date | date: 'dd.MM.yyyy') || '—' }}</td></ng-container>
               <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Исх. сальдо пени <app-byn-sign /></th><td mat-cell *matCellDef="let s" [class.amount-danger]="+s.balance_mulct_out > 0"><app-money [value]="s.balance_mulct_out" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Исх. сальдо с пеней <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.balance_out" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="service_list_id"><th mat-header-cell *matHeaderCellDef>Код договора на услугу (ID Договора)</th><td mat-cell *matCellDef="let s">{{ s.service_list_id }}</td></ng-container>
+              <ng-container matColumnDef="service_list_id"><th mat-header-cell *matHeaderCellDef>ID договора</th><td mat-cell *matCellDef="let s">{{ s.service_list_id }}</td></ng-container>
               <ng-container matColumnDef="ais_account_id"><th mat-header-cell *matHeaderCellDef>Код ЛС (ID ЛС)</th><td mat-cell *matCellDef="let s">{{ s.ais_account_id }}</td></ng-container>
               <ng-container matColumnDef="calculation_id"><th mat-header-cell *matHeaderCellDef>Код операции расчета (ID Расчёта)</th><td mat-cell *matCellDef="let s">{{ s.calculation_id ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="provider_id"><th mat-header-cell *matHeaderCellDef>Код поставщика услуги</th><td mat-cell *matCellDef="let s">{{ s.provider_id ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="sort_code"><th mat-header-cell *matHeaderCellDef>Код сортировки</th><td mat-cell *matCellDef="let s">{{ s.sort_code ?? '—' }}</td></ng-container>
-              <ng-container matColumnDef="service_id"><th mat-header-cell *matHeaderCellDef>Код услуги (ID Услуги)</th><td mat-cell *matCellDef="let s">{{ s.service_id }}</td></ng-container>
+              <ng-container matColumnDef="service_id"><th mat-header-cell *matHeaderCellDef>ID услуги</th><td mat-cell *matCellDef="let s">{{ s.service_id }}</td></ng-container>
               <ng-container matColumnDef="debt_period"><th mat-header-cell *matHeaderCellDef>Кол-во периодов долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Наименование поставщика</th><td mat-cell *matCellDef="let s">{{ s.shot_name || '—' }}</td></ng-container>
               <ng-container matColumnDef="calc_priv_sum"><th mat-header-cell *matHeaderCellDef>Сумма льготы <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.calc_priv_sum" [blank]="false" /></td></ng-container>
@@ -338,7 +367,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               <ng-container matColumnDef="share_mulct_summ"><th mat-header-cell *matHeaderCellDef>Распределённая оплата пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.share_mulct_summ" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="share_service_summ"><th mat-header-cell *matHeaderCellDef>Распределённая оплата услуг <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.share_service_summ" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="subs_pay"><th mat-header-cell *matHeaderCellDef>Сумма субсидии <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.subs_pay" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="tarrif"><th mat-header-cell *matHeaderCellDef>Тариф</th><td mat-cell *matCellDef="let s">{{ s.tarrif ?? '—' }}</td></ng-container>
+              <ng-container matColumnDef="tarrif"><th mat-header-cell *matHeaderCellDef>Тариф</th><td mat-cell *matCellDef="let s">{{ tariff(s.tarrif) }}</td></ng-container>
               <ng-container matColumnDef="calc_date"><th mat-header-cell *matHeaderCellDef>Дата расчёта</th><td mat-cell *matCellDef="let s">{{ (s.calc_date | date: 'dd.MM.yyyy') || '—' }}</td></ng-container>
               <ng-container matColumnDef="months_debt"><th mat-header-cell *matHeaderCellDef>Кол-во месяцев долга</th><td mat-cell *matCellDef="let s">{{ s.debt_period ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="supplier"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th>
@@ -351,8 +380,8 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
           </mat-tab>
 
           <mat-tab label="Оплата ({{ payments().length }})">
-            <div class="filters">
-              <button mat-stroked-button type="button" (click)="paymentPicker = !paymentPicker">Столбцы</button>
+            <div class="filters" style="justify-content: flex-end">
+              <button mat-stroked-button type="button" (click)="paymentPicker = !paymentPicker">Настройка таблицы</button>
               @if (paymentPicker) {
                 <button mat-button type="button" (click)="setPaymentColumns(true)">Отметить все</button>
                 <button mat-button type="button" (click)="setPaymentColumns(false)">Снять все</button>
@@ -372,7 +401,26 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             }
             <div class="list-pane">
               <table class="plain">
-                <thead><tr>@for (col of visiblePaymentColumns(); track col) { <th>{{ paymentLabel(col) }}</th> }</tr></thead>
+                <thead>
+                  @if (paymentHasGroups()) {
+                    <tr>
+                      @for (cell of paymentGroups(); track cell.key) {
+                        @if (cell.span > 1) {
+                          <th [attr.colspan]="cell.span">{{ cell.title }}</th>
+                        } @else {
+                          <th rowspan="2">{{ cell.title }}</th>
+                        }
+                      }
+                    </tr>
+                    <tr>
+                      @for (col of visiblePaymentColumns(); track col) {
+                        @if (paymentSub(col); as sub) { <th>{{ sub }}</th> }
+                      }
+                    </tr>
+                  } @else {
+                    <tr>@for (col of visiblePaymentColumns(); track col) { <th>{{ paymentLabel(col) }}</th> }</tr>
+                  }
+                </thead>
                 <tbody>
                   @for (row of payments(); track row.id) {
                     <tr>@for (col of visiblePaymentColumns(); track col) { <td>{{ paymentCell(row, col) }}</td> }</tr>
@@ -417,52 +465,46 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             }
           </mat-tab>
 
-          <mat-tab label="История сумм задолженности">
-            <p class="muted tab-note">Остаток основного долга и пени по каждой услуге и каждому периоду задолженности. Цифры из АИС «Расчет-ЖКУ»: это непогашенный остаток, а не список оплат и не журнал смены группы или рейтинга.</p>
-            <div class="list-pane"><table mat-table [dataSource]="balances()">
-              <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
-              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Остаток основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
-              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Остаток пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
-              <tr mat-header-row *matHeaderRowDef="balanceColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: balanceColumns"></tr>
-            </table></div>
-          </mat-tab>
-
-          <mat-tab label="Работа с задолженностью">
-            <p class="muted tab-note">Документы мероприятий по этому лицевому счёту: предупреждение, отключение, исполнительная надпись, иск, закрытие. Внутри лежат невозможность взыскания, расчёт и оплата по исполнительному документу. Это не файл оплат и не журнал рейтинга.</p>
-            <div class="filters">
-              <button mat-stroked-button (click)="workTab = 'docs'; loadWork()">Документы</button>
-              <button mat-stroked-button (click)="workTab = 'impossibility'; loadWork()">Невозможность взыскания</button>
-              <button mat-stroked-button (click)="workTab = 'calculation'; loadWork()">Расчёт задолженности</button>
-              <button mat-stroked-button (click)="workTab = 'payment'; loadWork()">Оплата по взысканию</button>
-            </div>
-            <div class="filters">
-              <mat-form-field><mat-label>Долг от</mat-label><input matInput [(ngModel)]="workPrincipal" (change)="loadWork()" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
-              <mat-form-field><mat-label>Пеня от</mat-label><input matInput [(ngModel)]="workPenalty" (change)="loadWork()" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
-              <mat-form-field><mat-label>Оплата от</mat-label><input matInput [(ngModel)]="workPaid" (change)="loadWork()" /><span matTextSuffix><app-byn-sign /></span></mat-form-field>
-              <mat-form-field><mat-label>Начало с</mat-label><input matInput type="date" [(ngModel)]="workFrom" (change)="loadWork()" /></mat-form-field>
-              <mat-form-field><mat-label>Начало по</mat-label><input matInput type="date" [(ngModel)]="workTo" (change)="loadWork()" /></mat-form-field>
-              @if (auth.canWrite()) {
-                <button mat-stroked-button (click)="addWork()">Добавить документ</button>
-              }
-            </div>
-            <div class="list-pane"><table mat-table [dataSource]="work()">
-              <ng-container matColumnDef="kind_display"><th mat-header-cell *matHeaderCellDef>Вид</th><td mat-cell *matCellDef="let r">{{ r.kind_display }}</td></ng-container>
-              <ng-container matColumnDef="title"><th mat-header-cell *matHeaderCellDef>Наименование</th><td mat-cell *matCellDef="let r">{{ r.title }}</td></ng-container>
-              <ng-container matColumnDef="started_on"><th mat-header-cell *matHeaderCellDef>Начало</th><td mat-cell *matCellDef="let r">{{ r.started_on | date: 'dd.MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="ended_on"><th mat-header-cell *matHeaderCellDef>Окончание</th><td mat-cell *matCellDef="let r">{{ r.ended_on | date: 'dd.MM.yyyy' }}</td></ng-container>
-              <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Долг <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" /></td></ng-container>
-              <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Пеня <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" /></td></ng-container>
-              <ng-container matColumnDef="paid_principal"><th mat-header-cell *matHeaderCellDef>Оплата <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.paid_principal" /></td></ng-container>
-              <tr mat-header-row *matHeaderRowDef="workColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: workColumns"></tr>
+          <mat-tab label="Вложения">
+            <p class="muted tab-note">Файлы счёта и документы, уже привязанные к мероприятиям и работе с задолженностью. Записи дел из базы не удаляются.</p>
+            @if (auth.canWrite()) {
+              <div class="filters">
+                <input placeholder="Тип документа" [(ngModel)]="fileType" />
+                <input type="file" (change)="onFile($event)" />
+              </div>
+            }
+            <div class="list-pane"><table class="plain">
+              <thead><tr><th>Что</th><th>Имя</th><th>Когда</th></tr></thead>
+              <tbody>
+                @for (file of files(); track file.id) {
+                  <tr><td>{{ file.doc_type || 'Файл' }}</td><td>@if (file.file) { <a [href]="file.file" target="_blank">{{ file.original_name }}</a> } @else { {{ file.original_name }} }</td><td>{{ file.created_at | date: 'dd.MM.yyyy' }}</td></tr>
+                }
+                @for (row of work(); track row.id) {
+                  <tr><td>{{ row.kind_display }}</td><td>{{ row.title }}</td><td>{{ row.started_on | date: 'dd.MM.yyyy' }}</td></tr>
+                }
+              </tbody>
             </table></div>
           </mat-tab>
 
         <mat-tab [label]="'История изменений (' + history().length + ')'">
-            <p class="muted tab-note">Журнал пишет смену группы, рейтинга, этапа воронки, сценария, контакта, категории должника, наследственного дела, регистрации, фактического проживания и юридического статуса. Кто изменил, когда и какое было основание, видно в строке.</p>
-            <div class="list-pane"><table mat-table [dataSource]="history()">
+            <div class="filters">
+              <button mat-stroked-button type="button" (click)="historyPane = 'sums'">Суммы задолженности</button>
+              <button mat-stroked-button type="button" (click)="historyPane = 'rating'">Группа и рейтинг</button>
+              <button mat-stroked-button type="button" (click)="historyPane = 'other'">Прочие изменения</button>
+            </div>
+            @if (historyPane === 'sums') {
+              <p class="muted tab-note">Текущие остатки по периоду и услуге: основной долг и пеня раздельно. Отдельного журнала «было / стало» по ночным загрузкам нет.</p>
+              <div class="list-pane"><table mat-table [dataSource]="balances()">
+                <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
+                <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
+                <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Остаток основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
+                <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Остаток пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
+                <tr mat-header-row *matHeaderRowDef="balanceColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: balanceColumns"></tr>
+              </table></div>
+            } @else {
+            <p class="muted tab-note">Группа и рейтинг — отдельно. Этап, сценарий, контакты и остальные изменения — на кнопке «Прочие».</p>
+            <div class="list-pane"><table mat-table [dataSource]="historyRows()">
               <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Когда</th><td mat-cell *matCellDef="let r">{{ r.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
               <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Что</th><td mat-cell *matCellDef="let r">{{ historyKind(r.kind) }}</td></ng-container>
               <ng-container matColumnDef="old_value"><th mat-header-cell *matHeaderCellDef>Было</th><td mat-cell *matCellDef="let r">{{ r.old_value || '—' }}</td></ng-container>
@@ -471,6 +513,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               <tr mat-header-row *matHeaderRowDef="historyColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: historyColumns"></tr>
             </table></div>
+            }
           </mat-tab>
         </mat-tab-group>
 
@@ -506,7 +549,14 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
   styles: `
     .crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--erip-muted); margin-bottom: 12px; }
     .uen { margin: 0 0 8px; color: #6b7280; font-size: 13px; }
-    .contact-add { align-items: flex-end; }
+    .contact-add { align-items: center; }
+    .framed { border: 1px solid var(--erip-border); border-radius: 8px; padding: 12px; margin-top: 12px; }
+    .invalid { outline: 2px solid #c62828; border-radius: 4px; }
+    .step-no {
+      width: 28px; height: 28px; border-radius: 50%; border: 2px solid #1d4f63; background: #fff; color: #1d4f63;
+      font-weight: 700; cursor: pointer;
+    }
+    .step-no.on { background: #1d4f63; color: #fff; }
     .contact-mode { margin-left: auto; }
     .writ-pack { border: 1px solid var(--erip-border); border-radius: 8px; margin: 8px 0; background: #fff; }
     .writ-pack-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
@@ -719,6 +769,10 @@ export class AccountDetailComponent implements OnInit {
   protected editingContactId: number | null = null;
   protected categoryId: number | null = null;
   protected newCategory = '';
+  protected categoryText = '';
+  protected groupInvalid = false;
+  protected contactInvalid = false;
+  protected historyPane: 'sums' | 'rating' | 'other' = 'sums';
   protected residence = '';
   protected inheritance = false;
   protected inheritanceUntil = '';
@@ -794,9 +848,10 @@ export class AccountDetailComponent implements OnInit {
         this.manualReason = r.account.debt_group_manual_reason;
         this.contactMode = r.account.contact_source_mode || 'combined';
         this.categoryId = r.account.debtor_category;
+        this.categoryText = r.categories.results.find((item) => item.id === r.account.debtor_category)?.name ?? '';
         this.residence = r.account.residence_note;
         this.inheritance = r.account.inheritance_case;
-        this.inheritanceUntil = r.account.inheritance_until || '';
+        this.inheritanceUntil = this.showDate(r.account.inheritance_until);
         this.services.set(r.services.results);
         this.payments.set(r.payments.results);
         this.registrations.set(r.registrations.results);
@@ -880,7 +935,11 @@ export class AccountDetailComponent implements OnInit {
       return;
     }
     const a = this.account();
-    if (!a || !this.contactValue.trim()) return;
+    if (!a || !this.contactValue.trim()) {
+      this.contactInvalid = true;
+      return;
+    }
+    this.contactInvalid = false;
     this.api.saveContact({ account: a.id, kind: this.contactKind, value: this.contactValue.trim() }).subscribe({
       next: () => {
         this.contactValue = '';
@@ -917,6 +976,37 @@ export class AccountDetailComponent implements OnInit {
       next: () => this.api.accountContacts(a.id).subscribe((page) => this.contacts.set(page.results)),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  protected categoryMatches() {
+    const text = this.categoryText.trim().toLowerCase();
+    const rows = this.categories();
+    if (!text) return rows;
+    return rows.filter((item) => item.name.toLowerCase().includes(text));
+  }
+
+  protected pickCategory(name: string): void {
+    const found = this.categories().find((item) => item.name === name);
+    this.categoryId = found?.id ?? null;
+    this.categoryText = name;
+  }
+
+  protected applyCategory(): void {
+    const name = this.categoryText.trim();
+    if (!name) return;
+    const found = this.categories().find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (found) {
+      this.categoryId = found.id;
+      this.categoryText = found.name;
+      return;
+    }
+    this.newCategory = name;
+    this.addCategory();
+  }
+
+  protected clearCategory(): void {
+    this.categoryId = null;
+    this.categoryText = '';
   }
 
   addCategory(): void {
@@ -1254,7 +1344,7 @@ export class AccountDetailComponent implements OnInit {
       debtor_category: this.categoryId,
       residence_note: this.residence,
       inheritance_case: this.inheritance,
-      inheritance_until: this.inheritanceUntil || null,
+      inheritance_until: this.isoDate(this.inheritanceUntil),
     }).subscribe({
       next: (updated) => {
         this.account.set(updated);
@@ -1278,6 +1368,11 @@ export class AccountDetailComponent implements OnInit {
   saveGroup(): void {
     const a = this.account();
     if (!a) return;
+    if (this.manualGroup != null && !this.manualReason.trim()) {
+      this.groupInvalid = true;
+      return;
+    }
+    this.groupInvalid = false;
     this.api.updateAccountGroup(a.id, this.manualGroup, this.manualReason).subscribe({
       next: (updated) => {
         this.account.set(updated);
@@ -1315,6 +1410,22 @@ export class AccountDetailComponent implements OnInit {
     });
   }
 
+  protected showDate(value: string | null | undefined): string {
+    if (!value) return '';
+    const iso = value.slice(0, 10);
+    const parts = iso.split('-');
+    return parts.length === 3 && parts[0].length === 4 ? `${parts[2]}.${parts[1]}.${parts[0]}` : value;
+  }
+
+  protected isoDate(value: string): string | null {
+    const text = (value || '').trim();
+    if (!text) return null;
+    const ru = text.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (ru) return `${ru[3]}-${ru[2]}-${ru[1]}`;
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+    return null;
+  }
+
   protected accountPeriod(account: AccountDetail): string {
     if (!account.start_date) return '—';
     const start = this.formatDay(account.start_date);
@@ -1322,11 +1433,55 @@ export class AccountDetailComponent implements OnInit {
     return `с ${start} по ${this.formatDay(account.stop_date)}`;
   }
 
+  protected tariff(value: string | number | null | undefined): string {
+    if (value == null || value === '') return '—';
+    const number = Number(value);
+    if (Number.isNaN(number)) return String(value);
+    return String(Math.round(number * 10000) / 10000);
+  }
+
   protected quantity(value: string | null): string {
     if (value == null || value === '') return '—';
     const number = Number(value);
     if (Number.isNaN(number)) return value;
     return number.toLocaleString('ru-RU', { maximumFractionDigits: 4 });
+  }
+
+  protected stepDone(step: ScenarioStep): boolean {
+    return step.measures.some((row) => row.stopped || !!row.finished_on);
+  }
+
+  protected stepSpan(step: ScenarioStep): string {
+    const row = step.measures[0];
+    if (!row) return '';
+    const start = this.showDate(row.started_on);
+    const end = this.showDate(row.finished_on);
+    if (!start && !end) return '';
+    return `${start || '…'} — ${end || '…'}`;
+  }
+
+  protected toggleStep(step: ScenarioStep): void {
+    const row = step.measures.find((item) => !item.stopped && !item.finished_on) || step.measures[0];
+    const account = this.account();
+    if (!row || !account || !this.auth.canWrite()) return;
+    this.api.stopMeasure(account.id, row.id).subscribe({
+      next: () => this.reloadScenario(),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected showDateTime(value: string | null | undefined): string {
+    if (!value) return '—';
+    const day = this.showDate(value);
+    const time = value.length > 11 ? value.slice(11, 16) : '';
+    return time ? `${day} ${time}` : day;
+  }
+
+  protected historyRows(): HistoryRow[] {
+    const rows = this.history();
+    if (this.historyPane === 'rating') return rows.filter((row) => row.kind === 'group' || row.kind === 'rating');
+    if (this.historyPane === 'other') return rows.filter((row) => row.kind !== 'group' && row.kind !== 'rating');
+    return [];
   }
 
   protected scenarioName(): string {
@@ -1405,6 +1560,135 @@ export class AccountDetailComponent implements OnInit {
     this.persistCard('services');
   }
 
+  protected regPicker = false;
+  protected regHidden = new Set<string>();
+  protected readonly regCatalog = [
+    'payer', 'registered', 'beneficiary', 'fam', 'im', 'ot', 'check_in_date', 'check_out_date',
+    'date_registration', 'passport_out', 'move_reason', 'reg_type_name', 'relation', 'family',
+    'birthday', 'death', 'sex', 'doc', 'doc_num', 'doc_date', 'doc_organ', 'doc_basis', 'doc_code',
+    'personal_num', 'citizenship', 'nationality', 'address', 'work', 'position', 'tab_number', 'salary',
+    'account_id', 'person_id', 'registration_id', 'legal', 'unp', 'parent_id', 'parent_name',
+    'social_note', 'marital', 'rent', 'social_category', 'unemployed', 'left_country',
+    'bank_code', 'bank_name', 'bank_account', 'payer_reg_id', 'payer_name', 'payer_share', 'payer_type',
+    'tenant_free', 'doc1', 'share1', 'doc2', 'share2', 'doc3', 'share3', 'heritage',
+    'heritage_accept', 'heritage_open', 'heritage_close', 'phone', 'email', 'joint_owner',
+    'cnt_benefit', 'cnt_rent', 'cnt_minor', 'cnt_temp', 'cnt_unreg', 'cnt_absent',
+    'cnt_distant', 'cnt_close', 'cnt_people', 'cnt_payers', 'cnt_pets',
+  ];
+
+  protected regLabel(col: string): string {
+    const labels: Record<string, string> = {
+      payer: 'Плательщик', registered: 'Зарегистрирован', beneficiary: 'Льготник',
+      fam: 'Фамилия', im: 'Имя', ot: 'Отчество', check_in_date: 'Дата прибытия', check_out_date: 'Дата убытия',
+      date_registration: 'Дата регистрации по паспорту', passport_out: 'Дата снятия с учёта по паспорту',
+      move_reason: 'Причина прибытия/выбытия', reg_type_name: 'Тип регистрации', relation: 'Родственные отношения',
+      family: 'Является членом семьи', birthday: 'Дата рождения', death: 'Дата смерти', sex: 'Пол',
+      doc: 'Осн. документ', doc_num: 'Серия и номер', doc_date: 'Дата выдачи', doc_organ: 'Кем выдан',
+      doc_basis: 'Основание выдачи паспорта', doc_code: 'Цифровой код органа', personal_num: 'Идентификационный номер паспорта (ИДН)',
+      citizenship: 'Гражданство', nationality: 'Национальность', address: 'Адрес местожительства',
+      work: 'Наименование предприятия', position: 'Должность', tab_number: 'Табельный номер', salary: 'Зачислять оплату из зарплаты',
+      account_id: 'ID ЛС', person_id: 'ID лица', registration_id: 'ID регистрации лица', legal: 'Юр.лицо', unp: 'УНП',
+      parent_id: 'ID родителя', parent_name: 'ФИО родителя', social_note: 'Социальное примечание', marital: 'Семейное положение',
+      rent: 'Наличие договора найма', social_category: 'Социальная категория граждан', unemployed: 'Незанятые в экономике',
+      left_country: 'Незанятые, выехавшие за пределы РБ', bank_code: 'Код банка', bank_name: 'Наименование банка',
+      bank_account: 'Расчетный счет', payer_reg_id: 'Код регистрации плательщика', payer_name: 'ФИО плательщика',
+      payer_share: 'Доля плательщика', payer_type: 'Наименование типа плательщика', tenant_free: 'Является нанимателем без оплаты ЖКУ',
+      doc1: 'Наименование документа 1', share1: 'Доля по документу 1', doc2: 'Наименование документа 2', share2: 'Доля по документу 2',
+      doc3: 'Наименование документа 3', share3: 'Доля по документу 3', heritage: 'Способ перехода прав',
+      heritage_accept: 'Дата принятия наследства', heritage_open: 'Дата начала открытия наследства',
+      heritage_close: 'Дата окончания открытия наследства', phone: 'Контактный телефон', email: 'E-mail',
+      joint_owner: 'ФИО участника совместной собственности', cnt_benefit: 'Кол-во льготников',
+      cnt_rent: 'Кол-во проживающих по договору найма', cnt_minor: 'Кол-во несовершеннолетних',
+      cnt_temp: 'Кол-во зарег. по месту пребывания', cnt_unreg: 'Кол-во проживающих без регистрации',
+      cnt_absent: 'Кол-во временно отсутствующих', cnt_distant: 'Кол-во зарег. неблизких родственников',
+      cnt_close: 'Кол-во зарег. близких родственников', cnt_people: 'Кол-во человек (всех)',
+      cnt_payers: 'Кол-во плательщиков', cnt_pets: 'Кол-во домашних питомцев',
+    };
+    return labels[col] || col;
+  }
+
+  protected visibleRegColumns(): string[] {
+    const shown = this.regCatalog.filter((col) => !this.regHidden.has(col));
+    return shown.length ? shown : ['payer'];
+  }
+
+  protected regVisible(col: string): boolean { return !this.regHidden.has(col); }
+
+  protected toggleRegColumn(col: string, on: boolean): void {
+    if (on) this.regHidden.delete(col);
+    else this.regHidden.add(col);
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
+  }
+
+  protected setRegColumns(on: boolean): void {
+    this.regHidden = on ? new Set() : new Set(this.regCatalog.filter((col) => col !== 'payer'));
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
+  }
+
+  protected moveRegColumn(index: number, shift: number): void {
+    const next = index + shift;
+    if (next < 0 || next >= this.regCatalog.length) return;
+    const [item] = this.regCatalog.splice(index, 1);
+    this.regCatalog.splice(next, 0, item);
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
+  }
+
+  protected regCell(person: Registration, col: string): string {
+    const account = this.account();
+    const yn = (value: boolean | number | null | undefined) => value ? 'да' : 'нет';
+    const sheet = (label: string) => (person.sheet || []).find((field) => field.label.toLowerCase().includes(label.toLowerCase()))?.value || '';
+    if (col === 'payer') return yn(person.subj_is_main);
+    if (col === 'registered') {
+      const removed = person.subj_is_check_out || sheet('снят').startsWith('1') || sheet('снят') === 'да';
+      if (removed) return 'нет';
+      const status = sheet('статус регистрации');
+      if (status === '0' || status === 'нет') return 'нет';
+      return 'да';
+    }
+    if (col === 'beneficiary') return yn(sheet('льгот').startsWith('1') || sheet('льгот') === 'да');
+    if (col === 'fam') return person.full_name.split(' ')[0] || sheet('фамилия') || '—';
+    if (col === 'im') return person.full_name.split(' ')[1] || '—';
+    if (col === 'ot') return person.full_name.split(' ').slice(2).join(' ') || '—';
+    if (col === 'relation') return person.relation_degree_name || '—';
+    if (col === 'family') return yn(person.is_close_relative);
+    if (col === 'birthday') return this.showDate(person.birthday) || '—';
+    if (col === 'doc') return person.maindoc_type_name || '—';
+    if (col === 'account_id') return account ? String(account.account_id) : '—';
+    if (col === 'person_id') return sheet('код лица') || '—';
+    if (col === 'registration_id') return sheet('код регистрации') || '—';
+    if (col === 'legal') return yn(person.subj_legal_entity);
+    if (col === 'unp') return sheet('унп') || sheet('учетный номер') || '—';
+    if (col === 'parent_id') return sheet('код родителя') || '—';
+    if (col === 'phone') return person.contact_phone || '—';
+    if (col === 'email') return person.email || '—';
+    if (col === 'cnt_benefit') return account?.priv_acc_count == null ? '—' : String(account.priv_acc_count);
+    if (col === 'cnt_people') return account?.subj_count == null ? '—' : String(account.subj_count);
+    if (col === 'cnt_payers') return String(this.registrations().filter((row) => row.subj_is_main).length);
+    if (col === 'cnt_pets') return sheet('питом') || '—';
+    const needles: Record<string, string> = {
+      check_in_date: 'прибытия', check_out_date: 'убытия', date_registration: 'регистрации по паспорту',
+      passport_out: 'снятия с учёта', move_reason: 'причина', death: 'смерти', sex: 'пол',
+      doc_num: 'серия', doc_date: 'выдачи', doc_organ: 'кем выдан', doc_basis: 'основание выдачи',
+      doc_code: 'цифровой код', personal_num: 'идентификационный', citizenship: 'гражданство',
+      nationality: 'национальность', address: 'местожительства', work: 'предприятия', position: 'должность',
+      tab_number: 'табельный', salary: 'зарплат', parent_name: 'фио родителя', social_note: 'социальное примечание',
+      marital: 'семейное', rent: 'найма', unemployed: 'незанятые в экономике', left_country: 'выехав',
+      bank_code: 'код банка', bank_name: 'наименование банка', bank_account: 'расчетный',
+      payer_reg_id: 'код регистрации плательщика', payer_name: 'фио плательщика', payer_share: 'доля плательщика',
+      payer_type: 'типа плательщика', tenant_free: 'нанимателем', doc1: 'документа 1', share1: 'документу 1',
+      doc2: 'документа 2', share2: 'документу 2', doc3: 'документа 3', share3: 'документу 3',
+      heritage: 'перехода прав', heritage_accept: 'принятия наследства', heritage_open: 'начала открытия',
+      heritage_close: 'окончания открытия', joint_owner: 'совместной', cnt_rent: 'договору найма',
+      cnt_minor: 'несовершеннолет', cnt_temp: 'пребывания', cnt_unreg: 'без регистрации',
+      cnt_absent: 'отсутств', cnt_distant: 'неблизк', cnt_close: 'близких',
+    };
+    const found = sheet(needles[col] || this.regLabel(col));
+    if (!found) return '—';
+    if (found === '1') return 'да';
+    if (found === '0') return 'нет';
+    return found;
+  }
+
   protected readonly paymentCatalog = [
     'execution_id', 'source_receipt_id', 'receipt_id', 'ais_account_id', 'package_id',
     'otdel', 'pp_num', 'house_address', 'account_address', 'payer_address_file',
@@ -1425,8 +1709,11 @@ export class AccountDetailComponent implements OnInit {
       house_address: 'Адрес дома', account_address: 'Адрес', payer_address_file: 'Адрес плательщика из файла',
       payer_reg_name: 'ФИО', client_name: 'ФИО плательщика из файла', bank_id: 'Банк - ID', bank_name: 'Банк - Наименование',
       pay_date: 'Дата оплаты', bank_date: 'Дата оплаты по банку', acc_oper_date: 'Операционная дата',
-      account_provider_id: 'Код обслуживающей', provider_id: 'Код поставщика', provider_short_name: 'Поставщик',
-      service_id: 'Код услуги', service_name: 'Услуга', pay_service_summ: 'Оплата услуг', pay_mulct_summ: 'Оплата пени',
+      account_provider_id: 'обсл. организация ЛС — ID', provider_short_name: 'обсл. организация ЛС — Наименование',
+      provider_id: 'Поставщик услуг — ID', supplier_name: 'Поставщик услуг — Наименование',
+      service_id: 'Услуга — ID', service_name: 'Услуга — Наименование',
+      pay_service_summ: 'Оплата услуг по квитанции', pay_mulct_summ: 'Оплата пени по квитанции',
+      pay_total: 'Итого оплачено', unshared_sum: 'Нераспределенный остаток оплаты в текущем периоде',
       share_service_sum: 'Распределено по услуге', share_mulct_sum: 'Распределено по пене', share_status: 'Способ распределения',
       refund_sum: 'Возврат', commission_summ: 'Комиссия', notes: 'Примечание', payment_type_display: 'Тип оплаты',
     };
@@ -1462,7 +1749,42 @@ export class AccountDetailComponent implements OnInit {
     this.persistCard('payments');
   }
 
+  protected paymentSub(col: string): string {
+    if (col === 'account_provider_id' || col === 'provider_id' || col === 'service_id') return 'ID';
+    if (col === 'provider_short_name' || col === 'supplier_name' || col === 'service_name') return 'Наименование';
+    return '';
+  }
+
+  protected paymentHasGroups(): boolean {
+    return this.visiblePaymentColumns().some((col) => !!this.paymentSub(col));
+  }
+
+  protected paymentGroups(): { key: string; title: string; span: number }[] {
+    const cols = this.visiblePaymentColumns();
+    const groups: Record<string, string> = {
+      account_provider_id: 'Обслуживающая организация ЛС',
+      provider_short_name: 'Обслуживающая организация ЛС',
+      provider_id: 'Поставщик услуг',
+      supplier_name: 'Поставщик услуг',
+      service_id: 'Услуга',
+      service_name: 'Услуга',
+    };
+    const cells: { key: string; title: string; span: number }[] = [];
+    for (const col of cols) {
+      const title = groups[col] || this.paymentLabel(col);
+      const prev = cells[cells.length - 1];
+      if (prev && groups[col] && prev.title === title) prev.span += 1;
+      else cells.push({ key: col, title: groups[col] ? title : this.paymentLabel(col), span: 1 });
+    }
+    return cells;
+  }
+
   protected paymentCell(row: Payment, col: string): string {
+    if (col === 'pay_total') {
+      const sum = Number(row['pay_service_summ'] || 0) + Number(row['pay_mulct_summ'] || 0);
+      return Number.isFinite(sum) ? sum.toFixed(2) : '—';
+    }
+    if (col === 'pay_date' || col === 'bank_date') return this.showDate(String(row[col] || '')) || '—';
     const value = row[col];
     if (value != null && value !== '') return String(value);
     const extra = (row.file_fields || []).find((field) => field.label === this.paymentLabel(col));

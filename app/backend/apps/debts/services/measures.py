@@ -507,7 +507,7 @@ def collection_executor(account: Account):
     return (
         User.objects.filter(
             organization_id=account.organization_id, is_active=True,
-            contour=User.Contour.BILLING, role=User.Role.SPECIALIST,
+            contour=User.Contour.BILLING, role__in=(User.Role.LEGAL, User.Role.SPECIALIST),
         )
         .order_by("id")
         .first()
@@ -519,7 +519,7 @@ def _leads_collection(user, account: Account) -> bool:
         user.is_active
         and user.organization_id == account.organization_id
         and user.contour == User.Contour.BILLING
-        and user.role == User.Role.SPECIALIST
+        and user.role in {User.Role.LEGAL, User.Role.SPECIALIST}
     )
 
 
@@ -723,7 +723,8 @@ def write_call_result(
     error = (data.get("error") or "").strip()
     old = item.status
     item.call_result = result
-    item.status = CALL_DONE[result]
+    scenario_dial = bool(measure.source_scenario_id) and measure.source_action in {"call", "manual_call"} and not measure.stopped
+    item.status = MeasureItem.Status.RUNNING if scenario_dial else CALL_DONE[result]
     item.note = note[:500]
     item.delivery_error = error[:500]
     item.provider_message_id = (provider_message_id or "")[:64]
@@ -748,8 +749,38 @@ def write_call_result(
         if item.recording_ref:
             reason = f"{reason}. Запись: {item.recording_ref}"
     log_event(measure, item, item.acted_by, old, item.status, reason)
+    _remember_attempt(item)
     rollup(measure)
+    if scenario_dial and (item.listen_percent or 0) >= 70:
+        from apps.nsi.services.scenario_engine import advance_account
+
+        advance_account(item.account)
     return item
+
+
+def _remember_attempt(item: MeasureItem) -> None:
+    from apps.debts.models import CallAttempt
+
+    listened = item.listen_percent is not None and item.listen_percent >= 70
+    if listened:
+        status = CallAttempt.Status.DONE
+    elif item.call_result == MeasureItem.CallResult.BUSY:
+        status = CallAttempt.Status.BUSY
+    elif item.call_result == MeasureItem.CallResult.BAD_NUMBER:
+        status = CallAttempt.Status.BAD_NUMBER
+    elif item.call_result == MeasureItem.CallResult.NO_ANSWER:
+        status = CallAttempt.Status.NO_ANSWER
+    else:
+        status = CallAttempt.Status.FAILED if not listened else CallAttempt.Status.DONE
+    CallAttempt.objects.create(
+        item=item,
+        attempted_at=item.acted_at or timezone.now(),
+        duration_sec=item.duration_sec,
+        listen_percent=item.listen_percent,
+        status=status,
+        recording_ref=item.recording_ref or "",
+        external_call=item.external_call,
+    )
 
 
 def record_item(measure: Measure, item: MeasureItem, user, data) -> MeasureItem:

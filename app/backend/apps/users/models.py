@@ -80,6 +80,7 @@ class User(AbstractUser):
         SUPERADMIN = "superadmin", "Суперадминистратор"
         LOCAL_ADMIN = "local_admin", "Локальный администратор"
         SPECIALIST = "specialist", "Специалист"
+        LEGAL = "legal", "Специалист ЮС"
         OBSERVER = "observer", "Наблюдатель"
 
     class Contour(models.TextChoices):

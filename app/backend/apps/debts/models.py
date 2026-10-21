@@ -616,6 +616,9 @@ class Measure(AisRecord):
     )
     artifact = models.FileField("Файл для внешней системы", upload_to="measures/%Y/%m/", blank=True)
     started_on = models.DateField("Дата начала", null=True, blank=True)
+    finished_on = models.DateField("Дата окончания", null=True, blank=True)
+    finish_reason = models.CharField("Основание окончания", max_length=250, blank=True)
+    stopped = models.BooleanField("Остановлено специалистом", default=False)
     due_on = models.DateField("Контрольная дата", null=True, blank=True)
     days = models.PositiveSmallIntegerField("Дней", null=True, blank=True)
     time_from = models.TimeField("Время с", null=True, blank=True)
@@ -728,6 +731,30 @@ class MeasureItem(AisRecord):
         verbose_name_plural = "Частные мероприятия"
 
 
+class CallAttempt(TimeStampedModel):
+    """Одна попытка обзвона. Успешный дозвон закрывает только этот день, не всё мероприятие."""
+
+    class Status(models.TextChoices):
+        DONE = "done", "Выполнено"
+        NO_ANSWER = "no_answer", "Недозвон"
+        BUSY = "busy", "Занято"
+        BAD_NUMBER = "bad_number", "Неверный номер"
+        FAILED = "failed", "Ошибка"
+
+    item = models.ForeignKey(MeasureItem, on_delete=models.CASCADE, related_name="call_attempts", verbose_name="Строка")
+    attempted_at = models.DateTimeField("Дата и время")
+    duration_sec = models.PositiveIntegerField("Длительность, с", null=True, blank=True)
+    listen_percent = models.PositiveSmallIntegerField("Доля прослушивания, %", null=True, blank=True)
+    status = models.CharField("Статус", max_length=20, choices=Status.choices)
+    recording_ref = models.CharField("Запись", max_length=500, blank=True)
+    external_call = models.BooleanField("Внешний вызов выполнен", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-attempted_at", "-id"]
+        verbose_name = "Попытка обзвона"
+        verbose_name_plural = "Попытки обзвона"
+
+
 class MeasureEvent(TimeStampedModel):
     """Переход статуса частного или списочного мероприятия."""
 
@@ -764,6 +791,7 @@ class MeasureTask(AisRecord):
     title = models.CharField("Задание", max_length=250)
     due_on = models.DateField("Срок", null=True, blank=True)
     status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.OPEN)
+    completed_on = models.DateField("Дата окончания", null=True, blank=True)
 
     class Meta:
         ordering = ["due_on", "id"]
@@ -1033,6 +1061,10 @@ class AccountScenarioRun(AisRecord):
         "nsi.ScenarioDefinition", on_delete=models.PROTECT, related_name="runs", verbose_name="Сценарий",
     )
     version = models.PositiveIntegerField("Версия")
+    assigned_on = models.DateField("Дата назначения", null=True, blank=True)
+    finished_on = models.DateField("Дата окончания", null=True, blank=True)
+    finish_reason = models.CharField("Основание окончания", max_length=250, blank=True)
+    awaiting_start = models.BooleanField("Ждёт кнопку запуска", default=False)
     paused = models.BooleanField("Приостановлен", default=False)
     pause_reason = models.CharField("Причина приостановки", max_length=500, blank=True)
     last_skip = models.CharField("Почему шаг не стартовал", max_length=300, blank=True)
@@ -1041,6 +1073,42 @@ class AccountScenarioRun(AisRecord):
     class Meta:
         verbose_name = "Запуск сценария"
         verbose_name_plural = "Запуски сценариев"
+
+
+class ScenarioAssignment(AisRecord):
+    """Назначение сценария на лицевой счёт. Замена закрывает предыдущую строку, не затирает даты."""
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="scenario_assignments", verbose_name="ЛС")
+    scenario = models.ForeignKey(
+        "nsi.ScenarioDefinition", on_delete=models.PROTECT, related_name="assignments", verbose_name="Сценарий",
+    )
+    version = models.PositiveIntegerField("Версия")
+    assigned_on = models.DateField("Дата назначения")
+    finished_on = models.DateField("Дата окончания", null=True, blank=True)
+    finish_reason = models.CharField("Основание окончания", max_length=250, blank=True)
+
+    class Meta:
+        ordering = ["-assigned_on", "-id"]
+        verbose_name = "Назначение сценария"
+        verbose_name_plural = "Назначения сценариев"
+
+
+class CalendarNote(TimeStampedModel):
+    """Личная заметка специалиста. Видна специалистам той же схемы."""
+
+    organization = models.ForeignKey(
+        "users.Organization", on_delete=models.CASCADE, related_name="calendar_notes", verbose_name="Схема",
+    )
+    author = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="calendar_notes", verbose_name="Автор",
+    )
+    day = models.DateField("Дата")
+    text = models.CharField("Текст", max_length=500)
+
+    class Meta:
+        ordering = ["day", "id"]
+        verbose_name = "Заметка календаря"
+        verbose_name_plural = "Заметки календаря"
 
 
 class ScenarioPause(TimeStampedModel):

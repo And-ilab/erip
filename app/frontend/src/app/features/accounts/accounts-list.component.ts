@@ -15,7 +15,7 @@ import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
-import { AccountRow, CalendarEvent, KanbanColumn, MeasureRow, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
+import { AccountRow, CalendarEvent, DirectoryUser, KanbanColumn, MeasureRow, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
@@ -106,9 +106,7 @@ const BASE_COLUMNS = [
   'provider_short_name', 'schema_label',
   'rating_label', 'funnel_stage', 'debt_total', 'mulct_total', 'obligation_total', 'effective_group',
   'scenario_brief', 'assigned_name', 'ownership_type_name', 'acc_category_full', 'months_debt',
-  'subj_count', 'registered_count', 'services_debt_count', 'debt_started_on',
-  'contract_number', 'contract_date', 'service_provider', 'initial_principal', 'initial_penalty',
-  'period_balances', 'repayment_due_on', 'last_payment_date',
+  'subj_count', 'registered_count', 'debt_started_on',
 ];
 
 type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
@@ -264,6 +262,9 @@ interface GroupSection {
         }
         @if (canLaunch()) {
           <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
+          <button type="button" class="tool" (click)="scenarioOpen.set(!scenarioOpen())">Изменить сценарий</button>
+          <button type="button" class="tool" (click)="runScenarios()">Запустить сценарий</button>
+          <button type="button" class="tool" (click)="legalOpen.set(!legalOpen())">Передать специалисту ЮС</button>
         }
         <button type="button" class="tool" (click)="exportCsv()">CSV</button>
         <div class="columns-wrap" (click)="$event.stopPropagation()">
@@ -285,6 +286,34 @@ interface GroupSection {
           (modeChange)="showRegistry($event)" />
       </div>
 
+      @if (scenarioOpen()) {
+        <div class="measure">
+          <p class="hint">Сценарий выбирается из справочника. Дальше мера стартует сама или ждёт кнопку — как настроено у обслуживающей организации.</p>
+          <div class="filters">
+            <mat-form-field>
+              <mat-label>Сценарий</mat-label>
+              <mat-select [formControl]="scenarioId">
+                @for (item of scenarioChoices(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <button mat-flat-button color="primary" (click)="changeScenario()">Изменить сценарий</button>
+          </div>
+        </div>
+      }
+      @if (legalOpen()) {
+        <div class="measure">
+          <p class="hint">Специалист ЮС становится закреплённым и исполнителем меры взыскания. В реестре показывается фамилия, имя и отчество целиком.</p>
+          <div class="filters">
+            <mat-form-field>
+              <mat-label>Специалист ЮС</mat-label>
+              <mat-select [formControl]="legalId">
+                @for (item of legalUsers(); track item.id) { <mat-option [value]="item.id">{{ item.registry_name || item.username }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <button mat-flat-button color="primary" (click)="assignLegal()">Передать</button>
+          </div>
+        </div>
+      }
       @if (measureOpen()) {
         <div class="measure">
           <p class="hint">
@@ -384,7 +413,8 @@ interface GroupSection {
                     [attr.title]="label(name)">
                   <span class="col-head" [style.width.ch]="columnCh(name)">{{ shortLabel(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }</span>
                 </th>
-                <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'">
+                <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'"
+                    [attr.title]="name === 'provider_short_name' ? cell(r, name) : null">
                   @switch (name) {
                     @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
                     @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
@@ -440,7 +470,8 @@ interface GroupSection {
                     @for (r of section.rows; track r.id) {
                       <tr class="clickable-row" [class.picked]="isSelected(r.id)" (click)="openRow($event, r)">
                         @for (name of shownColumns(); track name) {
-                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)" [class.one-line]="name === 'scenario_brief'">
+                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)" [class.one-line]="name === 'scenario_brief'"
+                              [attr.title]="name === 'provider_short_name' ? cell(r, name) : null">
                             @switch (name) {
                               @case ('select') {
                                 <input type="checkbox" [attr.aria-label]="'Выбрать ЛС ' + r.client_account" [checked]="isSelected(r.id)" (click)="$event.stopPropagation()" (change)="toggleRow(r, $event)" />
@@ -497,11 +528,11 @@ interface GroupSection {
                   <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
                            [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
                     <app-kanban-debtor
-                      [name]="card.short_fio || 'Без ФИО'"
+                      [name]="card.client_account"
                       [rating]="card.rating_label"
                       [group]="card.effective_group"
-                      [account]="card.client_account"
-                      [address]="card.account_address ? short(street(card.account_address)) : ''"
+                      [account]="''"
+                      [address]="card.account_address || ''"
                       [scenario]="scenarioLine(card)"
                       [ownership]="card.ownership_type_name ? short(card.ownership_type_name) : ''"
                       [housing]="card.acc_category_full ? short(card.acc_category_full) : ''"
@@ -522,6 +553,13 @@ interface GroupSection {
         }
 
         @if (view() === 'calendar') {
+          @if (canLaunch()) {
+            <div class="filters">
+              <input placeholder="дд.мм.гггг" [formControl]="noteDay" />
+              <input placeholder="Заметка специалиста" [formControl]="noteText" />
+              <button type="button" class="tool" (click)="saveNote()">Заметка</button>
+            </div>
+          }
           <app-calendar-board
             [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="canLaunch()"
             [supplier]="supplierContour()" [templates]="templates()" [serviceChoices]="serviceChoices()"
@@ -669,7 +707,7 @@ interface GroupSection {
     th[draggable="true"] { cursor: grab; }
     .col-head {
       display: inline-block; white-space: pre-line; line-height: 1.15; vertical-align: bottom;
-      font-size: 11px; font-weight: 600;
+      font-size: 12px; font-weight: 600;
     }
     .list-pane.fill .mat-mdc-header-cell { white-space: normal; vertical-align: bottom; }
     :host ::ng-deep .list-pane.fill .mat-sort-header-content { white-space: normal; text-align: left; overflow: visible; }
@@ -742,7 +780,7 @@ export class AccountsListComponent implements OnInit {
   private readonly snack = inject(MatSnackBar);
   private readonly auth = inject(AuthService);
 
-  protected readonly groups = [1, 2, 3, 4, 5, 6];
+  protected readonly groups = [0, 1, 2, 3, 4, 5, 6];
   protected readonly letters = ['A', 'B', 'C', 'D', 'E'];
   protected readonly stages = [
     { id: 'new', label: 'Новый должник' },
@@ -782,6 +820,14 @@ export class AccountsListComponent implements OnInit {
   protected readonly accountFields = accountDomainFields();
   protected readonly domain = signal<DomainRule | null>(null);
   protected readonly measureOpen = signal(false);
+  protected readonly scenarioOpen = signal(false);
+  protected readonly legalOpen = signal(false);
+  protected readonly scenarioChoices = signal<{ id: number; name: string }[]>([]);
+  protected readonly legalUsers = signal<DirectoryUser[]>([]);
+  protected readonly scenarioId = new FormControl<number | null>(null);
+  protected readonly legalId = new FormControl<number | null>(null);
+  protected readonly noteDay = new FormControl('', { nonNullable: true });
+  protected readonly noteText = new FormControl('', { nonNullable: true });
   protected readonly mapQuery = signal<Record<string, string | number | null>>({});
   protected readonly territoryId = signal<number | null>(null);
   protected readonly territoryName = signal('');
@@ -894,6 +940,14 @@ export class AccountsListComponent implements OnInit {
       next: (page) => this.templates.set(page.results),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+    this.api.scenarios().subscribe({
+      next: (page) => this.scenarioChoices.set(page.results.map((row) => ({ id: row.id, name: row.name }))),
+      error: () => this.scenarioChoices.set([]),
+    });
+    this.api.directoryUsers({ role: 'legal' }).subscribe({
+      next: (page) => this.legalUsers.set(page.results),
+      error: () => this.legalUsers.set([]),
+    });
     this.api.serviceChoices().subscribe({
       next: (page) => this.serviceChoices.set(page.results),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
@@ -1005,8 +1059,9 @@ export class AccountsListComponent implements OnInit {
       ).join('; '));
     }
     const raw = this.cell(row, name);
-    if (name === 'account_address') return raw;
-    if (['ownership_type_name', 'acc_category_full', 'assigned_name', 'provider_short_name', 'schema_label'].includes(name)) {
+    if (name === 'account_address' || name === 'provider_short_name') return raw;
+    if (name === 'assigned_name') return raw;
+    if (['ownership_type_name', 'acc_category_full', 'schema_label'].includes(name)) {
       return briefText(raw);
     }
     return raw;
@@ -1577,6 +1632,67 @@ export class AccountsListComponent implements OnInit {
 
   templateLabel(item: MessageTemplate): string {
     return this.measureKind.value === 'notice' ? `${item.name} (${item.channel_display})` : item.name;
+  }
+
+  protected saveNote(): void {
+    const text = this.noteText.value.trim();
+    const raw = this.noteDay.value.trim();
+    const match = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (!text || !match) {
+      this.snack.open('Укажите дату дд.мм.гггг и текст заметки', 'OK');
+      return;
+    }
+    this.api.saveCalendarNote(`${match[3]}-${match[2]}-${match[1]}`, text).subscribe({
+      next: () => {
+        this.noteText.setValue('');
+        this.loadCalendar();
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected runScenarios(): void {
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = chosen.length ? { account_ids: chosen } : { all_matching: true, filters: this.query() };
+    this.api.startScenarios(body).subscribe({
+      next: (result) => this.snack.open(`Сценарий запущен по ${result.started} счетам`, 'OK', { duration: 4000 }),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected changeScenario(): void {
+    if (this.scenarioId.value == null) {
+      this.snack.open('Выберите сценарий', 'OK');
+      return;
+    }
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = {
+      scenario_id: this.scenarioId.value,
+      ...(chosen.length ? { account_ids: chosen } : { all_matching: true, filters: this.query() }),
+    };
+    this.api.changeScenarios(body).subscribe({
+      next: (result) => this.snack.open(`Сценарий изменён у ${result.changed} счетов`, 'OK', { duration: 4000 }),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected assignLegal(): void {
+    if (this.legalId.value == null) {
+      this.snack.open('Выберите специалиста ЮС', 'OK');
+      return;
+    }
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = {
+      user_id: this.legalId.value,
+      ...(chosen.length ? { account_ids: chosen } : { all_matching: true, filters: this.query() }),
+    };
+    this.api.assignLegal(body).subscribe({
+      next: (result) => {
+        this.snack.open(`Передано счетов: ${result.assigned}`, 'OK', { duration: 4000 });
+        this.reload(1);
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   launch(): void {

@@ -87,9 +87,9 @@ def test_uc_evt_01_stub_fills_statuses_without_manual_entry(api, admin_a, org_a,
     assert item.caller_id == "+375172000001"
     assert item.provider_message_id.startswith("voice-")
     assert item.phone == "+375291112233"
-    assert party.status == Measure.Status.DONE
-    assert MeasureItem.objects.get(account=legal).call_result == ""
-    assert MeasureItem.objects.get(account=paused).call_result == ""
+    assert party.status == Measure.Status.RUNNING
+    assert MeasureItem.objects.get(account=legal, measure__kind=Measure.Kind.CALL).call_result == ""
+    assert MeasureItem.objects.get(account=paused, measure__kind=Measure.Kind.CALL).call_result == ""
 
     payload = fake_gateway.sent[-1]["dial"]
     assert payload["phone"] == "+375291112233"
@@ -209,8 +209,8 @@ def test_answered_call_is_not_repeated_and_a_miss_retries_next_evening(org_a, ad
     assert MeasureItem.objects.get(account=missed).call_result == "no_answer"
     assert MeasureItem.objects.get(account=reached).call_result == "answered"
     assert dial_due_calls(_at(27, 20, 0))["dialed"] == 0
-    assert dial_due_calls(_at(28, 18, 30))["dialed"] == 1
-    assert MeasureItem.objects.get(account=reached).status == MeasureItem.Status.DONE
+    assert dial_due_calls(_at(28, 18, 30))["dialed"] == 2
+    assert MeasureItem.objects.get(account=reached, measure__kind=Measure.Kind.CALL).status == MeasureItem.Status.RUNNING
     assert Measure.objects.filter(accounts=reached, kind=Measure.Kind.CALL).count() == 1
 
 

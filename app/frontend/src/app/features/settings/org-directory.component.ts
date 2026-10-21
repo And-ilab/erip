@@ -254,6 +254,18 @@ export class UserDraftDialog {
               </div>
               <button mat-stroked-button type="button" (click)="savePris()">Сохранить реквизиты</button>
             </details>
+            <details class="pris">
+              <summary>Режим запуска сценария по обслуживающей организации</summary>
+              <p class="muted">Вручную — сценарий проставляется, мероприятия ждут кнопку «Запустить сценарий». Автоматически — первое доступное мероприятие начинается сразу. По умолчанию вручную и базовый сценарий.</p>
+              @for (row of serviceModes(); track row.id) {
+                <label>{{ row.name }}
+                  <select [ngModel]="row.launch" (ngModelChange)="saveLaunch(row.id, $event)">
+                    <option value="manual">Вручную</option>
+                    <option value="auto">Автоматически</option>
+                  </select>
+                </label>
+              }
+            </details>
           }
           <div class="toolbar">
             <button mat-stroked-button (click)="createUser()">+ Новый пользователь</button>
@@ -378,6 +390,7 @@ export class OrgDirectoryComponent implements OnInit {
   protected readonly orgs = signal<OrganizationOption[]>([]);
   protected readonly users = signal<DirectoryUser[]>([]);
   protected readonly selectedId = signal<number | null>(null);
+  protected readonly serviceModes = signal<{ id: number; name: string; launch: string }[]>([]);
   protected readonly query = signal('');
   protected readonly tab = signal<'users' | 'rights'>('users');
   protected prisClaimant: Record<string, string> = {};
@@ -450,6 +463,7 @@ export class OrgDirectoryComponent implements OnInit {
       superadmin: 'Суперадминистратор',
       local_admin: 'Локальный администратор',
       specialist: 'Специалист',
+      legal: 'Специалист ЮС',
       observer: 'Наблюдатель',
     }[user.role];
   }
@@ -473,7 +487,7 @@ export class OrgDirectoryComponent implements OnInit {
   protected canToggle(user: DirectoryUser): boolean {
     if (user.id === this.auth.me()?.id) return false;
     if (this.auth.isSuperadmin()) return true;
-    return user.role === 'specialist' || user.role === 'observer';
+    return user.role === 'specialist' || user.role === 'legal' || user.role === 'observer';
   }
 
   protected onSearch(value: string): void {
@@ -492,6 +506,38 @@ export class OrgDirectoryComponent implements OnInit {
     this.tab.set('users');
     this.loadUsers();
     this.loadPris(id);
+    this.loadModes(id);
+  }
+
+  protected saveLaunch(id: number, launch: string): void {
+    this.api.serviceScenarioMode(id, { launch }).subscribe({
+      next: () => this.serviceModes.update((rows) => rows.map((row) => row.id === id ? { ...row, launch } : row)),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private loadModes(orgId: number): void {
+    this.api.serviceOrganizations(orgId).subscribe({
+      next: (page) => {
+        const rows = page.results;
+        if (!rows.length) {
+          this.serviceModes.set([]);
+          return;
+        }
+        let left = rows.length;
+        const modes: { id: number; name: string; launch: string }[] = [];
+        for (const org of rows) {
+          this.api.serviceScenarioMode(org.id).subscribe({
+            next: (mode) => {
+              modes.push({ id: org.id, name: org.short_name, launch: mode.launch });
+              if (--left === 0) this.serviceModes.set(modes.sort((a, b) => a.name.localeCompare(b.name, 'ru')));
+            },
+            error: () => { if (--left === 0) this.serviceModes.set(modes); },
+          });
+        }
+      },
+      error: () => this.serviceModes.set([]),
+    });
   }
 
   protected setPris(key: string, value: string): void {
@@ -583,10 +629,12 @@ export class OrgDirectoryComponent implements OnInit {
       superadmin: 'Суперадминистратор',
       local_admin: 'Локальный администратор',
       specialist: 'Специалист',
+      legal: 'Специалист ЮС',
       observer: 'Наблюдатель',
     };
     const roles: { id: Role; label: string }[] = [
       { id: 'specialist', label: labels.specialist },
+      { id: 'legal', label: labels.legal },
       { id: 'observer', label: labels.observer },
     ];
     if (this.auth.isSuperadmin()) roles.unshift({ id: 'local_admin', label: labels.local_admin });
@@ -646,7 +694,10 @@ export class OrgDirectoryComponent implements OnInit {
         this.selectedId.set(visible.find((org) => org.id === current)?.id ?? visible[0]?.id ?? null);
         this.loadUsers();
         const selected = this.selectedId();
-        if (selected != null) this.loadPris(selected);
+        if (selected != null) {
+          this.loadPris(selected);
+          this.loadModes(selected);
+        }
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });

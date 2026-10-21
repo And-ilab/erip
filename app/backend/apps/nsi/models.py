@@ -129,6 +129,28 @@ class ScenarioDefinition(TimeStampedModel, SoftDeleteModel):
         return self.name
 
 
+class ServiceScenarioMode(TimeStampedModel):
+    """Режим запуска сценария обслуживающей организации. По умолчанию — вручную, сценарий базовый."""
+
+    class Launch(models.TextChoices):
+        MANUAL = "manual", "Вручную"
+        AUTO = "auto", "Автоматически"
+
+    service_organization = models.OneToOneField(
+        "users.ServiceOrganization", on_delete=models.CASCADE, related_name="scenario_mode",
+        verbose_name="Обслуживающая организация",
+    )
+    launch = models.CharField("Режим запуска", max_length=10, choices=Launch.choices, default=Launch.MANUAL)
+    scenario = models.ForeignKey(
+        ScenarioDefinition, null=True, blank=True, on_delete=models.SET_NULL, related_name="service_modes",
+        verbose_name="Сценарий по умолчанию",
+    )
+
+    class Meta:
+        verbose_name = "Режим сценария организации"
+        verbose_name_plural = "Режимы сценариев организаций"
+
+
 class ScenarioRevision(TimeStampedModel):
     """Снимок шагов на момент публикации. Уже запущенные дела ссылаются на номер версии."""
 

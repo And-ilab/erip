@@ -71,8 +71,6 @@ ACCOUNT_COLUMNS = [
     "payer_identifier", "payer_unp", "unified_account", "rating_label", "funnel_stage",
     "debt_started_on", "debt_total", "mulct_total", "obligation_total", "effective_group", "scenario_brief",
     "assigned_name", "ownership_type_name", "acc_category_full", "months_debt", "subj_count", "registered_count",
-    "services_debt_count", "contract_number", "contract_date", "service_provider",
-    "initial_principal", "initial_penalty", "period_balances", "repayment_due_on", "last_payment_date",
 ]
 CONTRACT_PERSON_COLUMNS = [
     "payer", "payer_identifier", "payer_unp", "rating_label", "funnel_stage", "ls_count",
@@ -137,15 +135,28 @@ CARD_SERVICE_COLUMNS = [
     "months_debt", "supplier", "debt_group",
 ]
 CARD_SERVICE_HIDDEN = frozenset({"months_debt", "supplier", "debt_group"})
+CARD_REGISTRATION_COLUMNS = [
+    "payer", "registered", "beneficiary", "fam", "im", "ot", "check_in_date", "check_out_date",
+    "date_registration", "passport_out", "move_reason", "reg_type_name", "relation", "family",
+    "birthday", "death", "sex", "doc", "doc_num", "doc_date", "doc_organ", "doc_basis", "doc_code",
+    "personal_num", "citizenship", "nationality", "address", "work", "position", "tab_number", "salary",
+    "account_id", "person_id", "registration_id", "legal", "unp", "parent_id", "parent_name",
+    "social_note", "marital", "rent", "social_category", "unemployed", "left_country",
+    "bank_code", "bank_name", "bank_account", "payer_reg_id", "payer_name", "payer_share", "payer_type",
+    "tenant_free", "doc1", "share1", "doc2", "share2", "doc3", "share3", "heritage",
+    "heritage_accept", "heritage_open", "heritage_close", "phone", "email", "joint_owner",
+    "cnt_benefit", "cnt_rent", "cnt_minor", "cnt_temp", "cnt_unreg", "cnt_absent",
+    "cnt_distant", "cnt_close", "cnt_people", "cnt_payers", "cnt_pets",
+]
 CARD_PAYMENT_COLUMNS = [
-    "execution_id", "source_receipt_id", "receipt_id", "ais_account_id", "package_id",
-    "otdel", "pp_num", "house_address", "account_address", "payer_address_file",
-    "bank_id", "bank_name", "pay_date", "bank_date", "client_account", "client_account_file",
-    "provider_short_name", "account_provider_id", "acc_oper_date",
-    "pay_mulct_summ", "pay_service_summ", "provider_id", "notes",
-    "share_mulct_sum", "share_service_sum", "receipt_id_ges", "share_status", "package_status",
-    "refund_sum", "commission_summ", "service_id", "service_name",
-    "payer_reg_name", "client_name", "payment_type_display",
+    "ais_account_id", "client_account", "payer_reg_name", "account_address",
+    "client_account_file", "client_name", "payer_address_file",
+    "account_provider_id", "provider_short_name", "provider_id", "supplier_name",
+    "service_id", "service_name", "receipt_id", "pay_date",
+    "pay_service_summ", "pay_mulct_summ", "pay_total", "commission_summ",
+    "share_service_sum", "share_mulct_sum", "unshared_sum", "payment_type_display",
+    "otdel", "package_id", "pp_num", "bank_name", "bank_date", "notes",
+    "package_status", "source_receipt_id", "refund_sum", "share_status", "execution_id",
 ]
 
 
@@ -498,6 +509,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         account = self.get_object()
         account = Account.objects.prefetch_related(
             "measures__tasks__checks", "measures__tasks__assignee",
+            "measures__items__call_attempts",
         ).get(pk=account.pk)
         return Response(scenario_outline(account))
 
@@ -699,10 +711,93 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def calendar(self, request):
+        from .models import CalendarNote
         from .services.calendar import account_calendar, resolve_span
 
         start, end = resolve_span(request.query_params)
-        return Response(account_calendar(self.filter_queryset(self.get_queryset()), start, end))
+        events = account_calendar(self.filter_queryset(self.get_queryset()), start, end)
+        org_id = getattr(request.user, "organization_id", None)
+        if org_id:
+            for note in CalendarNote.objects.filter(organization_id=org_id, day__gte=start, day__lt=end):
+                events.append({
+                    "date": note.day.isoformat(),
+                    "due": note.day.isoformat(),
+                    "kind": "Заметка",
+                    "title": note.text,
+                    "urgency": "planned",
+                    "note_id": note.pk,
+                })
+        return Response(events)
+
+    @action(detail=False, methods=["post"], url_path="calendar-notes")
+    def calendar_notes(self, request):
+        from .models import CalendarNote
+        from .services.calendar import _parse
+
+        text = str(request.data.get("text") or "").strip()
+        if not text:
+            raise ValidationError({"text": "Введите текст заметки"})
+        if not getattr(request.user, "organization_id", None):
+            raise ValidationError({"organization": "Заметка пишется в схему пользователя"})
+        day = _parse(str(request.data.get("day") or ""), "day")
+        note = CalendarNote.objects.create(
+            organization_id=request.user.organization_id, author=request.user, day=day, text=text[:500],
+        )
+        return Response({"id": note.pk, "day": note.day.isoformat(), "text": note.text}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="start-scenario")
+    def start_scenario(self, request):
+        from .services.scenario_flow import start_accounts
+
+        count = start_accounts(self._chosen_accounts(request), request.user)
+        return Response({"started": count})
+
+    @action(detail=False, methods=["post"], url_path="change-scenario")
+    def change_scenario(self, request):
+        from apps.nsi.models import ScenarioDefinition
+
+        from .services.measures import MeasureLaunchError
+        from .services.scenario_flow import replace_accounts
+
+        scenario = ScenarioDefinition.objects.filter(pk=request.data.get("scenario_id"), status=ScenarioDefinition.Status.ACTIVE).first()
+        if scenario is None:
+            raise ValidationError({"scenario_id": "Выберите сценарий из справочника"})
+        try:
+            count = replace_accounts(self._chosen_accounts(request), scenario, request.user)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response({"changed": count})
+
+    @action(detail=False, methods=["post"], url_path="assign-legal")
+    def assign_legal(self, request):
+        from apps.users.models import User
+
+        from .services.measures import MeasureLaunchError
+        from .services.scenario_flow import assign_legal as pin_legal
+
+        person = User.objects.filter(pk=request.data.get("user_id"), is_active=True).first()
+        if person is None:
+            raise ValidationError({"user_id": "Выберите специалиста ЮС"})
+        try:
+            count = pin_legal(self._chosen_accounts(request), person, request.user)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response({"assigned": count})
+
+    @action(detail=True, methods=["post"], url_path="stop-measure")
+    def stop_measure(self, request, pk=None):
+        from .services.measures import MeasureLaunchError
+        from .services.scenario_flow import stop_measure as close_step
+
+        account = self.get_object()
+        measure = account.measures.filter(pk=request.data.get("measure_id")).first()
+        if measure is None:
+            raise ValidationError({"measure_id": "Мероприятие не найдено"})
+        try:
+            close_step(account, measure, request.user)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response({"finished_on": measure.finished_on.isoformat() if measure.finished_on else None})
 
     @action(detail=False)
     def export(self, request):
@@ -720,10 +815,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             "Суммарный долг по всем услугам ЛС",
             "Группа задолженности", "Сценарий", "Этап воронки взыскания",
             "Закреплённый специалист", "Тип собственности", "Тип объекта жилфонда", "Кол-во месяцев долга",
-            "Кол-во проживающих", "Кол-во зарегистрированных", "Количество услуг с задолженностью",
-            "Номер договора", "Дата договора", "Поставщик услуги",
-            "Первоначальная сумма задолженности", "Первоначальная сумма пени",
-            "Остатки задолженности и пени по периодам", "Срок погашения по договору", "Дата последней оплаты",
+            "Кол-во проживающих", "Кол-во зарегистрированных",
         ]
         writer.writerow(headers)
         stage_titles = dict(FUNNEL_STAGES)
@@ -740,15 +832,6 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 account.months_debt if account.months_debt is not None else "",
                 account.subj_count if account.subj_count is not None else "",
                 packed.get("registered_count") if packed.get("registered_count") is not None else "",
-                packed.get("services_debt_count") or 0,
-                _line_join(packed.get("service_lines"), "service_list_id"),
-                _line_join(packed.get("service_lines"), "start_date"),
-                _line_join(packed.get("service_lines"), "shot_name"),
-                _line_join(packed.get("service_lines"), "initial_principal"),
-                _line_join(packed.get("service_lines"), "initial_penalty"),
-                _period_join(packed.get("service_lines")),
-                _line_join(packed.get("service_lines"), "repayment_due_on"),
-                _line_join(packed.get("service_lines"), "last_payment_date"),
             ])
         return response
 
@@ -775,13 +858,24 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             allowed = list(CARD_PAYMENT_COLUMNS)
             hidden = frozenset()
             target = "card_payments"
+        elif board == "registration":
+            allowed = list(CARD_REGISTRATION_COLUMNS)
+            hidden = frozenset()
+            target = "card_registration"
         else:
-            raise ValidationError({"board": "services или payments"})
+            raise ValidationError({"board": "services, payments или registration"})
         pref, _created = RegistryPreference.objects.get_or_create(
             user=request.user, target=target, defaults={"columns": explicit_layout(allowed, hidden)},
         )
         chosen, order = _remember_columns(pref, request, allowed)
         return Response({"columns": chosen, "available": allowed, "order": order, "board": board})
+
+    def _chosen_accounts(self, request):
+        base = self.get_queryset()
+        if request.data.get("all_matching"):
+            return list(AccountFilter(request.data.get("filters") or {}, queryset=base).qs)
+        ids = request.data.get("account_ids") or []
+        return list(base.filter(pk__in=ids))
 
 
 class _ChildViewSet(ScopedQuerysetMixin, viewsets.ReadOnlyModelViewSet):

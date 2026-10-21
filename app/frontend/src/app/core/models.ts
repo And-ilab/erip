@@ -9,7 +9,7 @@ export interface ApiError {
   error: { code: string; message: string; details: unknown; request_id: string };
 }
 
-export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'observer';
+export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'legal' | 'observer';
 
 export interface OrganizationOption {
   id: number;
@@ -423,6 +423,7 @@ export interface AttachmentRow {
   id: number | string;
   doc_type: string;
   original_name: string;
+  file?: string;
   created_at: string;
   package?: boolean;
   claim_id?: number;
@@ -458,6 +459,8 @@ export interface MeasureRow {
   owner_name?: string;
   note?: string;
   started_on?: string | null;
+  finished_on?: string | null;
+  initiator_name?: string;
   time_from?: string | null;
   time_to?: string | null;
   progress?: { total: number; done: number };
@@ -531,6 +534,8 @@ export interface MeasureTaskRow {
   title: string;
   due_on: string | null;
   status: string;
+  created_at?: string | null;
+  completed_on?: string | null;
   assignee_name: string;
   checks: TaskCheckRow[];
 }
@@ -672,6 +677,10 @@ export interface ScenarioMeasure {
   kind_label: string;
   status: string;
   status_label: string;
+  started_on?: string | null;
+  finished_on?: string | null;
+  stopped?: boolean;
+  calls?: { at: string | null; duration_sec: number | null; status: string; listen_percent?: number | null; recording_ref?: string; external_call?: boolean | null }[];
   tasks: MeasureTaskRow[];
 }
 

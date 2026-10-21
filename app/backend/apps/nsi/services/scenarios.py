@@ -4,6 +4,7 @@ import copy
 import uuid
 
 from django.core.files.base import ContentFile
+from django.utils import timezone
 
 from apps.core.exceptions import ServiceError
 from apps.debts.models import AccountScenarioRun, DebtWorkItem, ScenarioPause
@@ -19,7 +20,7 @@ from apps.nsi.services.timelines import warning_wait_for
 from apps.nsi.services.writ_checklist import ChecklistInvalid, default_checklist, normalize_checklist
 
 ACTIONS = {
-    "call", "sms", "email", "messenger", "warning", "disconnect", "writ", "lawsuit", "manual_call",
+    "call", "sms", "email", "messenger", "warning", "disconnect", "writ", "lawsuit", "opi", "manual_call",
 }
 # Частоты читает прогон обзвона. Группа 3 реже групп 1–2, группы 4–6 — один раз.
 CALL_REPEAT = {
@@ -59,6 +60,13 @@ def check_steps(steps: list[dict]) -> list[str]:
             not isinstance(groups, list) or any(not isinstance(item, int) or item < 1 or item > 6 for item in groups)
         ):
             raise ScenarioInvalid("Группы шага — числа от 1 до 6")
+        months_from = step.get("months_from")
+        if months_from not in (None, ""):
+            if isinstance(months_from, bool) or not isinstance(months_from, int) or months_from < 0:
+                raise ScenarioInvalid("Месяцы долга шага — число от 0")
+        delivered = step.get("after_delivered") or ""
+        if delivered and delivered not in ACTIONS:
+            raise ScenarioInvalid("Шаг ждёт неизвестное мероприятие")
         party = step.get("party") or "any"
         if party not in {"any", "person", "legal"}:
             raise ScenarioInvalid("Лицо шага: любое, физическое или юридическое")
@@ -154,24 +162,42 @@ def assign_run(account, scenario: ScenarioDefinition, user, *, upgrade: bool = F
         raise ScenarioInvalid("На лицевой счёт назначается опубликованный сценарий")
     if paused and not reason.strip():
         raise ScenarioInvalid("Пауза записывается с причиной")
+    from apps.debts.services.scenario_flow import REPLACED, _close_measures, _finish_run, _remember, launch_mode
+    from apps.nsi.models import ServiceScenarioMode
+
+    today = timezone.localdate()
+    manual = launch_mode(account) != ServiceScenarioMode.Launch.AUTO
     run = AccountScenarioRun.objects.filter(account=account).first()
     if run is None:
         run = AccountScenarioRun.objects.create(
             organization=account.organization, account=account, scenario=scenario, version=scenario.version,
-            paused=paused, pause_reason=reason,
+            paused=paused, pause_reason=reason, assigned_on=today, awaiting_start=manual and not paused,
         )
+        _remember(account, scenario, scenario.version, today)
         ScenarioPause.objects.create(run=run, paused=paused, reason=reason, actor=user)
     else:
         pause_changed = run.paused != paused or (run.pause_reason or "") != reason
-        if upgrade or run.scenario_id != scenario.pk:
+        switched = run.scenario_id != scenario.pk
+        if switched and not run.finished_on:
+            _close_measures(account, REPLACED, today, user)
+            _finish_run(run, today, REPLACED)
+            run.finished_on = None
+            run.finish_reason = ""
+            run.assigned_on = today
+            run.skipped_orders = []
+            run.last_skip = ""
+            _remember(account, scenario, scenario.version, today)
+        if upgrade or switched:
             run.scenario = scenario
             run.version = scenario.version
         run.paused = paused
         run.pause_reason = reason
+        if not paused:
+            run.awaiting_start = manual
         run.save()
         if pause_changed:
             ScenarioPause.objects.create(run=run, paused=paused, reason=reason, actor=user)
-    if not paused:
+    if not paused and not run.awaiting_start:
         from apps.nsi.services.scenario_engine import advance_account
 
         advance_account(account)
@@ -390,9 +416,48 @@ def _work_kind(doc_kind: str) -> str:
     return DebtWorkItem.Kind.WARNING
 
 
-# Цепочка должника идёт по порядку. Срок перед шагом задаёт сценарий или схема.
-# Отключение в типовой ряд не входит: его запускает администратор после предупреждения.
+# Базовый ряд — по замечанию заказчика, не по шкале групп ТЗ.
+# 0–1 месяц: обзвон, СМС и уведомление параллельно. С 2 месяцев — предупреждение.
+# Через 5 дней после вручения, если долг не погашен: отключение, надпись, иск и ОПИ.
+# Другой порядок задаётся в конструкторе и этой заменой не затирается.
 STANDARD_STEPS = [
+    {
+        "order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False,
+        "months_from": 0, "blocks_next": False, "repeat": copy.deepcopy(CALL_REPEAT),
+    },
+    {
+        "order": 2, "action": "sms", "wait_days": 0, "template": "Уведомление", "terminal": False,
+        "months_from": 0, "blocks_next": False,
+    },
+    {
+        "order": 3, "action": "email", "wait_days": 0, "template": "Уведомление", "terminal": False,
+        "months_from": 0, "blocks_next": False,
+    },
+    {
+        "order": 4, "action": "warning", "wait_days": 0, "template": "Предупреждение", "terminal": False,
+        "months_from": 2, "blocks_next": False,
+    },
+    {
+        "order": 5, "action": "disconnect", "wait_days": 5, "after_delivered": "warning",
+        "blocks_next": False, "terminal": False,
+    },
+    {
+        "order": 6, "action": "writ", "wait_days": 5, "after_delivered": "warning",
+        "template": "Исполнительная надпись", "blocks_next": False, "terminal": False,
+        "checklist": default_checklist(),
+    },
+    {
+        "order": 7, "action": "lawsuit", "wait_days": 5, "after_delivered": "warning",
+        "template": "Исковое заявление", "blocks_next": False, "terminal": False,
+    },
+    {
+        "order": 8, "action": "opi", "wait_days": 5, "after_delivered": "warning",
+        "template": "ОПИ", "terminal": True,
+    },
+]
+
+# Прежняя последовательная цепочка. Неизменённая копия заменяется рядом из замечания.
+CHAIN_STANDARD_STEPS = [
     {
         "order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False,
         "repeat": copy.deepcopy(CALL_REPEAT),
@@ -437,8 +502,22 @@ LEGACY_STANDARD_STEPS = [
 ]
 
 
+def _without_repeat(steps) -> list:
+    cleaned = []
+    for step in steps or []:
+        row = dict(step)
+        row.pop("repeat", None)
+        cleaned.append(row)
+    return cleaned
+
+
 def _is_stock_chain(steps) -> bool:
-    return steps == LEGACY_STANDARD_STEPS or steps == GROUP_STANDARD_STEPS
+    bare = _without_repeat(steps)
+    return (
+        bare == _without_repeat(LEGACY_STANDARD_STEPS)
+        or bare == _without_repeat(GROUP_STANDARD_STEPS)
+        or bare == _without_repeat(CHAIN_STANDARD_STEPS)
+    )
 
 
 def upgrade_legacy_scenario(scenario: ScenarioDefinition | None) -> None:

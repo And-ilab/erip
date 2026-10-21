@@ -60,6 +60,42 @@ class ServiceOrganizationViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, views
             serializer.validated_data["organization"] = self.get_scope_organization()
         super().perform_create(serializer)
 
+    @action(detail=True, methods=["get", "patch"], url_path="scenario-mode")
+    def scenario_mode(self, request, pk=None):
+        from django.db.models import Q
+
+        from apps.nsi.models import ScenarioDefinition, ServiceScenarioMode
+
+        org = self.get_object()
+        row, _created = ServiceScenarioMode.objects.get_or_create(service_organization=org)
+        if request.method == "GET":
+            return Response(_scenario_mode_payload(row))
+        launch = request.data.get("launch", row.launch)
+        if launch not in {ServiceScenarioMode.Launch.MANUAL, ServiceScenarioMode.Launch.AUTO}:
+            raise ValidationError({"launch": "Режим: manual или auto"})
+        row.launch = launch
+        if "scenario" in request.data:
+            raw = request.data.get("scenario")
+            if raw in (None, ""):
+                row.scenario = None
+            else:
+                scenario = ScenarioDefinition.objects.filter(
+                    pk=raw, status=ScenarioDefinition.Status.ACTIVE,
+                ).filter(Q(organization_id=org.organization_id) | Q(organization__isnull=True)).first()
+                if scenario is None:
+                    raise ValidationError({"scenario": "Сценарий не найден в этой схеме"})
+                row.scenario = scenario
+        row.save()
+        return Response(_scenario_mode_payload(row))
+
+
+def _scenario_mode_payload(row) -> dict:
+    return {
+        "launch": row.launch,
+        "scenario": row.scenario_id,
+        "scenario_name": row.scenario.name if row.scenario_id else "Стандартное взыскание",
+    }
+
 
 class UserViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = User.objects.select_related("organization").prefetch_related("service_organizations")
@@ -74,7 +110,7 @@ class UserViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelViewSe
         user = self.request.user
         if user.is_superadmin:
             return qs
-        return qs.filter(Q(pk=user.pk) | Q(role__in=[User.Role.SPECIALIST, User.Role.OBSERVER]))
+        return qs.filter(Q(pk=user.pk) | Q(role__in=[User.Role.SPECIALIST, User.Role.LEGAL, User.Role.OBSERVER]))
 
     def perform_destroy(self, instance):
         if instance.pk == self.request.user.pk:

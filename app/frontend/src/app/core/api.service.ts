@@ -157,6 +157,26 @@ export class ApiService {
     return this.http.get<Page<AttachmentRow>>(`${this.base}/accounts/${id}/attachments/`, { params: toParams({ page_size: 200 }) });
   }
 
+  stopMeasure(accountId: number, measureId: number): Observable<{ finished_on: string | null }> {
+    return this.http.post<{ finished_on: string | null }>(`${this.base}/accounts/${accountId}/stop-measure/`, { measure_id: measureId });
+  }
+
+  startScenarios(body: Record<string, unknown>): Observable<{ started: number }> {
+    return this.http.post<{ started: number }>(`${this.base}/accounts/start-scenario/`, body);
+  }
+
+  changeScenarios(body: Record<string, unknown>): Observable<{ changed: number }> {
+    return this.http.post<{ changed: number }>(`${this.base}/accounts/change-scenario/`, body);
+  }
+
+  assignLegal(body: Record<string, unknown>): Observable<{ assigned: number }> {
+    return this.http.post<{ assigned: number }>(`${this.base}/accounts/assign-legal/`, body);
+  }
+
+  saveCalendarNote(day: string, text: string): Observable<{ id: number }> {
+    return this.http.post<{ id: number }>(`${this.base}/accounts/calendar-notes/`, { day, text });
+  }
+
   accountScenario(id: number): Observable<ScenarioBoard> {
     return this.http.get<ScenarioBoard>(`${this.base}/accounts/${id}/scenario/`);
   }
@@ -205,11 +225,11 @@ export class ApiService {
     return this.http.get(`${this.base}/accounts/export/`, { params: toParams(params), responseType: 'blob' });
   }
 
-  cardColumns(board: 'services' | 'payments'): Observable<ColumnPrefs> {
+  cardColumns(board: 'services' | 'payments' | 'registration'): Observable<ColumnPrefs> {
     return this.http.get<ColumnPrefs>(`${this.base}/accounts/card-columns/`, { params: toParams({ board }) });
   }
 
-  saveCardColumns(board: 'services' | 'payments', columns: string[], order: string[]): Observable<ColumnPrefs> {
+  saveCardColumns(board: 'services' | 'payments' | 'registration', columns: string[], order: string[]): Observable<ColumnPrefs> {
     return this.http.put<ColumnPrefs>(`${this.base}/accounts/card-columns/`, { board, columns, order });
   }
 
@@ -676,7 +696,7 @@ export class ApiService {
       });
   }
 
-  directoryUsers(params: { organization?: number; search?: string } = {}): Observable<Page<DirectoryUser>> {
+  directoryUsers(params: { organization?: number; search?: string; role?: string } = {}): Observable<Page<DirectoryUser>> {
     return this.http.get<Page<DirectoryUser>>(`${this.base}/users/`, { params: toParams({ page_size: 500, ...params }) });
   }
 
@@ -684,6 +704,14 @@ export class ApiService {
     return row.id
       ? this.http.patch<DirectoryUser>(`${this.base}/users/${row.id}/`, row)
       : this.http.post<DirectoryUser>(`${this.base}/users/`, row);
+  }
+
+  serviceScenarioMode(id: number, body?: { launch?: string; scenario?: number | null }): Observable<{ launch: string; scenario: number | null; scenario_name: string }> {
+    const url = `${this.base}/service-organizations/${id}/scenario-mode/`;
+    if (body) {
+      return this.http.patch<{ launch: string; scenario: number | null; scenario_name: string }>(url, body);
+    }
+    return this.http.get<{ launch: string; scenario: number | null; scenario_name: string }>(url);
   }
 
   serviceOrganizations(organization: number): Observable<Page<ServiceOrganizationOption>> {

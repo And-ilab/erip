@@ -389,7 +389,11 @@ class PortfolioRefresher:
 
     def _close_paid(self, account: Account) -> None:
         from apps.debts.services.measures import close_paid_measures, note_disconnected_but_paid
+        from apps.debts.services.scenario_flow import settle_if_paid
 
+        if settle_if_paid(account):
+            note_disconnected_but_paid(account)
+            return
         threshold = self.settings.close_threshold or Decimal("0")
         for service in account.services.all():
             balance = service.balance_out if service.balance_out is not None else Decimal("0")

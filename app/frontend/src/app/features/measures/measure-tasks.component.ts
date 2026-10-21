@@ -21,7 +21,12 @@ import { MeasureTaskRow } from '../../core/models';
         @for (task of tasks(); track task.id) {
           <div class="task">
             <div class="task-head">
+              @if (canWrite()) {
+                <input type="checkbox" [checked]="task.status === 'done'" [attr.aria-label]="'Завершить ' + task.title" (change)="toggleTask(task)" />
+              }
               <strong>{{ task.title }}</strong>
+              @if (task.created_at) { <span class="muted">создано {{ dueLabel(task.created_at) }}</span> }
+              @if (task.completed_on) { <span class="muted">окончание {{ dueLabel(task.completed_on) }}</span> }
               <span class="status-pill" [class.done]="task.status === 'done'">{{ task.status === 'done' ? 'Выполнено' : 'Открыто' }}</span>
               @if (task.due_on) { <span class="muted">до {{ dueLabel(task.due_on) }}</span> }
               @if (task.assignee_name) { <span class="muted">{{ task.assignee_name }}</span> }

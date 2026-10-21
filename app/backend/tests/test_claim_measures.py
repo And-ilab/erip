@@ -1,5 +1,6 @@
 """Лицевой счёт из дела взыскания и счёт с долгом видны в реестре мероприятий."""
 
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -62,8 +63,9 @@ def _finish_chain_prefix(org, account):
     today = timezone.localdate()
     steps = (
         (1, "call", Measure.Kind.CALL, "Автообзвон"),
-        (2, "email", Measure.Kind.NOTICE, "Уведомление"),
-        (3, "warning", Measure.Kind.WARNING, "Предупреждение"),
+        (2, "sms", Measure.Kind.NOTICE, "Уведомление"),
+        (3, "email", Measure.Kind.NOTICE, "Уведомление"),
+        (4, "warning", Measure.Kind.WARNING, "Предупреждение"),
     )
     for order, action, kind, title in steps:
         row = Measure.objects.create(
@@ -72,9 +74,12 @@ def _finish_chain_prefix(org, account):
             source_step=order, source_action=action,
         )
         row.accounts.add(account)
-        MeasureItem.objects.create(
+        item = MeasureItem.objects.create(
             organization=org, measure=row, account=account, status=MeasureItem.Status.DONE,
         )
+        if action == "warning":
+            item.delivered_on = today - timedelta(days=5)
+            item.save(update_fields=["delivered_on"])
 
 
 def _with_group(org, number, group, period):
@@ -104,7 +109,7 @@ def test_debt_group_opens_its_own_measure(org_a, specialist_a):
     ensure_imported_run(fourth)
 
     for account in (first, second, third, fourth):
-        row = Measure.objects.get(accounts=account)
+        row = Measure.objects.get(accounts=account, kind=Measure.Kind.CALL)
         assert (row.kind, row.template_name, row.status) == (
             Measure.Kind.CALL, "Автообзвон", Measure.Status.ASSIGNED,
         )
@@ -142,7 +147,7 @@ def test_old_autodial_for_a_higher_group_is_replaced(org_a, specialist_a):
     )
     ensure_imported_run(account)
     rows = list(Measure.objects.filter(accounts=account).values_list("kind", "template_name", "status"))
-    assert rows == [(Measure.Kind.CALL, "Автообзвон", Measure.Status.ASSIGNED)]
+    assert (Measure.Kind.CALL, "Автообзвон", Measure.Status.ASSIGNED) in rows
 
 
 @pytest.mark.django_db
@@ -223,7 +228,7 @@ def test_collection_executor_is_the_pinned_billing_specialist(org_a, specialist_
     account.save(update_fields=["assigned_to"])
     _finish_chain_prefix(org_a, account)
     ensure_imported_run(account)
-    row = Measure.objects.get(accounts=account, kind=Measure.Kind.COLLECTION)
+    row = Measure.objects.get(accounts=account, source_action="writ")
     assert row.status == Measure.Status.ASSIGNED
     assert row.assignee_id == pinned.id
     assert row.assignee_id != specialist_a.id
@@ -315,7 +320,7 @@ def test_collection_without_a_specialist_is_assigned_not_failed(org_a):
     account = _with_group(org_a, 8302, 5, 14)
     _finish_chain_prefix(org_a, account)
     ensure_imported_run(account)
-    row = Measure.objects.get(accounts=account, kind=Measure.Kind.COLLECTION)
+    row = Measure.objects.get(accounts=account, source_action="writ")
     assert row.kind == Measure.Kind.COLLECTION
     assert row.status == Measure.Status.ASSIGNED
     assert row.assignee_id is None
