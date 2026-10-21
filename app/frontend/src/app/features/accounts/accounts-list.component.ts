@@ -137,10 +137,10 @@ interface GroupSection {
   ],
   template: `
     <div class="registry">
-      <div class="control">
+      <div class="control" [class.tools-tight]="toolsTight()">
         <span class="crumb">Реестр ЛС</span>
         <div class="search-wrap" (click)="$event.stopPropagation()">
-          <div class="search" (click)="panelOpen.set(true)">
+          <div class="search" (click)="openFilters()">
             @if (groupsSelected.value.length) {
               <button type="button" class="fchip" (click)="clearGroups($event)">Группа: {{ groupsSelected.value.join(', ') }} ×</button>
             }
@@ -180,7 +180,7 @@ interface GroupSection {
             <input
               [formControl]="search"
               placeholder="Поиск по ФИО плательщиков, лицевому счёту, адресу, идентификационному номеру…"
-              (focus)="panelOpen.set(true)"
+              (focus)="openFilters()"
             />
             <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
           </div>
@@ -261,14 +261,14 @@ interface GroupSection {
           <button type="button" class="tool" (click)="clearSelection()">Снять</button>
         }
         @if (canLaunch()) {
-          <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
-          <button type="button" class="tool" (click)="scenarioOpen.set(!scenarioOpen())">Изменить сценарий</button>
-          <button type="button" class="tool" (click)="runScenarios()">Запустить сценарий</button>
-          <button type="button" class="tool" (click)="legalOpen.set(!legalOpen())">Передать специалисту ЮС</button>
+          <button type="button" class="tool" title="Мероприятие" (click)="measureOpen.set(!measureOpen())">{{ toolLabel('Мероприятие', 'Меропр.') }}</button>
+          <button type="button" class="tool" title="Изменить сценарий" (click)="scenarioOpen.set(!scenarioOpen())">{{ toolLabel('Изменить сценарий', 'Сценарий') }}</button>
+          <button type="button" class="tool" title="Запустить сценарий" (click)="runScenarios()">{{ toolLabel('Запустить сценарий', 'Запуск') }}</button>
+          <button type="button" class="tool" title="Передать специалисту ЮС" (click)="legalOpen.set(!legalOpen())">{{ toolLabel('Передать специалисту ЮС', 'ЮС') }}</button>
         }
-        <button type="button" class="tool" (click)="exportCsv()">CSV</button>
+        <button type="button" class="tool" title="CSV" (click)="exportCsv()">CSV</button>
         <div class="columns-wrap" (click)="$event.stopPropagation()">
-          <button type="button" class="tool" [attr.aria-expanded]="columnsOpen()" (click)="toggleColumns($event)">Столбцы</button>
+          <button type="button" class="tool" title="Столбцы" [attr.aria-expanded]="columnsOpen()" (click)="toggleColumns($event)">{{ toolLabel('Столбцы', 'Столб.') }}</button>
           @if (columnsOpen()) {
             <div class="columns-panel" role="dialog" aria-label="Столбцы реестра">
               @for (name of catalog(); track name) {
@@ -565,7 +565,7 @@ interface GroupSection {
             [supplier]="supplierContour()" [templates]="templates()" [serviceChoices]="serviceChoices()"
             captionTail="мероприятия по делам" [selectedGroups]="groupsSelected.value"
             (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
-            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)"
+            (createEvent)="submitCalendar($event)" (filters)="openFilters()"
             (groupsChange)="applyCalendarGroups($event)" />
         }
       </div>
@@ -625,9 +625,12 @@ interface GroupSection {
     .chevron {
       border: 0; background: transparent; color: var(--erip-muted); cursor: pointer; font-size: 12px; padding: 4px;
     }
+    .control.tools-tight { gap: 6px; }
+    .control.tools-tight .tool { padding: 0 6px; font-size: 12px; }
     .search-panel {
       position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
-      display: grid; grid-template-columns: 1.15fr 1fr .9fr; width: min(820px, 100%);
+      display: grid; grid-template-columns: minmax(260px, 1.15fr) minmax(220px, 1fr) minmax(200px, .9fr);
+      width: min(960px, calc(100vw - 248px));
       background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
       box-shadow: 0 8px 24px rgba(16, 42, 67, .16);
     }
@@ -635,9 +638,9 @@ interface GroupSection {
     .col + .col { border-left: 1px solid var(--erip-border); }
     .col-title {
       padding: 6px 16px 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
-      text-transform: uppercase; color: var(--erip-muted);
+      text-transform: uppercase; color: var(--erip-muted); white-space: nowrap;
     }
-    .sub { padding: 4px 16px; font-size: 12px; color: var(--erip-muted); }
+    .sub { padding: 4px 16px; font-size: 12px; color: var(--erip-muted); white-space: nowrap; }
     .pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
     .pill, .menu-item, .menu-add, .save-row button, .tool, .view-btn { font: inherit; cursor: pointer; }
     .pill {
@@ -647,7 +650,7 @@ interface GroupSection {
     .pill.on, .menu-item.on { background: var(--erip-primary-soft); color: var(--erip-primary); font-weight: 600; border-color: transparent; }
     .menu-item, .menu-add {
       display: block; width: 100%; text-align: left; border: 0; background: transparent;
-      padding: 6px 16px; font-size: 13px; color: #1f2933;
+      padding: 6px 16px; font-size: 13px; color: #1f2933; white-space: nowrap;
     }
     .menu-item:hover, .menu-add:hover, .pill:hover { background: #f3f6f8; }
     .menu-add { color: var(--erip-link); }
@@ -1067,9 +1070,36 @@ export class AccountsListComponent implements OnInit {
     return raw;
   }
 
+  protected toolsTight(): boolean {
+    return this.panelOpen() || this.columnsOpen() || this.measureOpen() || this.scenarioOpen() || this.legalOpen();
+  }
+
+  protected toolLabel(full: string, short: string): string {
+    return this.toolsTight() ? short : full;
+  }
+
+  protected openFilters(): void {
+    if (this.panelOpen()) return;
+    this.panelOpen.set(true);
+    this.markFilterOpen();
+  }
+
   togglePanel(event: Event): void {
     event.stopPropagation();
+    const opening = !this.panelOpen();
     this.panelOpen.update((open) => !open);
+    if (opening) this.markFilterOpen();
+  }
+
+  private markFilterOpen(): void {
+    const started = performance.now();
+    requestAnimationFrame(() => {
+      agentDbg('C', 'accounts-list.component.ts:openFilters', 'filter panel frame', {
+        ms: Math.round(performance.now() - started),
+        rows: this.rows().length,
+        specialists: this.specialists().length,
+      });
+    });
   }
 
   applyCalendarGroups(groups: number[]): void {
@@ -1925,15 +1955,35 @@ export class AccountsListComponent implements OnInit {
       return;
     }
     this.view.set('list');
+    const started = performance.now();
     this.api.accounts({ page, page_size: this.pageSize, ordering: this.ordering, ...this.query() }).subscribe({
       next: (result) => {
+        agentDbg('D', 'accounts-list.component.ts:reload', 'accounts list', {
+          ms: Math.round(performance.now() - started),
+          page,
+          pageSize: this.pageSize,
+          count: result.count,
+          rows: result.results.length,
+        });
         this.rows.set(result.results);
         this.total.set(result.count);
         this.error.set('');
       },
-      error: (e) => this.error.set(errorMessage(e)),
+      error: (e) => {
+        agentDbg('D', 'accounts-list.component.ts:reload', 'accounts list failed', {
+          ms: Math.round(performance.now() - started),
+          page,
+        });
+        this.error.set(errorMessage(e));
+      },
     });
   }
+}
+
+function agentDbg(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
+  // #region agent log
+  fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb728a'},body:JSON.stringify({sessionId:'cb728a',runId:'pre-fix',hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 }
 
 function monthStart(): string {

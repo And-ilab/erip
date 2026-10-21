@@ -13,7 +13,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
 import { MatTabsModule } from '@angular/material/tabs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { finalize, forkJoin } from 'rxjs';
+import { finalize, forkJoin, Observable } from 'rxjs';
 
 import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
@@ -466,7 +466,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
           </mat-tab>
 
           <mat-tab label="Вложения">
-            <p class="muted tab-note">Файлы счёта и документы, уже привязанные к мероприятиям и работе с задолженностью. Записи дел из базы не удаляются.</p>
+            <p class="muted tab-note">Файлы счёта и документы пакета. «Открыть» показывает файл, «Скачать» сохраняет его. Строка работы без файла остаётся записью.</p>
             @if (auth.canWrite()) {
               <div class="filters">
                 <input placeholder="Тип документа" [(ngModel)]="fileType" />
@@ -474,13 +474,27 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               </div>
             }
             <div class="list-pane"><table class="plain">
-              <thead><tr><th>Что</th><th>Имя</th><th>Когда</th></tr></thead>
+              <thead><tr><th>Тип</th><th>Документ</th><th>Когда</th><th></th></tr></thead>
               <tbody>
                 @for (file of files(); track file.id) {
-                  <tr><td>{{ file.doc_type || 'Файл' }}</td><td>@if (file.file) { <a [href]="file.file" target="_blank">{{ file.original_name }}</a> } @else { {{ file.original_name }} }</td><td>{{ file.created_at | date: 'dd.MM.yyyy' }}</td></tr>
+                  <tr>
+                    <td>{{ file.doc_type || (file.package ? 'Пакет' : 'Файл') }}</td>
+                    <td>{{ file.original_name || 'без имени' }}</td>
+                    <td>{{ file.created_at | date: 'dd.MM.yyyy' }}</td>
+                    <td>
+                      <button type="button" class="text-btn" (click)="openFile(file)">Открыть</button>
+                      <button type="button" class="text-btn" (click)="downloadFile(file)">Скачать</button>
+                      @if (auth.canWrite() && !file.package) {
+                        <button type="button" class="text-btn" (click)="deleteFile(file)">Удалить</button>
+                      }
+                    </td>
+                  </tr>
                 }
                 @for (row of work(); track row.id) {
-                  <tr><td>{{ row.kind_display }}</td><td>{{ row.title }}</td><td>{{ row.started_on | date: 'dd.MM.yyyy' }}</td></tr>
+                  <tr><td>{{ row.kind_display }}</td><td>{{ row.title }}</td><td>{{ row.started_on | date: 'dd.MM.yyyy' }}</td><td class="muted">запись работы, файла нет</td></tr>
+                }
+                @if (!files().length && !work().length) {
+                  <tr><td colspan="4" class="muted">Вложений пока нет</td></tr>
                 }
               </tbody>
             </table></div>
@@ -588,6 +602,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
     .picker-menu label button { border: 0; background: transparent; cursor: pointer; }
     table.plain { border-collapse: collapse; width: max-content; min-width: 100%; }
     table.plain th, table.plain td { border-bottom: 1px solid var(--erip-border); padding: 6px 10px; text-align: left; white-space: nowrap; }
+    .text-btn { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; font-size: 13px; padding: 0 10px 0 0; }
     .crumbs b { color: #1f2933; }
     .sep { opacity: .6; }
     .spacer { flex: 1; }
@@ -823,26 +838,38 @@ export class AccountDetailComponent implements OnInit {
 
   ngOnInit(): void {
     const id = Number(this.id());
+    const started = performance.now();
+    const marks: Record<string, number> = {};
+    const timed = <T>(name: string, source: Observable<T>): Observable<T> => {
+      const mark = performance.now();
+      return source.pipe(finalize(() => {
+        marks[name] = Math.round(performance.now() - mark);
+      }));
+    };
     forkJoin({
-      account: this.api.account(id),
-      services: this.api.accountServices(id, false),
-      scenario: this.api.accountScenario(id),
-      writ: this.api.writDraft(id),
-      payments: this.api.accountPayments(id),
-      registrations: this.api.accountRegistrations(id),
-      templates: this.api.templates({ is_active: true, page_size: 100 }),
-      balances: this.api.accountBalances(id),
-      history: this.api.accountHistory(id),
-      work: this.api.accountWork(id),
-      contacts: this.api.accountContacts(id),
-      files: this.api.accountFiles(id),
-      categories: this.api.categories(),
-      measures: this.api.accountMeasures(id),
-      checks: this.api.writChecks(id),
-      serviceColumns: this.api.cardColumns('services'),
-      paymentColumns: this.api.cardColumns('payments'),
+      account: timed('account', this.api.account(id)),
+      services: timed('services', this.api.accountServices(id, false)),
+      scenario: timed('scenario', this.api.accountScenario(id)),
+      writ: timed('writ', this.api.writDraft(id)),
+      payments: timed('payments', this.api.accountPayments(id)),
+      registrations: timed('registrations', this.api.accountRegistrations(id)),
+      templates: timed('templates', this.api.templates({ is_active: true, page_size: 100 })),
+      balances: timed('balances', this.api.accountBalances(id)),
+      history: timed('history', this.api.accountHistory(id)),
+      work: timed('work', this.api.accountWork(id)),
+      contacts: timed('contacts', this.api.accountContacts(id)),
+      files: timed('files', this.api.accountFiles(id)),
+      categories: timed('categories', this.api.categories()),
+      measures: timed('measures', this.api.accountMeasures(id)),
+      checks: timed('checks', this.api.writChecks(id)),
+      serviceColumns: timed('serviceColumns', this.api.cardColumns('services')),
+      paymentColumns: timed('paymentColumns', this.api.cardColumns('payments')),
     }).subscribe({
       next: (r) => {
+        agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card forkJoin', {
+          totalMs: Math.round(performance.now() - started),
+          marks,
+        });
         this.account.set(r.account);
         this.manualGroup = r.account.debt_group_manual;
         this.manualReason = r.account.debt_group_manual_reason;
@@ -875,7 +902,13 @@ export class AccountDetailComponent implements OnInit {
         this.templateId = (forGroup[0] ?? list[0])?.id ?? null;
         this.loadPeers(r.account);
       },
-      error: (e) => this.error.set(errorMessage(e)),
+      error: (e) => {
+        agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card forkJoin failed', {
+          totalMs: Math.round(performance.now() - started),
+          marks,
+        });
+        this.error.set(errorMessage(e));
+      },
     });
   }
 
@@ -1464,9 +1497,20 @@ export class AccountDetailComponent implements OnInit {
     const row = step.measures.find((item) => !item.stopped && !item.finished_on) || step.measures[0];
     const account = this.account();
     if (!row || !account || !this.auth.canWrite()) return;
+    const started = performance.now();
     this.api.stopMeasure(account.id, row.id).subscribe({
-      next: () => this.reloadScenario(),
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      next: () => {
+        agentDbg('B', 'account-detail.component.ts:toggleStep', 'stop measure', {
+          ms: Math.round(performance.now() - started),
+        });
+        this.reloadScenario();
+      },
+      error: (err) => {
+        agentDbg('B', 'account-detail.component.ts:toggleStep', 'stop measure failed', {
+          ms: Math.round(performance.now() - started),
+        });
+        this.snack.open(errorMessage(err), 'OK');
+      },
     });
   }
 
@@ -1831,21 +1875,35 @@ export class AccountDetailComponent implements OnInit {
     return day && month && year ? `${day}.${month}.${year}` : '—';
   }
 
+  protected openFile(row: AttachmentRow): void {
+    this.fileBlob(row).subscribe({
+      next: (blob) => {
+        const type = previewType(row.original_name, blob.type);
+        const url = URL.createObjectURL(type === blob.type ? blob : new Blob([blob], { type }));
+        window.open(url, '_blank', 'noopener');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
   protected downloadFile(row: AttachmentRow): void {
-    const request = row.package && row.claim_id && row.doc_id
-      ? this.api.downloadClaimFile(row.claim_id, row.doc_id)
-      : this.api.downloadAttachment(Number(row.id));
-    request.subscribe({
+    this.fileBlob(row).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = row.original_name;
+        link.download = row.original_name || 'document';
         link.click();
         URL.revokeObjectURL(url);
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  private fileBlob(row: AttachmentRow) {
+    if (row.package && row.claim_id && row.doc_id) return this.api.downloadClaimFile(row.claim_id, row.doc_id);
+    return this.api.downloadAttachment(Number(row.id));
   }
 
   protected deleteFile(row: AttachmentRow): void {
@@ -1860,7 +1918,16 @@ export class AccountDetailComponent implements OnInit {
   protected reloadScenario(): void {
     const account = this.account();
     if (!account) return;
-    this.api.accountScenario(account.id).subscribe((board) => this.scenario.set(board));
+    const started = performance.now();
+    this.api.accountScenario(account.id).subscribe((board) => {
+      const measures = (board.steps || []).reduce((count, step) => count + (step.measures?.length || 0), 0);
+      agentDbg('B', 'account-detail.component.ts:reloadScenario', 'scenario board', {
+        ms: Math.round(performance.now() - started),
+        steps: board.steps?.length ?? 0,
+        measures,
+      });
+      this.scenario.set(board);
+    });
   }
 
   private applyCardColumns(board: 'services' | 'payments', prefs: ColumnPrefs): void {
@@ -1885,4 +1952,22 @@ export class AccountDetailComponent implements OnInit {
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
+}
+
+function previewType(name: string, current: string): string {
+  if (current && current !== 'application/octet-stream') return current;
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'txt') return 'text/plain';
+  return current || 'application/octet-stream';
+}
+
+function agentDbg(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
+  // #region agent log
+  fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb728a'},body:JSON.stringify({sessionId:'cb728a',runId:'pre-fix',hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 }

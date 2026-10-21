@@ -96,13 +96,22 @@ export class MeasureTasksComponent {
 
   protected toggleTask(task: MeasureTaskRow): void {
     const status = task.status === 'done' ? 'open' : 'done';
+    const started = performance.now();
     this.busy.set(true);
     this.api.setMeasureTaskStatus(this.measureId(), task.id, status).subscribe({
       next: () => {
+        agentDbg('B', 'measure-tasks.component.ts:toggleTask', 'task status', {
+          ms: Math.round(performance.now() - started),
+        });
         this.busy.set(false);
         this.changed.emit();
       },
-      error: (err) => this.fail(err),
+      error: (err) => {
+        agentDbg('B', 'measure-tasks.component.ts:toggleTask', 'task status failed', {
+          ms: Math.round(performance.now() - started),
+        });
+        this.fail(err);
+      },
     });
   }
 
@@ -110,4 +119,10 @@ export class MeasureTasksComponent {
     this.busy.set(false);
     this.snack.open(errorMessage(err), 'OK');
   }
+}
+
+function agentDbg(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
+  // #region agent log
+  fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb728a'},body:JSON.stringify({sessionId:'cb728a',runId:'pre-fix',hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 }

@@ -658,7 +658,7 @@ class DebtWorkItemSerializer(serializers.ModelSerializer):
 class AttachmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Attachment
-        fields = ["id", "account", "work_item", "doc_type", "original_name", "uploaded_by", "created_at"]
+        fields = ["id", "account", "work_item", "doc_type", "original_name", "file", "uploaded_by", "created_at"]
         read_only_fields = fields
 
 
