@@ -7,6 +7,7 @@ import pytest
 from django.core.files.base import ContentFile
 
 from apps.debts.models import Attachment, ClaimCase, Payment, PrisExchange, Registration, Territory
+from apps.debts.services.eds import sample_detached_pkcs7
 from apps.debts.services.pris_gateway import RecordingPrisTransport, set_pris_transport
 from apps.debts.services.pris_nsi import clear_pris_dictionary_cache
 from apps.debts.services.pris_submit import refresh_open_proceedings
@@ -60,7 +61,7 @@ def _ready_case(org: Organization):
     )
     signature = Attachment.objects.create(
         organization=org, account=account, doc_type="подпись", original_name="writ.pdf.p7s",
-        file=ContentFile(b"signature-bytes", name="writ.pdf.p7s"),
+        file=ContentFile(sample_detached_pkcs7(), name="writ.pdf.p7s"),
     )
     case = ClaimCase.objects.create(organization=org, account=account, stage=ClaimCase.Stage.WRIT_DONE)
     return case, pdf, signature

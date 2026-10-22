@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 
 from apps.debts.models import AccountScenarioRun, Attachment, ClaimCase, ClaimEvent, DebtWorkItem, Measure
+from apps.debts.services.eds import sample_detached_pkcs7
 from apps.notifications.models import MessageTemplate
 from apps.nsi.services.scenario_engine import step_template_name
 
@@ -54,7 +55,7 @@ def _formed_package(api, user, account, case_id):
                 "doc_type": doc["doc_type"],
                 "doc_id": doc["id"],
                 "signature_kind": "p7s",
-                "signature": SimpleUploadedFile(doc["signature_name"], b"eds"),
+                "signature": SimpleUploadedFile(doc["signature_name"], sample_detached_pkcs7()),
             },
             format="multipart",
         )

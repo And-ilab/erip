@@ -1,6 +1,7 @@
 """Пакет заявления в личный кабинет БНП.
 
-Собирает манифест, PDF и слоты ЭЦП (.pdf.sgn / .pdf.p7s). В кабинет ничего не отправляет:
+Собирает манифест, PDF и слоты ЭЦП (.pdf.sgn / .pdf.p7s). Подпись приходит
+отсоединённым PKCS#7 с рабочего места AvCMXWebP. В кабинет ничего не отправляет:
 это делает заглушка send_to_notary, когда появится способ подачи. Правила полей те же,
 что у BnpManifest в шлюзе (app/gateway/app/integrations/bnp/schemas.py).
 """
@@ -29,6 +30,7 @@ from apps.debts.models import (
 )
 from apps.debts.services.artifacts import ensure_writ_checks, render_text_pdf
 from apps.debts.services.claims import ClaimBlocked
+from apps.debts.services.eds import Pkcs7Error, inspect_detached_pkcs7
 from apps.nsi.models import BnpDebtType, BnpDocType, BnpService
 
 MAX_FILE_BYTES = 15 * 1024 * 1024
@@ -262,33 +264,50 @@ def update_document_layout(
     return document
 
 
-def stamp_package_signatures(case: ClaimCase) -> ClaimPackage:
-    """Одна отметка на весь комплект. Это не ЭЦП ГосСУОК и не отправка в кабинет."""
+def sign_documents(case: ClaimCase, user, signatures) -> ClaimCase:
+    """Кладёт отсоединённый PKCS#7 к PDF. В кабинет БНП пакет не уходит."""
     package = stored_package(case)
     if package is None:
         raise ClaimBlocked("Сначала соберите документы комплекта")
-    docs = [doc for doc in package.documents.all() if doc.pdf and doc.doc_type in OUTGOING_DOCS]
-    if not docs:
-        raise ClaimBlocked("В комплекте нет PDF для подписи")
-    mark = "STUB-PACKAGE-SIGNATURE\nЛокальная отметка пакета. ЭЦП ГосСУОК не проверялась.\n".encode()
-    for doc in docs:
-        doc.signer = _signer(doc.doc_type)
-        doc.signature_name = _signature_name(doc.file_name, "p7s")
-        doc.signature.save(doc.signature_name, ContentFile(mark), save=False)
-        doc.save()
-    return package
-
-
-def sign_documents(case: ClaimCase, user) -> ClaimCase:
-    """Локальная отметка на PDF комплекта. В кабинет БНП пакет не уходит."""
-    stamp_package_signatures(case)
+    rows = list(signatures or [])
+    if not rows:
+        raise ClaimBlocked(
+            "Подпись ставит плагин AvCMXWebP на компьютере с «Комплектом абонента АВЕСТ» и ключом AvPass. "
+            "Локальная отметка не записывается.",
+        )
+    saved = []
+    for item in rows:
+        if not isinstance(item, dict):
+            raise ClaimBlocked("Подпись передаётся вместе с документом комплекта")
+        try:
+            doc_id = int(item.get("doc_id"))
+        except (TypeError, ValueError) as exc:
+            raise ClaimBlocked("Укажите документ комплекта") from exc
+        document = package.documents.filter(pk=doc_id).first()
+        if document is None or not document.pdf:
+            raise ClaimBlocked("Документ не из этого пакета или у него нет PDF")
+        payload = item.get("pkcs7")
+        if isinstance(payload, str):
+            payload = payload.encode()
+        try:
+            checked = inspect_detached_pkcs7(bytes(payload or b""))
+        except Pkcs7Error as exc:
+            raise ClaimBlocked(f"{document.file_name}: {exc}") from exc
+        document.signer = _signer(document.doc_type)
+        document.signature_name = _signature_name(document.file_name, "p7s")
+        document.signature.save(document.signature_name, ContentFile(checked.der), save=False)
+        document.save()
+        saved.append(f"{document.file_name} ({checked.subject})")
+    reason = "ЭЦП ГосСУОК, отсоединённая подпись: " + "; ".join(saved)
     ClaimEvent.objects.create(
         case=case,
         actor=user if getattr(user, "is_authenticated", False) else None,
         old_stage=case.stage,
         new_stage=case.stage,
-        reason="Документы комплекта отмечены локальной подписью",
+        reason=reason[:500],
     )
+    if package.formed_at:
+        write_archive(case)
     return case
 
 
@@ -299,13 +318,16 @@ def sign_and_send(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
     package = stored_package(case)
     if package is None or not package.formed_at:
         form_package(case, user)
-    stamp_package_signatures(case)
+        package = stored_package(case)
+    problems = signature_blockers(package)
+    if problems:
+        raise ClaimBlocked("; ".join(problems))
     write_archive(case)
     return send_to_notary(case, user, skip_reason)
 
 
 def write_archive(case: ClaimCase) -> ClaimPackage:
-    """Zip манифеста, PDF и файлов отметки. В кабинет БНП архив не отправляется."""
+    """Zip манифеста, PDF и файлов ЭЦП. В кабинет БНП архив не отправляется."""
     package = stored_package(case)
     if package is None or not package.formed_at:
         raise ClaimBlocked("Сначала сформируйте пакет")
@@ -473,9 +495,17 @@ def store_document(
         document.signature_name = _signature_name(document.file_name, signature_kind)
         manifest_changed = True
     if signature is not None:
-        _reject_size(signature)
+        payload = _read(signature)
+        if not payload:
+            raise ClaimBlocked("Пустой файл")
+        if len(payload) > MAX_FILE_BYTES:
+            raise ClaimBlocked("Файл больше 15 МБ")
         _check_signature_upload(getattr(signature, "name", ""), document.signature_name)
-        document.signature.save(document.signature_name, ContentFile(_read(signature)), save=False)
+        try:
+            checked = inspect_detached_pkcs7(payload)
+        except Pkcs7Error as exc:
+            raise ClaimBlocked(str(exc)) from exc
+        document.signature.save(document.signature_name, ContentFile(checked.der), save=False)
     document.save()
     if manifest_changed:
         _invalidate(package)
@@ -557,15 +587,35 @@ def open_document(case: ClaimCase, doc_id: int, kind: str):
     return document.signature, document.signature_name
 
 
+def signature_blockers(package: ClaimPackage | None) -> list[str]:
+    if package is None:
+        return []
+    missing = []
+    blockers = []
+    for doc in package.documents.all():
+        if not doc.pdf:
+            continue
+        if not doc.signature:
+            missing.append(doc.file_name)
+            continue
+        try:
+            inspect_detached_pkcs7(_field_bytes(doc.signature))
+        except OSError:
+            blockers.append(f"{doc.file_name}: файл ЭЦП не читается")
+        except Pkcs7Error as exc:
+            blockers.append(f"{doc.file_name}: {exc}")
+    if missing:
+        blockers.append("Нет файла ЭЦП: " + ", ".join(missing))
+    return blockers
+
+
 def send_blockers(case: ClaimCase, package: ClaimPackage | None) -> list[str]:
     if package is None or not package.formed_at:
         return ["Сначала сформируйте пакет для личного кабинета БНП"]
     blockers = []
     if _amounts_changed(case.account, package):
         blockers.append("Сумма в АИС изменилась. Сформируйте пакет снова")
-    missing = [doc.file_name for doc in package.documents.all() if doc.pdf and not doc.signature]
-    if missing:
-        blockers.append("Нет файла ЭЦП: " + ", ".join(missing))
+    blockers.extend(signature_blockers(package))
     return blockers
 
 
@@ -1099,6 +1149,14 @@ def _read(uploaded) -> bytes:
     if hasattr(uploaded, "seek"):
         uploaded.seek(0)
     return uploaded.read()
+
+
+def _field_bytes(field) -> bytes:
+    field.open("rb")
+    try:
+        return field.read()
+    finally:
+        field.close()
 
 
 def _drop_other_signatures(document: ClaimPackageDocument) -> None:

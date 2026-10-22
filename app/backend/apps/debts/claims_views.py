@@ -207,22 +207,25 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"], url_path="sign-documents")
     def sign_docs(self, request, pk=None):
-        case = sign_documents(self._case(pk), request.user)
-        record_action(request, AuditLog.Action.UPDATE, case, after={"signed": "package"})
+        sign_documents(self._case(pk), request.user, request.data.get("signatures"))
+        case = self._case(pk)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"signed": "gosuok", "format": "pkcs7-detached"})
         return Response(case_payload(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="sign-and-send")
     def sign_send(self, request, pk=None):
-        case = sign_and_send(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        sign_and_send(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        case = self._case(pk)
         record_action(
             request, AuditLog.Action.UPDATE, case,
-            after={"submission_id": case.submission_id, "mode": "stub", "signed": "package"},
+            after={"submission_id": case.submission_id, "mode": "stub"},
         )
         return Response(case_payload(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="send-notary")
     def send_notary(self, request, pk=None):
-        case = send_to_notary(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        send_to_notary(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        case = self._case(pk)
         record_action(request, AuditLog.Action.UPDATE, case, after={"submission_id": case.submission_id, "mode": "stub"})
         return Response(case_payload(case, with_choices=True))
 

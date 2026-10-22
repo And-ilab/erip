@@ -7,9 +7,10 @@ import pytest
 from apps.debts.models import ClaimCase
 from apps.debts.services.bnp_package import (
     generate_from_form,
-    stamp_package_signatures,
+    sign_documents,
     update_document_text,
 )
+from apps.debts.services.eds import sample_detached_pkcs7
 from apps.nsi.models import PrintForm
 from apps.nsi.services.form_layout import recognize_bytes
 
@@ -82,8 +83,8 @@ def test_one_stamp_signs_package_and_edit_clears_it(api, specialist_a, account_a
     form = PrintForm.objects.get(code="notary-application")
     case = ClaimCase.objects.get(pk=case_id)
     document = generate_from_form(case, specialist_a, form.id)
-    package = stamp_package_signatures(case)
-    signed = package.documents.get(pk=document.pk)
+    sign_documents(case, specialist_a, [{"doc_id": document.pk, "pkcs7": sample_detached_pkcs7()}])
+    signed = document.package.documents.get(pk=document.pk)
     assert signed.signature
     assert signed.signature_name.endswith(".pdf.p7s")
 

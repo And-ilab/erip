@@ -1,5 +1,7 @@
 import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
@@ -12,6 +14,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { DateFieldComponent, HoldDraftDirective } from '../../core/date-field.component';
 import { ApiService, ClaimCase, PrisDictRow, PrisExchangeRow, errorMessage } from '../../core/api.service';
+import { AvcmxService, EdsCertificate } from '../../core/avcmx.service';
 import { WritRecord } from '../../core/models';
 import { ClaimChecklistComponent } from './claim-checklist.component';
 import { AuthService } from '../../core/auth.service';
@@ -78,13 +81,24 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </mat-form-field>
                 <p class="muted">Адрес, на который нотариус пришлёт уведомление. Несколько адресов — через запятую. Контакт должника сюда не подставляется.</p>
                 <div class="bar">
-                  <button mat-stroked-button type="button" (click)="signDocuments()">Подписать</button>
+                  <button mat-stroked-button type="button" (click)="signDocuments('applicant')" [disabled]="signing">Подписать документы заявителя</button>
+                  <button mat-stroked-button type="button" (click)="signDocuments('head')" [disabled]="signing">Подписать доверенность</button>
                   <button mat-flat-button color="primary" type="button" (click)="formPackage()">Собрать архив</button>
                   <button mat-stroked-button type="button" (click)="downloadArchive()">Скачать архив</button>
                   <button mat-stroked-button type="button" (click)="downloadManifest()">Скачать json</button>
                   <button mat-flat-button type="button" disabled title="Обмен с БНП система-система не подключён">Отправить</button>
                 </div>
-                <p class="muted">«Отправить» неактивна: канал БНП система-система не подключён. Архив и json сохраняются на компьютер.</p>
+                @if (edsCerts.length) {
+                  <mat-form-field class="wide">
+                    <mat-label>Сертификат ГосСУОК на AvPass</mat-label>
+                    <mat-select [(ngModel)]="edsCert">
+                      @for (cert of edsCerts; track cert.pubKeyId) {
+                        <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · УНП из атрибутного сертификата' }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+                }
+                <p class="muted">Подпись ставит плагин AvCMXWebP на этом компьютере: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт подписывает представитель, доверенность — руководитель. Если в личном сертификате нет УНП, плагин добавляет атрибутный сертификат. Статус ключа проверяется по списку отозванных сертификатов. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит. «Отправить» неактивна: канал БНП система-система не подключён.</p>
                 @if (sendGaps(row).length) {
                   <ul class="blockers">
                     @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
@@ -257,7 +271,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 }
                 <details>
                   <summary>Передача в ПРИС</summary>
-                  <p class="hint">Код выбирается из GetNSIData или вписывается. Пока канал-заглушка, справочник 120 содержит только пример регламента. Остальные номера придут из Минюста после GW_PRIS_MODE=http. Подпись — отдельный файл .p7s или .sgn. Локальная отметка пакета БНП в ПРИС не принимается.</p>
+                  <p class="hint">Код выбирается из GetNSIData или вписывается. Пока канал-заглушка, справочник 120 содержит только пример регламента. Остальные номера придут из Минюста после GW_PRIS_MODE=http. Подпись — отсоединённый PKCS#7, файл .p7s или .sgn. Её ставит тот же ключ AvPass. Если PDF выбран «из пакета», в ПРИС уходит подпись с вкладки «Комплект».</p>
                   @if (row.pris?.problems?.length) {
                     <p class="need">{{ row.pris?.problems?.join('; ') }}</p>
                   }
@@ -334,6 +348,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         }
                       </mat-select>
                     </mat-form-field>
+                    <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF ключом AvPass</button>
                     <mat-form-field><mat-label>ОПФ взыскателя</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
                     <mat-form-field><mat-label>Страна адреса, справочник 306</mat-label>
                       <input matInput [(ngModel)]="prisCountry" [matAutocomplete]="autoCountry" />
@@ -487,6 +502,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 })
 export class ClaimDetailComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly eds = inject(AvcmxService);
   protected readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -551,6 +567,10 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected prisDebtorAddress = '';
   protected prisPdf = 0;
   protected prisSign = 0;
+  protected signing = false;
+  protected edsCerts: EdsCertificate[] = [];
+  protected edsCert = 0;
+  private edsListed = false;
   protected prisOpf = '';
   protected prisCountry = '';
   protected prisAddress = '';
@@ -782,16 +802,112 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     });
   }
 
-  protected signDocuments(): void {
+  protected signDocuments(role: 'applicant' | 'head'): void {
     const row = this.claim();
-    if (!row) return;
-    this.api.claimAction(row.id, 'sign-documents', {}).subscribe({
-      next: (next) => {
-        this.apply(next);
-        this.snack.open('Документы отмечены локальной подписью. В кабинет БНП вызов не уходит.', 'OK', { duration: 3000 });
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
+    if (!row || this.signing) return;
+    void this.signPackage(row, role);
+  }
+
+  protected signPrisPdf(): void {
+    const row = this.claim();
+    if (!row || this.signing) return;
+    if (!this.prisPdf) {
+      this.snack.open('PDF не выбран. Подпись комплекта ставится на вкладке «Комплект», и тогда ПРИС берёт её из пакета.', 'OK');
+      return;
+    }
+    void this.signAttachment(row, this.prisPdf);
+  }
+
+  private async signPackage(row: ClaimCase, role: 'applicant' | 'head'): Promise<void> {
+    this.signing = true;
+    try {
+      const cert = await this.pickCertificate();
+      if (!cert) return;
+      const docs = (row.package?.documents || []).filter((doc) => {
+        if (!doc.has_pdf || doc.has_signature) return false;
+        return role === 'head' ? doc.signer === 'head' : doc.signer !== 'head';
+      });
+      if (!docs.length) {
+        this.snack.open(
+          role === 'head' ? 'Нет неподписанной доверенности' : 'Нет неподписанных документов заявителя',
+          'OK',
+        );
+        return;
+      }
+      const signatures: { doc_id: number; pkcs7: string }[] = [];
+      let attribute = false;
+      let subject = cert.subject;
+      for (const doc of docs) {
+        const blob = await firstValueFrom(this.api.downloadClaimFile(row.id, doc.id));
+        const signed = await this.eds.signDetached(new Uint8Array(await blob.arrayBuffer()), cert);
+        signatures.push({ doc_id: doc.id, pkcs7: signed.pkcs7 });
+        attribute = attribute || signed.attributeCertificate;
+        subject = signed.subject;
+      }
+      const next = await firstValueFrom(this.api.claimAction(row.id, 'sign-documents', { signatures }));
+      this.apply(next);
+      const extra = attribute ? ' В подпись включён атрибутный сертификат с УНП.' : '';
+      this.snack.open(
+        `Подписано: ${subject}. Статус ключа проверил плагин по СОС. В кабинет БНП вызов не уходит.${extra}`,
+        'OK',
+        { duration: 5000 },
+      );
+    } catch (err) {
+      this.snack.open(this.failText(err), 'OK');
+    } finally {
+      this.signing = false;
+    }
+  }
+
+  private async signAttachment(row: ClaimCase, fileId: number): Promise<void> {
+    const file = row.files.find((item) => item.id === fileId);
+    if (!file) {
+      this.snack.open('Файл PDF не найден среди вложений', 'OK');
+      return;
+    }
+    this.signing = true;
+    try {
+      const cert = await this.pickCertificate();
+      if (!cert) return;
+      const blob = await firstValueFrom(this.api.downloadAttachment(file.id));
+      const signed = await this.eds.signDetached(new Uint8Array(await blob.arrayBuffer()), cert);
+      const name = file.name.toLowerCase().endsWith('.pdf') ? `${file.name}.p7s` : `${file.name}.pdf.p7s`;
+      const upload = new File([bytesFromBase64(signed.pkcs7)], name, { type: 'application/pkcs7-signature' });
+      const saved = await firstValueFrom(this.api.uploadFile(row.account, 'подпись', upload));
+      const next = await firstValueFrom(this.api.claim(row.id));
+      this.apply(next);
+      this.prisSign = Number(saved.id);
+      const extra = signed.attributeCertificate ? ' В подпись включён атрибутный сертификат с УНП.' : '';
+      this.snack.open(`Подпись ${name} сохранена. Статус ключа проверил плагин по СОС.${extra}`, 'OK', { duration: 5000 });
+    } catch (err) {
+      this.snack.open(this.failText(err), 'OK');
+    } finally {
+      this.signing = false;
+    }
+  }
+
+  private async pickCertificate(): Promise<EdsCertificate | null> {
+    if (!this.eds.installed()) {
+      this.snack.open(this.eds.missingText(), 'OK', { duration: 8000 });
+      return null;
+    }
+    if (!this.edsCerts.length) this.edsCerts = await this.eds.certificates();
+    if (!this.edsCerts.length) {
+      this.snack.open('В личном справочнике нет сертификата. Вставьте AvPass и откройте персональный менеджер сертификатов АВЕСТ.', 'OK');
+      return null;
+    }
+    if (this.edsCerts.length > 1 && !this.edsListed) {
+      this.edsListed = true;
+      this.snack.open('Выберите сертификат ГосСУОК на AvPass и нажмите подпись ещё раз', 'OK');
+      return null;
+    }
+    return this.edsCerts[this.edsCert] || this.edsCerts[0];
+  }
+
+  private failText(error: unknown): string {
+    if (error instanceof HttpErrorResponse) return errorMessage(error);
+    if (error instanceof Error && error.message) return error.message;
+    return errorMessage(error);
   }
 
   protected downloadManifest(): void {
@@ -1096,4 +1212,11 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.note = row.notary_note || '';
     this.lawsuitNote = row.lawsuit_note || '';
   }
+}
+
+function bytesFromBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }

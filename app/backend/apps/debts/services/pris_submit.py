@@ -14,6 +14,7 @@ from decimal import Decimal
 from apps.core.exceptions import GatewayUnavailable
 from apps.debts.models import Attachment, ClaimCase, ClaimPackageDocument, Payment, PrisExchange, Registration
 from apps.debts.services.claims import ClaimBlocked, move_case
+from apps.debts.services.eds import Pkcs7Error, inspect_detached_pkcs7
 from apps.debts.services.pris_gateway import get_pris_transport
 
 _DATE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
@@ -35,7 +36,6 @@ _ADDRESS_KEYS = (
     "house", "corp", "flat", "post_index",
 )
 _INQUIRY_KEYS = ("p_ispdoc", "p_ost", "p_cred", "p_debt", "p_status", "p_action", "p_nachisl", "p_repay")
-_STUB_MARK = b"STUB-PACKAGE-SIGNATURE"
 _SIGN_EXT = (".p7s", ".sgn")
 
 
@@ -278,11 +278,15 @@ def _signature_problems(name: str, field) -> list[str]:
         return ["файл подписи для ПРИС — отдельный .p7s или .sgn, не PDF и не локальная отметка пакета"]
     try:
         with field.open("rb") as handle:
-            head = handle.read(256)
+            payload = handle.read()
     except OSError:
         return ["файл подписи не читается"]
-    if _STUB_MARK in head:
-        return ["локальная отметка пакета БНП не является подписью для АИС ПРИС"]
+    try:
+        inspect_detached_pkcs7(payload)
+    except Pkcs7Error as exc:
+        if "локальная отметка" in str(exc):
+            return ["локальная отметка пакета БНП не является подписью для АИС ПРИС"]
+        return [str(exc)]
     return []
 
 
