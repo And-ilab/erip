@@ -362,6 +362,20 @@ function defaultWritChecklist(): WritChecklistItem[] {
           </section>
         }
       }
+
+      @if (showMail() && canEdit()) {
+        <section class="card">
+          <h3>Почта схемы</h3>
+          <p class="muted">Отправитель, тема и подпись писем этой схемы. Если у шаблона тема заполнена, в письмо идёт она. Прочтение не отмечается. Пока шлюз в режиме заглушки, письмо во внешнюю почту не уходит.</p>
+          <div class="grid">
+            <mat-form-field><mat-label>E-mail отправителя</mat-label><input matInput [(ngModel)]="mailFrom" maxlength="254" /></mat-form-field>
+            <mat-form-field><mat-label>Имя отправителя</mat-label><input matInput [(ngModel)]="mailFromName" maxlength="250" /></mat-form-field>
+            <mat-form-field class="wide"><mat-label>Тема, если у шаблона её нет</mat-label><input matInput [(ngModel)]="mailSubject" maxlength="250" /></mat-form-field>
+            <mat-form-field class="wide"><mat-label>Подпись</mat-label><textarea matInput rows="2" [(ngModel)]="mailSignature" maxlength="500"></textarea></mat-form-field>
+          </div>
+          <button mat-stroked-button type="button" (click)="saveMail()">Сохранить почту схемы</button>
+        </section>
+      }
     </div>
   `,
   styles: `
@@ -454,6 +468,10 @@ export class ScenariosComponent implements OnInit {
   protected applyRunning = false;
   protected orgCallLegal = false;
   protected outgoingNumbers = '';
+  protected mailFrom = '';
+  protected mailFromName = '';
+  protected mailSubject = '';
+  protected mailSignature = '';
   protected callFromDay = 27;
   protected weekdayFrom = '18:00';
   protected weekdayTo = '21:00';
@@ -493,6 +511,15 @@ export class ScenariosComponent implements OnInit {
         next: (row) => {
           this.orgCallLegal = row.call_legal;
           this.outgoingNumbers = (row.outgoing_numbers || []).join('\n');
+        },
+        error: () => undefined,
+      });
+      this.api.scenarioMail().subscribe({
+        next: (row) => {
+          this.mailFrom = row.mail_from;
+          this.mailFromName = row.mail_from_name;
+          this.mailSubject = row.mail_subject;
+          this.mailSignature = row.mail_signature;
         },
         error: () => undefined,
       });
@@ -697,6 +724,10 @@ export class ScenariosComponent implements OnInit {
     if (sheet === 'dial') return true;
     const call = this.callStepIndex();
     return call >= 0 && sheet === call;
+  }
+
+  protected showMail(): boolean {
+    return this.activeStep()?.action === 'email';
   }
 
   private sameScenario = false;
@@ -978,6 +1009,24 @@ export class ScenariosComponent implements OnInit {
       weekend_from: this.weekendFrom || '10:00',
       weekend_to: this.weekendTo || '22:00',
     };
+  }
+
+  protected saveMail(): void {
+    this.api.saveScenarioMail({
+      mail_from: this.mailFrom.trim(),
+      mail_from_name: this.mailFromName.trim(),
+      mail_subject: this.mailSubject.trim(),
+      mail_signature: this.mailSignature.trim(),
+    }).subscribe({
+      next: (row) => {
+        this.mailFrom = row.mail_from;
+        this.mailFromName = row.mail_from_name;
+        this.mailSubject = row.mail_subject;
+        this.mailSignature = row.mail_signature;
+        this.snack.open('Почта схемы сохранена', 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   protected saveCalling(): void {

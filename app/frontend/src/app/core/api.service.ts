@@ -676,6 +676,39 @@ export class ApiService {
     );
   }
 
+  scenarioMail(): Observable<{
+    mail_from: string;
+    mail_from_name: string;
+    mail_subject: string;
+    mail_signature: string;
+  }> {
+    return this.http.get<{
+      mail_from: string;
+      mail_from_name: string;
+      mail_subject: string;
+      mail_signature: string;
+    }>(`${this.base}/nsi/scenarios/mail/`);
+  }
+
+  saveScenarioMail(body: {
+    mail_from: string;
+    mail_from_name: string;
+    mail_subject: string;
+    mail_signature: string;
+  }): Observable<{
+    mail_from: string;
+    mail_from_name: string;
+    mail_subject: string;
+    mail_signature: string;
+  }> {
+    return this.http.patch<{
+      mail_from: string;
+      mail_from_name: string;
+      mail_subject: string;
+      mail_signature: string;
+    }>(`${this.base}/nsi/scenarios/mail/`, body);
+  }
+
   debtGroups(): Observable<Page<DebtGroupBand>> {
     return this.http.get<Page<DebtGroupBand>>(`${this.base}/nsi/debt-groups/`, { params: { page_size: 20 } });
   }

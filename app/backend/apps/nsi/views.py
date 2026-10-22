@@ -36,6 +36,27 @@ from .serializers import (
 )
 
 
+def _mail_text(raw, field: str, limit: int) -> str:
+    text = str(raw or "").strip()
+    if len(text) > limit:
+        raise ValidationError({field: f"Не длиннее {limit} символов"})
+    return text
+
+
+def _mail_address(raw) -> str:
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    from django.core.validators import validate_email
+
+    text = _mail_text(raw, "mail_from", 254)
+    if not text:
+        return ""
+    try:
+        validate_email(text)
+    except DjangoValidationError as exc:
+        raise ValidationError({"mail_from": "Укажите адрес e-mail"}) from exc
+    return text
+
+
 def _outgoing_numbers(raw) -> list[str]:
     from apps.debts.services.measures import belarus_phone
 
@@ -289,6 +310,32 @@ class ScenarioDefinitionViewSet(NsiViewSet):
             "call_transfer": False,
             "dial_mobile_from_day": settings.dial_mobile_from_day,
             "dial_mobile_weekdays": settings.dial_mobile_weekdays,
+        })
+
+    @action(detail=False, methods=["get", "patch"], url_path="mail")
+    def mail(self, request):
+        """Отправитель, тема и подпись писем схемы. Прочтение не отмечается."""
+        self._admin_only()
+        organization = request.user.organization
+        if organization is None:
+            raise ValidationError({"organization": "У пользователя нет схемы"})
+        if request.method == "PATCH":
+            if "mail_from" in request.data:
+                organization.mail_from = _mail_address(request.data.get("mail_from"))
+            if "mail_from_name" in request.data:
+                organization.mail_from_name = _mail_text(request.data.get("mail_from_name"), "mail_from_name", 250)
+            if "mail_subject" in request.data:
+                organization.mail_subject = _mail_text(request.data.get("mail_subject"), "mail_subject", 250)
+            if "mail_signature" in request.data:
+                organization.mail_signature = _mail_text(request.data.get("mail_signature"), "mail_signature", 500)
+            organization.save(update_fields=[
+                "mail_from", "mail_from_name", "mail_subject", "mail_signature", "updated_at",
+            ])
+        return Response({
+            "mail_from": organization.mail_from,
+            "mail_from_name": organization.mail_from_name,
+            "mail_subject": organization.mail_subject,
+            "mail_signature": organization.mail_signature,
         })
 
     @action(detail=False, methods=["get", "patch"], url_path="timeline")

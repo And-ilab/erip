@@ -300,7 +300,15 @@ const DELIVERY_METHODS = [
                       }
                       @case ('notice') {
                         <td>{{ item.recipient || '—' }}</td>
-                        <td>{{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm') : '—' }}</td>
+                        <td>
+                          {{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm') : '—' }}
+                          @if (item.external_call === false) {
+                            <div>{{ m.channel === 'sms' ? 'Сообщение не отправлялось' : 'Письмо не отправлялось' }}</div>
+                          }
+                          @if (item.provider_message_id) {
+                            <div class="muted">{{ item.provider_message_id }}</div>
+                          }
+                        </td>
                       }
                       @case ('warning') {
                         <td>

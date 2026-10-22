@@ -29,14 +29,26 @@ class AdapterRegistry:
 
 def build_default_registry() -> AdapterRegistry:
     from ..core.config import get_settings
-    from .email_stub import EmailStubAdapter
+
+    settings = get_settings()
     from .inbox import InboxAdapter
     from .sms_stub import SmsStubAdapter
 
     registry = AdapterRegistry()
-    for adapter in (InboxAdapter(), EmailStubAdapter(), SmsStubAdapter(), voice_adapter(get_settings())):
+    for adapter in (InboxAdapter(), email_adapter(settings), SmsStubAdapter(), voice_adapter(settings)):
         registry.register(adapter)
     return registry
+
+
+def email_adapter(settings):
+    """stub остаётся, пока GW_EMAIL_MODE не smtp. Сценарий и карточка этого не знают."""
+    if settings.email_mode == "smtp":
+        from .email_smtp import SmtpEmailAdapter
+
+        return SmtpEmailAdapter(settings)
+    from .email_stub import EmailStubAdapter
+
+    return EmailStubAdapter()
 
 
 def voice_adapter(settings):

@@ -44,6 +44,25 @@ class Settings(BaseSettings):
     ami_timeout_ms: int = 30000
     ami_wait_sec: int = 90
 
+    # stub — письмо не уходит. smtp — SMTP заказчика, когда задан хост.
+    email_mode: str = "stub"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    # STARTTLS на 587. Для порта 465 включите GW_SMTP_SSL и не ждите STARTTLS.
+    smtp_tls: bool = True
+    smtp_ssl: bool = False
+    smtp_timeout: float = 30.0
+
+    def smtp_missing(self) -> list[str]:
+        missing = []
+        if not self.smtp_host.strip():
+            missing.append("GW_SMTP_HOST")
+        if self.smtp_username.strip() and not self.smtp_password:
+            missing.append("GW_SMTP_PASSWORD")
+        return missing
+
     def ami_missing(self) -> list[str]:
         missing = []
         if not self.ami_host.strip():
@@ -62,6 +81,8 @@ class Settings(BaseSettings):
     def assert_prod(self) -> None:
         if self.voice_mode not in {"stub", "ami"}:
             raise RuntimeError("GW_VOICE_MODE должен быть stub или ami")
+        if self.email_mode not in {"stub", "smtp"}:
+            raise RuntimeError("GW_EMAIL_MODE должен быть stub или smtp")
         if self.environment != "prod":
             return
         if self.internal_token in {"", "change-me", "change-me-internal", "dev-internal-token", "dev"}:
@@ -70,6 +91,8 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "GW_VOICE_MODE=ami в prod требует хост, логин, секрет, контекст и шаблон канала AMI"
             )
+        if self.email_mode == "smtp" and self.smtp_missing():
+            raise RuntimeError("GW_EMAIL_MODE=smtp в prod требует GW_SMTP_HOST")
 
 
 @lru_cache

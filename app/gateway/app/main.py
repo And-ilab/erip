@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 
-from .api.v1 import health, integrations, notifications, voice
+from .api.v1 import email, health, integrations, notifications, voice
 from .core.config import get_settings
 from .core.errors import register_exception_handlers
 from .core.logging import setup_logging
@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
     v1 = APIRouter(prefix="/gw/v1")
     v1.include_router(health.router)
     v1.include_router(notifications.router)
+    v1.include_router(email.router)
     v1.include_router(voice.router)
     v1.include_router(integrations.router)
     app.include_router(v1)

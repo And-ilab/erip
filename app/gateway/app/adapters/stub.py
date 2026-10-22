@@ -23,4 +23,8 @@ class StubAdapter(ChannelAdapter):
             "Отправка через %s (заглушка)", self.system,
             extra={"channel": self.channel, "chars": len(message.text)},
         )
-        return DeliveryResult(delivered=True, provider_message_id=f"{self.channel}-{uuid.uuid4().hex[:12]}")
+        return DeliveryResult(
+            delivered=True,
+            provider_message_id=f"{self.channel}-{uuid.uuid4().hex[:12]}",
+            external_call=False,
+        )
