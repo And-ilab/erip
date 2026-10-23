@@ -26,7 +26,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
         [attr.aria-expanded]="!navCompact()" aria-controls="app-menu">
         <mat-icon>apps</mat-icon>
       </button>
-      <img class="logo" src="erip-logo.svg" alt="НКФО ЕРИП" />
+      <img class="logo" src="erip-logo.png" alt="" />
       <span class="brand">ЕРИП · Работа с задолженностью</span>
       <span class="spacer"></span>
       <button mat-icon-button (click)="panel.toggle()" matTooltip="Уведомления">
@@ -66,7 +66,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     .spacer { flex: 1; }
     .topbar { gap: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); z-index: 2; }
     .topbar .mat-mdc-icon-button { color: #fff; }
-    .logo { height: 28px; width: auto; display: block; }
+    .logo { height: 48px; width: auto; display: block; }
     .brand { font-weight: 600; font-size: 17px; }
     .org, .user { font-size: 13px; }
     .org { padding: 4px 12px; border-radius: 6px; background: rgba(255, 255, 255, .14); }
