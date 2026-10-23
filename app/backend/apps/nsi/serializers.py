@@ -7,11 +7,19 @@ from .models import (
     CalculationSettings,
     DebtGroupScale,
     DebtorCategory,
+    ExtraMeasureCatalog,
     NotaryOffice,
     PrintForm,
     ScenarioDefinition,
     ScenarioRule,
 )
+
+
+class ExtraMeasureCatalogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExtraMeasureCatalog
+        fields = ["id", "organization", "name", "note", "is_active"]
+        read_only_fields = ["organization"]
 
 
 class DebtGroupScaleSerializer(serializers.ModelSerializer):
@@ -45,7 +53,7 @@ class DebtGroupScaleSerializer(serializers.ModelSerializer):
 class DebtorCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = DebtorCategory
-        fields = ["id", "organization", "code", "name", "note", "is_active"]
+        fields = ["id", "organization", "code", "name", "note", "section", "sort_order", "is_active"]
         read_only_fields = ["is_active"]
 
 

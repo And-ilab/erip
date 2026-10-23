@@ -1,5 +1,6 @@
 """Справочники НСИ: /api/v1/nsi/{dict}/. Новый справочник = новая запись в NSI_REGISTRY."""
 
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -17,6 +18,7 @@ from .models import (
     CalculationSettings,
     DebtGroupScale,
     DebtorCategory,
+    ExtraMeasureCatalog,
     NotaryOffice,
     PrintForm,
     ScenarioDefinition,
@@ -29,6 +31,7 @@ from .serializers import (
     CalculationSettingsSerializer,
     DebtGroupScaleSerializer,
     DebtorCategorySerializer,
+    ExtraMeasureCatalogSerializer,
     NotaryOfficeSerializer,
     PrintFormSerializer,
     ScenarioDefinitionSerializer,
@@ -98,7 +101,10 @@ def nsi_viewset(model, serializer, search: list[str], filters: list[str] | None 
 
 
 class DebtorCategoryViewSet(NsiViewSet):
-    """Центральные категории правит суперадминистратор, локальные — администратор схемы."""
+    """Центральные категории правит суперадминистратор, локальные — администратор схемы.
+
+    Список без параметра is_active отдаёт только активные. Прежний посев из четырёх записей выключен.
+    """
 
     queryset = DebtorCategory.objects.all()
     serializer_class = DebtorCategorySerializer
@@ -109,9 +115,11 @@ class DebtorCategoryViewSet(NsiViewSet):
     def get_queryset(self):
         qs = self.queryset
         user = self.request.user
-        if user.is_superadmin:
-            return qs
-        return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
+        if not user.is_superadmin:
+            qs = qs.filter(Q(organization__isnull=True) | Q(organization=user.organization))
+        if getattr(self, "action", None) == "list" and "is_active" not in self.request.query_params:
+            qs = qs.filter(is_active=True)
+        return qs
 
     def perform_create(self, serializer):
         if not self.request.user.is_superadmin:
@@ -621,6 +629,22 @@ class DebtGroupScaleViewSet(NsiViewSet):
         return Response(self.get_serializer(self.get_queryset().filter(is_active=True), many=True).data)
 
 
+class ExtraMeasureCatalogViewSet(NsiViewSet):
+    """Справочник дополнительных мероприятий. Пишут суперадминистратор и локальный администратор."""
+
+    queryset = ExtraMeasureCatalog.objects.all()
+    serializer_class = ExtraMeasureCatalogSerializer
+    search_fields = ["name"]
+    filterset_fields = ["is_active"]
+    write_roles = ("superadmin", "local_admin")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if getattr(self, "action", None) == "list" and "is_active" not in self.request.query_params:
+            qs = qs.filter(is_active=True)
+        return qs
+
+
 class NotaryOfficeViewSet(NsiViewSet):
     """Действующие конторы с belnotary.by. Снятая с публикации запись в список не попадает."""
 
@@ -641,4 +665,5 @@ NSI_REGISTRY = {
     "bnp-debt-types": nsi_viewset(BnpDebtType, BnpDebtTypeSerializer, ["code", "name"]),
     "bnp-doc-types": nsi_viewset(BnpDocType, BnpDocTypeSerializer, ["code", "name"]),
     "notary-offices": NotaryOfficeViewSet,
+    "extra-measures": ExtraMeasureCatalogViewSet,
 }

@@ -9,7 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, WritChecklistItem, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { DialSettings, MessageTemplate } from '../../core/models';
+import { DebtorCategory, DialSettings, MessageTemplate, categoryGroups } from '../../core/models';
 import { GridResizeDirective } from '../grid-resize.directive';
 const ACTIONS = [
   { id: 'call', label: 'Автообзвон' },
@@ -190,9 +190,17 @@ function defaultWritChecklist(): WritChecklistItem[] {
             </mat-form-field>
             <mat-form-field><mat-label>Группа от</mat-label><input matInput type="number" [(ngModel)]="step.branch_group" /></mat-form-field>
             <mat-form-field><mat-label>Категория должника</mat-label>
-              <mat-select [(ngModel)]="step.debtor_category">
+              <mat-select [(ngModel)]="step.debtor_category" panelClass="debtor-category-panel">
                 <mat-option [value]="null">Любая</mat-option>
-                @for (category of categories(); track category.id) { <mat-option [value]="category.id">{{ category.name }}</mat-option> }
+                @for (group of categoryGroups(categories()); track group.section) {
+                  @if (group.section) {
+                    <mat-optgroup [label]="group.section">
+                      @for (category of group.items; track category.id) { <mat-option [value]="category.id">{{ category.name }}</mat-option> }
+                    </mat-optgroup>
+                  } @else {
+                    @for (category of group.items; track category.id) { <mat-option [value]="category.id">{{ category.name }}</mat-option> }
+                  }
+                }
               </mat-select>
             </mat-form-field>
             <mat-form-field><mat-label>Тип организации</mat-label>
@@ -442,7 +450,8 @@ export class ScenariosComponent implements OnInit {
   protected readonly runNote = signal('');
   protected readonly rendered = signal('');
   protected readonly pauses = signal<{ paused: boolean; reason: string; at: string; actor: string }[]>([]);
-  protected readonly categories = signal<{ id: number; name: string }[]>([]);
+  protected readonly categories = signal<DebtorCategory[]>([]);
+  protected readonly categoryGroups = categoryGroups;
   protected readonly printDocs = signal<{ id: number; account: number; version: number }[]>([]);
   protected readonly printBatch = signal('');
   protected readonly messageTemplates = signal<MessageTemplate[]>([]);

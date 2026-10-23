@@ -325,6 +325,35 @@ export class ApiService {
     return this.http.get<ContractDossier>(`${this.base}/contracts/${id}/dossier/`);
   }
 
+  extraMeasureCatalog(): Observable<Page<{ id: number; name: string; note: string; is_active: boolean }>> {
+    return this.http.get<Page<{ id: number; name: string; note: string; is_active: boolean }>>(`${this.base}/nsi/extra-measures/`);
+  }
+
+  saveExtraMeasure(body: { id?: number; name: string; note?: string }): Observable<{ id: number; name: string; note: string }> {
+    if (body.id) return this.http.patch<{ id: number; name: string; note: string }>(`${this.base}/nsi/extra-measures/${body.id}/`, body);
+    return this.http.post<{ id: number; name: string; note: string }>(`${this.base}/nsi/extra-measures/`, body);
+  }
+
+  deleteExtraMeasure(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/nsi/extra-measures/${id}/`);
+  }
+
+  addExtraMeasures(body: { catalog_id: number; account_ids: number[] }): Observable<{ id: number; name: string }> {
+    return this.http.post<{ id: number; name: string }>(`${this.base}/accounts/extra-measures/`, body);
+  }
+
+  addContractExtra(id: number, catalogId: number): Observable<{ id: number; name: string }> {
+    return this.http.post<{ id: number; name: string }>(`${this.base}/contracts/${id}/extra-measure/`, { catalog_id: catalogId });
+  }
+
+  holdMeasure(id: number, until: string, reason: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`${this.base}/measures/${id}/hold/`, { until, reason });
+  }
+
+  releaseMeasure(id: number): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`${this.base}/measures/${id}/release/`, {});
+  }
+
   saveRegistration(id: number, body: Partial<Registration>): Observable<Registration> {
     return this.http.patch<Registration>(`${this.base}/registrations/${id}/`, body);
   }
@@ -498,7 +527,9 @@ export class ApiService {
   }
 
   categories(): Observable<Page<DebtorCategory>> {
-    return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, { params: toParams({ page_size: 100 }) });
+    return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, {
+      params: toParams({ page_size: 100, is_active: true }),
+    });
   }
 
   savedFilters(target: string): Observable<Page<SavedFilter>> {
@@ -769,8 +800,10 @@ export class ApiService {
     });
   }
 
-  debtorCategories(): Observable<Page<{ id: number; name: string }>> {
-    return this.http.get<Page<{ id: number; name: string }>>(`${this.base}/nsi/debtor-categories/`, { params: { page_size: 100 } });
+  debtorCategories(): Observable<Page<DebtorCategory>> {
+    return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, {
+      params: toParams({ page_size: 100, is_active: true }),
+    });
   }
 
   previewPrintForm(body: object): Observable<Blob> {

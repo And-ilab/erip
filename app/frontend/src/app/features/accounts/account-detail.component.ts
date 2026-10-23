@@ -19,7 +19,7 @@ import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
-  AccountDetail, AccountRow, AccountService, ActivityBoard, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioStep, WorkItem, WritDraft,
+  AccountDetail, AccountRow, AccountService, ActivityBoard, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioStep, WorkItem, WritDraft, categoryGroups,
 } from '../../core/models';
 import { funnelTitle } from '../funnel-stages';
 import { GridResizeDirective } from '../grid-resize.directive';
@@ -172,12 +172,21 @@ import { FunnelBarComponent } from './funnel-bar.component';
                     <h4>Категория должника</h4>
                     <p class="muted">Фактическое проживание — заметка ПМ, выгрузка АИС её не затирает. Наследственное дело останавливает автомеры, пока флаг не снят, не вышел срок или в АИС не появился новый плательщик. «Приостановка до» — этот срок.</p>
                     <div class="filters">
-                      <mat-form-field class="reason">
+                      <mat-form-field class="category-field">
                         <mat-label>Категория должника</mat-label>
                         <input matInput [(ngModel)]="categoryText" [matAutocomplete]="catAuto" />
-                        <mat-autocomplete #catAuto="matAutocomplete" (optionSelected)="pickCategory($event.option.value)">
-                          @for (item of categoryMatches(); track item.id) {
-                            <mat-option [value]="item.name">{{ item.name }}</mat-option>
+                        <mat-autocomplete #catAuto="matAutocomplete" panelClass="debtor-category-panel" (optionSelected)="pickCategory($event.option.value)">
+                          @if (!categoryText.trim()) {
+                            @for (group of categoryGroups(categories()); track group.section) {
+                              @if (group.section) { <mat-option disabled>{{ group.section }}</mat-option> }
+                              @for (item of group.items; track item.id) {
+                                <mat-option [value]="item.name">{{ item.name }}</mat-option>
+                              }
+                            }
+                          } @else {
+                            @for (item of categoryMatches(); track item.id) {
+                              <mat-option [value]="item.name">{{ item.name }}</mat-option>
+                            }
                           }
                         </mat-autocomplete>
                       </mat-form-field>
@@ -748,6 +757,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
     .check.done { color: var(--erip-muted); }
     .checklist .alert { margin-top: 12px; }
     .reason { min-width: 280px; }
+    .category-field { min-width: min(640px, 100%); flex: 1 1 420px; }
     .notify { display: flex; gap: 12px; align-items: center; padding: 16px 0; }
   `,
 })
@@ -797,6 +807,7 @@ export class AccountDetailComponent implements OnInit {
   protected readonly contacts = signal<ContactRow[]>([]);
   protected readonly files = signal<AttachmentRow[]>([]);
   protected readonly categories = signal<DebtorCategory[]>([]);
+  protected readonly categoryGroups = categoryGroups;
   protected readonly measures = signal<MeasureRow[]>([]);
   protected readonly scenario = signal<ScenarioBoard | null>(null);
   protected readonly writ = signal<WritDraft | null>(null);
@@ -939,7 +950,8 @@ export class AccountDetailComponent implements OnInit {
         this.registrations.set(r.registrations.results);
         this.categories.set(r.categories.results);
         if (!this.categoryText) {
-          this.categoryText = r.categories.results.find((item) => item.id === this.categoryId)?.name ?? '';
+          const saved = this.account()?.debtor_category_name?.trim() || '';
+          this.categoryText = r.categories.results.find((item) => item.id === this.categoryId)?.name ?? saved;
         }
         const account = this.account();
         if (account) this.loadPeers(account);
@@ -1246,6 +1258,8 @@ export class AccountDetailComponent implements OnInit {
       this.categoryText = found.name;
       return;
     }
+    const saved = this.account()?.debtor_category_name?.trim() || '';
+    if (this.categoryId && saved.toLowerCase() === name.toLowerCase()) return;
     this.newCategory = name;
     this.addCategory();
   }
@@ -1352,6 +1366,8 @@ export class AccountDetailComponent implements OnInit {
   }
 
   protected categoryName(): string {
+    const saved = this.account()?.debtor_category_name?.trim();
+    if (saved) return saved;
     const id = this.account()?.debtor_category;
     if (!id) return '—';
     return this.categories().find((item) => item.id === id)?.name || '—';

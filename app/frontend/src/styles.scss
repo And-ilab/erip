@@ -266,3 +266,16 @@ table.mat-mdc-table {
 }
 pre.message { white-space: pre-wrap; background: #fff; border: 1px solid var(--erip-border); padding: 12px; border-radius: 6px; }
 table { width: 100%; }
+.debtor-category-panel {
+  max-width: min(720px, 96vw);
+  .mat-mdc-option .mdc-list-item__primary-text,
+  .mat-mdc-optgroup-label {
+    white-space: normal;
+    line-height: 1.35;
+  }
+  .mat-mdc-option.mdc-list-item--disabled {
+    opacity: 1;
+    font-size: 12px;
+    color: var(--erip-muted);
+  }
+}

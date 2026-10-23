@@ -32,7 +32,10 @@ class DebtGroupScale(TimeStampedModel, SoftDeleteModel):
 
 
 class DebtorCategory(TimeStampedModel, SoftDeleteModel):
-    """Категория должника (ТЗ 4.2.1.4, 4.2.2.6). Пустая организация — центральная запись НСИ."""
+    """Категория должника (ТЗ 4.2.1.4, 4.2.2.6). Пустая организация — центральная запись НСИ.
+
+    Центральный перечень — строки «Основные документы/Категории должников.docx», миграция nsi.0016.
+    """
 
     organization = models.ForeignKey(
         "users.Organization", null=True, blank=True, on_delete=models.CASCADE, related_name="debtor_categories",
@@ -41,9 +44,11 @@ class DebtorCategory(TimeStampedModel, SoftDeleteModel):
     code = models.CharField("Код", max_length=50)
     name = models.CharField("Наименование", max_length=250)
     note = models.CharField("Влияние на сценарии", max_length=500, blank=True)
+    section = models.CharField("Раздел списка", max_length=250, blank=True)
+    sort_order = models.PositiveIntegerField("Порядок в списке", default=1000)
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["sort_order", "name"]
         constraints = [
             models.UniqueConstraint(
                 fields=["code"], condition=models.Q(organization__isnull=True), name="uniq_central_debtor_category",
@@ -360,6 +365,25 @@ class BnpDocType(TimeStampedModel, SoftDeleteModel):
         ordering = ["code"]
         verbose_name = "Тип документа БНП"
         verbose_name_plural = "Типы документов БНП"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ExtraMeasureCatalog(TimeStampedModel, SoftDeleteModel):
+    """Справочник дополнительных мероприятий. Ведёт локальный администратор."""
+
+    organization = models.ForeignKey(
+        "users.Organization", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="extra_measures", verbose_name="Схема",
+    )
+    name = models.CharField("Наименование", max_length=250)
+    note = models.CharField("Пояснение", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Дополнительное мероприятие"
+        verbose_name_plural = "Дополнительные мероприятия"
 
     def __str__(self) -> str:
         return self.name

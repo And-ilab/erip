@@ -237,6 +237,7 @@ class AccountDetailSerializer(serializers.ModelSerializer):
     effective_group = serializers.IntegerField(read_only=True)
     group_name = serializers.SerializerMethodField()
     rating_label = serializers.SerializerMethodField()
+    debtor_category_name = serializers.CharField(source="debtor_category.name", default="", read_only=True)
     assigned_name = serializers.CharField(source="assigned_to.registry_name", default="", read_only=True)
     schema_label = serializers.SerializerMethodField()
     scenario_brief = serializers.SerializerMethodField()
@@ -298,8 +299,8 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         reason = attrs.get("debt_group_manual_reason", getattr(self.instance, "debt_group_manual_reason", ""))
         if group is not None and not reason:
             raise serializers.ValidationError({"debt_group_manual_reason": "Укажите причину корректировки группы"})
-        if group is not None and not 1 <= group <= 6:
-            raise serializers.ValidationError({"debt_group_manual": "Группа от 1 до 6"})
+        if group is not None and not 0 <= group <= 6:
+            raise serializers.ValidationError({"debt_group_manual": "Группа от 0 до 6"})
         category = attrs.get("debtor_category", getattr(self.instance, "debtor_category", None))
         if category is not None and category.organization_id not in {None, self.instance.organization_id}:
             raise serializers.ValidationError({"debtor_category": "Категория другой схемы"})
@@ -473,7 +474,8 @@ class AccountServiceSerializer(serializers.ModelSerializer):
     assigned_name = serializers.CharField(source="account.assigned_to.registry_name", default="", read_only=True)
     ownership_type_name = serializers.CharField(source="account.ownership_type_name", read_only=True)
     housing_object = serializers.CharField(source="account.acc_category_full", read_only=True)
-    subj_count = serializers.IntegerField(source="account.subj_count", read_only=True)
+    subj_count = serializers.SerializerMethodField()
+    payment_due_day = serializers.SerializerMethodField()
     account_months = serializers.IntegerField(source="account.months_debt", read_only=True)
     scenario_brief = serializers.SerializerMethodField()
     obligation_total = serializers.SerializerMethodField()
@@ -506,6 +508,23 @@ class AccountServiceSerializer(serializers.ModelSerializer):
             published_scenario(obj.account.organization_id, cache)
         return scenario_brief(obj.account, cache)
 
+    def get_subj_count(self, obj) -> int:
+        if "resident_count" in obj.__dict__:
+            return obj.resident_count or 0
+        return obj.account.subj_count or 0
+
+    def get_payment_due_day(self, obj) -> int:
+        if obj.payment_due_day:
+            return int(obj.payment_due_day)
+        cached = self.context.get("org_due_day")
+        if cached is None:
+            from apps.nsi.models import CalculationSettings
+
+            row = CalculationSettings.objects.order_by("pk").first()
+            cached = row.payment_due_day if row else 25
+            self.context["org_due_day"] = cached
+        return cached
+
     def get_periods(self, obj) -> list:
         from .services.board_lines import period_rows
 
@@ -519,8 +538,8 @@ class AccountServiceSerializer(serializers.ModelSerializer):
         reason = attrs.get("debt_group_manual_reason", getattr(self.instance, "debt_group_manual_reason", ""))
         if group is not None and not reason:
             raise serializers.ValidationError({"debt_group_manual_reason": "Укажите причину корректировки группы"})
-        if group is not None and not 1 <= group <= 6:
-            raise serializers.ValidationError({"debt_group_manual": "Группа от 1 до 6"})
+        if group is not None and not 0 <= group <= 6:
+            raise serializers.ValidationError({"debt_group_manual": "Группа от 0 до 6"})
         return attrs
 
     def update(self, instance, validated_data):

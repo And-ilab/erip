@@ -23,6 +23,7 @@ import {
   HistoryRow,
   MeasureRow,
   Registration,
+  categoryGroups,
 } from '../../core/models';
 
 @Component({
@@ -213,9 +214,17 @@ import {
         <div class="filters">
           <mat-form-field>
             <mat-label>Категория</mat-label>
-            <mat-select [(ngModel)]="categoryId">
+            <mat-select [(ngModel)]="categoryId" panelClass="debtor-category-panel">
               <mat-option [value]="null">Не задана</mat-option>
-              @for (item of categories(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+              @for (group of categoryGroups(categories()); track group.section) {
+                @if (group.section) {
+                  <mat-optgroup [label]="group.section">
+                    @for (item of group.items; track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+                  </mat-optgroup>
+                } @else {
+                  @for (item of group.items; track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+                }
+              }
             </mat-select>
           </mat-form-field>
           <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
@@ -309,6 +318,7 @@ export class ContractDetailComponent implements OnInit {
   protected readonly measures = signal<MeasureRow[]>([]);
   protected readonly journal = signal<HistoryRow[]>([]);
   protected readonly categories = signal<DebtorCategory[]>([]);
+  protected readonly categoryGroups = categoryGroups;
   protected readonly error = signal('');
   protected manualGroup: number | null = null;
   protected reason = '';

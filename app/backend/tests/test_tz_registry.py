@@ -184,7 +184,7 @@ def test_disconnect_requires_a_service_and_payment_cancels_it(api, admin_a, spec
 
 
 def test_category_can_be_set_and_ais_field_stays_locked(api, specialist_a, account_a):
-    category = DebtorCategory.objects.get(code="pensioner")
+    category = DebtorCategory.objects.get(code="ais-01")
     response = api(specialist_a).patch(
         f"/api/v1/accounts/{account_a.id}/",
         {"debtor_category": category.id, "residence_note": "фактически у сестры", "short_fio": "Чужой"},
@@ -195,6 +195,22 @@ def test_category_can_be_set_and_ais_field_stays_locked(api, specialist_a, accou
     assert account_a.debtor_category_id == category.id
     assert account_a.residence_note == "фактически у сестры"
     assert account_a.short_fio == "Иванов И.И."
+
+
+def test_central_debtor_categories_match_the_document(api, specialist_a):
+    import importlib
+
+    catalog = importlib.import_module("apps.nsi.migrations.0016_official_debtor_categories")
+    official = catalog.OFFICIAL_DEBTOR_CATEGORIES
+    response = api(specialist_a).get("/api/v1/nsi/debtor-categories/", {"page_size": 100})
+    assert response.status_code == 200
+    rows = response.json()["results"]
+    assert [(row["code"], row["name"], row["section"], row["note"]) for row in rows] == [
+        (code, name, section, "") for code, name, section in official
+    ]
+    retired = DebtorCategory.objects.filter(code__in=["pensioner", "idler", "large_family", "bankrupt"])
+    assert set(retired.values_list("code", flat=True)) == {"pensioner", "idler", "large_family", "bankrupt"}
+    assert not retired.filter(is_active=True).exists()
 
 
 def test_group_comes_from_unpaid_periods_and_reentry_raises_subrating(org_a, account_a, ready):
@@ -289,7 +305,7 @@ def test_registry_columns_stay_hidden(api, specialist_a, superadmin):
     assert "schema_label" in api(superadmin).get("/api/v1/accounts/columns/").json()["available"]
 
 
-def test_hidden_column_returns_to_its_place(api, specialist_a):
+def test_hidden_column_returns_to_its_place(api, specialist_a, admin_a):
     listed = api(specialist_a).get("/api/v1/accounts/columns/").json()
     original = listed["columns"]
     hidden_name = original[2]
@@ -329,18 +345,18 @@ def test_hidden_column_returns_to_its_place(api, specialist_a):
     assert again["columns"] == shown["columns"]
     assert again["order"] == shown["order"]
 
-    persons = api(specialist_a).get("/api/v1/contracts/columns/", {"board": "persons"}).json()
+    persons = api(admin_a).get("/api/v1/contracts/columns/", {"board": "persons"}).json()
     person_columns = persons["columns"]
     person_hidden = person_columns[4]
     person_kept = [name for name in person_columns if name != person_hidden]
-    person_saved = api(specialist_a).put(
+    person_saved = api(admin_a).put(
         "/api/v1/contracts/columns/",
         {"board": "persons", "columns": person_kept},
         format="json",
     ).json()
     assert person_saved["columns"] == person_kept
     assert person_saved["order"][4] == person_hidden
-    person_back = api(specialist_a).put(
+    person_back = api(admin_a).put(
         "/api/v1/contracts/columns/",
         {"board": "persons", "columns": [*person_kept, person_hidden]},
         format="json",

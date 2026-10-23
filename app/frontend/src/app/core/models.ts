@@ -9,7 +9,7 @@ export interface ApiError {
   error: { code: string; message: string; details: unknown; request_id: string };
 }
 
-export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'legal' | 'observer';
+export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'legal' | 'observer' | 'viewer';
 
 export interface OrganizationOption {
   id: number;
@@ -97,6 +97,8 @@ export interface ServicePeriodLine {
 
 export interface ServiceLine {
   service_list_id: number;
+  agreement_number?: string;
+  payment_due_day?: number | null;
   service_name: string;
   start_date: string | null;
   shot_name: string;
@@ -186,6 +188,7 @@ export interface AccountDetail extends AccountRow {
   assigned_to: number | null;
   contact_source_mode: string;
   debtor_category: number | null;
+  debtor_category_name?: string;
   inheritance_until: string | null;
   residence_note: string;
   bankruptcy: boolean;
@@ -210,6 +213,7 @@ export interface AccountDetail extends AccountRow {
   receipt_pay?: string | null;
   calc_result_sum?: string | null;
   heritage_from_file?: boolean;
+  payer_deceased?: boolean;
 }
 
 export interface ServiceChoice {
@@ -221,6 +225,9 @@ export interface AccountService {
   id: number;
   account: number;
   service_list_id: number;
+  agreement_number?: string;
+  payment_due_day?: number | null;
+  address?: string;
   service_id: number;
   service_name: string;
   service_name_report: string;
@@ -297,6 +304,7 @@ export interface ContractPerson {
   penalty: string | null;
   earliest: string | null;
   sample_id: number;
+  account_number?: string;
   debt_group?: number | null;
   service_name?: string;
   service_count?: number;
@@ -601,6 +609,19 @@ export interface DebtorCategory {
   code: string;
   name: string;
   note: string;
+  section?: string;
+  sort_order?: number;
+}
+
+export function categoryGroups(rows: DebtorCategory[]): { section: string; items: DebtorCategory[] }[] {
+  const groups: { section: string; items: DebtorCategory[] }[] = [];
+  for (const item of rows) {
+    const section = item.section || '';
+    const last = groups.at(-1);
+    if (last && last.section === section) last.items.push(item);
+    else groups.push({ section, items: [item] });
+  }
+  return groups;
 }
 
 export interface SavedFilter {
@@ -703,6 +724,11 @@ export interface ScenarioMeasure {
   started_on?: string | null;
   finished_on?: string | null;
   stopped?: boolean;
+  extra?: boolean;
+  owner_name?: string;
+  pause_until?: string | null;
+  pause_reason?: string;
+  catalog_name?: string;
   calls?: { at: string | null; duration_sec: number | null; status: string; listen_percent?: number | null; recording_ref?: string; external_call?: boolean | null }[];
   tasks: MeasureTaskRow[];
 }
