@@ -197,7 +197,7 @@ def _supplier_group(instance, data):
     """Группа, сценарий и этап на карточке поставщика — по его услугам, не по старшей группе счёта."""
     if not hasattr(instance, "supplier_group"):
         return data
-    from apps.debts.services.portfolio import STAGE_BY_GROUP, rating_letter, scenario_names
+    from apps.debts.services.portfolio import rating_letter, scenario_names
 
     group = instance.supplier_group
     if "effective_group" in data:
@@ -223,13 +223,11 @@ def _supplier_group(instance, data):
     if "rating_label" in data:
         repeat = instance.rating_repeat if letter == instance.rating else None
         data["rating_label"] = _rating_label(letter, repeat)
-    if "funnel_stage" in data:
-        data["funnel_stage"] = "closed" if not group else STAGE_BY_GROUP.get(group, "new")
     return data
 
 
 PM_WRITABLE = {
-    "debt_group_manual", "debt_group_manual_reason", "funnel_stage", "scenario_name", "assigned_to",
+    "debt_group_manual", "debt_group_manual_reason", "funnel_stage", "parallel_stage", "scenario_name", "assigned_to",
     "contact_source_mode", "debtor_category", "inheritance_case", "inheritance_until", "residence_note",
     "bankruptcy", "legal_status", "warning_due", "claim_due",
 }
@@ -320,21 +318,48 @@ class AccountDetailSerializer(serializers.ModelSerializer):
 
         old_stage = instance.funnel_stage
         funnel_reason = ""
-        if "funnel_stage" in validated_data and validated_data["funnel_stage"] != instance.funnel_stage:
+        request = self.context.get("request")
+        actor = getattr(request, "user", None) if request is not None else None
+        if "funnel_stage" in validated_data:
+            from rest_framework.exceptions import PermissionDenied
+
+            from apps.debts.services.funnel import canonical, set_stage
+            from apps.users.access import can_skip_stage
+
+            requested = validated_data.pop("funnel_stage")
+            if not can_skip_stage(actor):
+                raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
+            if getattr(actor, "contour", "") == "supplier":
+                raise PermissionDenied("Поставщик не меняет этап воронки")
+            funnel_reason = str(request.data.get("funnel_reason") or "").strip() if request is not None else ""
+            set_stage(instance, canonical(requested), actor, funnel_reason, lock=True)
+            instance.refresh_from_db()
+            old_stage = instance.funnel_stage
+        if "parallel_stage" in validated_data:
             from rest_framework.exceptions import PermissionDenied
 
             from apps.users.access import can_skip_stage
 
-            request = self.context.get("request")
-            actor = getattr(request, "user", None) if request is not None else None
+            requested = (validated_data.pop("parallel_stage") or "").strip()
+            if requested not in {"", "p1", "p2"}:
+                raise serializers.ValidationError({"parallel_stage": "Ветвь: не начата, уведомление или выселение"})
             if not can_skip_stage(actor):
                 raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
-            funnel_reason = str(request.data.get("funnel_reason") or "").strip() if request is not None else ""
-            if not funnel_reason:
-                raise serializers.ValidationError({
-                    "funnel_reason": "Укажите основание смены этапа воронки взыскания",
-                })
-            instance.funnel_locked = True
+            if getattr(actor, "contour", "") == "supplier":
+                raise PermissionDenied("Поставщик не меняет этап воронки")
+            group = instance.effective_group or 0
+            if requested and group < 4:
+                raise serializers.ValidationError({"parallel_stage": "Ветвь выселения доступна для групп задолженности 4–6"})
+            if instance.parallel_stage != requested:
+                from apps.debts.models import StatusHistory
+
+                StatusHistory.objects.create(
+                    organization=instance.organization, account=instance, kind=StatusHistory.Kind.FUNNEL,
+                    old_value=instance.parallel_stage or "p0", new_value=requested or "p0",
+                    reason="Параллельная ветвь выселения", author=actor,
+                )
+                instance.parallel_stage = requested
+                instance.save(update_fields=["parallel_stage", "updated_at"])
         if "scenario_name" in validated_data and validated_data["scenario_name"] != instance.scenario_name:
             instance.scenario_locked = True
         if "debt_group_manual" in validated_data and validated_data["debt_group_manual"] != instance.debt_group_manual:

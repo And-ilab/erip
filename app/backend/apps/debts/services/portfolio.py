@@ -21,14 +21,6 @@ from apps.debts.services.grouping import DebtGroupCalculator
 from apps.nsi.models import CalculationSettings, ScenarioRule
 from apps.users.models import ServiceOrganization
 
-STAGE_BY_GROUP = {
-    1: "prevention",
-    2: "warning",
-    3: "disconnect",
-    4: "enforcement",
-    5: "enforcement",
-    6: "court",
-}
 AUTO_MEASURES = {
     Measure.Kind.CALL,
     Measure.Kind.NOTICE,
@@ -225,10 +217,20 @@ class PortfolioRefresher:
             account.save(update_fields=["scenario_name", "updated_at"])
 
     def _funnel(self, account: Account) -> None:
+        """Группа долга этап не выбирает. Оплата до нуля с уже начатой воронки ставит «Взыскано»."""
+        from apps.debts.services.scenario_flow import account_is_clear
+        from apps.debts.services.funnel import normalize, settle_paid
+
+        if account_is_clear(account):
+            settle_paid(account)
+            return
         if account.funnel_locked:
             return
-        stage = "closed" if account.effective_group is None else STAGE_BY_GROUP.get(account.effective_group, "new")
-        if account.funnel_stage != stage:
+        stage = normalize(account.funnel_stage)
+        if stage != (account.funnel_stage or "new") and stage in {
+            "new", "call", "notice", "disconnect", "prep", "notary", "writ_done", "refused",
+            "lawsuit", "judgment", "opi", "opi_measures", "recovered", "impossible", "writeoff",
+        }:
             self._log(account, StatusHistory.Kind.FUNNEL, account.funnel_stage, stage)
             account.funnel_stage = stage
             account.save(update_fields=["funnel_stage", "updated_at"])

@@ -5,6 +5,7 @@ import { Observable, map } from 'rxjs';
 import {
   AccountDetail,
   AccountRow,
+  ActivityBoard,
   DebtShare,
   DebtCharts,
   AccountService,
@@ -129,8 +130,23 @@ export class ApiService {
     return this.http.get<DebtShare[]>(`${this.base}/accounts/${id}/debt-shares/`);
   }
 
-  updateAccount(id: number, body: Partial<AccountDetail> & { funnel_reason?: string }): Observable<AccountDetail> {
+  updateAccount(id: number, body: Partial<AccountDetail> & { funnel_reason?: string; parallel_stage?: string }): Observable<AccountDetail> {
     return this.http.patch<AccountDetail>(`${this.base}/accounts/${id}/`, body);
+  }
+
+  accountActivities(id: number): Observable<ActivityBoard> {
+    return this.http.get<ActivityBoard>(`${this.base}/accounts/${id}/activities/`);
+  }
+
+  actOnActivity(id: number, activityId: number, note = '', file?: File): Observable<ActivityBoard> {
+    if (file) {
+      const body = new FormData();
+      body.append('id', String(activityId));
+      if (note) body.append('note', note);
+      body.append('file', file);
+      return this.http.post<ActivityBoard>(`${this.base}/accounts/${id}/activities/`, body);
+    }
+    return this.http.post<ActivityBoard>(`${this.base}/accounts/${id}/activities/`, { id: activityId, note });
   }
 
   updateAccountGroup(id: number, group: number | null, reason: string): Observable<AccountDetail> {

@@ -77,7 +77,7 @@ def test_supplier_card_shows_his_service_group(api, org_a, account_a):
     water_card = api(water_user).get(f"/api/v1/accounts/{account_a.id}/").json()
     assert water_card["effective_group"] == 1
     assert water_card["scenario_name"] == "Превентивный обзвон и уведомления"
-    assert water_card["funnel_stage"] == "prevention"
+    assert water_card["funnel_stage"] == "enforcement"
     assert water_card["rating_label"] == "A"
     assert water_card["debt_started_on"] == "2026-09-26"
     assert Decimal(str(water_card["balance_out"])).quantize(Decimal("0.01")) == Decimal("21.84")
@@ -364,15 +364,15 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
         service_name="Свет", balance_out=Decimal("20"),
     )
     columns = api(specialist_a).get("/api/v1/contracts/kanban/").json()
-    warning = next(column for column in columns if column["stage"] == "warning")
-    assert warning["total"] == 1
-    assert warning["cards"][0]["ls_count"] == 1
-    assert warning["cards"][0]["payer_identifier"] == "IN-DBR"
-    assert warning["cards"][0]["debt_group"] == 5
-    assert warning["cards"][0]["service_name"] == "Газ"
-    assert warning["cards"][0]["service_count"] == 2
-    assert "penalty" in warning["cards"][0]
-    assert "due_on" in warning["cards"][0]
+    notice = next(column for column in columns if column["stage"] == "notice")
+    assert notice["total"] == 1
+    assert notice["cards"][0]["ls_count"] == 1
+    assert notice["cards"][0]["payer_identifier"] == "IN-DBR"
+    assert notice["cards"][0]["debt_group"] == 5
+    assert notice["cards"][0]["service_name"] == "Газ"
+    assert notice["cards"][0]["service_count"] == 2
+    assert "penalty" in notice["cards"][0]
+    assert "due_on" in notice["cards"][0]
 
 
 def test_account_board_lists_contract_fields(api, specialist_a, account_a):
@@ -428,11 +428,11 @@ def test_supplier_kanban_follows_his_service_group(api, org_a, account_a):
     water.debt_group = 1
     water.save(update_fields=["debt_group"])
     columns = api(supplier).get("/api/v1/contracts/kanban/").json()
-    prevention = next(column for column in columns if column["stage"] == "prevention")
-    enforcement = next(column for column in columns if column["stage"] == "enforcement")
-    assert any(account_a.id in card["account_ids"] for card in prevention["cards"])
-    assert all(account_a.id not in card["account_ids"] for card in enforcement["cards"])
-    assert prevention["cards"][0]["service_lines"]
+    call = next(column for column in columns if column["stage"] == "call")
+    prep = next(column for column in columns if column["stage"] == "prep")
+    assert any(account_a.id in card["account_ids"] for card in call["cards"])
+    assert all(account_a.id not in card["account_ids"] for card in prep["cards"])
+    assert call["cards"][0]["service_lines"]
 
 
 def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, specialist_a, observer_a, account_a):
@@ -446,6 +446,15 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
     assert denied_move.status_code == 403
     specialist_a.can_approve = True
     specialist_a.save(update_fields=["can_approve"])
+    from apps.debts.models import Measure, MeasureItem
+    from django.utils import timezone
+
+    warning = Measure.objects.create(organization=org_a, kind=Measure.Kind.WARNING, status=Measure.Status.DONE)
+    warning.accounts.add(account_a)
+    MeasureItem.objects.create(
+        organization=org_a, measure=warning, account=account_a,
+        status=MeasureItem.Status.DONE, delivered_on=timezone.localdate(),
+    )
     moved = api(specialist_a).post(
         "/api/v1/contracts/stage/",
         {"account_ids": card["account_ids"], "funnel_stage": "disconnect", "funnel_reason": "Проверка переноса этапа"},
@@ -596,11 +605,11 @@ def test_account_kanban_exposes_card_marks(api, specialist_a, account_a):
     columns = api(specialist_a).get("/api/v1/accounts/kanban/").json()
     titles = [column["title"] for column in columns]
     assert titles[:6] == [
-        "Новый должник", "Автообзвон/уведомления", "Предупреждение вручено",
-        "Отключение услуг", "Исполнительная надпись / иск", "ОПИ",
+        "Новый должник", "Автообзвон", "Уведомление/Предупреждение",
+        "Отключение услуг", "Подготовка пакета на исполнительную надпись", "Направлено нотариусу",
     ]
-    warning = next(column for column in columns if column["stage"] == "warning")
-    card = warning["cards"][0]
+    notice = next(column for column in columns if column["stage"] == "notice")
+    card = notice["cards"][0]
     assert card["short_fio"] == "Соловьёва Марина Дмитриевна"
     assert card["warning_handed_on"] == "2026-07-05"
     assert card["rating_label"] == "A"

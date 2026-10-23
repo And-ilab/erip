@@ -184,7 +184,7 @@ def test_published_scenario_keeps_running_version(api, admin_a, account_a):
 
     steps = copied.json()["steps"]
     steps[-1]["terminal"] = False
-    steps.append({"order": 6, "action": "manual_call", "wait_days": 0, "terminal": True})
+    steps.append({"order": steps[-1]["order"] + 1, "action": "manual_call", "wait_days": 0, "terminal": True})
     saved = api(admin_a).patch(f"/api/v1/nsi/scenarios/{scenario_id}/", {"steps": steps}, format="json")
     assert saved.status_code == 200, saved.content
     again = api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {}, format="json")
@@ -294,7 +294,7 @@ def test_publish_can_move_running_accounts_and_restore_does_not(api, admin_a, ac
     api(admin_a).post(f"/api/v1/nsi/scenarios/{scenario_id}/assign/", {"account": account_a.id}, format="json")
     steps = copied.json()["steps"]
     steps[-1]["terminal"] = False
-    steps.append({"order": 6, "action": "manual_call", "wait_days": 0, "terminal": True})
+    steps.append({"order": steps[-1]["order"] + 1, "action": "manual_call", "wait_days": 0, "terminal": True})
     api(admin_a).patch(f"/api/v1/nsi/scenarios/{scenario_id}/", {"steps": steps}, format="json")
     moved = api(admin_a).post(
         f"/api/v1/nsi/scenarios/{scenario_id}/publish/", {"apply_to_running": True}, format="json",

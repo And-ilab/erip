@@ -217,6 +217,7 @@ def test_paid_suspension_asks_to_resume(api, admin_a, specialist_a, account_a):
 
 @pytest.mark.django_db
 def test_approval_blocks_supplier_until_admin_agrees(api, specialist_a, admin_a, org_a, account_a):
+    _warning(api, admin_a, account_a, timezone.localdate().isoformat())
     CalculationSettings.load()
     CalculationSettings.objects.filter(pk=1).update(disconnect_requires_approval=True)
     service = account_a.services.get()

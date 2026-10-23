@@ -19,10 +19,13 @@ import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
-  AccountDetail, AccountRow, AccountService, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioStep, WorkItem, WritDraft,
+  AccountDetail, AccountRow, AccountService, ActivityBoard, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioStep, WorkItem, WritDraft,
 } from '../../core/models';
+import { funnelTitle } from '../funnel-stages';
 import { GridResizeDirective } from '../grid-resize.directive';
 import { MeasureTasksComponent } from '../measures/measure-tasks.component';
+import { AccountActivitiesComponent } from './account-activities.component';
+import { FunnelBarComponent } from './funnel-bar.component';
 
 @Component({
   selector: 'app-account-detail',
@@ -31,7 +34,7 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
     DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
     MatAutocompleteModule,
     MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
-    MeasureTasksComponent, GridResizeDirective,
+    MeasureTasksComponent, GridResizeDirective, FunnelBarComponent, AccountActivitiesComponent,
   ],
   template: `
     <div class="page">
@@ -45,9 +48,25 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
         </div>
 
         <section class="surface head debtor">
+          <div class="stage-line">
+            <h2>Лицевой счет {{ a.client_account }}</h2>
+            <div class="title-tools">
+              @if (a.uniq_attr_name) { <span class="pill" title="Тип уникальности ЛС">{{ a.uniq_attr_name }}</span> }
+              @if (a.rating_label) { <span class="rating-badge r{{ a.rating_label[0] }}" title="Рейтинг">{{ a.rating_label }}</span> }
+              @if (auth.canWrite()) {
+                <button mat-stroked-button (click)="refreshNow()"><mat-icon>sync</mat-icon> Обновить сейчас</button>
+              }
+            </div>
+            <app-funnel-bar
+              [stage]="a.funnel_stage"
+              [parallel]="a.parallel_stage || ''"
+              [group]="a.effective_group"
+              [canChange]="canChangeStage()"
+              (stageChange)="changeStage($event)"
+              (parallelChange)="changeParallel($event)" />
+          </div>
           <div class="debtor-top">
             <div class="who">
-              <h2>Лицевой счет {{ a.client_account }}</h2>
               <p class="uen">УЕН ЛС {{ a.unified_account || 'не передан' }}</p>
               <div class="meta">
                 <span class="k">Адрес</span>
@@ -59,13 +78,6 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
               </div>
             </div>
             <div class="who-side">
-              <div class="badges">
-                @if (a.uniq_attr_name) { <span class="pill" title="Тип уникальности ЛС">{{ a.uniq_attr_name }}</span> }
-                @if (a.rating_label) { <span class="rating-badge r{{ a.rating_label[0] }}" title="Рейтинг">{{ a.rating_label }}</span> }
-                @if (auth.canWrite()) {
-                  <button mat-stroked-button (click)="refreshNow()"><mat-icon>sync</mat-icon> Обновить сейчас</button>
-                }
-              </div>
               <div class="sum-block">
                 <span class="k">Суммарная задолженность по ЛС <app-byn-sign /></span>
                 <b class="sum">
@@ -82,6 +94,15 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
         </section>
 
         <mat-tab-group class="surface tabs" [selectedIndex]="tabIndex()" (selectedIndexChange)="openTab($event)">
+        <mat-tab label="Активности">
+          <app-account-activities
+            [current]="activities()?.current || []"
+            [parallel]="activities()?.parallel || []"
+            [loading]="activitiesLoading()"
+            [canAct]="canAct()"
+            [focusMeasure]="focusMeasure()"
+            (act)="actOn($event)" />
+        </mat-tab>
         <mat-tab label="Общие">
             <div class="grid">
               <mat-card><mat-card-content>
@@ -420,8 +441,8 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
                       }
                     </tr>
                     <tr>
-                      @for (col of visiblePaymentColumns(); track col) {
-                        @if (paymentSub(col); as sub) { <th [attr.data-col]="col">{{ sub }}</th> }
+                      @for (col of paymentGroupChildren(); track col) {
+                        <th [attr.data-col]="col">{{ paymentSub(col) }}</th>
                       }
                     </tr>
                   } @else {
@@ -528,8 +549,8 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
             <div class="list-pane"><table mat-table [dataSource]="historyRows()" appGridResize="account-history">
               <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Когда</th><td mat-cell *matCellDef="let r">{{ r.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
               <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Что</th><td mat-cell *matCellDef="let r">{{ historyKind(r.kind) }}</td></ng-container>
-              <ng-container matColumnDef="old_value"><th mat-header-cell *matHeaderCellDef>Было</th><td mat-cell *matCellDef="let r">{{ r.old_value || '—' }}</td></ng-container>
-              <ng-container matColumnDef="new_value"><th mat-header-cell *matHeaderCellDef>Стало</th><td mat-cell *matCellDef="let r">{{ r.new_value || '—' }}</td></ng-container>
+              <ng-container matColumnDef="old_value"><th mat-header-cell *matHeaderCellDef>Было</th><td mat-cell *matCellDef="let r">{{ historyValue(r.kind, r.old_value) }}</td></ng-container>
+              <ng-container matColumnDef="new_value"><th mat-header-cell *matHeaderCellDef>Стало</th><td mat-cell *matCellDef="let r">{{ historyValue(r.kind, r.new_value) }}</td></ng-container>
               <ng-container matColumnDef="reason"><th mat-header-cell *matHeaderCellDef>Основание</th><td mat-cell *matCellDef="let r">{{ r.reason }}@if (r.author_name) { · {{ r.author_name }} }</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="historyColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: historyColumns"></tr>
@@ -615,6 +636,13 @@ import { MeasureTasksComponent } from '../measures/measure-tasks.component';
     .sep { opacity: .6; }
     .spacer { flex: 1; }
     .head { padding: 20px 24px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 16px; }
+    .stage-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+    .stage-line h2 { margin: 0; font-size: 26px; font-weight: 700; color: #1a2332; }
+    .title-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .stage-line app-funnel-bar { margin-left: auto; }
+    @media (max-width: 1100px) {
+      .stage-line app-funnel-bar { margin-left: 0; flex: 1 0 100%; }
+    }
     .debtor-top { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 12px 40px; align-items: start; }
     .who h2 { margin: 0 0 6px; font-size: 26px; font-weight: 700; color: #1a2332; }
     .identity { margin: 0 0 14px; color: var(--erip-muted); font-size: 13px; }
@@ -743,15 +771,9 @@ export class AccountDetailComponent implements OnInit {
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly error = signal('');
   protected readonly sending = signal(false);
-  protected readonly stages = [
-    { code: 'new', title: 'Новый должник' },
-    { code: 'prevention', title: 'Автообзвон/уведомления' },
-    { code: 'warning', title: 'Предупреждение вручено' },
-    { code: 'disconnect', title: 'Отключение услуг' },
-    { code: 'enforcement', title: 'Исполнительная надпись / иск' },
-    { code: 'court', title: 'ОПИ' },
-    { code: 'closed', title: 'Не должник' },
-  ];
+  protected readonly activities = signal<ActivityBoard | null>(null);
+  protected readonly activitiesLoading = signal(false);
+  protected readonly focusMeasure = signal<number | null>(null);
   protected readonly serviceColumns = this.accountServiceColumns();
   protected readonly paymentColumns = ['pay_date', 'service_name', 'pay_service_summ', 'pay_mulct_summ', 'bank_name', 'payment_type_display'];
   protected readonly registrationColumns = ['full_name', 'debtor_role', 'birthday', 'relation_degree_name', 'reg_type_name', 'contacts'];
@@ -854,10 +876,17 @@ export class AccountDetailComponent implements OnInit {
         agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card visible', {
           ms: Math.round(performance.now() - started),
         });
-        const openWrit = this.route.snapshot.queryParamMap.get('tab') === 'writ';
-        if (openWrit) this.tabIndex.set(6);
+        const tab = this.route.snapshot.queryParamMap.get('tab');
+        const measure = Number(this.route.snapshot.queryParamMap.get('measure') || '');
         this.loadHeader(id);
-        if (openWrit) this.ensureTab(6);
+        if (tab === 'writ') {
+          this.tabIndex.set(7);
+          this.ensureTab(7);
+        } else {
+          if (measure) this.focusMeasure.set(measure);
+          this.tabIndex.set(0);
+          this.ensureTab(0);
+        }
       },
       error: (e) => {
         agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card forkJoin failed', {
@@ -940,6 +969,7 @@ export class AccountDetailComponent implements OnInit {
     };
     const batch = this.tabBatch(index, id, timed);
     if (!batch) return;
+    if (index === 0) this.activitiesLoading.set(true);
     this.loadedParts.add(key);
     forkJoin(batch).subscribe({
       next: (result) => {
@@ -951,6 +981,7 @@ export class AccountDetailComponent implements OnInit {
         this.applyTab(index, result);
       },
       error: () => {
+        if (index === 0) this.activitiesLoading.set(false);
         this.loadedParts.delete(key);
         agentDbg('A', 'account-detail.component.ts:ensureTab', 'card forkJoin failed', {
           totalMs: Math.round(performance.now() - started),
@@ -966,34 +997,35 @@ export class AccountDetailComponent implements OnInit {
     id: number,
     timed: <T>(name: string, source: Observable<T>) => Observable<T>,
   ): Record<string, Observable<unknown>> | null {
-    if (index === 2) {
+    if (index === 0) return { activities: timed('activities', this.api.accountActivities(id)) };
+    if (index === 3) {
       return {
         scenario: timed('scenario', this.api.accountScenario(id)),
         measures: timed('measures', this.api.accountMeasures(id)),
         templates: timed('templates', this.api.templates({ is_active: true, page_size: 100 })),
       };
     }
-    if (index === 3) return { contacts: timed('contacts', this.api.accountContacts(id)) };
-    if (index === 4) return { serviceColumns: timed('serviceColumns', this.api.cardColumns('services')) };
-    if (index === 5) {
+    if (index === 4) return { contacts: timed('contacts', this.api.accountContacts(id)) };
+    if (index === 5) return { serviceColumns: timed('serviceColumns', this.api.cardColumns('services')) };
+    if (index === 6) {
       return {
         payments: timed('payments', this.api.accountPayments(id)),
         paymentColumns: timed('paymentColumns', this.api.cardColumns('payments')),
       };
     }
-    if (index === 6) {
+    if (index === 7) {
       return {
         writ: timed('writ', this.api.writDraft(id)),
         checks: timed('checks', this.api.writChecks(id)),
       };
     }
-    if (index === 7) {
+    if (index === 8) {
       return {
         files: timed('files', this.api.accountFiles(id)),
         work: timed('work', this.api.accountWork(id)),
       };
     }
-    if (index === 8) {
+    if (index === 9) {
       return {
         history: timed('history', this.api.accountHistory(id)),
         balances: timed('balances', this.api.accountBalances(id)),
@@ -1003,7 +1035,10 @@ export class AccountDetailComponent implements OnInit {
   }
 
   private applyTab(index: number, result: Record<string, unknown>): void {
-    if (index === 2) {
+    if (index === 0) {
+      this.activities.set(result['activities'] as ActivityBoard);
+      this.activitiesLoading.set(false);
+    } else if (index === 3) {
       const scenario = result['scenario'] as ScenarioBoard;
       const measures = result['measures'] as { results: MeasureRow[] };
       const templates = result['templates'] as { results: MessageTemplate[] };
@@ -1014,20 +1049,20 @@ export class AccountDetailComponent implements OnInit {
       const forGroup = group == null ? [] : list.filter((item) => item.debt_group === group);
       this.templates.set(forGroup.length ? forGroup : list);
       this.templateId = (forGroup[0] ?? list[0])?.id ?? null;
-    } else if (index === 3) {
-      this.contacts.set((result['contacts'] as { results: ContactRow[] }).results);
     } else if (index === 4) {
-      this.applyCardColumns('services', result['serviceColumns'] as ColumnPrefs);
+      this.contacts.set((result['contacts'] as { results: ContactRow[] }).results);
     } else if (index === 5) {
+      this.applyCardColumns('services', result['serviceColumns'] as ColumnPrefs);
+    } else if (index === 6) {
       this.payments.set((result['payments'] as { results: Payment[] }).results);
       this.applyCardColumns('payments', result['paymentColumns'] as ColumnPrefs);
-    } else if (index === 6) {
+    } else if (index === 7) {
       this.writ.set(result['writ'] as WritDraft);
       this.checks.set(result['checks'] as { code: string; title: string; done: boolean }[]);
-    } else if (index === 7) {
+    } else if (index === 8) {
       this.files.set((result['files'] as { results: AttachmentRow[] }).results);
       this.work.set((result['work'] as { results: WorkItem[] }).results);
-    } else if (index === 8) {
+    } else if (index === 9) {
       this.history.set((result['history'] as { results: HistoryRow[] }).results);
       this.balances.set((result['balances'] as { results: BalanceRow[] }).results);
     }
@@ -1037,9 +1072,66 @@ export class AccountDetailComponent implements OnInit {
     const a = this.account();
     if (!a) return;
     this.api.refreshAccount(a.id).subscribe({
-      next: () => this.snack.open('Данные ЛС пересчитаны по последней загруженной выгрузке АИС', 'OK', { duration: 4000 }),
+      next: () => {
+        this.api.account(a.id).subscribe({ next: (row) => this.applyAccount(row) });
+        this.loadedParts.delete('tab-0');
+        if (this.tabIndex() === 0) this.ensureTab(0);
+        this.snack.open('Данные ЛС пересчитаны по последней загруженной выгрузке АИС', 'OK', { duration: 4000 });
+      },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  protected canChangeStage(): boolean {
+    return this.auth.canSkip() && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected canAct(): boolean {
+    const role = this.auth.me()?.role ?? '';
+    return ['superadmin', 'local_admin', 'specialist', 'legal'].includes(role);
+  }
+
+  protected changeStage(stage: string): void {
+    const account = this.account();
+    if (!account || !this.canChangeStage()) return;
+    this.api.updateAccount(account.id, { funnel_stage: stage }).subscribe({
+      next: (saved) => {
+        this.applyAccount(saved);
+        this.loadedParts.delete('tab-0');
+        this.loadedParts.delete('tab-3');
+        if (this.tabIndex() === 0) this.ensureTab(0);
+        this.snack.open('Этап изменён', 'OK', { duration: 2000 });
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected changeParallel(stage: string): void {
+    const account = this.account();
+    if (!account || !this.canChangeStage()) return;
+    this.api.updateAccount(account.id, { parallel_stage: stage }).subscribe({
+      next: (saved) => {
+        this.applyAccount(saved);
+        this.loadedParts.delete('tab-0');
+        if (this.tabIndex() === 0) this.ensureTab(0);
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected actOn(event: { id: number; note: string; file?: File }): void {
+    const account = this.account();
+    if (!account) return;
+    this.api.actOnActivity(account.id, event.id, event.note, event.file).subscribe({
+      next: (board) => this.activities.set(board),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected historyValue(kind: string, value: string): string {
+    if (!value) return '—';
+    if (kind === 'funnel') return funnelTitle(value);
+    return value;
   }
 
   loadWork(): void {
@@ -1198,7 +1290,7 @@ export class AccountDetailComponent implements OnInit {
   }
 
   protected stageTitle(code: string): string {
-    return this.stages.find((stage) => stage.code === code)?.title || code || '—';
+    return funnelTitle(code);
   }
 
   protected shownAccounts(): AccountRow[] {
@@ -1924,7 +2016,18 @@ export class AccountDetailComponent implements OnInit {
   }
 
   protected paymentHasGroups(): boolean {
-    return this.visiblePaymentColumns().some((col) => !!this.paymentSub(col));
+    return this.paymentGroups().some((cell) => cell.span > 1);
+  }
+
+  protected paymentGroupChildren(): string[] {
+    const cols = this.visiblePaymentColumns();
+    const children: string[] = [];
+    let index = 0;
+    for (const cell of this.paymentGroups()) {
+      if (cell.span > 1) children.push(...cols.slice(index, index + cell.span));
+      index += cell.span;
+    }
+    return children;
   }
 
   protected paymentGroups(): { key: string; title: string; span: number }[] {

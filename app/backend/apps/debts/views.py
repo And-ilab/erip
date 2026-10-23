@@ -54,19 +54,11 @@ from .serializers import (
     StatusHistorySerializer,
 )
 from .services.column_layout import column_layout, save_column_layout
+from .services.funnel import FUNNEL_STAGES, attach_badges, stored_codes
 from .services.contacts import choose_phone
 from .services.registry import GROUP_LIMIT, REGISTRY_STATUSES, annotate_registry, build_matrix
 from .services.territory import TerritoryIndex, TerritoryMap
 
-FUNNEL_STAGES = [
-    ("new", "Новый должник"),
-    ("prevention", "Автообзвон/уведомления"),
-    ("warning", "Предупреждение вручено"),
-    ("disconnect", "Отключение услуг"),
-    ("enforcement", "Исполнительная надпись / иск"),
-    ("court", "ОПИ"),
-    ("closed", "Не должник"),
-]
 ACCOUNT_COLUMNS = [
     "schema_label", "account_id", "client_account", "short_fio", "provider_short_name", "account_address",
     "payer_identifier", "payer_unp", "unified_account", "rating_label", "funnel_stage",
@@ -641,10 +633,8 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 stage_qs = base.filter(claim_case__isnull=True)
             elif scope == "claims":
                 stage_qs = base.filter(claim_case__stage=code)
-            elif code != "new":
-                stage_qs = base.filter(funnel_stage=code)
             else:
-                stage_qs = base.filter(funnel_stage__in=["", "new"])
+                stage_qs = base.filter(funnel_stage__in=stored_codes(code))
             total = stage_qs.count()
             cards = AccountListSerializer(stage_qs[start:start + page_size], many=True).data
             if scope == "claims":
@@ -659,7 +649,27 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                     row["claim_id"] = case_ids.get(row["id"])
                     row["claim_stage"] = code
             columns.append({"stage": code, "title": title, "total": total, "cards": cards})
+        if scope != "claims":
+            attach_badges([card for column in columns for card in column["cards"]])
         return Response(columns)
+
+    @action(detail=True, methods=["get", "post"])
+    def activities(self, request, pk=None):
+        from .services.activities import activity_board, perform_activity
+
+        account = self.get_object()
+        if request.method == "GET":
+            return Response(activity_board(account))
+        try:
+            activity_id = int(request.data.get("id") or 0)
+        except (TypeError, ValueError):
+            raise ValidationError({"id": "Укажите пункт активности"}) from None
+        board = perform_activity(
+            account, request.user, activity_id,
+            str(request.data.get("note") or ""),
+            request.FILES.get("file"),
+        )
+        return Response(board)
 
     @action(detail=False)
     def grouped(self, request):

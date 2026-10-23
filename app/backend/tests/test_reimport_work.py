@@ -66,9 +66,9 @@ def test_reimport_of_paid_account_does_not_close_the_case(org_a):
     assert case.ais_debt_cleared is False
     assert case.tariff_received is False
     assert case.stage == ClaimCase.Stage.NOTARY
-    assert measure.status == Measure.Status.CANCELLED
+    assert measure.status == Measure.Status.DONE
     assert measure.items.get().status == MeasureItem.Status.CANCELLED
-    assert account.funnel_stage == "enforcement"
+    assert account.funnel_stage == "recovered"
     assert account.funnel_locked is True
 
     events = ClaimEvent.objects.filter(case=case).count()

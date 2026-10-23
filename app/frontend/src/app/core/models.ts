@@ -152,6 +152,8 @@ export interface AccountRow {
   ais_updated_at: string | null;
   operational_date: string | null;
   inheritance_case: boolean;
+  parallel_stage?: string;
+  open_badges?: { measure_id: number; account_id: number; label: string; kind: string; status: string }[];
   service_lines?: ServiceLine[];
   services_debt_count?: number;
 }
@@ -301,6 +303,7 @@ export interface ContractPerson {
   address?: string;
   due_on?: string | null;
   account_ids?: number[];
+  open_badges?: { measure_id: number; account_id: number; label: string; kind: string; status: string }[];
   rating_label?: string;
   funnel_stage?: string;
   assigned_name?: string;
@@ -624,6 +627,26 @@ export interface KanbanColumn {
   title: string;
   total: number;
   cards: AccountRow[];
+}
+
+export interface ActivityNode {
+  id: number;
+  code: string;
+  title: string;
+  kind: string;
+  status: string;
+  status_label: string;
+  measure_id: number | null;
+  needs_action: boolean;
+  note: string;
+  children: ActivityNode[];
+}
+
+export interface ActivityBoard {
+  stage: string;
+  stage_title: string;
+  current: ActivityNode[];
+  parallel: { stage: string; title: string; short: string; items: ActivityNode[] }[];
 }
 
 export interface Payment {

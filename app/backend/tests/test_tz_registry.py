@@ -180,7 +180,7 @@ def test_disconnect_requires_a_service_and_payment_cancels_it(api, admin_a, spec
     service.balance_out = Decimal("0")
     service.save(update_fields=["balance_out"])
     PortfolioRefresher().refresh_account(account_a)
-    assert Measure.objects.get(pk=created.json()["id"]).status == Measure.Status.CANCELLED
+    assert Measure.objects.get(pk=created.json()["id"]).status == Measure.Status.DONE
 
 
 def test_category_can_be_set_and_ais_field_stays_locked(api, specialist_a, account_a):

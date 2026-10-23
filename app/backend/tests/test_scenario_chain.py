@@ -148,7 +148,7 @@ def test_funnel_skip_needs_an_approver(api, specialist_a, account_a):
     )
     assert moved.status_code == 200, moved.content
     account_a.refresh_from_db()
-    assert account_a.funnel_stage == "warning"
+    assert account_a.funnel_stage == "notice"
 
 
 @pytest.mark.django_db

@@ -94,6 +94,10 @@ class Account(AisRecord):
     rating_repeat = models.PositiveSmallIntegerField("Подрейтинг (раз)", null=True, blank=True)
     funnel_stage = models.CharField("Этап воронки", max_length=20, blank=True, default="new")
     funnel_locked = models.BooleanField("Этап задан вручную", default=False)
+    parallel_stage = models.CharField(
+        "Параллельная ветвь выселения", max_length=20, blank=True, default="",
+        help_text="P1 или P2 для групп 4–6. Колонку основной ветви не меняет.",
+    )
     scenario_name = models.CharField("Сценарий мероприятий", max_length=250, blank=True)
     scenario_locked = models.BooleanField("Сценарий задан вручную", default=False)
     assigned_to = models.ForeignKey(
@@ -1184,6 +1188,39 @@ class RegistryPreference(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(fields=["user", "target"], name="uniq_registry_preference"),
         ]
+
+
+class StageActivity(OrganizationScopedModel):
+    """Пункт чек-листа этапа на карточке лицевого счёта. Создаётся из шаблона этапа."""
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "В работе"
+        DONE = "done", "Завершено"
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="stage_activities", verbose_name="ЛС")
+    stage = models.CharField("Этап", max_length=20)
+    code = models.CharField("Код пункта", max_length=40)
+    parent_code = models.CharField("Код группы", max_length=40, blank=True)
+    title = models.CharField("Название", max_length=200)
+    kind = models.CharField("Вид шага", max_length=20)
+    status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.RUNNING)
+    measure = models.ForeignKey(
+        Measure, null=True, blank=True, on_delete=models.SET_NULL, related_name="stage_activities",
+        verbose_name="Мероприятие",
+    )
+    sort = models.PositiveSmallIntegerField("Порядок", default=0)
+    note = models.CharField("Результат шага", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["sort", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["account", "stage", "code"], name="uniq_stage_activity"),
+        ]
+        verbose_name = "Активность этапа"
+        verbose_name_plural = "Активности этапа"
+
+    def __str__(self) -> str:
+        return f"{self.account_id}:{self.stage}:{self.code}"
 
 
 class SavedFilter(TimeStampedModel):

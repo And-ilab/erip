@@ -17,7 +17,9 @@ import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { DomainFilterComponent, DomainRule, contractDomainFields, parseDomain } from '../domain-filter.component';
 import { GridResizeDirective } from '../grid-resize.directive';
+import { FUNNEL_STAGES, funnelId, funnelTitle } from '../funnel-stages';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -108,7 +110,7 @@ const COLUMN_LABELS: Record<string, string> = {
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
-    DomainFilterComponent, KanbanDebtorComponent, GridResizeDirective,
+    DomainFilterComponent, KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective,
   ],
   template: `
     <div class="registry">
@@ -391,13 +393,13 @@ const COLUMN_LABELS: Record<string, string> = {
         @if (view() === 'kanban') {
           <div class="k-board">
             @for (column of kanban(); track column.stage) {
-              <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
-                       (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
+              <section class="k-col" [attr.data-kanban-stage]="column.stage" [attr.data-stage]="column.stage">
                 <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
-                <div class="list-pane cards">
+                <div class="k-cards">
                 @for (card of column.cards; track card.sample_id) {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
-                           [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
+                           [appKanbanDrag]="card.sample_id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                           (click)="openCard($event, card)">
                     <app-kanban-debtor
                       [name]="card.payer || 'Без наименования'"
                       [rating]="card.rating_label"
@@ -417,6 +419,13 @@ const COLUMN_LABELS: Record<string, string> = {
                       [penalty]="card.penalty"
                       [when]="cardMark(card)"
                       [specialist]="card.assigned_name" />
+                    @if (card.open_badges?.length) {
+                      <div class="measure-badges">
+                        @for (badge of card.open_badges; track badge.measure_id) {
+                          <button type="button" class="measure-badge" (click)="openBadge($event, badge)">{{ badge.label }}</button>
+                        }
+                      </div>
+                    }
                   </article>
                 }
                 </div>
@@ -518,26 +527,6 @@ const COLUMN_LABELS: Record<string, string> = {
           (cancel)="customOpen.set(false)" />
       }
 
-      @if (reasonOpen()) {
-        <div class="backdrop" (click)="reasonOpen.set(false)">
-          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
-            <h3>Смена этапа воронки взыскания</h3>
-            <p class="hint">Это переход карточки между этапами воронки взыскания. Мероприятие этой кнопкой не меняется. Без заполненного основания этап не меняется.</p>
-            <div class="save-row">
-              <select [formControl]="funnelStage" (click)="$event.stopPropagation()">
-                @for (item of stages; track item.id) { <option [value]="item.id">{{ item.label }}</option> }
-              </select>
-            </div>
-            <div class="save-row">
-              <input [formControl]="funnelReason" placeholder="Основание" (click)="$event.stopPropagation()" />
-            </div>
-            <div class="dialog-actions">
-              <button mat-flat-button color="primary" type="button" (click)="confirmMove()">Перевести</button>
-              <button mat-stroked-button type="button" (click)="reasonOpen.set(false)">Отмена</button>
-            </div>
-          </div>
-        </div>
-      }
     </div>
   `,
   styles: `
@@ -616,8 +605,15 @@ const COLUMN_LABELS: Record<string, string> = {
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .actions { white-space: normal; max-width: 280px; }
     .body { padding: 16px 24px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; }
+    .k-board { display: flex; gap: 14px; overflow-x: auto; overflow-y: visible; align-items: flex-start; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; min-height: 180px; }
+    .k-cards { display: flex; flex-direction: column; }
+    .k-card.kanban-source { opacity: .35; }
+    .measure-badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+    .measure-badge {
+      border: 0; background: #e7f2f4; color: var(--erip-primary); border-radius: 10px;
+      font: inherit; font-size: 11px; line-height: 1.3; padding: 2px 8px; cursor: pointer; text-align: left;
+    }
     .k-col h3 {
       display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
       margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
@@ -625,12 +621,20 @@ const COLUMN_LABELS: Record<string, string> = {
     }
     .k-col h3 b { font-weight: 600; color: #8b95a1; }
     .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
-    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
-    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="call"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="notice"] h3 { border-bottom-color: #0f766e; }
     .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
-    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
-    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
-    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-col[data-stage="prep"] h3 { border-bottom-color: #7c3aed; }
+    .k-col[data-stage="notary"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="writ_done"] h3 { border-bottom-color: #b45309; }
+    .k-col[data-stage="refused"] h3 { border-bottom-color: #9f1239; }
+    .k-col[data-stage="lawsuit"] h3 { border-bottom-color: #1d4ed8; }
+    .k-col[data-stage="judgment"] h3 { border-bottom-color: #1e3a8a; }
+    .k-col[data-stage="opi"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="opi_measures"] h3 { border-bottom-color: #7f1d1d; }
+    .k-col[data-stage="recovered"] h3 { border-bottom-color: #15803d; }
+    .k-col[data-stage="impossible"] h3 { border-bottom-color: #6b7280; }
+    .k-col[data-stage="writeoff"] h3 { border-bottom-color: #9ca3af; }
     .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1; border-radius: 8px;
@@ -697,15 +701,7 @@ export class ContractsListComponent implements OnInit {
   private readonly router = inject(Router);
   protected readonly auth = inject(AuthService);
   protected readonly groupNumbers = [1, 2, 3, 4, 5, 6];
-  protected readonly stages = [
-    { id: 'new', label: 'Новый должник' },
-    { id: 'prevention', label: 'Автообзвон/уведомления' },
-    { id: 'warning', label: 'Предупреждение вручено' },
-    { id: 'disconnect', label: 'Отключение услуг' },
-    { id: 'enforcement', label: 'Исполнительная надпись / иск' },
-    { id: 'court', label: 'ОПИ' },
-    { id: 'closed', label: 'Не должник' },
-  ];
+  protected readonly stages = FUNNEL_STAGES.map((stage) => ({ id: stage.id, label: stage.title }));
   protected readonly groupOptions = [
     { id: 'debt_group', label: 'Группа задолженности' },
     { id: 'schema', label: 'Наименование схемы' },
@@ -731,7 +727,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly sectionsLoading = signal(false);
   private groupTicket = 0;
   protected readonly supplierColumns = ['name', 'ls_count', 'principal', 'penalty', 'obligation', 'measures', 'claims'];
-  protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('suppliers');
+  protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('kanban');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
   protected readonly contractFields = contractDomainFields();
@@ -920,7 +916,7 @@ export class ContractsListComponent implements OnInit {
   }
 
   stageLabel(id: string): string {
-    return this.stages.find((item) => item.id === id)?.label ?? id;
+    return funnelTitle(id);
   }
 
   categoryLabel(id: string): string {
@@ -1116,14 +1112,35 @@ export class ContractsListComponent implements OnInit {
     return [...ids];
   }
 
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const sample = Number(event.id);
+    if (!sample || !this.canMove()) return;
+    const card = this.kanban().flatMap((column) => column.cards).find((item) => item.sample_id === sample);
+    if (card && funnelId(card.funnel_stage) === event.stage) return;
+    const samples = this.selected().has(sample) ? [...this.selected()] : [sample];
+    const ids = this.accountIds(samples);
+    this.moveAccounts(ids.length ? ids : (card?.account_ids || []), event.stage);
+  }
+
+  protected openBadge(event: Event, badge: { account_id: number; measure_id: number }): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.router.navigate(['/accounts', badge.account_id], { queryParams: { tab: 'activities', measure: badge.measure_id } });
+  }
+
   private moveAccounts(ids: number[], stage: string): void {
     this.stageMenu.set(null);
     if (!ids.length) return;
-    this.pendingIds = ids;
-    this.pendingStage = stage;
-    this.funnelStage.setValue(stage || 'new');
-    this.funnelReason.setValue('');
-    this.reasonOpen.set(true);
+    this.api.contractStage(ids, stage, '').subscribe({
+      next: () => {
+        this.selected.set(new Set());
+        this.showKanban();
+      },
+      error: (e) => {
+        this.error.set(errorMessage(e));
+        this.showKanban();
+      },
+    });
   }
 
   protected openStage(event: Event, card: ContractPerson): void {

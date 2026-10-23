@@ -18,15 +18,9 @@ export interface DomainField {
   options?: { id: string; label: string }[];
 }
 
-const STAGES = [
-  { id: 'new', label: 'Новый должник' },
-  { id: 'prevention', label: 'Автообзвон/уведомления' },
-  { id: 'warning', label: 'Предупреждение вручено' },
-  { id: 'disconnect', label: 'Отключение услуг' },
-  { id: 'enforcement', label: 'Исполнительная надпись / иск' },
-  { id: 'court', label: 'ОПИ' },
-  { id: 'closed', label: 'Не должник' },
-];
+import { FUNNEL_STAGES } from './funnel-stages';
+
+const STAGES = FUNNEL_STAGES.map((stage) => ({ id: stage.id, label: stage.title }));
 
 const GROUPS = [1, 2, 3, 4, 5, 6].map((group) => ({ id: String(group), label: String(group) }));
 const RATINGS = ['A', 'B', 'C', 'D', 'E'].map((letter) => ({ id: letter, label: letter }));

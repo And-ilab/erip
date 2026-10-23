@@ -1,43 +1,49 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 
-/** Одинаковые виды на реестрах: список, канбан, календарь и та же графика. */
+/** Переключатель видов одной группой иконок: канбан первый. */
 @Component({
   selector: 'app-registry-views',
   standalone: true,
   template: `
     <div class="switch" role="group" aria-label="Вид отображения">
-      @if (mockup) {
-        <button type="button" class="view-btn" [class.on]="mode === 'kanban'" title="Канбан" (click)="pick('kanban')">▦</button>
-        <button type="button" class="view-btn" [class.on]="mode === 'list'" title="Список" (click)="pick('list')">≡</button>
-        <button type="button" class="view-btn" [class.on]="mode === 'calendar'" title="Календарь" (click)="pick('calendar')">▤</button>
-        <button type="button" class="view-btn" [class.on]="mode === 'charts'" title="Граф. аналитика" (click)="pick('charts')">▮</button>
-      } @else {
-        <button type="button" class="view-btn" [class.on]="mode === 'list'" title="Список" (click)="pick('list')">≡</button>
-        <button type="button" class="view-btn" [class.on]="mode === 'kanban'" title="Канбан" (click)="pick('kanban')">▦</button>
-        <button type="button" class="view-btn" [class.on]="mode === 'calendar'" title="Календарь" (click)="pick('calendar')">▤</button>
-        @if (map) {
-          <button type="button" class="view-btn" [class.on]="mode === 'map'" title="Карта" (click)="pick('map')">⌖</button>
-        }
-        <button type="button" class="charts" [class.on]="mode === 'charts'" (click)="pick('charts')">Граф. аналитика</button>
+      <button type="button" [class.on]="mode === 'kanban'" title="Канбан" (click)="pick('kanban')" aria-label="Канбан">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6v14H4zm10 0h6v9h-6z"/></svg>
+      </button>
+      <button type="button" [class.on]="mode === 'list'" title="Список" (click)="pick('list')" aria-label="Список">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v2H5zm0 5h14v2H5zm0 5h14v2H5z"/></svg>
+      </button>
+      <button type="button" [class.on]="mode === 'calendar'" title="Календарь" (click)="pick('calendar')" aria-label="Календарь">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h2v2h6V3h2v2h3v16H4V5h3zm12 6H5v10h14z"/></svg>
+      </button>
+      @if (map) {
+        <button type="button" [class.on]="mode === 'map'" title="Карта" (click)="pick('map')" aria-label="Карта">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7zm0 9.5A2.5 2.5 0 1 0 12 6a2.5 2.5 0 0 0 0 5.5z"/></svg>
+        </button>
       }
+      <button type="button" [class.on]="mode === 'charts'" title="Граф. аналитика" (click)="pick('charts')" aria-label="Граф. аналитика">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16v2H4zm2-3h2V9H6zm5 0h2V5h-2zm5 0h2v-6h-2z"/></svg>
+      </button>
     </div>
   `,
   styles: `
     :host { margin-left: auto; }
-    .switch { display: flex; align-items: center; gap: 4px; }
-    .view-btn, .charts {
-      height: 32px; border: 1px solid #c9d4dc; background: #fff; border-radius: 6px; color: var(--erip-primary);
-      font: inherit; cursor: pointer;
+    .switch {
+      display: flex; align-items: center; gap: 2px; padding: 3px; background: #eef2f5;
+      border-radius: 8px;
     }
-    .view-btn { width: 32px; font-size: 14px; }
-    .charts { padding: 0 10px; font-size: 13px; margin-left: 6px; }
-    .view-btn.on, .charts.on { background: var(--erip-primary); color: #fff; border-color: var(--erip-primary); }
+    button {
+      width: 34px; height: 30px; border: 0; background: transparent; border-radius: 6px;
+      color: #5c6b7a; cursor: pointer; display: grid; place-items: center;
+    }
+    button svg { width: 18px; height: 18px; fill: currentColor; }
+    button.on { background: #fff; color: var(--erip-primary); box-shadow: 0 1px 2px rgba(16, 42, 67, .12); }
+    button:hover:not(.on) { background: #e4ebf0; }
   `,
 })
 export class RegistryViewsComponent {
-  @Input() mode = 'list';
+  @Input() mode = 'kanban';
   @Input() map = false;
-  /** Как на макете реестра мероприятий: канбан, список, календарь и значок графика. */
+  /** Оставлено, чтобы вызовы реестров не менять: состав видов тот же. */
   @Input() mockup = false;
   @Output() readonly modeChange = new EventEmitter<string>();
 

@@ -35,7 +35,10 @@ def claims_population(queryset: QuerySet) -> QuerySet:
     matched = queryset.model.objects.filter(
         Q(pk=OuterRef("pk")),
         Q(claim_case__isnull=False)
-        | Q(funnel_stage__in=["enforcement", "court"])
+        | Q(funnel_stage__in=[
+            "enforcement", "court", "prep", "notary", "writ_done", "refused",
+            "lawsuit", "judgment", "opi", "opi_measures", "impossible", "writeoff",
+        ])
         | Q(measures__kind="collection")
         | shown_group,
     )
@@ -175,6 +178,11 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "", *, checklist_
     from apps.debts.services.claim_measures import sync_claim_measure
 
     sync_claim_measure(case)
+    from apps.debts.services.funnel import claim_to_account_stage, set_stage
+
+    mapped = claim_to_account_stage(stage)
+    if mapped:
+        set_stage(case.account, mapped, user, reason or "Переход дела", check=False)
     if case.account.assigned_to_id and stage == ClaimCase.Stage.WRITEOFF:
         _notify(case, case.account.assigned_to_id, "Сформирован акт о списании. В АИС уйдёт уведомление, когда появится файл статусов.")
     return case

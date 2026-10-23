@@ -195,10 +195,11 @@ def test_reimport_updates_changed_fields_and_shows_measure(org_a, specialist_a):
     assert services.created == 1
     account = Account.objects.get(account_id=10)
     assert account.debt_group == 3
-    measure = Measure.objects.get(accounts=account)
-    assert measure.kind == Measure.Kind.CALL
-    assert measure.status == Measure.Status.FAILED
-    assert measure.template_name == "Автообзвон"
+    from apps.debts.models import AccountScenarioRun
+
+    run = AccountScenarioRun.objects.get(account=account)
+    assert run.awaiting_start is True
+    assert Measure.objects.filter(accounts=account).count() == 0
 
     changed = "ACCOUNT_ID;PROVIDER_ID;CLIENT_ACCOUNT;BALANCE_OUT;SHORT_FIO\n10;501;00000010;80,00;Петров\n"
     again = AisImporter("account", org_a).run(changed.encode(), "a2.csv")
@@ -206,7 +207,7 @@ def test_reimport_updates_changed_fields_and_shows_measure(org_a, specialist_a):
     account.refresh_from_db()
     assert account.balance_out == Decimal("80.00")
     assert account.short_fio == "Петров"
-    assert Measure.objects.filter(accounts=account).count() == 1
+    assert Measure.objects.filter(accounts=account).count() == 0
 
 
 @needs_sample

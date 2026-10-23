@@ -17,6 +17,7 @@ import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board
 import { RegistryFilterComponent, RegistryChoice, RegistryFilterQuery } from '../registry-filter.component';
 import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -26,7 +27,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     DatePipe, FormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
     MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, KanbanDebtorComponent,
-    GridResizeDirective,
+    KanbanDragDirective, GridResizeDirective,
   ],
   template: `
     <div class="page">
@@ -219,13 +220,13 @@ import { RegistryViewsComponent } from '../registry-views.component';
       @if (view() === 'kanban') {
         <div class="k-board">
           @for (lane of lanes; track lane.status) {
-            <section class="k-col" [class.drop]="dropStatus() === lane.status" [attr.data-status]="lane.status"
-                     (dragover)="allowDrop($event, lane.status)" (dragleave)="clearDrop(lane.status)" (drop)="dropOnStatus($event, lane.status)">
+            <section class="k-col" [attr.data-kanban-stage]="lane.status" [attr.data-status]="lane.status">
               <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane.status) }}</b></h3>
-              <div class="list-pane cards">
+              <div class="k-cards">
                 @for (row of laneRows(lane.status); track row.id) {
-                  <article class="k-card {{ row.kind }}" [draggable]="canMove()"
-                           (dragstart)="startCard($event, row)" (click)="openCard($event, row)">
+                  <article class="k-card {{ row.kind }}"
+                           [appKanbanDrag]="row.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                           (click)="openCard($event, row)">
                     <app-kanban-debtor
                       [name]="row.debtor_name || 'ЛС'"
                       [rating]="row.rating_label"
@@ -351,7 +352,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .icon.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: stretch; min-height: 70vh; padding: 12px 16px 12px; }
+    .k-board { display: flex; gap: 14px; overflow-x: auto; overflow-y: visible; align-items: flex-start; padding: 12px 16px 12px; }
+    .k-col { min-height: 180px; }
+    .k-cards { display: flex; flex-direction: column; }
+    .k-card.kanban-source { opacity: .35; }
     .k-col { width: 268px; flex: 0 0 268px; display: flex; flex-direction: column; min-height: 0; }
     .k-col h3 {
       display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
@@ -479,7 +483,7 @@ export class MeasuresListComponent implements OnInit {
   private readonly snack = inject(MatSnackBar);
   @ViewChild(RegistryFilterComponent) private filters?: RegistryFilterComponent;
 
-  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('list');
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('kanban');
   protected readonly lanes = [
     { status: 'assigned', label: 'Назначено' },
     { status: 'running', label: 'Выполняется' },
@@ -742,38 +746,17 @@ export class MeasuresListComponent implements OnInit {
     return total ? Math.round(((row.progress?.done ?? 0) / total) * 100) : 0;
   }
 
-  protected startCard(event: DragEvent, row: MeasureRow): void {
-    if (!this.canMove()) {
-      event.preventDefault();
-      return;
-    }
-    this.cardDragged = true;
-    event.dataTransfer?.setData('text/plain', String(row.id));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    event.stopPropagation();
-  }
-
-  protected allowDrop(event: DragEvent, status: string): void {
-    if (!this.canMove()) return;
-    event.preventDefault();
-    this.dropStatus.set(status);
-  }
-
-  protected clearDrop(status: string): void {
-    if (this.dropStatus() === status) this.dropStatus.set(null);
-  }
-
-  protected dropOnStatus(event: DragEvent, status: string): void {
-    event.preventDefault();
-    this.dropStatus.set(null);
-    if (!this.canMove()) return;
-    const id = Number(event.dataTransfer?.getData('text/plain') || '');
-    if (!id) return;
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const id = Number(event.id);
+    if (!id || !this.canMove()) return;
     const current = this.groups().flatMap((group) => group.results).find((row) => row.id === id);
-    if (!current || current.status === status) return;
-    this.api.measureStatus(id, status).subscribe({
+    if (!current || current.status === event.stage) return;
+    this.api.measureStatus(id, event.stage).subscribe({
       next: () => this.load(),
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      error: (err) => {
+        this.snack.open(errorMessage(err), 'OK');
+        this.load();
+      },
     });
   }
 

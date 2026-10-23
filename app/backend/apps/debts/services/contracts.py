@@ -9,6 +9,7 @@ from django.db.models.functions import Cast, Coalesce, NullIf
 from rest_framework.exceptions import ValidationError
 
 from apps.debts.services.assignees import specialist_label
+from apps.debts.services.funnel import FUNNEL_RANK, RANK_STAGE, canonical, open_badges, set_stage
 from apps.debts.services.portfolio import debtor_peers
 from apps.users.scoping import AccessScope
 
@@ -21,18 +22,6 @@ SUPPLIER_ACCOUNT_FIELDS = frozenset({
     "legal_status",
     "contact_source_mode",
 })
-
-FUNNEL_RANK = {
-    "closed": 0,
-    "new": 1,
-    "prevention": 2,
-    "warning": 3,
-    "disconnect": 4,
-    "enforcement": 5,
-    "court": 6,
-}
-RANK_STAGE = {rank: code for code, rank in FUNNEL_RANK.items()}
-
 
 def _rating_label(rating: str | None, repeat) -> str:
     letter = rating or ""
@@ -114,13 +103,8 @@ def _with_person(qs):
         ),
         shown_group=Coalesce("debt_group_manual", "debt_group"),
         stage_rank=Case(
-            When(account__funnel_stage="court", then=Value(6)),
-            When(account__funnel_stage="enforcement", then=Value(5)),
-            When(account__funnel_stage="disconnect", then=Value(4)),
-            When(account__funnel_stage="warning", then=Value(3)),
-            When(account__funnel_stage="prevention", then=Value(2)),
-            When(account__funnel_stage="closed", then=Value(0)),
-            default=Value(1),
+            *[When(account__funnel_stage=code, then=Value(rank)) for code, rank in FUNNEL_RANK.items()],
+            default=Value(FUNNEL_RANK["new"]),
             output_field=IntegerField(),
         ),
     )
@@ -153,11 +137,11 @@ def _person_groups(qs):
     )
     return grouped.annotate(
         group_rank=Case(
-            When(debt_group=1, then=Value(FUNNEL_RANK["prevention"])),
-            When(debt_group=2, then=Value(FUNNEL_RANK["warning"])),
+            When(debt_group=1, then=Value(FUNNEL_RANK["call"])),
+            When(debt_group=2, then=Value(FUNNEL_RANK["notice"])),
             When(debt_group=3, then=Value(FUNNEL_RANK["disconnect"])),
-            When(debt_group__in=(4, 5), then=Value(FUNNEL_RANK["enforcement"])),
-            When(debt_group__gte=6, then=Value(FUNNEL_RANK["court"])),
+            When(debt_group__in=(4, 5), then=Value(FUNNEL_RANK["prep"])),
+            When(debt_group__gte=6, then=Value(FUNNEL_RANK["opi"])),
             default=Value(FUNNEL_RANK["new"]),
             output_field=IntegerField(),
         ),
@@ -243,7 +227,7 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int,
     start = (page - 1) * page_size
     rank_field = "group_rank" if supplier else "rank"
     for code, title in stages:
-        rank = 1 if code == "new" else FUNNEL_RANK[code]
+        rank = FUNNEL_RANK[code]
         column = grouped.filter(**{rank_field: rank}).order_by("payer")
         total = column.count()
         chunk = list(column[start:start + page_size])
@@ -251,25 +235,37 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int,
         ids = _account_ids(qs, keys)
         lines = _lines_by_person(qs, keys)
         registered = _registered_by_account([item for values in ids.values() for item in values])
+        cards = []
+        for row in chunk:
+            account_ids = ids.get(row["person_key"], [])
+            cards.append({
+                **_public_person(
+                    row, lines, supplier,
+                    sum(registered.get(item, 0) for item in account_ids),
+                ),
+                "service_count": row["service_count"],
+                "service_name": row["service_name"] or "",
+                "address": row["address"] or "",
+                "debt_group": row["debt_group"],
+                "due_on": row["due_on"],
+                "account_ids": account_ids,
+            })
+        badge_map = open_badges([(account_id, code) for card in cards for account_id in card["account_ids"]])
+        for card in cards:
+            merged = []
+            seen = set()
+            for account_id in card["account_ids"]:
+                for badge in badge_map.get(account_id, []):
+                    if badge["measure_id"] in seen:
+                        continue
+                    seen.add(badge["measure_id"])
+                    merged.append(badge)
+            card["open_badges"] = merged
         columns.append({
             "stage": code,
             "title": title,
             "total": total,
-            "cards": [
-                {
-                    **_public_person(
-                        row, lines, supplier,
-                        sum(registered.get(item, 0) for item in ids.get(row["person_key"], [])),
-                    ),
-                    "service_count": row["service_count"],
-                    "service_name": row["service_name"] or "",
-                    "address": row["address"] or "",
-                    "debt_group": row["debt_group"],
-                    "due_on": row["due_on"],
-                    "account_ids": ids.get(row["person_key"], []),
-                }
-                for row in chunk
-            ],
+            "cards": cards,
         })
     return columns
 
@@ -448,21 +444,16 @@ def supplier_portfolio(qs) -> dict:
 
 
 def move_stage(user, accounts, stage: str, reason: str = "") -> None:
-    """Этап карточки должника — этап всех его видимых лицевых счетов. Без основания переход не пишется."""
+    """Этап всех видимых лицевых счетов должника. Основание необязательно: лента и канбан пишут переход сразу."""
     from rest_framework.exceptions import PermissionDenied
 
-    from apps.debts.models import StatusHistory
     from apps.users.access import can_skip_stage
 
     if not can_skip_stage(user):
         raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
     if getattr(user, "contour", "") == "supplier":
-        raise ValidationError({"funnel_stage": "Поставщик не меняет этап воронки"})
-    if stage not in FUNNEL_RANK:
-        raise ValidationError({"funnel_stage": "Неизвестный этап"})
-    reason = (reason or "").strip()
-    if not reason:
-        raise ValidationError({"funnel_reason": "Укажите основание смены этапа воронки взыскания"})
+        raise PermissionDenied("Поставщик не меняет этап воронки")
+    stage = canonical(stage)
     rows = list(accounts)
     if not rows:
         return
@@ -470,13 +461,4 @@ def move_stage(user, accounts, stage: str, reason: str = "") -> None:
     if len(organizations) > 1:
         raise ValidationError({"account_ids": "Несколько схем в одной операции"})
     for account in rows:
-        if account.funnel_stage == stage:
-            continue
-        previous = account.funnel_stage
-        account.funnel_stage = stage
-        account.funnel_locked = True
-        account.save(update_fields=["funnel_stage", "funnel_locked", "updated_at"])
-        StatusHistory.objects.create(
-            organization=account.organization, account=account, kind=StatusHistory.Kind.FUNNEL,
-            old_value=previous, new_value=stage, reason=reason[:500], author=user,
-        )
+        set_stage(account, stage, user, reason, lock=True)

@@ -672,6 +672,13 @@ def launch_measure(user, accounts: list[Account], services: list[AccountService]
     elif kind == Measure.Kind.DISCONNECT:
         _notify_disconnect(measure)
     rollup(measure)
+    if not needs_approval:
+        from apps.debts.services.funnel import MEASURE_STAGE, promote
+
+        opened = MEASURE_STAGE.get(kind)
+        if opened:
+            for account in accounts:
+                promote(account, opened, user, "Открыто мероприятие")
     inheritance_ids = [row["account_id"] for row in skipped if row["reason"] == "Открыто наследственное дело"]
     return {
         "measure": measure,
@@ -915,15 +922,9 @@ def apply_confirmation(measure: Measure, step: str, source: str, user) -> Measur
 
 
 def _move_funnel(account: Account, user) -> None:
-    if account.funnel_locked or account.funnel_stage == "disconnect":
-        return
-    old = account.funnel_stage
-    account.funnel_stage = "disconnect"
-    account.save(update_fields=["funnel_stage", "updated_at"])
-    StatusHistory.objects.create(
-        organization=account.organization, account=account, kind=StatusHistory.Kind.FUNNEL,
-        old_value=old, new_value="disconnect", reason="Принято отключение услуги", author=user,
-    )
+    from apps.debts.services.funnel import promote
+
+    promote(account, "disconnect", user, "Принято отключение услуги")
 
 
 def accept_disconnect(measure: Measure, user) -> Measure:

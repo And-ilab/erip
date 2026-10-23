@@ -15,6 +15,7 @@ import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter
 import { briefText } from '../group-title';
 import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -24,7 +25,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
-    KanbanDebtorComponent, GridResizeDirective,
+    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective,
   ],
   template: `
     <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()">
@@ -105,13 +106,13 @@ import { RegistryViewsComponent } from '../registry-views.component';
       @if (!caseOpen() && mode() === 'kanban') {
         <div class="k-board">
           @for (lane of shownLanes(); track lane.id) {
-            <section class="k-col" [class.drop]="dropStage() === lane.id" [attr.data-lane]="lane.id"
-                     (dragover)="allowDrop($event, lane.id)" (dragleave)="clearDrop(lane.id)" (drop)="dropOnLane($event, lane)">
+            <section class="k-col" [attr.data-kanban-stage]="lane.entry" [attr.data-lane]="lane.id">
               <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane) }}</b></h3>
-              <div class="list-pane cards">
+              <div class="k-cards">
               @for (card of laneCards(lane); track card.id) {
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
-                         [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
+                         [appKanbanDrag]="card.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                         (click)="openCard($event, card)">
                   <app-kanban-debtor
                     [name]="card.short_fio || 'Без ФИО'"
                     [rating]="card.rating_label"
@@ -265,8 +266,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .account-no { color: var(--erip-link); }
     .pack-link { display: block; color: var(--erip-link); text-decoration: none; }
     .pack-link + .pack-link { margin-top: 4px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; }
+    .k-board { display: flex; gap: 14px; overflow-x: auto; overflow-y: visible; align-items: flex-start; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; min-height: 180px; }
+    .k-cards { display: flex; flex-direction: column; }
+    .k-card.kanban-source { opacity: .35; }
     .k-col h3 {
       display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
       margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
@@ -488,7 +491,7 @@ export class ClaimsBoardComponent implements OnInit {
   private cardDragged = false;
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly error = signal('');
-  protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('list');
+  protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('kanban');
   @ViewChild(RegistryFilterComponent) private registryFilter?: RegistryFilterComponent;
   protected filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
   protected readonly chartQuery = signal<Record<string, string | number>>({});
@@ -578,38 +581,18 @@ export class ClaimsBoardComponent implements OnInit {
     return this.selected().has(id);
   }
 
-  protected startCard(event: DragEvent, card: AccountRow): void {
-    if (!this.canMove()) {
-      event.preventDefault();
-      return;
-    }
-    this.cardDragged = true;
-    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
-    event.dataTransfer?.setData('text/plain', ids.join(','));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    event.stopPropagation();
-  }
-
-  protected allowDrop(event: DragEvent, stage: string): void {
-    if (!this.canMove()) return;
-    event.preventDefault();
-    this.dropStage.set(stage);
-  }
-
-  protected clearDrop(stage: string): void {
-    if (this.dropStage() === stage) this.dropStage.set(null);
-  }
-
-  protected dropOnLane(event: DragEvent, lane: { stages: string[]; entry: string }): void {
-    event.preventDefault();
-    this.dropStage.set(null);
-    if (!this.canMove()) return;
-    const raw = event.dataTransfer?.getData('text/plain') || '';
-    const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const id = Number(event.id);
+    if (!id || !this.canMove()) return;
+    const lane = this.shownLanes().find((item) => item.entry === event.stage);
+    if (!lane) return;
     const known = this.board().flatMap((column) => column.cards);
-    const moving = ids.filter((id) => {
-      const card = known.find((item) => item.id === id);
-      return !!card && !lane.stages.includes(card.claim_stage || 'queue');
+    const card = known.find((item) => item.id === id);
+    if (card && lane.stages.includes(card.claim_stage || 'queue')) return;
+    const ids = this.selected().has(id) ? [...this.selected()] : [id];
+    const moving = ids.filter((item) => {
+      const row = known.find((candidate) => candidate.id === item);
+      return !!row && !lane.stages.includes(row.claim_stage || 'queue');
     });
     if (moving.length) this.moveIds(moving, lane.entry);
   }

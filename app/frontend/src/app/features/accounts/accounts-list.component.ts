@@ -22,7 +22,9 @@ import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { DomainFilterComponent, DomainRule, accountDomainFields, parseDomain } from '../domain-filter.component';
 import { GridResizeDirective } from '../grid-resize.directive';
+import { FUNNEL_STAGES, funnelId, funnelTitle } from '../funnel-stages';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -133,7 +135,7 @@ interface GroupSection {
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
     CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent, DomainFilterComponent,
-    KanbanDebtorComponent, GridResizeDirective,
+    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective,
   ],
   template: `
     <div class="registry">
@@ -520,13 +522,13 @@ interface GroupSection {
         @if (view() === 'kanban') {
           <div class="k-board">
             @for (column of board(); track column.stage) {
-              <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
-                       (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
+              <section class="k-col" [attr.data-kanban-stage]="column.stage" [attr.data-stage]="column.stage">
                 <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
-                <div class="list-pane cards">
+                <div class="k-cards">
                 @for (card of column.cards; track card.id) {
                   <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
-                           [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
+                           [appKanbanDrag]="card.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                           (click)="openCard($event, card)">
                     <app-kanban-debtor
                       [name]="card.client_account"
                       [rating]="card.rating_label"
@@ -544,6 +546,13 @@ interface GroupSection {
                       [penalty]="card.mulct_total"
                       [when]="mark(card)"
                       [specialist]="card.assigned_name" />
+                    @if (card.open_badges?.length) {
+                      <div class="measure-badges">
+                        @for (badge of card.open_badges; track badge.measure_id) {
+                          <button type="button" class="measure-badge" (click)="openBadge($event, card, badge.measure_id)">{{ badge.label }}</button>
+                        }
+                      </div>
+                    }
                   </article>
                 }
                 </div>
@@ -578,28 +587,6 @@ interface GroupSection {
           (cancel)="customOpen.set(false)" />
       }
 
-      @if (reasonOpen()) {
-        <div class="backdrop" (click)="reasonOpen.set(false)">
-          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
-            <h3>Смена этапа воронки взыскания</h3>
-            <p class="muted">Это переход карточки между этапами воронки взыскания. Мероприятие этой кнопкой не меняется. Без заполненного основания этап не меняется.</p>
-            <mat-form-field class="reason-field">
-              <mat-label>Этап воронки взыскания</mat-label>
-              <mat-select [formControl]="funnelStage">
-                @for (item of stages; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
-              </mat-select>
-            </mat-form-field>
-            <mat-form-field class="reason-field">
-              <mat-label>Основание</mat-label>
-              <input matInput [formControl]="funnelReason" />
-            </mat-form-field>
-            <div class="dialog-actions">
-              <button mat-flat-button color="primary" type="button" (click)="confirmMove()">Перевести</button>
-              <button mat-stroked-button type="button" (click)="reasonOpen.set(false)">Отмена</button>
-            </div>
-          </div>
-        </div>
-      }
     </div>
   `,
   styles: `
@@ -683,8 +670,15 @@ interface GroupSection {
     .measure { padding: 10px 16px 0; background: #fff; border-bottom: 1px solid var(--erip-border); }
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .body { padding: 16px 24px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; }
+    .k-board { display: flex; gap: 14px; overflow-x: auto; overflow-y: visible; align-items: flex-start; padding-bottom: 12px; }
+    .k-col { width: 268px; flex: 0 0 268px; min-height: 180px; }
+    .k-cards { display: flex; flex-direction: column; }
+    .k-card.kanban-source { opacity: .35; }
+    .measure-badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+    .measure-badge {
+      border: 0; background: #e7f2f4; color: var(--erip-primary); border-radius: 10px;
+      font: inherit; font-size: 11px; line-height: 1.3; padding: 2px 8px; cursor: pointer; text-align: left;
+    }
     .k-col h3 {
       display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
       margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
@@ -692,12 +686,20 @@ interface GroupSection {
     }
     .k-col h3 b { font-weight: 600; color: #8b95a1; }
     .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
-    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
-    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="call"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="notice"] h3 { border-bottom-color: #0f766e; }
     .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
-    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
-    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
-    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-col[data-stage="prep"] h3 { border-bottom-color: #7c3aed; }
+    .k-col[data-stage="notary"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="writ_done"] h3 { border-bottom-color: #b45309; }
+    .k-col[data-stage="refused"] h3 { border-bottom-color: #9f1239; }
+    .k-col[data-stage="lawsuit"] h3 { border-bottom-color: #1d4ed8; }
+    .k-col[data-stage="judgment"] h3 { border-bottom-color: #1e3a8a; }
+    .k-col[data-stage="opi"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="opi_measures"] h3 { border-bottom-color: #7f1d1d; }
+    .k-col[data-stage="recovered"] h3 { border-bottom-color: #15803d; }
+    .k-col[data-stage="impossible"] h3 { border-bottom-color: #6b7280; }
+    .k-col[data-stage="writeoff"] h3 { border-bottom-color: #9ca3af; }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
       border-radius: 8px; padding: 10px 12px 4px; margin-bottom: 8px; cursor: pointer;
@@ -785,15 +787,7 @@ export class AccountsListComponent implements OnInit {
 
   protected readonly groups = [0, 1, 2, 3, 4, 5, 6];
   protected readonly letters = ['A', 'B', 'C', 'D', 'E'];
-  protected readonly stages = [
-    { id: 'new', label: 'Новый должник' },
-    { id: 'prevention', label: 'Автообзвон/уведомления' },
-    { id: 'warning', label: 'Предупреждение вручено' },
-    { id: 'disconnect', label: 'Отключение услуг' },
-    { id: 'enforcement', label: 'Исполнительная надпись / иск' },
-    { id: 'court', label: 'ОПИ' },
-    { id: 'closed', label: 'Не должник' },
-  ];
+  protected readonly stages = FUNNEL_STAGES.map((stage) => ({ id: stage.id, label: stage.title }));
   protected readonly groupOptions = [
     { id: 'provider', label: 'Обслуживающая организация' },
     { id: 'debt_group', label: 'Группа задолженности' },
@@ -817,7 +811,7 @@ export class AccountsListComponent implements OnInit {
   protected readonly rows = signal<AccountRow[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
-  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map' | 'charts'>('list');
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map' | 'charts'>('kanban');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
   protected readonly accountFields = accountDomainFields();
@@ -956,7 +950,7 @@ export class AccountsListComponent implements OnInit {
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
     this.channel.valueChanges.subscribe(() => this.keepTemplateInList());
-    this.reload(1);
+    this.showKanban();
   }
 
   label(name: string): string {
@@ -985,7 +979,7 @@ export class AccountsListComponent implements OnInit {
   }
 
   stageLabel(id: string): string {
-    return this.stages.find((item) => item.id === id)?.label ?? id;
+    return funnelTitle(id);
   }
 
   setSpecialist(name: string): void {
@@ -1422,35 +1416,19 @@ export class AccountsListComponent implements OnInit {
     this.api.saveColumns(visible, order).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
   }
 
-  protected startCard(event: DragEvent, card: AccountRow): void {
-    if (!this.canMove()) {
-      event.preventDefault();
-      return;
-    }
-    this.cardDragged = true;
-    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
-    event.dataTransfer?.setData('text/plain', ids.join(','));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const id = Number(event.id);
+    if (!id || !this.canMove()) return;
+    const card = this.board().flatMap((column) => column.cards).find((item) => item.id === id);
+    if (card && funnelId(card.funnel_stage) === event.stage) return;
+    const ids = this.selected().has(id) ? [...this.selected()] : [id];
+    this.moveIds(ids, event.stage);
+  }
+
+  protected openBadge(event: Event, card: AccountRow, measureId: number): void {
+    event.preventDefault();
     event.stopPropagation();
-  }
-
-  protected allowDrop(event: DragEvent, stage: string): void {
-    if (!this.canMove()) return;
-    event.preventDefault();
-    this.dropStage.set(stage);
-  }
-
-  protected clearDrop(stage: string): void {
-    if (this.dropStage() === stage) this.dropStage.set(null);
-  }
-
-  protected dropOnStage(event: DragEvent, stage: string): void {
-    event.preventDefault();
-    this.dropStage.set(null);
-    if (!this.canMove()) return;
-    const raw = event.dataTransfer?.getData('text/plain') || '';
-    const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
-    if (ids.length) this.moveIds(ids, stage);
+    this.router.navigate(['/accounts', card.id], { queryParams: { tab: 'activities', measure: measureId } });
   }
 
   protected openCard(event: MouseEvent, card: AccountRow): void {
@@ -1480,10 +1458,23 @@ export class AccountsListComponent implements OnInit {
 
   private moveIds(ids: number[], stage: string): void {
     this.stageMenu.set(null);
-    this.pendingMove = { ids, stage };
-    this.funnelStage.setValue(stage || 'new');
-    this.funnelReason.setValue('');
-    this.reasonOpen.set(true);
+    const pending = [...ids];
+    const step = (): void => {
+      const id = pending.shift();
+      if (id == null) {
+        this.selected.set(new Set());
+        this.showKanban();
+        return;
+      }
+      this.api.updateAccount(id, { funnel_stage: stage }).subscribe({
+        next: () => step(),
+        error: (e) => {
+          this.snack.open(errorMessage(e), 'OK');
+          this.showKanban();
+        },
+      });
+    };
+    step();
   }
 
   protected openStage(event: Event, card: AccountRow): void {
