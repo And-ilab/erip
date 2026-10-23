@@ -86,6 +86,10 @@ table.grid-resize .col-resize {
   &:hover::after { width: 3px; background: var(--erip-primary); }
 }
 body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-select: none !important; }
+html.kanban-dragging, html.kanban-dragging * { user-select: none !important; -webkit-user-select: none !important; }
+html.kanban-moving, html.kanban-moving * { cursor: grabbing !important; }
+.kanban-draggable { -webkit-user-drag: none; user-select: none; }
+.kanban-draggable :is(input, textarea, select) { user-select: text; -webkit-user-drag: auto; }
 table.grid-resize.widths-locked {
   table-layout: fixed !important;
   min-width: 0 !important;
@@ -114,6 +118,9 @@ table.grid-resize.widths-locked {
   letter-spacing: .02em;
   color: #5c6b7a;
   white-space: nowrap;
+}
+.list-pane table:not(.mat-mdc-table) thead tr:nth-child(2) th {
+  top: 33px;
 }
 .list-pane.groups {
   max-height: calc(100vh - 220px);
