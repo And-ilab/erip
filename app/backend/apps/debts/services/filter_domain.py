@@ -59,7 +59,11 @@ def _ensure_account_annotations(queryset, node):
     if "registered_count" in names and "registered_count" not in queryset.query.annotations:
         from django.db.models import Count
 
-        queryset = queryset.annotate(registered_count=Count("registrations", distinct=True))
+        from apps.debts.services.registration_flags import active_q
+
+        queryset = queryset.annotate(
+            registered_count=Count("registrations", filter=active_q("registrations"), distinct=True),
+        )
     return queryset
 
 
@@ -148,7 +152,11 @@ _CONTRACT = {
         "ownership": {"kind": "text", "lookup": "account__ownership_type_name"},
         "housing": {"kind": "text", "lookup": "account__acc_category_full"},
         "months_debt": {"kind": "number", "lookup": "debt_period"},
-        "subj_count": {"kind": "number", "lookup": "account__subj_count"},
+        "account_address": {"kind": "text", "lookup": "account__account_address"},
+        "agreement_number": {"kind": "text", "lookup": "agreement_number"},
+        "service_list_id": {"kind": "number", "lookup": "service_list_id"},
+        "subj_count": {"kind": "number", "lookup": "resident_count"},
+        "registered_count": {"kind": "number", "lookup": "registered_count"},
         "balance_out": {"kind": "number", "lookup": "balance_out"},
         "debt_started_on": {"kind": "date", "lookup": "debt_started_on"},
         "inheritance_case": {"kind": "bool", "lookup": "account__inheritance_case"},
@@ -286,6 +294,9 @@ def _lookup(meta, op, raw, spec):
         lookup = {
             "eq": "", "ne": "", "gt": "__gt", "gte": "__gte", "lt": "__lt", "lte": "__lte",
         }[op]
+        if value == 0 and op in {"eq", "ne"}:
+            empty = Q(_domain_group__isnull=True) | Q(_domain_group=0)
+            return empty if op == "eq" else ~empty
         if op == "ne":
             return ~Q(_domain_group=value)
         return Q(**{f"_domain_group{lookup}": value})

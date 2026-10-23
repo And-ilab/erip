@@ -112,6 +112,8 @@ class Account(AisRecord):
         verbose_name="Категория должника",
     )
     inheritance_case = models.BooleanField("Наследственное дело", default=False)
+    payer_deceased = models.BooleanField("Плательщик умер", default=False)
+    deceased_payer_id = models.BigIntegerField("Умерший плательщик", null=True, blank=True)
     inheritance_until = models.DateField("Приостановка до", null=True, blank=True)
     inheritance_payer_id = models.BigIntegerField("Плательщик на момент флага", null=True, blank=True)
     residence_note = models.CharField("Фактическое проживание", max_length=500, blank=True)
@@ -261,6 +263,8 @@ class AccountService(AisRecord):
     initial_penalty = money("Первоначальная пеня")
     last_payment_date = models.DateField("Дата последней оплаты", null=True, blank=True)
     repayment_due_on = models.DateField("Срок погашения", null=True, blank=True)
+    agreement_number = models.CharField("Номер договора", max_length=100, blank=True, default="")
+    payment_due_day = models.PositiveSmallIntegerField("День срока погашения по договору", null=True, blank=True)
 
     class Meta:
         ordering = ["sort_code", "service_name"]
@@ -428,6 +432,9 @@ class Registration(AisRecord):
     is_close_relative = models.BooleanField("Является членом семьи плательщика", default=False)
     subj_is_check_out = models.BooleanField("Снят с регистрационного учёта", default=False)
     idler_val = models.BooleanField("Незанятые в экономике", default=False)
+    reg_status = models.PositiveSmallIntegerField("Статус регистрации", null=True, blank=True)
+    left_country = models.BooleanField("Незанятые, выехавшие за пределы РБ", default=False)
+    sheet_removed = models.BooleanField("Снят по колонке файла", default=False)
     social_category = models.CharField("Социальная категория граждан", max_length=250, blank=True)
     unfit_for_work = models.BooleanField("Нетрудоспособен", default=False)
     heritage_transfer = models.CharField(
@@ -529,6 +536,7 @@ class StatusHistory(AisRecord):
         REGISTRATION = "registration", "Регистрация"
         RESIDENCE = "residence", "Проживание"
         LEGAL = "legal", "Статус лица"
+        MEASURE = "measure", "Мероприятие"
 
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="status_history", verbose_name="ЛС")
     service = models.ForeignKey(
@@ -615,6 +623,7 @@ class Measure(AisRecord):
         DISCONNECT = "disconnect", "Отключение"
         COLLECTION = "collection", "Взыскание"
         SCENARIO = "scenario", "Смена сценария"
+        EXTRA = "extra", "Дополнительное"
 
     class Status(models.TextChoices):
         ASSIGNED = "assigned", "Назначено"
@@ -657,6 +666,9 @@ class Measure(AisRecord):
         help_text="Пусто у мероприятия начисляющей организации. У двух поставщиков один и тот же вид живёт отдельно.",
     )
     owner_name = models.CharField("Поставщик-автор", max_length=250, blank=True)
+    extra = models.BooleanField("Дополнительное", default=False)
+    pause_until = models.DateField("Приостановлено до", null=True, blank=True)
+    pause_reason = models.CharField("Основание приостановки", max_length=500, blank=True, default="")
     call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
     source_scenario = models.ForeignKey(
         "nsi.ScenarioDefinition", null=True, blank=True, on_delete=models.SET_NULL,

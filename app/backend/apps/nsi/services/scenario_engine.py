@@ -40,7 +40,7 @@ def ensure_imported_runs(account_ids: list[int]) -> None:
 
 
 def ensure_imported_run(account: Account) -> None:
-    if account.inheritance_case or not account.effective_group:
+    if account.inheritance_case or account.payer_deceased or not account.effective_group:
         return
     from apps.nsi.services.scenarios import ensure_standard_scenario
 
@@ -140,7 +140,7 @@ def advance_after_measure(measure: Measure) -> None:
 
 
 def advance_account(account: Account) -> None:
-    if account.pk in _advancing or account.inheritance_case:
+    if account.pk in _advancing or account.inheritance_case or account.payer_deceased:
         return
     run = AccountScenarioRun.objects.filter(account=account).only(
         "awaiting_start", "finished_on", "paused",

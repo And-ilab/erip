@@ -59,6 +59,8 @@ HEADER_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
     "service": {
         "_account_id": ("Код ЛС (ID ЛС)",),
         "service_list_id": ("Код договора на услугу (ID Договора)",),
+        "agreement_number": ("Номер договора",),
+        "payment_due_day": ("День срока погашения",),
         "service_id": ("Код услуги (ID Услуги)",),
         "service_name": ("Наименование услуги",),
         "service_name_report": ("Наименование услуги в извещении для дополнительных",),
@@ -156,6 +158,8 @@ HEADER_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
         "relation_degree_name": ("Наименование степени родства",),
         "payer_type_name": ("Наименование типа плательщика",),
         "idler_val": ("Незанятые в экономике",),
+        "reg_status": ("Статус регистрации",),
+        "left_country": ("Незанятые, выехавшие за пределы РБ",),
         "oper_date": ("Операционный период",),
         "maindoc_type_name": ("Основной документ (краткое)",),
         "ot": ("Отчество",),

@@ -158,7 +158,8 @@ class DebtGroupCalculator:
         services = list(account.services.all())
         op_date = operational or account.operational_date
         for service in services:
-            periods = self.sync_periods(service, op_date, due_day)
+            day = service.payment_due_day or due_day
+            periods = self.sync_periods(service, op_date, day)
             if periods:
                 earliest = min(periods, key=lambda row: row["period"])
                 group = self.group_for_months(len(periods))
@@ -167,7 +168,7 @@ class DebtGroupCalculator:
             elif self.has_debt(service):
                 months = service.debt_period if service.debt_period is not None else 0
                 group = self.group_for_months(months)
-                started = self.debt_started_on(op_date, months, due_day)
+                started = self.debt_started_on(op_date, months, day)
                 due = None
             else:
                 group = None

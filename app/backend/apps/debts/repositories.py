@@ -8,13 +8,16 @@ from django.db.models import (
 from django.db.models.functions import Coalesce
 
 from .models import Account, AccountService, ClaimCase, Measure, MeasureItem, Registration
+from .services.registration_flags import active_q
 
 
-def _count_by_account(model):
+def _count_by_account(model, extra=None):
+    rows = model.objects.filter(account_id=OuterRef("pk"))
+    if extra is not None:
+        rows = rows.filter(extra)
     return Coalesce(
         Subquery(
-            model.objects.filter(account_id=OuterRef("pk"))
-            .order_by()
+            rows.order_by()
             .values("account_id")
             .annotate(total=Count("pk"))
             .values("total")[:1],
@@ -100,7 +103,7 @@ class AccountRepository:
             services_count=_count_by_account(AccountService),
             debt_total=_sum_services("balance_out"),
             mulct_total=_sum_services("balance_mulct_out"),
-            registered_count=_count_by_account(Registration),
+            registered_count=_count_by_account(Registration, active_q()),
             is_legal=Exists(legal),
             sort_group=Coalesce("debt_group_manual", "debt_group"),
         ).order_by("client_account", "id")

@@ -19,10 +19,11 @@ import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
-  AccountDetail, AccountRow, AccountService, ActivityBoard, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioStep, WorkItem, WritDraft, categoryGroups,
+  AccountDetail, AccountRow, AccountService, ActivityBoard, AttachmentRow, BalanceRow, Channel, ContactRow, DebtorCategory, DebtShare, HistoryRow, MeasureRow, MessageTemplate, Payment, Registration, ScenarioBoard, ScenarioMeasure, ScenarioStep, WorkItem, WritDraft, categoryGroups,
 } from '../../core/models';
 import { funnelTitle } from '../funnel-stages';
 import { GridResizeDirective } from '../grid-resize.directive';
+import { ColumnDragDirective } from '../column-drag.directive';
 import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 import { AccountActivitiesComponent } from './account-activities.component';
 import { FunnelBarComponent } from './funnel-bar.component';
@@ -34,7 +35,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
     DatePipe, FormsModule, RouterLink, MatTabsModule, MatTableModule, MatCardModule, MatButtonModule, MoneyComponent, BynSignComponent,
     MatAutocompleteModule,
     MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
-    MeasureTasksComponent, GridResizeDirective, FunnelBarComponent, AccountActivitiesComponent,
+    MeasureTasksComponent, GridResizeDirective, ColumnDragDirective, FunnelBarComponent, AccountActivitiesComponent,
   ],
   template: `
     <div class="page">
@@ -105,6 +106,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
         </mat-tab>
         <mat-tab label="Общие">
             <div class="grid">
+              <div>
               <mat-card><mat-card-content>
                 <dl>
                   <dt>Код ЛС</dt><dd>{{ a.account_id }}</dd>
@@ -128,6 +130,27 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   <dt>Период действия ЛС</dt><dd>{{ accountPeriod(a) }}</dd>
                 </dl>
               </mat-card-content></mat-card>
+              @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
+                <div class="framed">
+                  <h4>Ручное изменение группы задолженности</h4>
+                  <div class="filters">
+                    <mat-form-field>
+                      <mat-label>Группа задолженности</mat-label>
+                      <mat-select [(ngModel)]="manualGroup">
+                        <mat-option [value]="null">По расчёту</mat-option>
+                        @for (g of [0, 1, 2, 3, 4, 5, 6]; track g) { <mat-option [value]="g">{{ g }}</mat-option> }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field class="reason" [class.invalid]="groupInvalid">
+                      <mat-label>Причина</mat-label>
+                      <input matInput [(ngModel)]="manualReason" />
+                    </mat-form-field>
+                    <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
+                  </div>
+                </div>
+              }
+              </div>
+              <div>
               <mat-card><mat-card-content>
                 <dl>
                   <dt>Входящее сальдо <app-byn-sign /></dt><dd><app-money [value]="a.balance_in" [blank]="false" /></dd>
@@ -148,25 +171,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   <dt>Категория должника</dt><dd>{{ categoryName() }}</dd>
                 </dl>
                 <p class="flag" [class.bad]="riskOn()">Признаки банкротства / недееспособности — {{ riskOn() ? 'есть' : 'нет' }}</p>
-                @if (auth.canWrite() && auth.me()?.contour !== 'supplier') {
-                  <div class="framed">
-                    <h4>Ручное изменение группы задолженности</h4>
-                    <div class="filters">
-                      <mat-form-field>
-                        <mat-label>Группа задолженности</mat-label>
-                        <mat-select [(ngModel)]="manualGroup">
-                          <mat-option [value]="null">По расчёту</mat-option>
-                          @for (g of [1, 2, 3, 4, 5, 6]; track g) { <mat-option [value]="g">{{ g }}</mat-option> }
-                        </mat-select>
-                      </mat-form-field>
-                      <mat-form-field class="reason" [class.invalid]="groupInvalid">
-                        <mat-label>Причина</mat-label>
-                        <input matInput [(ngModel)]="manualReason" />
-                      </mat-form-field>
-                      <button mat-stroked-button (click)="saveGroup()">Сохранить</button>
-                    </div>
-                  </div>
-                }
+              </mat-card-content></mat-card>
                 @if (auth.canWrite()) {
                   <div class="framed">
                     <h4>Категория должника</h4>
@@ -199,13 +204,13 @@ import { FunnelBarComponent } from './funnel-bar.component';
                     </div>
                   </div>
                 }
-              </mat-card-content></mat-card>
+              </div>
             </div>
           </mat-tab>
 
-          <mat-tab label="Регистрация ({{ registrations().length }})">
+          <mat-tab label="Регистрация ({{ activeRegistrationCount() }})">
             <div class="columns-wrap">
-              <button mat-stroked-button type="button" (click)="toggleColumnMenu('registration', $event)">Столбцы</button>
+              <button mat-stroked-button type="button" class="table-settings" (click)="toggleColumnMenu('registration', $event)">Настройки таблицы</button>
               @if (columnMenu === 'registration') {
                 <div class="picker-back" (click)="columnMenu = ''"></div>
                 <div class="picker-menu" role="listbox" aria-label="Столбцы регистрации"
@@ -226,7 +231,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
                 </div>
               }
             </div>
-            <div class="list-pane"><table class="plain" appGridResize="account-registrations">
+            <div class="list-pane"><table class="plain" appGridResize="account-registrations" appColumnDrag (columnMove)="dragReg($event)">
               <thead><tr>@for (col of visibleRegColumns(); track col) { <th [attr.data-col]="col">{{ regLabel(col) }}</th> }</tr></thead>
               <tbody>
                 @for (person of registrations(); track person.id) {
@@ -247,10 +252,15 @@ import { FunnelBarComponent } from './funnel-bar.component';
             <p class="muted">Сценарий {{ scenarioName() || 'не назначен' }}. Задание — отдельная работа: название, срок и статус. Мероприятия, которые специалист начал сам, лежат в группе «Инициировано вручную».</p>
             @for (step of scenarioSteps(); track step.order + step.action) {
               <details class="step" [open]="stepOpen(step)">
-                <summary>
+                <summary class="step-summary">
                   <button type="button" class="step-no" [class.on]="stepDone(step)" (click)="$event.preventDefault(); $event.stopPropagation(); toggleStep(step)">{{ step.order }}</button>
                   {{ step.title }}
                   <span class="muted">{{ stepSpan(step) }}</span>
+                  @if (canHold() && step.measures[0]; as measure) {
+                    <button type="button" class="text-btn pause-btn" (click)="$event.preventDefault(); $event.stopPropagation(); askPause(measure)">
+                      {{ measure.status === 'paused' ? 'Возобновить мероприятие' : 'Приостановить мероприятие' }}
+                    </button>
+                  }
                 </summary>
                 @for (item of step.checklist; track item) {
                   <p class="check-line">{{ item }}</p>
@@ -289,11 +299,40 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   <div class="step-head">
                     <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
                     <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
+                    @if (row.owner_name) { <span class="muted">{{ row.owner_name }}</span> }
+                    @if (canHold()) {
+                      <button type="button" class="text-btn pause-btn" (click)="askPause(row)">
+                        {{ row.status === 'paused' ? 'Возобновить мероприятие' : 'Приостановить мероприятие' }}
+                      </button>
+                    }
                   </div>
                   <app-measure-tasks [measureId]="row.id" [tasks]="row.tasks" [canWrite]="auth.canWrite()" (changed)="reloadScenario()" />
                 </div>
               } @empty { <p class="muted">Отдельных мероприятий нет.</p> }
             </details>
+            @if (auth.canWrite()) {
+              <div class="framed">
+                <h4>Дополнительное мероприятие</h4>
+                <div class="filters">
+                  <mat-form-field>
+                    <mat-label>Мероприятие</mat-label>
+                    <mat-select [(ngModel)]="extraCatalogId">
+                      @for (item of extraCatalog(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+                    </mat-select>
+                  </mat-form-field>
+                  <button mat-stroked-button type="button" (click)="addExtra()">Добавить дополнительное мероприятие</button>
+                </div>
+              </div>
+            }
+            @if (pauseFor) {
+              <div class="picker-back" (click)="pauseFor = null"></div>
+              <div class="pause-box">
+                <h4>Приостановить мероприятие</h4>
+                <mat-form-field><mat-label>До</mat-label><input matInput type="date" [(ngModel)]="pauseUntil" /></mat-form-field>
+                <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="pauseReason" /></mat-form-field>
+                <button mat-flat-button color="primary" type="button" (click)="confirmPause()">Приостановить</button>
+              </div>
+            }
           </mat-tab>
 
           <mat-tab label="Контактные данные">
@@ -340,7 +379,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
 
           <mat-tab label="Услуги ({{ services().length }})">
             <div class="columns-wrap">
-              <button mat-stroked-button type="button" (click)="toggleColumnMenu('services', $event)">Столбцы</button>
+              <button mat-stroked-button type="button" class="table-settings" (click)="toggleColumnMenu('services', $event)">Настройки таблицы</button>
               @if (columnMenu === 'services') {
                 <div class="picker-back" (click)="columnMenu = ''"></div>
                 <div class="picker-menu" role="listbox" aria-label="Столбцы услуг"
@@ -361,7 +400,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
                 </div>
               }
             </div>
-            <div class="list-pane service-pane"><table mat-table [dataSource]="services()" appGridResize="card-services">
+            <div class="list-pane service-pane"><table mat-table [dataSource]="services()" appGridResize="card-services" appColumnDrag (columnMove)="dragService($event)">
               <ng-container matColumnDef="report_group_id"><th mat-header-cell *matHeaderCellDef>ID группы отчёта</th><td mat-cell *matCellDef="let s">{{ s.report_group_id ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="netting_mulct_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_mulct_sum" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="netting_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет по услуге <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_sum" [blank]="false" /></td></ng-container>
@@ -415,7 +454,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
 
           <mat-tab label="Оплата ({{ payments().length }})">
             <div class="columns-wrap">
-              <button mat-stroked-button type="button" (click)="toggleColumnMenu('payments', $event)">Столбцы</button>
+              <button mat-stroked-button type="button" class="table-settings" (click)="toggleColumnMenu('payments', $event)">Настройки таблицы</button>
               @if (columnMenu === 'payments') {
                 <div class="picker-back" (click)="columnMenu = ''"></div>
                 <div class="picker-menu" role="listbox" aria-label="Столбцы оплаты"
@@ -437,7 +476,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
               }
             </div>
             <div class="list-pane">
-              <table class="plain" appGridResize="card-payments">
+              <table class="plain" appGridResize="card-payments" appColumnDrag (columnMove)="dragPayment($event)">
                 <thead>
                   @if (paymentHasGroups()) {
                     <tr>
@@ -541,6 +580,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
             <div class="filters">
               <button mat-stroked-button type="button" (click)="historyPane = 'sums'">Суммы задолженности</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'rating'">Группа и рейтинг</button>
+              <button mat-stroked-button type="button" (click)="historyPane = 'measure'">Изменение мероприятий</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'other'">Прочие изменения</button>
             </div>
             @if (historyPane === 'sums') {
@@ -619,7 +659,10 @@ import { FunnelBarComponent } from './funnel-bar.component';
     .step { border: 1px solid var(--erip-border); border-radius: 8px; margin: 8px 0; padding: 8px 12px; background: #fff; }
     .step summary { cursor: pointer; font-weight: 600; }
     .step-measure { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 8px 0; }
-    .step-head, .check-line { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
+    .step-head, .check-line, .step-summary { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
+    .pause-btn { margin-left: auto; }
+    .pause-box { position: fixed; z-index: 40; left: 50%; top: 20vh; transform: translateX(-50%); background: #fff; border: 1px solid var(--erip-border); border-radius: 8px; padding: 16px; display: grid; gap: 8px; min-width: 320px; }
+    .table-settings { margin: 0 0 8px; }
     .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; }
     .sheet dt { color: var(--erip-muted); font-size: 12px; }
     .sheet dd { margin: 0; }
@@ -828,7 +871,12 @@ export class AccountDetailComponent implements OnInit {
   protected categoryText = '';
   protected groupInvalid = false;
   protected contactInvalid = false;
-  protected historyPane: 'sums' | 'rating' | 'other' = 'sums';
+  protected historyPane: 'sums' | 'rating' | 'measure' | 'other' = 'sums';
+  protected readonly extraCatalog = signal<{ id: number; name: string }[]>([]);
+  protected extraCatalogId: number | null = null;
+  protected pauseFor: ScenarioMeasure | null = null;
+  protected pauseUntil = '';
+  protected pauseReason = '';
   protected residence = '';
   protected inheritance = false;
   protected inheritanceUntil = '';
@@ -1011,11 +1059,13 @@ export class AccountDetailComponent implements OnInit {
   ): Record<string, Observable<unknown>> | null {
     if (index === 0) return { activities: timed('activities', this.api.accountActivities(id)) };
     if (index === 3) {
-      return {
+      const batch: Record<string, Observable<unknown>> = {
         scenario: timed('scenario', this.api.accountScenario(id)),
         measures: timed('measures', this.api.accountMeasures(id)),
         templates: timed('templates', this.api.templates({ is_active: true, page_size: 100 })),
       };
+      if (this.auth.canWrite()) batch['extra'] = timed('extra', this.api.extraMeasureCatalog());
+      return batch;
     }
     if (index === 4) return { contacts: timed('contacts', this.api.accountContacts(id)) };
     if (index === 5) return { serviceColumns: timed('serviceColumns', this.api.cardColumns('services')) };
@@ -1061,6 +1111,11 @@ export class AccountDetailComponent implements OnInit {
       const forGroup = group == null ? [] : list.filter((item) => item.debt_group === group);
       this.templates.set(forGroup.length ? forGroup : list);
       this.templateId = (forGroup[0] ?? list[0])?.id ?? null;
+      const extra = result['extra'] as { results: { id: number; name: string }[] } | undefined;
+      if (extra) {
+        this.extraCatalog.set(extra.results);
+        this.extraCatalogId = extra.results[0]?.id ?? null;
+      }
     } else if (index === 4) {
       this.contacts.set((result['contacts'] as { results: ContactRow[] }).results);
     } else if (index === 5) {
@@ -1492,6 +1547,7 @@ export class AccountDetailComponent implements OnInit {
       group: 'Группа', rating: 'Рейтинг', funnel: 'Этап воронки', scenario: 'Сценарий',
       contact: 'Контакт', category: 'Категория', inheritance: 'Наследственное дело',
       registration: 'Регистрация', residence: 'Проживание', legal: 'Статус лица',
+      measure: 'Мероприятие',
     };
     return labels[kind] || kind;
   }
@@ -1753,7 +1809,8 @@ export class AccountDetailComponent implements OnInit {
   protected historyRows(): HistoryRow[] {
     const rows = this.history();
     if (this.historyPane === 'rating') return rows.filter((row) => row.kind === 'group' || row.kind === 'rating');
-    if (this.historyPane === 'other') return rows.filter((row) => row.kind !== 'group' && row.kind !== 'rating');
+    if (this.historyPane === 'measure') return rows.filter((row) => row.kind === 'measure');
+    if (this.historyPane === 'other') return rows.filter((row) => row.kind !== 'group' && row.kind !== 'rating' && row.kind !== 'measure');
     return [];
   }
 
@@ -1767,6 +1824,71 @@ export class AccountDetailComponent implements OnInit {
 
   protected scenarioManual() {
     return this.scenario()?.manual || [];
+  }
+
+  protected activeRegistrationCount(): number {
+    return this.registrations().filter((person) => this.regCell(person, 'registered') === 'да').length;
+  }
+
+  protected canHold(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected askPause(row: ScenarioMeasure): void {
+    if (row.status === 'paused') {
+      this.api.releaseMeasure(row.id).subscribe({
+        next: () => this.reloadScenario(),
+        error: (e) => this.snack.open(errorMessage(e), 'OK'),
+      });
+      return;
+    }
+    this.pauseUntil = '';
+    this.pauseReason = '';
+    this.pauseFor = row;
+  }
+
+  protected confirmPause(): void {
+    const row = this.pauseFor;
+    if (!row || !this.pauseUntil || !this.pauseReason.trim()) return;
+    this.api.holdMeasure(row.id, this.pauseUntil, this.pauseReason.trim()).subscribe({
+      next: () => {
+        this.pauseFor = null;
+        this.reloadScenario();
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected addExtra(): void {
+    const account = this.account();
+    if (!account || this.extraCatalogId == null) return;
+    this.api.addExtraMeasures({ catalog_id: this.extraCatalogId, account_ids: [account.id] }).subscribe({
+      next: () => this.reloadScenario(),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected dragReg(shift: { from: string; to: string }): void {
+    this.reorderCatalog(this.regCatalog, shift);
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
+  }
+
+  protected dragService(shift: { from: string; to: string }): void {
+    this.reorderCatalog(this.serviceCatalog, shift);
+    this.persistCard('services');
+  }
+
+  protected dragPayment(shift: { from: string; to: string }): void {
+    this.reorderCatalog(this.paymentCatalog, shift);
+    this.persistCard('payments');
+  }
+
+  private reorderCatalog(catalog: string[], shift: { from: string; to: string }): void {
+    const from = catalog.indexOf(shift.from);
+    const to = catalog.indexOf(shift.to);
+    if (from < 0 || to < 0 || from === to) return;
+    const [item] = catalog.splice(from, 1);
+    catalog.splice(to, 0, item);
   }
 
   protected stepOpen(step: ScenarioStep): boolean {

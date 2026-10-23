@@ -108,10 +108,14 @@ export class ShellComponent {
   protected navItems(): { link: string; label: string; icon: string }[] {
     const items = [
       { link: '/accounts', label: 'Реестр ЛС', icon: 'badge' },
-      { link: '/contracts', label: 'Реестр договоров', icon: 'article' },
+    ];
+    if (this.auth.canOpenContracts()) {
+      items.push({ link: '/contracts', label: 'Реестр договоров', icon: 'article' });
+    }
+    items.push(
       { link: '/measures', label: 'Мероприятия', icon: 'event_note' },
       { link: '/claims', label: 'Претензионно-исковая работа', icon: 'gavel' },
-    ];
+    );
     if (this.auth.canWrite() && this.auth.me()?.contour !== 'supplier') {
       items.push({ link: '/settings', label: 'Настройка', icon: 'tune' });
     }

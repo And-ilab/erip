@@ -159,6 +159,11 @@ class PortfolioRefresher:
         if operational and account.operational_date != operational:
             account.operational_date = operational
             account.save(update_fields=["operational_date", "updated_at"])
+        from apps.debts.services.extra_measures import release_expired_holds
+        from apps.debts.services.registration_flags import sync_account_flags
+
+        sync_account_flags(account)
+        release_expired_holds(account)
         before_group = account.debt_group
         self.calculator.recalculate(account, due_day=self.settings.payment_due_day, operational=operational)
         account.refresh_from_db()

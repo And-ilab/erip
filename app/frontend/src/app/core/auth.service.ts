@@ -24,6 +24,12 @@ export class AuthService {
   readonly isSuperadmin = computed(() => this.me()?.role === 'superadmin');
   readonly canManageTemplates = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
   readonly canWrite = computed(() => ['superadmin', 'local_admin', 'specialist'].includes(this.me()?.role ?? ''));
+  readonly canOpenContracts = computed(() => {
+    const me = this.me();
+    if (!me) return false;
+    if (me.contour === 'supplier') return true;
+    return ['superadmin', 'local_admin', 'observer', 'viewer'].includes(me.role);
+  });
   readonly canLaunchMeasure = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
   readonly canSkip = computed(() => {
     const me = this.me();

@@ -95,6 +95,7 @@ class User(AbstractUser):
         SPECIALIST = "specialist", "Специалист"
         LEGAL = "legal", "Специалист ЮС"
         OBSERVER = "observer", "Наблюдатель"
+        VIEWER = "viewer", "Специалист «Просмотр»"
 
     class Contour(models.TextChoices):
         BILLING = "billing", "Начисляющая организация"

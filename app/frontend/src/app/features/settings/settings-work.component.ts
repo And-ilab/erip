@@ -9,6 +9,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
     <nav class="nested" aria-label="Сценарии и шаблоны">
       <a routerLink="scenario" routerLinkActive="on">Сценарий</a>
       <a routerLink="forms" routerLinkActive="on">Печатные формы</a>
+      <a routerLink="extra" routerLinkActive="on">Дополнительные мероприятия</a>
     </nav>
     <router-outlet />
   `,

@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, importGuard, settingsAdminGuard, superadminGuard } from './core/auth.guard';
+import { authGuard, contractsGuard, importGuard, settingsAdminGuard, superadminGuard } from './core/auth.guard';
 import { ShellComponent } from './layout/shell.component';
 
 export const routes: Routes = [
@@ -29,10 +29,12 @@ export const routes: Routes = [
       },
       {
         path: 'contracts',
+        canActivate: [contractsGuard],
         loadComponent: () => import('./features/contracts/contracts-list.component').then((m) => m.ContractsListComponent),
       },
       {
         path: 'contracts/:id',
+        canActivate: [contractsGuard],
         loadComponent: () => import('./features/contracts/contract-detail.component').then((m) => m.ContractDetailComponent),
       },
       {
@@ -83,6 +85,10 @@ export const routes: Routes = [
               {
                 path: 'forms',
                 loadComponent: () => import('./features/settings/print-forms.component').then((m) => m.PrintFormsComponent),
+              },
+              {
+                path: 'extra',
+                loadComponent: () => import('./features/settings/extra-measures.component').then((m) => m.ExtraMeasuresComponent),
               },
             ],
           },

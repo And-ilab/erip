@@ -22,6 +22,11 @@ OPEN = {Measure.Status.ASSIGNED, Measure.Status.RUNNING, Measure.Status.PAUSED, 
 ITEM_OPEN = {MeasureItem.Status.ASSIGNED, MeasureItem.Status.RUNNING, MeasureItem.Status.FAILED}
 
 
+def _auto_blocked(account: Account) -> bool:
+    """Наследственное дело и смерть плательщика не пускают автоматические меры."""
+    return bool(account.inheritance_case or account.payer_deceased)
+
+
 def launch_mode(account: Account) -> str:
     row = _mode_row(account)
     if row is None:
@@ -43,7 +48,7 @@ def bind_imported_run(account: Account) -> None:
     from apps.nsi.services.scenario_engine import advance_account
     from apps.nsi.services.scenarios import upgrade_legacy_scenario
 
-    if account.inheritance_case or not account.effective_group:
+    if _auto_blocked(account) or not account.effective_group:
         return
     scenario = default_scenario(account)
     if scenario is None:
@@ -68,7 +73,7 @@ def bind_imported_run(account: Account) -> None:
     elif run.assigned_on is None:
         run.assigned_on = timezone.localtime(run.created_at).date()
         run.save(update_fields=["assigned_on", "updated_at"])
-    if run.awaiting_start or run.paused or account.inheritance_case:
+    if run.awaiting_start or run.paused or _auto_blocked(account):
         return
     advance_account(account)
 
@@ -79,7 +84,7 @@ def start_accounts(accounts: list[Account], user) -> int:
 
     started = 0
     for account in accounts:
-        if account.inheritance_case:
+        if _auto_blocked(account):
             continue
         run = AccountScenarioRun.objects.filter(account=account).first()
         if run is None:
@@ -141,7 +146,7 @@ def replace_accounts(accounts: list[Account], scenario: ScenarioDefinition, user
             account.scenario_name = scenario.name
             account.scenario_locked = True
             account.save(update_fields=["scenario_name", "scenario_locked", "updated_at"])
-        if not run.awaiting_start and not account.inheritance_case:
+        if not run.awaiting_start and not _auto_blocked(account):
             advance_account(account)
         changed += 1
     return changed

@@ -43,6 +43,8 @@ def period_rows(service: AccountService) -> list[dict]:
 def service_line(service: AccountService) -> dict:
     return {
         "service_list_id": service.service_list_id,
+        "agreement_number": service.agreement_number or "",
+        "payment_due_day": service.payment_due_day or None,
         "service_name": service.service_name or "",
         "start_date": _iso(service.start_date),
         "shot_name": service.shot_name or "",

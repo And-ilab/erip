@@ -264,6 +264,9 @@ interface GroupSection {
         }
         @if (canLaunch()) {
           <button type="button" class="tool" title="Мероприятие" (click)="measureOpen.set(!measureOpen())">{{ toolLabel('Мероприятие', 'Меропр.') }}</button>
+          @if (selectedCount()) {
+            <button type="button" class="tool" title="Дополнительное мероприятие" (click)="openExtra()">{{ toolLabel('Доп. мероприятие', 'Доп.') }}</button>
+          }
           <button type="button" class="tool" title="Изменить сценарий" (click)="scenarioOpen.set(!scenarioOpen())">{{ toolLabel('Изменить сценарий', 'Сценарий') }}</button>
           <button type="button" class="tool" title="Запустить сценарий" (click)="runScenarios()">{{ toolLabel('Запустить сценарий', 'Запуск') }}</button>
           <button type="button" class="tool" title="Передать специалисту ЮС" (click)="legalOpen.set(!legalOpen())">{{ toolLabel('Передать специалисту ЮС', 'ЮС') }}</button>
@@ -313,6 +316,20 @@ interface GroupSection {
               </mat-select>
             </mat-form-field>
             <button mat-flat-button color="primary" (click)="assignLegal()">Передать</button>
+          </div>
+        </div>
+      }
+      @if (extraOpen()) {
+        <div class="measure">
+          <p class="hint">Дополнительное мероприятие по {{ selectedCount() }} выбранным лицевым счетам.</p>
+          <div class="filters">
+            <mat-form-field>
+              <mat-label>Мероприятие</mat-label>
+              <mat-select [formControl]="extraId">
+                @for (item of extraOptions(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <button mat-flat-button color="primary" type="button" (click)="addMassExtra()">Добавить</button>
           </div>
         </div>
       }
@@ -817,6 +834,9 @@ export class AccountsListComponent implements OnInit {
   protected readonly accountFields = accountDomainFields();
   protected readonly domain = signal<DomainRule | null>(null);
   protected readonly measureOpen = signal(false);
+  protected readonly extraOpen = signal(false);
+  protected readonly extraId = new FormControl<number | null>(null);
+  protected readonly extraOptions = signal<{ id: number; name: string }[]>([]);
   protected readonly scenarioOpen = signal(false);
   protected readonly legalOpen = signal(false);
   protected readonly scenarioChoices = signal<{ id: number; name: string }[]>([]);
@@ -1065,7 +1085,7 @@ export class AccountsListComponent implements OnInit {
   }
 
   protected toolsTight(): boolean {
-    return this.panelOpen() || this.columnsOpen() || this.measureOpen() || this.scenarioOpen() || this.legalOpen();
+    return this.panelOpen() || this.columnsOpen() || this.measureOpen() || this.extraOpen() || this.scenarioOpen() || this.legalOpen();
   }
 
   protected toolLabel(full: string, short: string): string {
@@ -1295,6 +1315,30 @@ export class AccountsListComponent implements OnInit {
 
   protected selectedCount(): number {
     return this.selected().size;
+  }
+
+  protected openExtra(): void {
+    this.extraOpen.update((open) => !open);
+    if (!this.extraOpen() || this.extraOptions().length) return;
+    this.api.extraMeasureCatalog().subscribe({
+      next: (page) => {
+        this.extraOptions.set(page.results);
+        this.extraId.setValue(page.results[0]?.id ?? null);
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected addMassExtra(): void {
+    const catalogId = this.extraId.value;
+    if (catalogId == null || !this.selected().size) return;
+    this.api.addExtraMeasures({ catalog_id: catalogId, account_ids: [...this.selected()] }).subscribe({
+      next: () => {
+        this.extraOpen.set(false);
+        this.snack.open('Дополнительное мероприятие добавлено', 'OK');
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
   }
 
   protected isSelected(id: number): boolean {

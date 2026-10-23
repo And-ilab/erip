@@ -41,8 +41,10 @@ import { ratingMark, ratingMarkClass, ratingMarkTitle } from './rating-mark';
         @if (showPeople()) {
           <div class="people">
             <span tabindex="0" title="Кол-во месяцев долга">{{ months() ?? '—' }}</span>
-            · <span tabindex="0" title="Проживающих">{{ residents() ?? '—' }}</span>
-            · <span tabindex="0" title="Зарегистрированных">{{ registered() ?? '—' }}</span>
+            @if (!monthsOnly()) {
+              · <span tabindex="0" title="Проживающих">{{ residents() ?? '—' }}</span>
+              · <span tabindex="0" title="Зарегистрированных">{{ registered() ?? '—' }}</span>
+            }
           </div>
         }
       </div>
@@ -113,6 +115,7 @@ export class KanbanDebtorComponent {
   readonly housing = input<string | null | undefined>('');
   readonly showPeople = input(true);
   readonly months = input<number | null | undefined>(null);
+  readonly monthsOnly = input(false);
   readonly residents = input<number | null | undefined>(null);
   readonly registered = input<number | null | undefined>(null);
   readonly showMoney = input(true);

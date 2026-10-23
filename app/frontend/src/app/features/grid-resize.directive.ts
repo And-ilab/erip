@@ -2,7 +2,7 @@ import { AfterViewInit, Directive, ElementRef, Input, OnDestroy, inject } from '
 
 import { ApiService } from '../core/api.service';
 
-const MIN_WIDTH = 36;
+const MIN_WIDTH = 28;
 const MAX_WIDTH = 1600;
 const SHARED_PREFIX = 'erip.grid-widths.';
 
@@ -57,11 +57,17 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
     this.sync();
     this.observer = new MutationObserver(() => this.schedule());
     this.observer.observe(this.host.nativeElement, { childList: true, subtree: true });
+    window.addEventListener('resize', this.onWindow);
   }
+
+  private readonly onWindow = (): void => {
+    if (this.locked && !this.drag) this.applyTableWidth();
+  };
 
   ngOnDestroy(): void {
     this.alive = false;
     this.observer?.disconnect();
+    window.removeEventListener('resize', this.onWindow);
     cancelAnimationFrame(this.frame);
     this.stopDrag();
     document.removeEventListener('click', this.swallowClick, true);
@@ -191,12 +197,11 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
 
   private applyColumn(index: number, width: number): void {
     const headers = this.headerCells();
-    const used = Math.max(width, headerFloor(headers[index]));
+    const used = clamp(width);
     const id = headers[index] ? this.columnId(headers[index], index) : '';
     if (id) this.widths.set(id, used);
     const px = `${used}px`;
-    const cols = this.ensureCols(headers.length);
-    const col = cols[index];
+    const col = this.host.nativeElement.querySelector(':scope > colgroup')?.children.item(index) as HTMLTableColElement | null;
     if (col) col.style.width = px;
     for (const cell of this.cellsInColumn(index)) {
       if (cell.style.width === px && cell.style.maxWidth === px) continue;
@@ -208,15 +213,27 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
 
   private applyTableWidth(): void {
     const headers = this.headerCells();
+    const widths: number[] = [];
     let sum = 0;
     headers.forEach((cell, index) => {
-      sum += this.widths.get(this.columnId(cell, index)) ?? 0;
+      const width = this.widths.get(this.columnId(cell, index)) ?? MIN_WIDTH;
+      widths.push(width);
+      sum += width;
     });
     if (!sum) return;
     const table = this.host.nativeElement;
+    const pane = table.parentElement?.clientWidth ?? sum;
+    const slack = Math.max(0, pane - sum);
     table.classList.add('widths-locked');
-    table.style.width = `${sum}px`;
     table.style.tableLayout = 'fixed';
+    table.style.width = `${sum + slack}px`;
+    table.style.minWidth = '100%';
+    const cols = this.ensureCols(headers.length + 1);
+    widths.forEach((width, index) => {
+      if (cols[index]) cols[index].style.width = `${width}px`;
+    });
+    const filler = cols[headers.length];
+    if (filler) filler.style.width = `${slack}px`;
     this.locked = true;
   }
 
@@ -280,6 +297,7 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
         }
         if (this.widths.size) this.sync();
       },
+      error: () => undefined,
     });
   }
 
@@ -298,12 +316,4 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
 
 function clamp(width: number): number {
   return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(width)));
-}
-
-/** Заголовок остаётся одной строкой: столбец не уже подписи. */
-function headerFloor(cell: HTMLTableCellElement | undefined): number {
-  if (!cell) return MIN_WIDTH;
-  const text = (cell.innerText || '').replace(/\s+/g, ' ').trim();
-  if (text.length < 2) return MIN_WIDTH;
-  return Math.min(320, Math.max(MIN_WIDTH, Math.ceil(text.length * 7.2 + 28)));
 }

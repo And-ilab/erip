@@ -127,6 +127,7 @@ def _person_groups(qs):
         housing_object=Max("account__acc_category_full"),
         months_debt=Max("account__months_debt"),
         subj_count=Max("account__subj_count"),
+        account_number=Max("account__client_account"),
         category=Max("account__debtor_category__name"),
         earliest=Min("debt_started_on"),
         due_on=Min("repayment_due_on"),
@@ -169,24 +170,29 @@ def _lines_by_person(qs, keys: list) -> dict:
     return {key: board_service_lines(items) for key, items in bucket.items()}
 
 
-def _registered_by_account(account_ids: list[int]) -> dict[int, int]:
+def _counted_by_account(account_ids: list[int], mode: str) -> dict[int, int]:
     from apps.debts.models import Registration
+    from apps.debts.services.registration_flags import active_q, resident_q
 
     if not account_ids:
         return {}
+    extra = active_q() if mode == "active" else resident_q()
     rows = (
         Registration.objects.filter(account_id__in=account_ids)
+        .filter(extra)
         .values("account_id")
         .annotate(total=Count("id"))
     )
     return {row["account_id"]: row["total"] for row in rows}
 
 
-def _public_person(row, lines_by_key: dict, supplier: bool, registered: int | None = None) -> dict:
+def _public_person(row, lines_by_key: dict, supplier: bool, registered: int | None = None, residents: int | None = None) -> dict:
     lines, debt_count = lines_by_key.get(row["person_key"], ([], 0))
     extra = _person_extra(row, supplier)
     if registered is not None:
         extra["registered_count"] = registered
+    if residents is not None:
+        extra["subj_count"] = residents
     return {
         "payer_identifier": row["payer_identifier"] or "",
         "payer_unp": row["payer_unp"] or "",
@@ -211,11 +217,14 @@ def person_page(qs, page: int, page_size: int, supplier: bool = False) -> tuple[
     keys = [row["person_key"] for row in chunk]
     lines = _lines_by_person(qs, keys)
     accounts = _account_ids(qs, keys)
-    registered = _registered_by_account([item for values in accounts.values() for item in values])
+    flat = [item for values in accounts.values() for item in values]
+    registered = _counted_by_account(flat, "active")
+    residents = _counted_by_account(flat, "resident")
     return total, [
         _public_person(
             row, lines, supplier,
             sum(registered.get(item, 0) for item in accounts.get(row["person_key"], [])),
+            sum(residents.get(item, 0) for item in accounts.get(row["person_key"], [])),
         )
         for row in chunk
     ]
@@ -234,7 +243,9 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int,
         keys = [row["person_key"] for row in chunk]
         ids = _account_ids(qs, keys)
         lines = _lines_by_person(qs, keys)
-        registered = _registered_by_account([item for values in ids.values() for item in values])
+        flat = [item for values in ids.values() for item in values]
+        registered = _counted_by_account(flat, "active")
+        residents = _counted_by_account(flat, "resident")
         cards = []
         for row in chunk:
             account_ids = ids.get(row["person_key"], [])
@@ -242,7 +253,9 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int,
                 **_public_person(
                     row, lines, supplier,
                     sum(registered.get(item, 0) for item in account_ids),
+                    sum(residents.get(item, 0) for item in account_ids),
                 ),
+                "account_number": row.get("account_number") or "",
                 "service_count": row["service_count"],
                 "service_name": row["service_name"] or "",
                 "address": row["address"] or "",
@@ -381,8 +394,8 @@ def supplier_portfolio(qs) -> dict:
         penalty=Sum("balance_mulct_out"),
     )
     measures_by_provider = _count_pairs(
-        qs.order_by().filter(measures__isnull=False).values("provider_id", "measures__kind", "measures__id").distinct(),
-        "provider_id", "measures__kind", "measures__id", Measure.Kind.choices,
+        qs.order_by().filter(measures__isnull=False).values("provider_id", "measures__kind", "account_id").distinct(),
+        "provider_id", "measures__kind", "account_id", Measure.Kind.choices,
     )
     cases_by_provider = _count_pairs(
         debt.order_by().filter(account__claim_case__isnull=False).values(

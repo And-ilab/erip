@@ -98,7 +98,6 @@ def _measure(measure: Measure) -> dict:
     return {
         "id": measure.pk,
         "kind": measure.kind,
-        "kind_label": measure.get_kind_display(),
         "status": measure.status,
         "status_label": measure.get_status_display(),
         "source_action": measure.source_action,
@@ -106,6 +105,13 @@ def _measure(measure: Measure) -> dict:
         "finished_on": measure.finished_on.isoformat() if measure.finished_on else None,
         "finish_reason": measure.finish_reason,
         "stopped": measure.stopped,
+        "extra": measure.extra,
+        "owner_name": measure.owner_name,
+        "owner_provider_id": measure.owner_provider_id,
+        "pause_until": measure.pause_until.isoformat() if measure.pause_until else None,
+        "pause_reason": measure.pause_reason,
+        "catalog_name": measure.template_name if measure.extra else "",
+        "kind_label": (measure.template_name or measure.get_kind_display()) if measure.extra else measure.get_kind_display(),
         "tasks": [task_row(task) for task in measure.tasks.all()],
         "calls": _calls(measure),
     }

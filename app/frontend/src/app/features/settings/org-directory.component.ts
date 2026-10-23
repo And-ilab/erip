@@ -476,6 +476,7 @@ export class OrgDirectoryComponent implements OnInit {
       specialist: 'Специалист',
       legal: 'Специалист ЮС',
       observer: 'Наблюдатель',
+      viewer: 'Специалист «Просмотр»',
     }[user.role];
   }
 
@@ -645,11 +646,13 @@ export class OrgDirectoryComponent implements OnInit {
       specialist: 'Специалист',
       legal: 'Специалист ЮС',
       observer: 'Наблюдатель',
+      viewer: 'Специалист «Просмотр»',
     };
     const roles: { id: Role; label: string }[] = [
       { id: 'specialist', label: labels.specialist },
       { id: 'legal', label: labels.legal },
       { id: 'observer', label: labels.observer },
+      { id: 'viewer', label: labels.viewer },
     ];
     if (this.auth.isSuperadmin()) roles.unshift({ id: 'local_admin', label: labels.local_admin });
     if (current && !roles.some((item) => item.id === current)) roles.unshift({ id: current, label: labels[current] });

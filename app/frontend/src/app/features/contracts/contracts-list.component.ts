@@ -115,7 +115,7 @@ const COLUMN_LABELS: Record<string, string> = {
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
-    DomainFilterComponent, KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective,
+    DomainFilterComponent, KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, ColumnDragDirective,
   ],
   template: `
     <div class="registry">
@@ -356,7 +356,7 @@ const COLUMN_LABELS: Record<string, string> = {
         }
         @if (view() === 'services') {
           <div class="list-pane fill">
-          <table mat-table appGridResize="contracts-services" [dataSource]="rows()">
+          <table mat-table appGridResize="contracts-services" appColumnDrag (columnMove)="moveServiceColumn($event)" [dataSource]="rows()">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef></th>
               <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
@@ -883,6 +883,17 @@ export class ContractsListComponent implements OnInit {
     event.stopPropagation();
     this.panelOpen.set(false);
     this.columnsOpen.update((open) => !open);
+  }
+
+  protected moveServiceColumn(shift: { from: string; to: string }): void {
+    const current = { order: this.serviceOrder(), visible: this.serviceShown() };
+    const next = moveColumn(current, shift.from, shift.to);
+    if (next.visible === current.visible && next.order === current.order) return;
+    this.serviceOrder.set(next.order);
+    this.serviceShown.set(next.visible);
+    this.api.saveContractColumns('services', next.visible, next.order).subscribe({
+      error: (e) => this.error.set(errorMessage(e)),
+    });
   }
 
   protected toggleColumn(name: string): void {

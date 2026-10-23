@@ -227,7 +227,6 @@ export interface AccountService {
   service_list_id: number;
   agreement_number?: string;
   payment_due_day?: number | null;
-  address?: string;
   service_id: number;
   service_name: string;
   service_name_report: string;

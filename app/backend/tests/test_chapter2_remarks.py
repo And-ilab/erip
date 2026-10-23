@@ -155,7 +155,7 @@ def test_group_zero_filter_means_empty_group(api, specialist_a, org_a):
 
 
 @pytest.mark.django_db
-def test_account_registry_drops_the_tail_columns(api, specialist_a):
+def test_account_registry_drops_the_tail_columns(api, specialist_a, admin_a):
     body = api(specialist_a).get("/api/v1/accounts/columns/")
     assert body.status_code == 200, body.content
     available = body.json()["available"]
@@ -164,8 +164,10 @@ def test_account_registry_drops_the_tail_columns(api, specialist_a):
         "initial_principal", "initial_penalty", "period_balances", "repayment_due_on", "last_payment_date",
     ):
         assert name not in available
-    contracts = api(specialist_a).get("/api/v1/contracts/columns/", {"board": "services"})
+    contracts = api(admin_a).get("/api/v1/contracts/columns/", {"board": "services"})
+    assert contracts.status_code == 200, contracts.content
     assert "initial_principal" in contracts.json()["available"]
+    assert "period_balances" not in contracts.json()["available"]
 
 
 @pytest.mark.django_db

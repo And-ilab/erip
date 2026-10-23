@@ -18,6 +18,7 @@ from apps.core.permissions import RolePermission
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
 from .filters import AccountFilter, AccountOrderingFilter, ContractFilter, MeasureFilter
+from .services.registration_flags import registration_count
 from .models import (
     Account,
     AccountService,
@@ -70,15 +71,15 @@ CONTRACT_PERSON_COLUMNS = [
     "principal", "penalty", "obligation", "effective_group", "assigned_name", "ownership_type_name",
     "housing_object", "months_debt", "subj_count", "registered_count", "services_debt_count", "earliest",
     "contract_number", "contract_date", "service_provider", "initial_principal", "initial_penalty",
-    "period_balances", "repayment_due_on", "last_payment_date", "category",
+    "repayment_due_on", "last_payment_date", "category",
 ]
 CONTRACT_SERVICE_COLUMNS = [
-    "payer", "payer_identifier", "payer_unp", "account_number", "rating_label", "funnel_stage",
-    "service_name", "service_list_id", "start_date", "shot_name", "billing_provider", "schema_label",
-    "balance_out", "balance_mulct_out", "obligation_total", "initial_principal", "initial_penalty",
-    "period_balances", "debt_started_on", "repayment_due_on", "last_payment_date", "effective_group",
-    "scenario_brief", "assigned_name", "ownership_type_name", "housing_object", "debt_period",
-    "subj_count", "registered_count", "category_name",
+    "account_number", "address", "service_list_id", "start_date", "agreement_number",
+    "service_name", "effective_group", "rating_label", "funnel_stage", "scenario_brief",
+    "debt_started_on", "balance_out", "balance_mulct_out", "obligation_total",
+    "initial_principal", "initial_penalty", "repayment_due_on", "last_payment_date",
+    "payer", "idn_unp", "billing_provider", "shot_name", "category_name", "assigned_name",
+    "ownership_type_name", "housing_object", "debt_period", "subj_count", "registered_count",
 ]
 
 
@@ -891,6 +892,20 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         chosen, order = _remember_columns(pref, request, allowed)
         return Response({"columns": chosen, "available": allowed, "order": order, "board": board})
 
+    @action(detail=False, methods=["post"], url_path="extra-measures")
+    def extra_measures(self, request):
+        from .services.extra_measures import ExtraMeasureError, add_extra
+
+        try:
+            measure = add_extra(request.user, request.data)
+        except ExtraMeasureError as exc:
+            raise ValidationError(exc.detail) from exc
+        record_action(
+            request, AuditLog.Action.CREATE, measure,
+            after={"kind": measure.kind, "accounts": measure.accounts.count(), "extra": True},
+        )
+        return Response({"id": measure.id, "name": measure.template_name}, status=status.HTTP_201_CREATED)
+
     def _chosen_accounts(self, request):
         base = self.get_queryset()
         if request.data.get("all_matching"):
@@ -974,14 +989,8 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
         "account", "account__debtor_category", "account__organization", "account__assigned_to",
         "account__scenario_run__scenario",
     ).defer("raw", "account__raw").annotate(
-        registered_count=Coalesce(Subquery(
-            Registration.objects.filter(account_id=OuterRef("account_id"))
-            .order_by()
-            .values("account_id")
-            .annotate(total=Count("id"))
-            .values("total"),
-            output_field=IntegerField(),
-        ), 0),
+        registered_count=registration_count("account_id", "active"),
+        resident_count=registration_count("account_id", "resident"),
     ).prefetch_related(
         Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
     )
@@ -992,12 +1001,19 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     scope_supplier_field = "provider_id"
     filterset_class = ContractFilter
     search_fields = [
-        "service_name", "shot_name", "account__short_fio", "account__client_account",
-        "account__payer_identifier", "account__payer_unp",
+        "service_name", "shot_name", "agreement_number", "account__short_fio", "account__client_account",
+        "account__account_address", "account__payer_identifier", "account__payer_unp",
     ]
     ordering_fields = ["debt_group", "balance_out", "debt_started_on", "service_name"]
     audit_view = True
     audit_list = True
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        from apps.users.access import can_open_contracts
+
+        if not can_open_contracts(request.user):
+            raise PermissionDenied("Реестр договоров этой роли недоступен")
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1011,8 +1027,19 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
             )
         return qs
 
+    def list(self, request, *args, **kwargs):
+        queryset = self._visible()
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def _owed(self, qs):
+        return qs.filter(Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0))
+
     def _visible(self):
-        return self.filter_queryset(self.get_queryset())
+        return self._owed(self.filter_queryset(self.get_queryset()))
 
     @action(detail=False, methods=["get", "put"], url_path="columns")
     def columns(self, request):
@@ -1168,6 +1195,24 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
             }
             for row in rows
         ])
+
+    @action(detail=True, methods=["post"], url_path="extra-measure")
+    def extra_measure(self, request, pk=None):
+        from .services.extra_measures import ExtraMeasureError, add_extra
+
+        service = self.get_object()
+        payload = dict(request.data)
+        payload["account_ids"] = [service.account_id]
+        payload["service_id"] = service.id
+        try:
+            measure = add_extra(request.user, payload)
+        except ExtraMeasureError as exc:
+            raise ValidationError(exc.detail) from exc
+        record_action(
+            request, AuditLog.Action.CREATE, measure,
+            after={"kind": measure.kind, "service": service.id, "extra": True},
+        )
+        return Response({"id": measure.id, "name": measure.template_name}, status=status.HTTP_201_CREATED)
 
     @action(detail=True)
     def dossier(self, request, pk=None):
@@ -1658,6 +1703,31 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
         record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "send"})
         return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def hold(self, request, pk=None):
+        from .services.extra_measures import ExtraMeasureError, hold_measure
+
+        if getattr(request.user, "contour", "") == "supplier":
+            raise PermissionDenied("Поставщик мероприятие не приостанавливает")
+        measure = self.get_object()
+        try:
+            hold_measure(measure, request.user, request.data.get("until"), request.data.get("reason") or "")
+        except ExtraMeasureError as exc:
+            raise ValidationError(exc.detail) from exc
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "hold"})
+        return Response({"status": measure.status, "pause_until": measure.pause_until, "pause_reason": measure.pause_reason})
+
+    @action(detail=True, methods=["post"])
+    def release(self, request, pk=None):
+        from .services.extra_measures import release_measure
+
+        if getattr(request.user, "contour", "") == "supplier":
+            raise PermissionDenied("Поставщик мероприятие не возобновляет")
+        measure = self.get_object()
+        release_measure(measure, request.user)
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "release"})
+        return Response({"status": measure.status})
 
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
