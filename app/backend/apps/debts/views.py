@@ -233,17 +233,18 @@ def _group_rows(qs, field, user):
     return packed
 
 
-def _service_board_prefetch(user):
-    """Услуги и периоды текущей страницы грида или канбана. Поставщик видит только свои."""
+def _service_board_prefetch(user, *, with_periods: bool = True):
+    """Услуги текущей страницы. Периоды нужны гриду, карточка канбана их не рисует."""
     from django.db.models import Prefetch
 
     services = AccountService.objects.order_by("service_name", "id").defer("raw")
     providers = _supplier_ids(user)
     if providers is not None:
         services = services.filter(provider_id__in=providers or [-1])
-    services = services.prefetch_related(
-        Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
-    )
+    if with_periods:
+        services = services.prefetch_related(
+            Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
+        )
     return Prefetch("services", queryset=services)
 
 
@@ -338,8 +339,10 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         qs = super().get_queryset().select_related("organization")
         if self.action in {"list", "export", "kanban", "calendar"}:
             qs = AccountRepository(qs).registry()
-        if self.action in {"list", "export", "kanban"}:
+        if self.action in {"list", "export"}:
             qs = qs.prefetch_related(_service_board_prefetch(self.request.user))
+        elif self.action == "kanban":
+            qs = qs.prefetch_related(_service_board_prefetch(self.request.user, with_periods=False))
         providers = _supplier_ids(self.request.user)
         # Суммы по услугам нужны строке списка. На карте и в группировке они
         # добавляют GROUP BY по лицевому счёту, и один населённый пункт
@@ -637,7 +640,11 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             else:
                 stage_qs = base.filter(funnel_stage__in=stored_codes(code))
             total = stage_qs.count()
-            cards = AccountListSerializer(stage_qs[start:start + page_size], many=True).data
+            cards = AccountListSerializer(
+                stage_qs[start:start + page_size],
+                many=True,
+                context={**self.get_serializer_context(), "with_periods": False},
+            ).data
             if scope == "claims":
                 case_ids = {}
                 if cards:

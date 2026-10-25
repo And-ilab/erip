@@ -4,8 +4,8 @@
 отделить от реестра лицевых счетов, не перенося HTTP-слой.
 """
 
-from django.db.models import Case, CharField, Count, IntegerField, Max, Min, Q, Sum, Value, When
-from django.db.models.functions import Cast, Coalesce, NullIf
+from django.db.models import Case, CharField, Count, F, IntegerField, Max, Min, Q, Sum, Value, When, Window
+from django.db.models.functions import Cast, Coalesce, NullIf, RowNumber
 from rest_framework.exceptions import ValidationError
 
 from apps.debts.services.assignees import specialist_label
@@ -149,7 +149,7 @@ def _person_groups(qs):
     )
 
 
-def _lines_by_person(qs, keys: list) -> dict:
+def _lines_by_person(qs, keys: list, *, with_periods: bool = True) -> dict:
     from django.db.models import Prefetch
 
     from apps.debts.models import ServiceDebtPeriod
@@ -157,17 +157,15 @@ def _lines_by_person(qs, keys: list) -> dict:
 
     if not keys:
         return {}
-    rows = (
-        _with_person(qs)
-        .filter(person_key__in=keys)
-        .prefetch_related(None)
-        .prefetch_related(Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period")))
-        .order_by("service_name", "id")
-    )
+    rows = _with_person(qs).filter(person_key__in=keys).order_by("service_name", "id")
+    if with_periods:
+        rows = rows.prefetch_related(None).prefetch_related(
+            Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period")),
+        )
     bucket: dict = {}
     for service in rows:
         bucket.setdefault(service.person_key, []).append(service)
-    return {key: board_service_lines(items) for key, items in bucket.items()}
+    return {key: board_service_lines(items, with_periods=with_periods) for key, items in bucket.items()}
 
 
 def _counted_by_account(account_ids: list[int], mode: str) -> dict[int, int]:
@@ -230,22 +228,49 @@ def person_page(qs, page: int, page_size: int, supplier: bool = False) -> tuple[
     ]
 
 
+def _kanban_pages(grouped, rank_field: str, start: int, page_size: int):
+    """Счётчики и страница всех колонок — два запроса, а не пара на каждую колонку."""
+    totals = {
+        row[rank_field]: row["total"]
+        for row in grouped.order_by().values(rank_field).annotate(total=Count("person_key", distinct=True))
+    }
+    end = start + page_size
+    numbered = grouped.annotate(
+        row_n=Window(
+            expression=RowNumber(),
+            partition_by=[F(rank_field)],
+            order_by=[F("payer").asc(), F("sample_id").asc()],
+        ),
+    ).filter(row_n__gt=start, row_n__lte=end)
+    chunks: dict = {}
+    for row in numbered:
+        chunks.setdefault(row[rank_field], []).append(row)
+    for rows in chunks.values():
+        rows.sort(key=lambda item: ((item.get("payer") or ""), item.get("sample_id") or 0))
+    return totals, chunks
+
+
 def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int, supplier: bool = False) -> list[dict]:
     grouped = _person_groups(qs)
-    columns = []
     start = (page - 1) * page_size
     rank_field = "group_rank" if supplier else "rank"
+    totals, chunks = _kanban_pages(grouped, rank_field, start, page_size)
+    prepared = []
+    keys = []
     for code, title in stages:
         rank = FUNNEL_RANK[code]
-        column = grouped.filter(**{rank_field: rank}).order_by("payer")
-        total = column.count()
-        chunk = list(column[start:start + page_size])
-        keys = [row["person_key"] for row in chunk]
-        ids = _account_ids(qs, keys)
-        lines = _lines_by_person(qs, keys)
-        flat = [item for values in ids.values() for item in values]
-        registered = _counted_by_account(flat, "active")
-        residents = _counted_by_account(flat, "resident")
+        chunk = chunks.get(rank, [])
+        prepared.append((code, title, totals.get(rank, 0), chunk))
+        keys.extend(row["person_key"] for row in chunk)
+    ids = _account_ids(qs, keys)
+    # Карточка берёт название услуги и число услуг с долгом. Остатки периодов здесь не рисуются.
+    lines = _lines_by_person(qs, keys, with_periods=False)
+    flat = [item for values in ids.values() for item in values]
+    registered = _counted_by_account(flat, "active")
+    residents = _counted_by_account(flat, "resident")
+    columns = []
+    cards_by_stage: dict[str, list] = {}
+    for code, title, total, chunk in prepared:
         cards = []
         for row in chunk:
             account_ids = ids.get(row["person_key"], [])
@@ -263,7 +288,15 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int,
                 "due_on": row["due_on"],
                 "account_ids": account_ids,
             })
-        badge_map = open_badges([(account_id, code) for card in cards for account_id in card["account_ids"]])
+        cards_by_stage[code] = cards
+        columns.append({"stage": code, "title": title, "total": total, "cards": cards})
+    badge_map = open_badges([
+        (account_id, code)
+        for code, cards in cards_by_stage.items()
+        for card in cards
+        for account_id in card["account_ids"]
+    ])
+    for code, cards in cards_by_stage.items():
         for card in cards:
             merged = []
             seen = set()
@@ -274,12 +307,6 @@ def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int,
                     seen.add(badge["measure_id"])
                     merged.append(badge)
             card["open_badges"] = merged
-        columns.append({
-            "stage": code,
-            "title": title,
-            "total": total,
-            "cards": cards,
-        })
     return columns
 
 

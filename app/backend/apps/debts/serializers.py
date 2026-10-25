@@ -161,7 +161,10 @@ class AccountListSerializer(serializers.ModelSerializer):
         data["obligation_total"] = _add_money(data.get("debt_total"), data.get("mulct_total"))
         if not data.get("unified_account"):
             data["unified_account"] = unified_from_raw(instance) or None
-        lines, debt_count = board_service_lines(instance.services.all())
+        lines, debt_count = board_service_lines(
+            instance.services.all(),
+            with_periods=self.context.get("with_periods", True),
+        )
         data["service_lines"] = lines
         data["services_debt_count"] = debt_count
         return data
