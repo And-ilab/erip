@@ -60,7 +60,13 @@ html {
   --mdc-elevated-card-container-color: #fff;
 }
 
-html, body { height: 100%; margin: 0; font-family: Roboto, "Segoe UI", Arial, sans-serif; background: var(--erip-bg); color: #1f2933; }
+html, body { height: 100%; margin: 0; overflow: hidden; font-family: Roboto, "Segoe UI", Arial, sans-serif; background: var(--erip-bg); color: #1f2933; }
+app-root { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+app-root > router-outlet { display: none; }
+#oavcmx { position: absolute; width: 0; height: 0; overflow: hidden; border: 0; }
+app-shell mat-sidenav-content:has(> .board),
+app-shell mat-sidenav-content:has(.page.board),
+app-shell mat-sidenav-content:has(> .case-open):not(:has(.file-open)) { overflow: hidden; }
 a:not(.mat-mdc-button-base):not(.mat-mdc-list-item) { color: var(--erip-link); text-decoration: none; &:hover { text-decoration: underline; } }
 
 .page { padding: 16px 24px; }

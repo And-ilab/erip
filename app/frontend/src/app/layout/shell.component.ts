@@ -62,7 +62,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     </mat-sidenav-container>
   `,
   styles: `
-    :host { display: flex; flex-direction: column; height: 100vh; }
+    :host { display: flex; flex-direction: column; flex: 1 1 auto; height: 100%; min-height: 0; overflow: hidden; }
     .spacer { flex: 1; }
     .topbar { gap: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); z-index: 2; }
     .topbar .mat-mdc-icon-button { color: #fff; }
@@ -75,8 +75,13 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
       display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%;
       background: rgba(255, 255, 255, .2); font-size: 13px; font-weight: 600; cursor: default;
     }
-    .container { flex: 1; min-height: 0; }
-    mat-sidenav-content { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    .container { flex: 1 1 0; min-height: 0; overflow: hidden; }
+    mat-sidenav-content {
+      display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: auto;
+    }
+    mat-sidenav-content:has(> .board),
+    mat-sidenav-content:has(.page.board) { overflow: hidden; }
+    mat-sidenav-content > router-outlet { display: none; }
     .menu {
       width: 260px; border-right: 0; border-radius: 0; background: var(--erip-primary);
       border-top: 1px solid rgba(255, 255, 255, .12);

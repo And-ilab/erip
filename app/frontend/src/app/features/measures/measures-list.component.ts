@@ -335,7 +335,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   `,
   styles: `
     :host { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-    :host:has(.page.board) { height: 100%; min-width: 0; overflow: hidden; }
+    :host:has(.page.board) { flex: 1 1 auto; height: 100%; max-height: 100%; min-height: 0; min-width: 0; overflow: hidden; }
     .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; background: #f3f6f8; }
     .page.board .body {
       display: flex; flex-direction: column; overflow-x: auto; overflow-y: scroll;

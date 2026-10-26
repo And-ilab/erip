@@ -254,7 +254,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
   `,
   styles: `
     :host.board {
-      display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+      display: flex; flex-direction: column; flex: 1 1 auto; height: 100%; max-height: 100%;
+      min-height: 0; min-width: 0; overflow: hidden;
     }
     .page.board {
       display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;

@@ -48,7 +48,8 @@ import { AuthService } from '../../core/auth.service';
     </div>
   `,
   styles: `
-    .wrap { display: flex; justify-content: center; align-items: center; height: 100vh; }
+    :host { display: block; height: 100%; min-height: 0; }
+    .wrap { display: flex; justify-content: center; align-items: center; height: 100%; }
     .card { width: 420px; max-width: calc(100vw - 32px); padding: 8px; }
     .roles { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
     .roles p { margin: 0 0 4px; }

@@ -613,7 +613,8 @@ interface GroupSection {
   styles: `
     :host { display: block; }
     :host.board {
-      display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+      display: flex; flex-direction: column; flex: 1 1 auto; height: 100%; max-height: 100%;
+      min-height: 0; min-width: 0; overflow: hidden;
     }
     .registry.board { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box; }
     .registry.board > :not(.body) { flex: 0 0 auto; }
