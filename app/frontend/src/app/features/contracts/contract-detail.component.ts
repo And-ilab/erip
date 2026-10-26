@@ -14,6 +14,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
+import { funnelTitle } from '../funnel-stages';
 import { GridResizeDirective } from '../grid-resize.directive';
 import {
   AccountDetail,
@@ -409,15 +410,39 @@ import {
             </div>
           </mat-tab>
 
-          <mat-tab label="История изменений">
+          <mat-tab [label]="'История изменений (' + journal().length + ')'">
             <div class="filters">
               <button mat-stroked-button type="button" (click)="historyPane = 'rating'">Группа и рейтинг</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'measure'">Изменение мероприятий</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'other'">Прочие изменения</button>
             </div>
-            @for (row of historyRows(); track row.id) {
-              <p>{{ row.created_at | date: 'dd.MM.yyyy HH:mm' }} · {{ row.author_name || 'система' }} · {{ historyKind(row.kind) }} · {{ row.old_value }} → {{ row.new_value }} · {{ row.reason }}</p>
-            } @empty { <p class="muted">Записей нет.</p> }
+            <p class="muted tab-note">Группа и рейтинг — отдельно. Этап, сценарий, контакты и остальные изменения — на кнопке «Прочие».</p>
+            <div class="list-pane">
+              <table class="journal" appGridResize="contract-history">
+                <thead>
+                  <tr>
+                    <th>Когда</th>
+                    <th>Что</th>
+                    <th>Было</th>
+                    <th>Стало</th>
+                    <th>Основание</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of historyRows(); track row.id) {
+                    <tr>
+                      <td>{{ row.created_at | date: 'dd.MM.yyyy HH:mm' }}</td>
+                      <td>{{ historyKind(row.kind) }}</td>
+                      <td>{{ historyValue(row.kind, row.old_value) }}</td>
+                      <td>{{ historyValue(row.kind, row.new_value) }}</td>
+                      <td>{{ row.reason }}@if (row.author_name) { · {{ row.author_name }} }</td>
+                    </tr>
+                  } @empty {
+                    <tr><td colspan="5" class="muted">Записей нет.</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           </mat-tab>
         </mat-tab-group>
       }
@@ -437,6 +462,8 @@ import {
     tr { cursor: pointer; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
+    .tab-note { margin: 12px 0 8px; font-size: 13px; line-height: 1.45; max-width: 760px; }
+    table.journal tr { cursor: default; }
   `,
 })
 export class ContractDetailComponent implements OnInit {
@@ -562,10 +589,18 @@ export class ContractDetailComponent implements OnInit {
 
   protected historyKind(kind: string): string {
     const labels: Record<string, string> = {
-      group: 'Группа', rating: 'Рейтинг', measure: 'Мероприятие', funnel: 'Этап воронки',
-      scenario: 'Сценарий', contact: 'Контакт', category: 'Категория', inheritance: 'Наследственное дело',
+      group: 'Группа', rating: 'Рейтинг', funnel: 'Этап воронки', scenario: 'Сценарий',
+      contact: 'Контакт', category: 'Категория', inheritance: 'Наследственное дело',
+      registration: 'Регистрация', residence: 'Проживание', legal: 'Статус лица',
+      measure: 'Мероприятие',
     };
     return labels[kind] || kind;
+  }
+
+  protected historyValue(kind: string, value: string): string {
+    if (!value) return '—';
+    if (kind === 'funnel') return funnelTitle(value);
+    return value;
   }
 
   protected refreshNow(): void {

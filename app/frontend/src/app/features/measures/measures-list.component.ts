@@ -30,7 +30,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     KanbanDragDirective, GridResizeDirective,
   ],
   template: `
-    <div class="page">
+    <div class="page" [class.board]="view() === 'kanban'">
       <div class="control">
         <h2>Реестр мероприятий</h2>
         @if (view() !== 'ready') {
@@ -335,7 +335,14 @@ import { RegistryViewsComponent } from '../registry-views.component';
   `,
   styles: `
     :host { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+    :host:has(.page.board) { height: 100%; min-width: 0; overflow: hidden; }
     .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; background: #f3f6f8; }
+    .page.board .body { display: flex; flex-direction: column; overflow: hidden; }
+    .page.board .k-board { flex: 1; min-height: 0; min-width: 0; overflow: auto; align-items: flex-start; }
+    .page.board .k-col h3 {
+      position: sticky; top: 0; z-index: 1; background: #f3f6f8; margin-bottom: 0;
+    }
+    .page.board .k-cards { padding-top: 8px; }
     .control {
       display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; flex: 0 0 auto;
       background: #f7f9fb; border-bottom: 1px solid var(--erip-border);

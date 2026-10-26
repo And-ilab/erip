@@ -20,7 +20,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
   selector: 'app-claims-board',
-  host: { '[class.case-open]': 'caseOpen()' },
+  host: {
+    '[class.case-open]': 'caseOpen()',
+    '[class.board]': '!caseOpen() && mode() === "kanban"',
+  },
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
@@ -28,7 +31,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective,
   ],
   template: `
-    <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()">
+    <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()" [class.board]="!caseOpen() && mode() === 'kanban'">
       @if (!caseOpen()) {
       <div class="toolbar">
         <h2>Претензионно-исковая работа</h2>
@@ -248,6 +251,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
     </div>
   `,
   styles: `
+    :host.board {
+      display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+    }
+    .page.board {
+      display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
+    }
+    .page.board > :not(.k-board) { flex: 0 0 auto; }
+    .page.board .k-board { flex: 1; min-height: 0; min-width: 0; overflow: auto; align-items: flex-start; }
+    .page.board .k-col h3 {
+      position: sticky; top: 0; z-index: 1; background: var(--erip-bg); margin-bottom: 0;
+    }
+    .page.board .k-cards { padding-top: 8px; }
     :host.case-open { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
     .page.case { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px 16px; }
     :host.case-open:has(app-claim-checklist.file-open) { flex: 1 0 auto; height: auto; min-height: 100%; overflow: visible; }

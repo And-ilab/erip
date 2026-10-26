@@ -111,6 +111,7 @@ const COLUMN_LABELS: Record<string, string> = {
 
 @Component({
   selector: 'app-contracts-list',
+  host: { '[class.board]': 'view() === "kanban"' },
   standalone: true,
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
@@ -118,7 +119,7 @@ const COLUMN_LABELS: Record<string, string> = {
     DomainFilterComponent, KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, ColumnDragDirective,
   ],
   template: `
-    <div class="registry">
+    <div class="registry" [class.board]="view() === 'kanban'">
       <div class="control">
         <span class="crumb">Реестр договоров</span>
         <div class="search-wrap" (click)="$event.stopPropagation()">
@@ -543,6 +544,19 @@ const COLUMN_LABELS: Record<string, string> = {
   `,
   styles: `
     :host { display: block; }
+    :host.board {
+      display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+    }
+    .registry.board { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box; }
+    .registry.board > :not(.body) { flex: 0 0 auto; }
+    .registry.board .body {
+      display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
+    }
+    .registry.board .k-board { flex: 1; min-height: 0; min-width: 0; overflow: auto; align-items: flex-start; }
+    .registry.board .k-col h3 {
+      position: sticky; top: 0; z-index: 1; background: var(--erip-bg); margin-bottom: 0;
+    }
+    .registry.board .k-cards { padding-top: 8px; }
     .one-line { white-space: nowrap; }
     .control {
       display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px;
