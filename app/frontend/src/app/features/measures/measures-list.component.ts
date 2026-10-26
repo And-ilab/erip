@@ -337,10 +337,16 @@ import { RegistryViewsComponent } from '../registry-views.component';
     :host { display: flex; flex: 1; flex-direction: column; min-height: 0; }
     :host:has(.page.board) { height: 100%; min-width: 0; overflow: hidden; }
     .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; background: #f3f6f8; }
-    .page.board .body { display: flex; flex-direction: column; overflow: hidden; }
+    .page.board .body {
+      display: flex; flex-direction: column; overflow-x: auto; overflow-y: scroll;
+      overscroll-behavior: none; scrollbar-color: #8b98a5 #e7edf2;
+    }
+    .page.board .body::-webkit-scrollbar { width: 14px; height: 14px; }
+    .page.board .body::-webkit-scrollbar-track { background: #e7edf2; }
+    .page.board .body::-webkit-scrollbar-thumb { background: #8b98a5; border-radius: 7px; border: 3px solid #e7edf2; }
     .page.board .k-board {
-      flex: 1; min-height: 0; min-width: 0;
-      overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      flex: 1 0 auto; align-items: stretch; min-height: 100%; min-width: 100%; width: max-content;
+      overflow: visible;
     }
     .page.board .k-cards { padding-top: 8px; }
     .control {
@@ -360,29 +366,30 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .icon.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
     .k-board {
-      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
-      min-height: 0; padding: 12px 16px 0;
+      display: flex; gap: 14px; align-items: stretch; overflow: visible;
+      padding: 12px 16px 0;
     }
     .k-cards {
-      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
-      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+      display: flex; flex-direction: column; flex: 1 1 auto;
+      overflow: visible; padding-bottom: 12px;
     }
     .k-card.kanban-source { opacity: .35; }
     .k-col {
-      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      width: 268px; flex: 0 0 268px; align-self: stretch;
       display: flex; flex-direction: column;
     }
     .k-col h3 {
-      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      position: sticky; top: 0; z-index: 2;
       flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
       border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
       color: #243140; background: #f3f6f8;
     }
     .k-col h3 span {
-      flex: 1 1 auto; min-width: 0; overflow: hidden;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      flex: 1 1 auto; min-width: 0; max-height: 2.5em; overflow: hidden;
+      text-align: justify;
     }
-    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
+    .k-col h3 b { flex: 0 0 auto; align-self: center; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .k-col[data-status="assigned"] h3 { border-bottom-color: #2563eb; }
     .k-col[data-status="running"] h3 { border-bottom-color: #7c3aed; }
     .k-col[data-status="done"] h3 { border-bottom-color: #1f9d55; }

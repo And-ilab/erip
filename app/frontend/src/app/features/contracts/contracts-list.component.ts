@@ -554,11 +554,16 @@ const COLUMN_LABELS: Record<string, string> = {
     .registry.board { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box; }
     .registry.board > :not(.body) { flex: 0 0 auto; }
     .registry.board .body {
-      display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
+      display: flex; flex-direction: column; flex: 1; min-height: 0;
+      overflow-x: auto; overflow-y: scroll; overscroll-behavior: none; box-sizing: border-box;
+      scrollbar-color: #8b98a5 #e7edf2;
     }
+    .registry.board .body::-webkit-scrollbar { width: 14px; height: 14px; }
+    .registry.board .body::-webkit-scrollbar-track { background: #e7edf2; }
+    .registry.board .body::-webkit-scrollbar-thumb { background: #8b98a5; border-radius: 7px; border: 3px solid #e7edf2; }
     .registry.board .k-board {
-      flex: 1; min-height: 0; min-width: 0;
-      overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      flex: 1 0 auto; align-items: stretch; min-height: 100%; min-width: 100%; width: max-content;
+      overflow: visible;
     }
     .registry.board .k-cards { padding-top: 8px; }
     .one-line { white-space: nowrap; }
@@ -637,16 +642,15 @@ const COLUMN_LABELS: Record<string, string> = {
     .actions { white-space: normal; max-width: 280px; }
     .body { padding: 16px 24px; }
     .k-board {
-      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
-      min-height: 0;
+      display: flex; gap: 14px; align-items: stretch; overflow: visible;
     }
     .k-col {
-      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      width: 268px; flex: 0 0 268px; align-self: stretch;
       display: flex; flex-direction: column;
     }
     .k-cards {
-      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
-      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+      display: flex; flex-direction: column; flex: 1 1 auto;
+      overflow: visible; padding-bottom: 12px;
     }
     .k-card.kanban-source { opacity: .35; }
     .measure-badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
@@ -655,16 +659,17 @@ const COLUMN_LABELS: Record<string, string> = {
       font: inherit; font-size: 11px; line-height: 1.3; padding: 2px 8px; cursor: pointer; text-align: left;
     }
     .k-col h3 {
-      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      position: sticky; top: 0; z-index: 2;
       flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
       border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
       color: #243140; background: var(--erip-bg);
     }
     .k-col h3 span {
-      flex: 1 1 auto; min-width: 0; overflow: hidden;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      flex: 1 1 auto; min-width: 0; max-height: 2.5em; overflow: hidden;
+      text-align: justify;
     }
-    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
+    .k-col h3 b { flex: 0 0 auto; align-self: center; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
     .k-col[data-stage="call"] h3 { border-bottom-color: #2563eb; }
     .k-col[data-stage="notice"] h3 { border-bottom-color: #0f766e; }
