@@ -10,7 +10,7 @@ import { MatTableModule } from '@angular/material/table';
 import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate } from '../../core/api.service';
 import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { ColumnDragDirective } from '../column-drag.directive';
 import { AnalyticsComponent } from '../analytics/analytics.component';
@@ -19,6 +19,7 @@ import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { DomainFilterComponent, DomainRule, contractDomainFields, parseDomain } from '../domain-filter.component';
 import { GridResizeDirective } from '../grid-resize.directive';
 import { FUNNEL_STAGES, funnelId, funnelTitle } from '../funnel-stages';
+import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { KanbanDragDirective } from '../kanban-drag.directive';
 import { RegistryViewsComponent } from '../registry-views.component';
@@ -117,6 +118,7 @@ const COLUMN_LABELS: Record<string, string> = {
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
     DomainFilterComponent, KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, ColumnDragDirective,
+    FunnelGateDialogComponent,
   ],
   template: `
     <div class="registry" [class.board]="view() === 'kanban'">
@@ -407,7 +409,7 @@ const COLUMN_LABELS: Record<string, string> = {
           <div class="k-board">
             @for (column of kanban(); track column.stage) {
               <section class="k-col" [attr.data-kanban-stage]="column.stage" [attr.data-stage]="column.stage">
-                <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
+                <h3><span [attr.title]="column.title">{{ column.title }}</span><b>{{ column.total }}</b></h3>
                 <div class="k-cards">
                 @for (card of column.cards; track card.sample_id) {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
@@ -540,6 +542,8 @@ const COLUMN_LABELS: Record<string, string> = {
           (cancel)="customOpen.set(false)" />
       }
 
+      <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
+
     </div>
   `,
   styles: `
@@ -552,9 +556,9 @@ const COLUMN_LABELS: Record<string, string> = {
     .registry.board .body {
       display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
     }
-    .registry.board .k-board { flex: 1; min-height: 0; min-width: 0; overflow: auto; align-items: flex-start; }
-    .registry.board .k-col h3 {
-      position: sticky; top: 0; z-index: 1; background: var(--erip-bg); margin-bottom: 0;
+    .registry.board .k-board {
+      flex: 1; min-height: 0; min-width: 0;
+      overflow-x: auto; overflow-y: hidden; align-items: stretch;
     }
     .registry.board .k-cards { padding-top: 8px; }
     .one-line { white-space: nowrap; }
@@ -632,9 +636,18 @@ const COLUMN_LABELS: Record<string, string> = {
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .actions { white-space: normal; max-width: 280px; }
     .body { padding: 16px 24px; }
-    .k-board { display: flex; gap: 14px; overflow-x: auto; overflow-y: visible; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; min-height: 180px; }
-    .k-cards { display: flex; flex-direction: column; }
+    .k-board {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      min-height: 0;
+    }
+    .k-col {
+      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      display: flex; flex-direction: column;
+    }
+    .k-cards {
+      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+    }
     .k-card.kanban-source { opacity: .35; }
     .measure-badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
     .measure-badge {
@@ -642,11 +655,16 @@ const COLUMN_LABELS: Record<string, string> = {
       font: inherit; font-size: 11px; line-height: 1.3; padding: 2px 8px; cursor: pointer; text-align: left;
     }
     .k-col h3 {
-      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
-      font-size: 13px; font-weight: 600; color: #243140;
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
+      border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
+      color: #243140; background: var(--erip-bg);
     }
-    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col h3 span {
+      flex: 1 1 auto; min-width: 0; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
     .k-col[data-stage="call"] h3 { border-bottom-color: #2563eb; }
     .k-col[data-stage="notice"] h3 { border-bottom-color: #0f766e; }
@@ -771,6 +789,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly specialists = signal<{ name: string }[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
+  protected readonly gate = signal<FunnelGateInfo | null>(null);
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly dropStage = signal<string | null>(null);
   protected readonly selected = signal<Set<number>>(new Set());
@@ -1176,6 +1195,13 @@ export class ContractsListComponent implements OnInit {
         this.showKanban();
       },
       error: (e) => {
+        const blocked = funnelGate(e);
+        if (blocked) {
+          this.error.set('');
+          this.gate.set(blocked);
+          this.showKanban();
+          return;
+        }
         this.error.set(errorMessage(e));
         this.showKanban();
       },
@@ -1203,8 +1229,24 @@ export class ContractsListComponent implements OnInit {
         this.pendingIds = [];
         this.showKanban();
       },
-      error: (e) => this.error.set(errorMessage(e)),
+      error: (e) => {
+        const blocked = funnelGate(e);
+        if (blocked) {
+          this.error.set('');
+          this.gate.set(blocked);
+          return;
+        }
+        this.error.set(errorMessage(e));
+      },
     });
+  }
+
+  protected openGate(): void {
+    const blocked = this.gate();
+    this.gate.set(null);
+    const id = blocked?.accountId;
+    if (!id) return;
+    this.router.navigate(['/accounts', id], { queryParams: { tab: blocked.tab || 'activities' } });
   }
 
   protected togglePerson(row: ContractPerson): void {

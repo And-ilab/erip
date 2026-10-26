@@ -9,7 +9,7 @@ from django.conf import settings
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.debts.models import Attachment, StageActivity
-from apps.debts.services.funnel import MAIN, MEASURE_STAGE, PARALLEL, normalize, short_of, title_of
+from apps.debts.services.funnel import MAIN, MEASURE_STAGE, PARALLEL, normalize, parse_handed_on, short_of, title_of
 
 # code, parent, title, kind. kind группы не нажимается: статус складывается из детей.
 TEMPLATES = {
@@ -82,6 +82,11 @@ def _rows_for(stage: str):
     return TEMPLATES.get(stage) or (
         ("step", "", title_of(stage), "field"),
     )
+
+
+def ensure_stage(account, stage: str) -> None:
+    """Пункты этапа, чтобы их можно было закрыть до перехода колонки."""
+    _ensure(account, stage)
 
 
 def _ensure(account, stage: str, measure_id=None) -> None:
@@ -246,7 +251,10 @@ def perform_activity(account, user, activity_id: int, note: str, upload) -> dict
             raise ValidationError({"note": "Укажите результат обзвона"})
         row.note = text
     else:
-        if not text:
+        if row.code == "hand":
+            if parse_handed_on(text) is None:
+                raise ValidationError({"note": "Укажите дату вручения в формате дд.мм.гггг"})
+        elif not text:
             raise ValidationError({"note": "Заполните поле"})
         row.note = text
     row.status = "done"

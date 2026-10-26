@@ -109,6 +109,35 @@ export function errorMessage(error: unknown): string {
   return 'Неизвестная ошибка';
 }
 
+/** Закрытый переход воронки: что сделать и на какую вкладку карточки вести. */
+export interface FunnelGateInfo {
+  message: string;
+  actions: string[];
+  tab: string;
+  tabLabel: string;
+  accountId: number | null;
+}
+
+export function funnelGate(error: unknown): FunnelGateInfo | null {
+  if (!(error instanceof HttpErrorResponse)) return null;
+  const body = error.error as ApiError | undefined;
+  if (body?.error?.code !== 'funnel_gate') return null;
+  const details = body.error.details;
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
+  const row = details as Record<string, unknown>;
+  const actions = Array.isArray(row['actions'])
+    ? row['actions'].filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+    : [];
+  const account = Number(row['account_id']);
+  return {
+    message: body.error.message,
+    actions,
+    tab: typeof row['tab'] === 'string' && row['tab'] ? row['tab'] : 'activities',
+    tabLabel: typeof row['tab_label'] === 'string' && row['tab_label'] ? row['tab_label'] : 'Активности',
+    accountId: Number.isFinite(account) && account > 0 ? account : null,
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);

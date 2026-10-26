@@ -5,6 +5,8 @@
 Параллельные P1 и P2 колонками не становятся.
 """
 
+from datetime import datetime
+
 from rest_framework.exceptions import ValidationError
 
 # code, полное имя колонки, короткая подпись ленты, метка
@@ -112,21 +114,67 @@ def rank_of(raw: str | None) -> int:
     return FUNNEL_RANK.get(normalize(raw), 0)
 
 
+def parse_handed_on(raw: str | None):
+    """Дата вручения из пункта «Вручение под роспись»: дд.мм.гггг или ГГГГ-ММ-ДД."""
+    token = (raw or "").strip().split()[0] if (raw or "").strip() else ""
+    if not token:
+        return None
+    for sample, fmt in ((token, "%d.%m.%Y"), (token[:10], "%Y-%m-%d")):
+        try:
+            return datetime.strptime(sample, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+class FunnelGate(ValidationError):
+    """Переход закрыт, пока на карточке не сделаны указанные действия."""
+
+    status_code = 400
+    default_code = "funnel_gate"
+
+    def __init__(self, message: str, *, actions: list[str], tab: str, tab_label: str, account_id: int):
+        super().__init__(detail=message, code="funnel_gate")
+        self.gate_message = message
+        self.extra = {
+            "actions": actions,
+            "tab": tab,
+            "tab_label": tab_label,
+            "account_id": account_id,
+        }
+
+
 def warning_handed(account) -> bool:
-    from apps.debts.models import ClaimCase, MeasureItem
+    from apps.debts.models import ClaimCase, MeasureItem, StageActivity
 
     if ClaimCase.objects.filter(account=account, warning_delivered_on__isnull=False).exists():
         return True
-    return MeasureItem.objects.filter(
+    if MeasureItem.objects.filter(
         account=account, measure__kind="warning", delivered_on__isnull=False,
-    ).exists()
+    ).exists():
+        return True
+    note = (
+        StageActivity.objects.filter(account=account, code="hand", status="done")
+        .order_by("-id")
+        .values_list("note", flat=True)
+        .first()
+    )
+    return parse_handed_on(note) is not None
 
 
 def assert_transition(account, stage: str) -> None:
-    if stage in GATED and not warning_handed(account):
-        raise ValidationError({
-            "funnel_stage": "Нет даты вручения предупреждения. Чек-лист не пускает карточку в эту колонку.",
-        })
+    if stage not in GATED or warning_handed(account):
+        return
+    from apps.debts.services.activities import ensure_stage
+
+    ensure_stage(account, "notice")
+    raise FunnelGate(
+        "Нет даты вручения предупреждения. Карточка остаётся в своей колонке.",
+        actions=["Указать дату вручения предупреждения"],
+        tab="activities",
+        tab_label="Активности",
+        account_id=account.pk,
+    )
 
 
 def set_stage(account, stage: str, user=None, reason: str = "", *, lock: bool = False, check: bool = True) -> bool:

@@ -15,7 +15,7 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize, forkJoin, Observable } from 'rxjs';
 
-import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -26,6 +26,7 @@ import { GridResizeDirective } from '../grid-resize.directive';
 import { ColumnDragDirective } from '../column-drag.directive';
 import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 import { AccountActivitiesComponent } from './account-activities.component';
+import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
 import { FunnelBarComponent } from './funnel-bar.component';
 
 @Component({
@@ -36,6 +37,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
     MatAutocompleteModule,
     MatFormFieldModule, MatSelectModule, MatInputModule, MatSnackBarModule, MatCheckboxModule, MatIconModule,
     MeasureTasksComponent, GridResizeDirective, ColumnDragDirective, FunnelBarComponent, AccountActivitiesComponent,
+    FunnelGateDialogComponent,
   ],
   template: `
     <div class="page">
@@ -635,6 +637,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
           </div>
         }
       }
+      <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
     </div>
   `,
   styles: `
@@ -823,6 +826,7 @@ export class AccountDetailComponent implements OnInit {
   protected readonly registrations = signal<Registration[]>([]);
   protected readonly templates = signal<MessageTemplate[]>([]);
   protected readonly error = signal('');
+  protected readonly gate = signal<FunnelGateInfo | null>(null);
   protected readonly sending = signal(false);
   protected readonly activities = signal<ActivityBoard | null>(null);
   protected readonly activitiesLoading = signal(false);
@@ -938,14 +942,10 @@ export class AccountDetailComponent implements OnInit {
         const tab = this.route.snapshot.queryParamMap.get('tab');
         const measure = Number(this.route.snapshot.queryParamMap.get('measure') || '');
         this.loadHeader(id);
-        if (tab === 'writ') {
-          this.tabIndex.set(7);
-          this.ensureTab(7);
-        } else {
-          if (measure) this.focusMeasure.set(measure);
-          this.tabIndex.set(0);
-          this.ensureTab(0);
-        }
+        const named = this.tabIndexOf(tab);
+        if (named === 0 && measure) this.focusMeasure.set(measure);
+        this.tabIndex.set(named);
+        this.ensureTab(named);
       },
       error: (e) => {
         agentDbg('A', 'account-detail.component.ts:ngOnInit', 'card forkJoin failed', {
@@ -1169,8 +1169,35 @@ export class AccountDetailComponent implements OnInit {
         if (this.tabIndex() === 0) this.ensureTab(0);
         this.snack.open('Этап изменён', 'OK', { duration: 2000 });
       },
-      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+      error: (e) => {
+        const blocked = funnelGate(e);
+        if (blocked) {
+          this.gate.set(blocked.accountId ? blocked : { ...blocked, accountId: account.id });
+          return;
+        }
+        this.snack.open(errorMessage(e), 'OK');
+      },
     });
+  }
+
+  protected openGate(): void {
+    const blocked = this.gate();
+    this.gate.set(null);
+    if (!blocked) return;
+    const here = this.account()?.id;
+    if (blocked.accountId && here && blocked.accountId !== here) {
+      this.router.navigate(['/accounts', blocked.accountId], { queryParams: { tab: blocked.tab } });
+      return;
+    }
+    const index = this.tabIndexOf(blocked.tab);
+    this.loadedParts.delete(`tab-${index}`);
+    this.openTab(index);
+  }
+
+  private tabIndexOf(tab: string | null): number {
+    if (tab === 'measures') return 3;
+    if (tab === 'writ') return 7;
+    return 0;
   }
 
   protected changeParallel(stage: string): void {

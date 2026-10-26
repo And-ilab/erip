@@ -214,8 +214,16 @@ export class KanbanDragDirective implements OnDestroy {
     if (this.ghost) this.ghost.style.visibility = 'hidden';
     const node = document.elementFromPoint(x, y);
     if (this.ghost) this.ghost.style.visibility = '';
-    const column = node?.closest('[data-kanban-stage]');
-    return column instanceof HTMLElement ? column : null;
+    const hit = node?.closest('[data-kanban-stage]');
+    if (hit instanceof HTMLElement) return hit;
+    const board = this.host.nativeElement.closest('.k-board');
+    if (!(board instanceof HTMLElement)) return null;
+    for (const item of Array.from(board.querySelectorAll('[data-kanban-stage]'))) {
+      if (!(item instanceof HTMLElement)) continue;
+      const rect = item.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return item;
+    }
+    return null;
   }
 
   private nudgeScroll(x: number, y: number): void {
@@ -225,21 +233,11 @@ export class KanbanDragDirective implements OnDestroy {
       if (x > rect.right - 36) board.scrollLeft += 18;
       else if (x < rect.left + 36) board.scrollLeft -= 18;
     }
-    const scroller = this.scrollParent();
-    if (!scroller) return;
-    const rect = scroller.getBoundingClientRect();
-    if (y > rect.bottom - 48) scroller.scrollTop += 16;
-    else if (y < rect.top + 48) scroller.scrollTop -= 16;
-  }
-
-  private scrollParent(): HTMLElement | null {
-    let node: HTMLElement | null = this.host.nativeElement.parentElement;
-    while (node) {
-      const style = getComputedStyle(node);
-      if (/(auto|scroll)/.test(style.overflowY)) return node;
-      node = node.parentElement;
-    }
-    return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null;
+    const cards = this.columnAt(x, y)?.querySelector(':scope > .k-cards');
+    if (!(cards instanceof HTMLElement)) return;
+    const rect = cards.getBoundingClientRect();
+    if (y > rect.bottom - 48) cards.scrollTop += 16;
+    else if (y < rect.top + 48) cards.scrollTop -= 16;
   }
 
   private flyBack(): void {

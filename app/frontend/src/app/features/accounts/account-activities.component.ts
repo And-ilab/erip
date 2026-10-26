@@ -61,7 +61,7 @@ import { ActivityNode } from '../../core/models';
                 <input type="file" (change)="sendFile(row, $event)" />
               } @else {
                 <input [value]="draft()" (input)="draft.set($any($event.target).value)"
-                  [placeholder]="row.kind === 'call' ? 'Результат обзвона' : 'Значение'" />
+                  [placeholder]="row.code === 'hand' ? 'Дата вручения, дд.мм.гггг' : (row.kind === 'call' ? 'Результат обзвона' : 'Значение')" />
                 <button type="button" class="go" (click)="send(row)">Выполнить</button>
               }
               <button type="button" class="go" (click)="editing.set(null)">Отмена</button>

@@ -110,7 +110,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
         <div class="k-board">
           @for (lane of shownLanes(); track lane.id) {
             <section class="k-col" [attr.data-kanban-stage]="lane.entry" [attr.data-lane]="lane.id">
-              <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane) }}</b></h3>
+              <h3><span [attr.title]="lane.label">{{ lane.label }}</span><b>{{ laneTotal(lane) }}</b></h3>
               <div class="k-cards">
               @for (card of laneCards(lane); track card.id) {
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
@@ -258,9 +258,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
       display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
     }
     .page.board > :not(.k-board) { flex: 0 0 auto; }
-    .page.board .k-board { flex: 1; min-height: 0; min-width: 0; overflow: auto; align-items: flex-start; }
-    .page.board .k-col h3 {
-      position: sticky; top: 0; z-index: 1; background: var(--erip-bg); margin-bottom: 0;
+    .page.board .k-board {
+      flex: 1; min-height: 0; min-width: 0;
+      overflow-x: auto; overflow-y: hidden; align-items: stretch;
     }
     .page.board .k-cards { padding-top: 8px; }
     :host.case-open { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
@@ -281,16 +281,30 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .account-no { color: var(--erip-link); }
     .pack-link { display: block; color: var(--erip-link); text-decoration: none; }
     .pack-link + .pack-link { margin-top: 4px; }
-    .k-board { display: flex; gap: 14px; overflow-x: auto; overflow-y: visible; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; min-height: 180px; }
-    .k-cards { display: flex; flex-direction: column; }
+    .k-board {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      min-height: 0;
+    }
+    .k-col {
+      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      display: flex; flex-direction: column;
+    }
+    .k-cards {
+      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+    }
     .k-card.kanban-source { opacity: .35; }
     .k-col h3 {
-      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
-      font-size: 13px; font-weight: 600; color: #243140;
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
+      border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
+      color: #243140; background: var(--erip-bg);
     }
-    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col h3 span {
+      flex: 1 1 auto; min-width: 0; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .modules { display: flex; gap: 8px; margin: 0 0 12px; }
     .modules button {
       border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; font-weight: 600;

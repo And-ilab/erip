@@ -43,6 +43,69 @@ def test_ribbon_saves_without_a_reason_and_blocks_a_gated_stage(api, specialist_
     assert account_a.funnel_stage == "call"
 
 
+def _find_activity(nodes, code):
+    for node in nodes:
+        if node.get("code") == code:
+            return node
+        found = _find_activity(node.get("children") or [], code)
+        if found:
+            return found
+    return None
+
+
+def _hand(board):
+    found = _find_activity(board.get("current") or [], "hand")
+    if found:
+        return found
+    for block in board.get("parallel") or []:
+        found = _find_activity(block.get("items") or [], "hand")
+        if found:
+            return found
+    return None
+
+
+@pytest.mark.django_db
+def test_gated_move_names_the_action_and_a_handed_date_opens_the_column(api, specialist_a, account_a):
+    specialist_a.can_approve = True
+    specialist_a.save(update_fields=["can_approve"])
+    account_a.funnel_stage = "notice"
+    account_a.save(update_fields=["funnel_stage"])
+    blocked = api(specialist_a).patch(
+        f"/api/v1/accounts/{account_a.id}/", {"funnel_stage": "disconnect"}, format="json",
+    )
+    assert blocked.status_code == 400
+    error = blocked.json()["error"]
+    assert error["code"] == "funnel_gate"
+    assert "вручен" in error["message"].lower()
+    assert error["details"]["tab"] == "activities"
+    assert error["details"]["tab_label"] == "Активности"
+    assert error["details"]["account_id"] == account_a.id
+    assert error["details"]["actions"] == ["Указать дату вручения предупреждения"]
+    account_a.refresh_from_db()
+    assert account_a.funnel_stage == "notice"
+    board = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/activities/").json()
+    hand = _hand(board)
+    assert hand is not None
+    rejected = api(specialist_a).post(
+        f"/api/v1/accounts/{account_a.id}/activities/",
+        {"id": hand["id"], "note": "вручено"},
+        format="json",
+    )
+    assert rejected.status_code == 400
+    done = api(specialist_a).post(
+        f"/api/v1/accounts/{account_a.id}/activities/",
+        {"id": hand["id"], "note": "01.03.2026"},
+        format="json",
+    )
+    assert done.status_code == 200, done.content
+    moved = api(specialist_a).patch(
+        f"/api/v1/accounts/{account_a.id}/", {"funnel_stage": "disconnect"}, format="json",
+    )
+    assert moved.status_code == 200, moved.content
+    account_a.refresh_from_db()
+    assert account_a.funnel_stage == "disconnect"
+
+
 @pytest.mark.django_db
 def test_open_measure_stays_a_badge_outside_its_old_column(api, specialist_a, org_a, account_a):
     specialist_a.can_approve = True

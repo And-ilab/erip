@@ -39,6 +39,11 @@ def api_exception_handler(exc, context):
 
     response = exception_handler(exc, context)
     if response is not None:
+        gate_message = getattr(exc, "gate_message", None)
+        extra = getattr(exc, "extra", None)
+        if gate_message and isinstance(extra, dict):
+            response.data = error_body("funnel_gate", gate_message, extra)
+            return response
         details = response.data if isinstance(exc, exceptions.ValidationError) else None
         codes = exc.get_codes() if isinstance(exc, exceptions.APIException) else "error"
         code = codes if isinstance(codes, str) else "invalid"
