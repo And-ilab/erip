@@ -6,7 +6,9 @@ from .models import Organization, ServiceOrganization, User
 
 ROLE_RANK = {
     User.Role.OBSERVER: 1,
+    User.Role.VIEWER: 1,
     User.Role.SPECIALIST: 2,
+    User.Role.LEGAL: 2,
     User.Role.LOCAL_ADMIN: 3,
     User.Role.SUPERADMIN: 4,
 }

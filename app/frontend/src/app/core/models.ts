@@ -9,7 +9,7 @@ export interface ApiError {
   error: { code: string; message: string; details: unknown; request_id: string };
 }
 
-export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'observer';
+export type Role = 'superadmin' | 'local_admin' | 'specialist' | 'legal' | 'observer' | 'viewer';
 
 export interface OrganizationOption {
   id: number;
@@ -97,6 +97,8 @@ export interface ServicePeriodLine {
 
 export interface ServiceLine {
   service_list_id: number;
+  agreement_number?: string;
+  payment_due_day?: number | null;
   service_name: string;
   start_date: string | null;
   shot_name: string;
@@ -114,7 +116,7 @@ export interface AccountRow {
   id: number;
   account_id: number;
   client_account: string;
-  unified_account: number | null;
+  unified_account: number | string | null;
   provider_short_name: string;
   schema_label?: string;
   account_address: string;
@@ -152,6 +154,8 @@ export interface AccountRow {
   ais_updated_at: string | null;
   operational_date: string | null;
   inheritance_case: boolean;
+  parallel_stage?: string;
+  open_badges?: { measure_id: number; account_id: number; label: string; kind: string; status: string }[];
   service_lines?: ServiceLine[];
   services_debt_count?: number;
 }
@@ -184,10 +188,32 @@ export interface AccountDetail extends AccountRow {
   assigned_to: number | null;
   contact_source_mode: string;
   debtor_category: number | null;
+  debtor_category_name?: string;
   inheritance_until: string | null;
   residence_note: string;
   bankruptcy: boolean;
   legal_status: string;
+  provider_id?: number | null;
+  is_private_enterprise?: boolean;
+  house_id?: number | null;
+  priv_acc_count?: number | null;
+  acc_category_short?: string;
+  category_short_name?: string;
+  uniq_attr?: number | null;
+  uniq_attr_name?: string;
+  info_param_id1?: number | null;
+  info_param_value1?: string;
+  info_param_id2?: number | null;
+  info_param_value2?: string;
+  acc_category_id?: number | null;
+  housing_category_code?: number | null;
+  ownership_type_code?: number | null;
+  pay_sum_writeoff?: string | null;
+  unshared_sum?: string | null;
+  receipt_pay?: string | null;
+  calc_result_sum?: string | null;
+  heritage_from_file?: boolean;
+  payer_deceased?: boolean;
 }
 
 export interface ServiceChoice {
@@ -199,6 +225,8 @@ export interface AccountService {
   id: number;
   account: number;
   service_list_id: number;
+  agreement_number?: string;
+  payment_due_day?: number | null;
   service_id: number;
   service_name: string;
   service_name_report: string;
@@ -275,12 +303,14 @@ export interface ContractPerson {
   penalty: string | null;
   earliest: string | null;
   sample_id: number;
+  account_number?: string;
   debt_group?: number | null;
   service_name?: string;
   service_count?: number;
   address?: string;
   due_on?: string | null;
   account_ids?: number[];
+  open_badges?: { measure_id: number; account_id: number; label: string; kind: string; status: string }[];
   rating_label?: string;
   funnel_stage?: string;
   assigned_name?: string;
@@ -400,10 +430,14 @@ export interface WorkItem {
 }
 
 export interface AttachmentRow {
-  id: number;
+  id: number | string;
   doc_type: string;
   original_name: string;
+  file?: string;
   created_at: string;
+  package?: boolean;
+  claim_id?: number;
+  doc_id?: number;
 }
 
 export interface MeasureRow {
@@ -418,6 +452,8 @@ export interface MeasureRow {
   debtor_name: string;
   debtor_account: string;
   debtor_id: number | null;
+  rating_label?: string;
+  effective_group?: number | null;
   assignee_name: string;
   next_action: string;
   artifact?: string;
@@ -429,9 +465,12 @@ export interface MeasureRow {
   channel?: string;
   template_name?: string;
   scenario_name?: string;
+  manual?: boolean;
   owner_name?: string;
   note?: string;
   started_on?: string | null;
+  finished_on?: string | null;
+  initiator_name?: string;
   time_from?: string | null;
   time_to?: string | null;
   progress?: { total: number; done: number };
@@ -453,6 +492,7 @@ export interface MeasureSkip {
 /** Частное мероприятие: один ЛС внутри партии, со своим статусом. */
 export interface MeasureItemRow {
   id: number;
+  measure: number;
   account: number;
   client_account: string;
   debtor_name: string;
@@ -463,6 +503,7 @@ export interface MeasureItemRow {
   call_result_display: string;
   duration_sec: number | null;
   listen_percent: number | null;
+  recording_ref?: string;
   provider_message_id?: string;
   caller_id?: string;
   external_call?: boolean | null;
@@ -503,17 +544,21 @@ export interface MeasureTaskRow {
   title: string;
   due_on: string | null;
   status: string;
+  created_at?: string | null;
+  completed_on?: string | null;
   assignee_name: string;
   checks: TaskCheckRow[];
 }
 
 export interface MeasureDetail extends MeasureRow {
   items: MeasureItemRow[];
+  campaign_total?: number;
   events: MeasureEventRow[];
   tasks?: MeasureTaskRow[];
   call_legal: boolean;
   group_from: number | null;
   group_to: number | null;
+  dialed?: number;
 }
 
 /** Строка экрана «Готовы к отключению»: срок предупреждения истёк, долг не погашен. */
@@ -563,6 +608,19 @@ export interface DebtorCategory {
   code: string;
   name: string;
   note: string;
+  section?: string;
+  sort_order?: number;
+}
+
+export function categoryGroups(rows: DebtorCategory[]): { section: string; items: DebtorCategory[] }[] {
+  const groups: { section: string; items: DebtorCategory[] }[] = [];
+  for (const item of rows) {
+    const section = item.section || '';
+    const last = groups.at(-1);
+    if (last && last.section === section) last.items.push(item);
+    else groups.push({ section, items: [item] });
+  }
+  return groups;
 }
 
 export interface SavedFilter {
@@ -591,6 +649,26 @@ export interface KanbanColumn {
   cards: AccountRow[];
 }
 
+export interface ActivityNode {
+  id: number;
+  code: string;
+  title: string;
+  kind: string;
+  status: string;
+  status_label: string;
+  measure_id: number | null;
+  needs_action: boolean;
+  note: string;
+  children: ActivityNode[];
+}
+
+export interface ActivityBoard {
+  stage: string;
+  stage_title: string;
+  current: ActivityNode[];
+  parallel: { stage: string; title: string; short: string; items: ActivityNode[] }[];
+}
+
 export interface Payment {
   id: number;
   receipt_id: number;
@@ -600,6 +678,8 @@ export interface Payment {
   pay_mulct_summ: string | null;
   bank_name: string;
   payment_type_display: string;
+  file_fields?: { label: string; value: string }[];
+  [key: string]: unknown;
 }
 
 export interface Registration {
@@ -630,6 +710,71 @@ export interface Registration {
   legacy_start_date: string | null;
   legacy_stop_date: string | null;
   subj_heritage_date: string | null;
+  solidary?: boolean;
+  sheet?: { label: string; value: string }[];
+}
+
+export interface ScenarioMeasure {
+  id: number;
+  kind: string;
+  kind_label: string;
+  status: string;
+  status_label: string;
+  started_on?: string | null;
+  finished_on?: string | null;
+  stopped?: boolean;
+  extra?: boolean;
+  owner_name?: string;
+  pause_until?: string | null;
+  pause_reason?: string;
+  catalog_name?: string;
+  calls?: { at: string | null; duration_sec: number | null; status: string; listen_percent?: number | null; recording_ref?: string; external_call?: boolean | null }[];
+  tasks: MeasureTaskRow[];
+}
+
+export interface ScenarioStep {
+  order: number;
+  action: string;
+  title: string;
+  checklist: string[];
+  measures: ScenarioMeasure[];
+}
+
+export interface ScenarioBoard {
+  scenario_name: string;
+  steps: ScenarioStep[];
+  manual: ScenarioMeasure[];
+}
+
+export interface WritRecord {
+  id: number;
+  stage_label: string;
+  debt_from: string | null;
+  debt_to: string | null;
+  warning_delivered_on: string | null;
+  non_delivery_act_on: string | null;
+  repayment_days: number;
+  principal: string | null;
+  penalty: string | null;
+  tariff: string | null;
+  defendant_name: string;
+  notary_office: string;
+  documents: { id: number; name: string }[];
+}
+
+export interface WritDraft {
+  eligible_from: string | null;
+  eligible_to: string | null;
+  warning_delivered_on: string | null;
+  non_delivery_act_on: string | null;
+  defendant_name: string;
+  principal: string;
+  penalty: string;
+  tariff: string | null;
+  repayment_days: number;
+  offices: string[];
+  blockers: string[];
+  records: WritRecord[];
 }
 
 export type Channel = 'inbox' | 'email' | 'sms' | 'voice';

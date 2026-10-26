@@ -119,3 +119,5 @@ class DeliveryStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=["delivered", "failed"])
     error = serializers.CharField(required=False, allow_blank=True, default="")
     rendered_text = serializers.CharField(required=False, allow_blank=True, default="")
+    provider_message_id = serializers.CharField(required=False, allow_blank=True, default="", max_length=100)
+    external_call = serializers.BooleanField(required=False, allow_null=True, default=None)

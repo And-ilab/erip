@@ -11,7 +11,7 @@ INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 class RolePermission(BasePermission):
     """Чтение — всем аутентифицированным; запись — ролям из view.write_roles."""
 
-    default_write_roles = ("superadmin", "local_admin", "specialist")
+    default_write_roles = ("superadmin", "local_admin", "specialist", "legal")
 
     def has_permission(self, request, view) -> bool:
         user = request.user

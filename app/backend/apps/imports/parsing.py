@@ -19,7 +19,7 @@ TRUE_VALUES = {"1", "true", "t", "y", "yes", "да", "д"}
 PAYMENT_TYPES = {"файл": "file", "ввод вручную": "manual", "зачисление из зарплаты": "salary",
                  "file": "file", "manual": "manual", "salary": "salary"}
 EXCEL_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
-# «1,2E+11» — так Excel записывает длинный номер, если ячейка была числом. Цифры уже потеряны.
+# «1,2E+11» — так Excel записывает длинный целый номер. В базе хранится это число.
 _SCIENCE = re.compile(r"^[+-]?\d+(?:[.,]\d+)?[eE][+-]?\d+$")
 
 
@@ -120,13 +120,18 @@ def bind_columns(headers: list[str], entity_map: EntityMap) -> tuple[list[Column
 def convert(value: str, kind: str):
     value = (value or "").strip()
     if value == "":
-        return False if kind == "bool" else ("" if kind in {"str", "payment_type"} else None)
+        return False if kind == "bool" else ("" if kind in {"str", "payment_type", "heritage"} else None)
     try:
         if kind == "str":
             return value
+        if kind == "heritage":
+            return heritage_code(value)
         if kind in {"int", "months"}:
             compact = value.replace(" ", "")
             if _SCIENCE.match(compact):
+                number = Decimal(compact.replace(",", "."))
+                if kind == "int" and number == number.to_integral_value():
+                    return int(number)
                 if kind == "int":
                     return None
                 raise ConversionError(
@@ -150,6 +155,18 @@ def convert(value: str, kind: str):
             raise
         raise ConversionError(f"Некорректное значение «{value}» для типа {kind}") from exc
     raise ConversionError(f"Неизвестный тип {kind}")
+
+
+def heritage_code(value: str) -> str:
+    """Способ перехода прав из файла регистрации: принятие наследства открывает дело."""
+    text = value.casefold().replace("ё", "е")
+    if "принят" in text:
+        return "accept"
+    if "вымороч" in text:
+        return "escheat"
+    if text.strip():
+        return "other"
+    return ""
 
 
 def excel_text(value) -> str:

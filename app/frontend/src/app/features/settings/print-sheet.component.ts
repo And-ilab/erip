@@ -15,7 +15,9 @@ import { FIELD_LABELS, FlowBlock, SheetBlock, bareToken, cellKey } from './docum
       <div class="stage" [style.width.px]="stageWidth()" [style.height.px]="stageHeight()">
         <div class="clip">
           <article class="a4" #page [style.transform]="'scale(' + scale() + ')'">
-            @for (block of visible(); track block.key) {
+            @for (row of laidRows(); track $index) {
+              <div class="doc-row" [class.split]="row.length > 1">
+              @for (block of row; track block.key) {
               <section
                 class="doc-block"
                 [class.letterhead]="block.key === 'logo'"
@@ -95,6 +97,8 @@ import { FIELD_LABELS, FlowBlock, SheetBlock, bareToken, cellKey } from './docum
                   </table>
                 }
               </section>
+              }
+              </div>
             }
           </article>
         </div>
@@ -139,8 +143,16 @@ export class PrintSheetComponent implements AfterViewInit, OnChanges, OnDestroy 
     this.observer?.disconnect();
   }
 
-  protected visible(): SheetBlock[] {
-    return [...this.blocks].filter((block) => block.enabled).sort((a, b) => a.y - b.y);
+  protected laidRows(): SheetBlock[][] {
+    const blocks = [...this.blocks].filter((block) => block.enabled).sort((a, b) => a.y - b.y || a.x - b.x);
+    const rows: SheetBlock[][] = [];
+    for (const block of blocks) {
+      const last = rows[rows.length - 1];
+      if (last && Math.abs(last[0].y - block.y) < 8) last.push(block);
+      else rows.push([block]);
+    }
+    for (const row of rows) row.sort((a, b) => a.x - b.x);
+    return rows;
   }
 
   protected nodesOf(key: string): FlowBlock['nodes'] {

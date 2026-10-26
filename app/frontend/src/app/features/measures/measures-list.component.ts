@@ -15,6 +15,9 @@ import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix, Measur
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryChoice, RegistryFilterQuery } from '../registry-filter.component';
+import { GridResizeDirective } from '../grid-resize.directive';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -23,10 +26,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     DatePipe, FormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
     MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
-    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent,
+    RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, KanbanDebtorComponent,
+    KanbanDragDirective, GridResizeDirective,
   ],
   template: `
-    <div class="page">
+    <div class="page" [class.board]="view() === 'kanban'">
       <div class="control">
         <h2>Реестр мероприятий</h2>
         @if (view() !== 'ready') {
@@ -50,6 +54,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
         }
         <app-registry-views [mockup]="true" [mode]="view() === 'ready' ? 'list' : view()" (modeChange)="showRegistry($event)" />
       </div>
+      @if (canConduct() && view() === 'list') {
+        <div class="conduct">
+          <span class="muted">Отмечено мероприятий: {{ pickedRows().size }}</span>
+          <button mat-flat-button color="primary" type="button" [disabled]="busy() || !pickedRows().size" (click)="conductPicked()">Провести</button>
+        </div>
+      }
 
       <div class="body">
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
@@ -61,23 +71,35 @@ import { RegistryViewsComponent } from '../registry-views.component';
         @if (groups().length) {
           <section class="surface registry main">
             <div class="list-pane">
-            <table class="wide">
+            <table class="wide" appGridResize="measures">
+              <colgroup>
+                <col class="c-tick" />
+                <col class="c-kind" />
+                <col class="c-period" />
+                <col class="c-init" />
+                <col class="c-account" />
+                <col class="c-who" />
+                <col class="c-next" />
+                <col class="c-status" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th class="tick">
+                  <th class="tick" data-col="select">
                     <input type="checkbox" aria-label="Выбрать видимые" [checked]="allVisible()" (change)="toggleVisible()" />
                   </th>
-                  <th>Мероприятие</th>
-                  <th>Должник</th>
-                  <th class="who">Исполнитель</th>
-                  <th>Следующее действие</th>
-                  <th>Статус</th>
+                  <th data-col="title" title="Тип мероприятия">Тип мероприятия</th>
+                  <th data-col="period" title="Период выполнения">Период выполнения</th>
+                  <th data-col="initiator" title="Инициатор">Инициатор</th>
+                  <th data-col="debtor" title="Номер ЛС">Номер ЛС</th>
+                  <th data-col="assignee" title="Исполнитель">Исполнитель</th>
+                  <th data-col="next" title="Следующее действие">Следующее действие</th>
+                  <th data-col="status" title="Статус">Статус</th>
                 </tr>
               </thead>
               <tbody>
                 @for (group of bands(); track group.status) {
                   <tr class="band">
-                    <td colspan="6">
+                    <td colspan="8">
                       <button type="button" (click)="toggle(group.status)">{{ group.label }} ({{ group.total }})</button>
                     </td>
                   </tr>
@@ -87,8 +109,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
                         <td class="tick">
                           <input type="checkbox" [attr.aria-label]="'Выбрать ' + row.title" [checked]="pickedRows().has(row.id)" (change)="toggleRow(row.id)" />
                         </td>
-                        <td>
-                          <a class="title" [routerLink]="['/measures', row.id]">{{ row.title }}</a>
+                        <td class="stack">
+                          <a class="title" [routerLink]="['/measures', row.id]">{{ row.kind_display || row.title }}</a>
                           @if (row.progress && row.progress.total > 1) {
                             <div class="mini">
                               <span class="track"><span [style.width.%]="share(row)"></span></span>
@@ -97,18 +119,20 @@ import { RegistryViewsComponent } from '../registry-views.component';
                           }
                           @if (row.artifact) { <div><a [href]="row.artifact">Файл</a></div> }
                         </td>
-                        <td>
+                        <td class="clip">{{ row.started_on ? (row.started_on | date: 'dd.MM.yyyy') : '…' }} — {{ row.finished_on ? (row.finished_on | date: 'dd.MM.yyyy') : '…' }}</td>
+                        <td class="clip">{{ row.initiator_name || '—' }}</td>
+                        <td class="stack">
                           @if (row.debtor_id) {
-                            <a [routerLink]="['/accounts', row.debtor_id]">{{ row.debtor_name || 'ЛС' }}</a>
+                            <a class="title" [routerLink]="['/accounts', row.debtor_id]">{{ row.debtor_account || 'ЛС' }}</a>
                           } @else {
-                            <span>{{ row.debtor_name || '—' }}</span>
+                            <span class="title">{{ row.debtor_account || '—' }}</span>
                           }
-                          @if (row.debtor_account) { <div class="muted">ЛС {{ row.debtor_account }}</div> }
+                          @if (row.debtor_name) { <div class="muted">{{ row.debtor_name }}</div> }
                           @if (row.accounts_count > 1) {
                             <div class="muted">ещё {{ row.accounts_count - 1 }} ЛС</div>
                           }
                         </td>
-                        <td>
+                        <td class="who">
                           @if (row.assignee_name) {
                             <span class="person" [matTooltip]="row.assignee_name">
                               <span class="face t{{ tone(row.assignee_name) }}">{{ initials(row.assignee_name) }}</span>
@@ -117,15 +141,17 @@ import { RegistryViewsComponent } from '../registry-views.component';
                             <span class="dash">—</span>
                           }
                         </td>
-                        <td><span class="action-dot {{ row.status }}"></span>{{ row.next_action }}</td>
-                        <td><span class="status-pill {{ row.status }}" [title]="row.status_display">{{ statusText(row) }}</span></td>
+                        <td class="clip next"><span class="action-dot {{ row.status }}"></span>{{ row.next_action }}</td>
+                        <td class="clip"><span class="status-pill {{ row.status }}" [title]="row.status_display">{{ statusText(row) }}</span></td>
                       </tr>
                     }
                     @if (groupedByStatus() && group.results.length < group.total) {
                       <tr class="more-row">
-                        <td colspan="6">
-                          <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
-                          <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
+                        <td colspan="8">
+                          <div class="more-line">
+                            <span class="muted">Показаны {{ group.results.length }} из {{ group.total }}</span>
+                            <button mat-stroked-button type="button" (click)="more(group)">Показать ещё</button>
+                          </div>
                         </td>
                       </tr>
                     }
@@ -159,12 +185,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
             }
             @if (grid.results.length) {
               <div class="matrix-wrap list-pane">
-                <table class="matrix">
+                <table class="matrix" appGridResize="measures-matrix">
                   <thead>
                     <tr>
-                      <th>ФИО должника</th>
-                      <th>ЛС</th>
-                      @for (kind of grid.kinds; track kind.code) { <th>{{ kind.label }}</th> }
+                      <th data-col="debtor">ФИО должника</th>
+                      <th data-col="account">ЛС</th>
+                      @for (kind of grid.kinds; track kind.code) { <th [attr.data-col]="kind.code">{{ kind.label }}</th> }
                     </tr>
                   </thead>
                   <tbody>
@@ -194,16 +220,25 @@ import { RegistryViewsComponent } from '../registry-views.component';
       @if (view() === 'kanban') {
         <div class="k-board">
           @for (lane of lanes; track lane.status) {
-            <section class="k-col" [class.drop]="dropStatus() === lane.status" [attr.data-status]="lane.status"
-                     (dragover)="allowDrop($event, lane.status)" (dragleave)="clearDrop(lane.status)" (drop)="dropOnStatus($event, lane.status)">
-              <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane.status) }}</b></h3>
-              <div class="list-pane cards">
+            <section class="k-col" [attr.data-kanban-stage]="lane.status" [attr.data-status]="lane.status">
+              <h3><span [attr.title]="lane.label">{{ lane.label }}</span><b>{{ laneTotal(lane.status) }}</b></h3>
+              <div class="k-cards">
                 @for (row of laneRows(lane.status); track row.id) {
-                  <article class="k-card {{ row.kind }}" [draggable]="canMove()"
-                           (dragstart)="startCard($event, row)" (click)="openCard($event, row)">
-                    <div class="name">{{ row.title }}</div>
-                    <div class="line">{{ row.debtor_name || 'ЛС' }} · ЛС {{ row.debtor_account }}</div>
-                    <div class="foot"><span class="when">{{ row.next_action }}</span></div>
+                  <article class="k-card {{ row.kind }}"
+                           [appKanbanDrag]="row.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                           (click)="openCard($event, row)">
+                    <app-kanban-debtor
+                      [name]="row.debtor_name || 'ЛС'"
+                      [rating]="row.rating_label"
+                      [group]="row.effective_group"
+                      [account]="row.debtor_account ? 'ЛС ' + row.debtor_account : ''"
+                      scenarioTitle="Мероприятие"
+                      [scenario]="row.title"
+                      [showPeople]="false"
+                      [showMoney]="false"
+                      [when]="row.next_action"
+                      [specialist]="row.assignee_name"
+                      specialistCaption="Исполнитель" />
                   </article>
                 }
                 @if (laneGroup(lane.status); as group) {
@@ -244,14 +279,14 @@ import { RegistryViewsComponent } from '../registry-views.component';
             <p class="muted pad">Счетов, готовых к отключению, сейчас нет.</p>
           } @else {
             <div class="list-pane">
-            <table>
+            <table appGridResize="measures-ready">
               <thead>
                 <tr>
-                  <th class="tick"></th>
-                  <th>Должник</th>
-                  <th>Предупреждение вручено</th>
-                  <th>Срок оплаты истёк</th>
-                  <th>Услуги</th>
+                  <th class="tick" data-col="select"></th>
+                  <th data-col="debtor">Должник</th>
+                  <th data-col="delivered">Предупреждение вручено</th>
+                  <th data-col="due">Срок оплаты истёк</th>
+                  <th data-col="services">Услуги</th>
                 </tr>
               </thead>
               <tbody>
@@ -300,12 +335,23 @@ import { RegistryViewsComponent } from '../registry-views.component';
   `,
   styles: `
     :host { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+    :host:has(.page.board) { height: 100%; min-width: 0; overflow: hidden; }
     .page { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; background: #f3f6f8; }
+    .page.board .body { display: flex; flex-direction: column; overflow: hidden; }
+    .page.board .k-board {
+      flex: 1; min-height: 0; min-width: 0;
+      overflow-x: auto; overflow-y: hidden; align-items: stretch;
+    }
+    .page.board .k-cards { padding-top: 8px; }
     .control {
       display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; flex: 0 0 auto;
       background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
     }
     .body { flex: 1; min-height: 0; overflow: auto; padding: 0 0 28px; }
+    .conduct {
+      display: flex; align-items: center; gap: 12px; flex: 0 0 auto;
+      padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--erip-border);
+    }
     h2 { margin: 0; font-size: 15px; font-weight: 600; color: #243140; white-space: nowrap; flex: 0 0 auto; }
     .icon {
       width: 36px; height: 36px; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
@@ -313,14 +359,30 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .icon.on { color: var(--erip-primary); border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: stretch; min-height: 70vh; padding: 12px 16px 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; display: flex; flex-direction: column; min-height: 0; }
-    .k-col h3 {
-      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
-      font-size: 13px; font-weight: 600; color: #243140;
+    .k-board {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      min-height: 0; padding: 12px 16px 0;
     }
-    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-cards {
+      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+    }
+    .k-card.kanban-source { opacity: .35; }
+    .k-col {
+      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      display: flex; flex-direction: column;
+    }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
+      border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
+      color: #243140; background: #f3f6f8;
+    }
+    .k-col h3 span {
+      flex: 1 1 auto; min-width: 0; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .k-col[data-status="assigned"] h3 { border-bottom-color: #2563eb; }
     .k-col[data-status="running"] h3 { border-bottom-color: #7c3aed; }
     .k-col[data-status="done"] h3 { border-bottom-color: #1f9d55; }
@@ -328,10 +390,10 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-col[data-status="paused"] h3 { border-bottom-color: #c8962e; }
     .k-col[data-status="cancelled"] h3 { border-bottom-color: #9ca3af; }
     .k-col .list-pane { flex: 1; min-height: 0; }
-    .k-col .list-pane.cards { --list-row: 96px; }
+    .k-col .list-pane.cards { --list-row: 112px; }
     .k-card {
       display: flex; flex-direction: column; gap: 4px; background: #fff; border: 1px solid #e6ebf0;
-      border-left: 3px solid #cbd5e1; border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px;
+      border-left: 3px solid #cbd5e1; border-radius: 8px; padding: 10px 12px 4px; margin-bottom: 8px;
       text-decoration: none; color: inherit; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
@@ -352,36 +414,53 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .ready-title { margin: 0; color: var(--erip-muted); flex: 1; }
     .registry { margin: 12px 16px 0; overflow: visible; background: #fff; }
     .registry.main { display: block; }
-    .registry.main .list-pane, .matrix-card .list-pane { max-height: none; overflow: visible; }
+    .registry.main .list-pane, .matrix-card .list-pane { max-height: none; overflow: auto; }
     .matrix-card { display: block; max-height: none; margin: 16px 16px 0; }
     .matrix-card.fill { flex: 1; max-height: none; }
     .matrix-card .list-pane { flex: 1; max-height: none; min-height: 0; }
-    table.wide td, table.wide th { overflow-wrap: break-word; }
-    .band td { background: #f7f9fb; padding: 0; }
+    .band td { background: #f7f9fb; padding: 0; overflow: visible; white-space: normal; }
     .band button {
       display: block; width: 100%; border: 0; background: transparent;
       padding: 10px 12px; font: inherit; font-size: 13px; font-weight: 700; color: #1f2933; cursor: pointer; text-align: left;
     }
-    table { border: 0; border-radius: 0; }
-    table.wide { width: 100%; table-layout: fixed; }
-    table.wide th:nth-child(1), table.wide td:nth-child(1) { width: 36px; }
-    table.wide th:nth-child(2), table.wide td:nth-child(2) { width: 32%; }
-    table.wide th:nth-child(3), table.wide td:nth-child(3) { width: 26%; }
-    table.wide th:nth-child(4), table.wide td:nth-child(4) { width: 120px; text-align: center; white-space: nowrap; }
-    table.wide th:nth-child(5), table.wide td:nth-child(5) { width: 18%; }
-    table.wide th:nth-child(6), table.wide td:nth-child(6) { width: 120px; }
+    table { border: 0; border-radius: 0; border-collapse: collapse; }
+    table.wide {
+      width: 100%; min-width: 1180px; table-layout: fixed; border-collapse: collapse;
+    }
+    table.wide col.c-tick { width: 4%; }
+    table.wide col.c-kind { width: 17%; }
+    table.wide col.c-period { width: 15%; }
+    table.wide col.c-init { width: 15%; }
+    table.wide col.c-account { width: 16%; }
+    table.wide col.c-who { width: 10%; }
+    table.wide col.c-next { width: 14%; }
+    table.wide col.c-status { width: 9%; }
     tr.picked td { background: #f3f8fb; }
-    th { text-align: left; font-size: 12px; font-weight: 600; color: var(--erip-muted); padding: 8px 12px; background: #fff; }
+    th {
+      text-align: left; font-size: 12px; font-weight: 600; color: var(--erip-muted);
+      padding: 10px 12px; background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     td { padding: 10px 12px; border-top: 1px solid var(--erip-border); vertical-align: middle; }
+    table.wide td.clip, table.wide td.who, table.wide td.stack {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    table.wide td.stack { white-space: normal; }
+    table.wide td.stack .title, table.wide td.stack .muted {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    table.wide td.who { text-align: left; }
+    table.wide td.next .action-dot { flex: 0 0 auto; }
     .title { font-weight: 600; color: inherit; }
     .mini { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
     .track { display: block; width: 72px; height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; }
     .track span { display: block; height: 100%; background: #16a34a; }
     .person { display: inline-flex; }
     .dash { color: var(--erip-muted); }
-    .more-row td { display: flex; align-items: center; gap: 12px; }
+    .more-row td { overflow: visible; white-space: normal; }
+    .more-line { display: flex; align-items: center; gap: 12px; }
     .more { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 12px 12px; }
-    .tick { width: 40px; }
+    .tick { width: auto; text-align: center; }
     .pad { padding: 0 12px 8px; }
     a.cell { text-decoration: none; }
     h3 {
@@ -396,7 +475,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .count { min-width: 22px; padding: 1px 8px; border-radius: 10px; background: #fff; font-size: 12px; font-weight: 700; }
     .matrix-wrap { overflow: auto; }
-    .matrix { width: 100%; min-width: 720px; }
+    .matrix { width: 100%; min-width: 720px; table-layout: auto; }
+    .matrix th, .matrix td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
     .cell {
       display: inline-flex; align-items: center; justify-content: center; min-width: 52px; padding: 3px 8px;
       border-radius: 10px; font-size: 12px; font-weight: 700; text-decoration: none;
@@ -423,7 +503,7 @@ export class MeasuresListComponent implements OnInit {
   private readonly snack = inject(MatSnackBar);
   @ViewChild(RegistryFilterComponent) private filters?: RegistryFilterComponent;
 
-  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('list');
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'charts' | 'ready'>('kanban');
   protected readonly lanes = [
     { status: 'assigned', label: 'Назначено' },
     { status: 'running', label: 'Выполняется' },
@@ -544,6 +624,31 @@ export class MeasuresListComponent implements OnInit {
     this.picked.set(accounts);
   }
 
+  protected canConduct(): boolean {
+    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+  }
+
+  protected conductPicked(): void {
+    const ids = [...this.pickedRows()];
+    if (!ids.length) return;
+    this.busy.set(true);
+    this.api.conductMeasures(ids).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        const parts = [`Обзвон: ${result.dialed}`, `уведомления: ${result.sent}`];
+        const skipped = result.skipped?.[0]?.reason;
+        const text = skipped ? `${parts.join(', ')}. ${skipped}` : parts.join(', ');
+        this.snack.open(text, 'OK', { duration: 6000 });
+        this.pickedRows.set(new Set());
+        this.load();
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.snack.open(errorMessage(err), 'OK');
+      },
+    });
+  }
+
   protected launch(): void {
     const accounts = [...this.picked()];
     const services = this.candidates()
@@ -661,38 +766,17 @@ export class MeasuresListComponent implements OnInit {
     return total ? Math.round(((row.progress?.done ?? 0) / total) * 100) : 0;
   }
 
-  protected startCard(event: DragEvent, row: MeasureRow): void {
-    if (!this.canMove()) {
-      event.preventDefault();
-      return;
-    }
-    this.cardDragged = true;
-    event.dataTransfer?.setData('text/plain', String(row.id));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    event.stopPropagation();
-  }
-
-  protected allowDrop(event: DragEvent, status: string): void {
-    if (!this.canMove()) return;
-    event.preventDefault();
-    this.dropStatus.set(status);
-  }
-
-  protected clearDrop(status: string): void {
-    if (this.dropStatus() === status) this.dropStatus.set(null);
-  }
-
-  protected dropOnStatus(event: DragEvent, status: string): void {
-    event.preventDefault();
-    this.dropStatus.set(null);
-    if (!this.canMove()) return;
-    const id = Number(event.dataTransfer?.getData('text/plain') || '');
-    if (!id) return;
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const id = Number(event.id);
+    if (!id || !this.canMove()) return;
     const current = this.groups().flatMap((group) => group.results).find((row) => row.id === id);
-    if (!current || current.status === status) return;
-    this.api.measureStatus(id, status).subscribe({
+    if (!current || current.status === event.stage) return;
+    this.api.measureStatus(id, event.stage).subscribe({
       next: () => this.load(),
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      error: (err) => {
+        this.snack.open(errorMessage(err), 'OK');
+        this.load();
+      },
     });
   }
 

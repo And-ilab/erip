@@ -24,13 +24,21 @@ staticfiles/
 # Выгрузка OSM и сборка справочника, в репозиторий не входят
 .cache/
 
-# Локальные инструменты
+# Локальные инструменты и служебные файлы Cursor
 .idea/
 .vscode/
 .cursor/
+.cursorrule
+.cursorignore
+canvases/
 
 # Распакованные docx и служебные выгрузки, это не исходники
 Служебные файлы курсора/
+docs/tz/_*.txt
+scripts/build_phase0_descriptions.py
+scripts/build_phase1234_descriptions.py
+scripts/build_planfix_phases.py
+scripts/build_tasks_1228_1307.py
 
 # ОС и временные файлы Office
 .DS_Store

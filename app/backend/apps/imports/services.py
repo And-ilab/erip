@@ -301,6 +301,17 @@ class AisImporter:
                 from apps.debts.services.portfolio import PortfolioRefresher
 
                 ids = list(accounts.values_list("pk", flat=True))
+                if self.map.entity == "registration":
+                    from django.db.models import Q
+
+                    from apps.debts.models import Registration
+
+                    accepted = Registration.objects.filter(account_id__in=ids).filter(
+                        Q(heritage_transfer="accept") | Q(subj_heritage_date__isnull=False),
+                    )
+                    Account.objects.filter(pk__in=accepted.values("account_id"), inheritance_case=False).update(
+                        inheritance_case=True,
+                    )
                 PortfolioRefresher().refresh(ids)
                 backfill_visible_measures(Account.objects.filter(pk__in=ids))
 

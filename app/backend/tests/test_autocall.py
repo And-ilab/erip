@@ -83,12 +83,13 @@ def test_uc_evt_01_stub_fills_statuses_without_manual_entry(api, admin_a, org_a,
     assert item.duration_sec == 36
     assert item.listen_percent == 72
     assert item.external_call is False
+    assert item.recording_ref == ""
     assert item.caller_id == "+375172000001"
     assert item.provider_message_id.startswith("voice-")
     assert item.phone == "+375291112233"
-    assert party.status == Measure.Status.DONE
-    assert MeasureItem.objects.get(account=legal).call_result == ""
-    assert MeasureItem.objects.get(account=paused).call_result == ""
+    assert party.status == Measure.Status.RUNNING
+    assert MeasureItem.objects.get(account=legal, measure__kind=Measure.Kind.CALL).call_result == ""
+    assert MeasureItem.objects.get(account=paused, measure__kind=Measure.Kind.CALL).call_result == ""
 
     payload = fake_gateway.sent[-1]["dial"]
     assert payload["phone"] == "+375291112233"
@@ -149,7 +150,10 @@ def test_manual_call_writes_the_same_row_without_the_stub_sentence(api, admin_a,
     item_id = created.json()["items"][0]["id"]
     result = api(admin_a).post(
         f"/api/v1/measures/{measure_id}/result/",
-        {"item_id": item_id, "call_result": "answered", "duration_sec": 40, "listen_percent": 80},
+        {
+            "item_id": item_id, "call_result": "answered", "duration_sec": 40, "listen_percent": 80,
+            "recording_ref": "https://pbx.example/rec/1.wav",
+        },
         format="json",
     )
     assert result.status_code == 200, result.content
@@ -158,10 +162,12 @@ def test_manual_call_writes_the_same_row_without_the_stub_sentence(api, admin_a,
     assert item["duration_sec"] == 40
     assert item["listen_percent"] == 80
     assert item["external_call"] is None
+    assert item["recording_ref"] == "https://pbx.example/rec/1.wav"
     assert MeasureItem.objects.filter(measure_id=measure_id).count() == 1
     card = api(admin_a).get(f"/api/v1/accounts/{account_a.id}/measures/")
     line = next(row["account_call_line"] for row in card.json()["results"] if row["id"] == measure_id)
     assert "Дозвон" in line
+    assert "запись https://pbx.example/rec/1.wav" in line
     assert "не выполнялся" not in line
 
 
@@ -203,8 +209,8 @@ def test_answered_call_is_not_repeated_and_a_miss_retries_next_evening(org_a, ad
     assert MeasureItem.objects.get(account=missed).call_result == "no_answer"
     assert MeasureItem.objects.get(account=reached).call_result == "answered"
     assert dial_due_calls(_at(27, 20, 0))["dialed"] == 0
-    assert dial_due_calls(_at(28, 18, 30))["dialed"] == 1
-    assert MeasureItem.objects.get(account=reached).status == MeasureItem.Status.DONE
+    assert dial_due_calls(_at(28, 18, 30))["dialed"] == 2
+    assert MeasureItem.objects.get(account=reached, measure__kind=Measure.Kind.CALL).status == MeasureItem.Status.RUNNING
     assert Measure.objects.filter(accounts=reached, kind=Measure.Kind.CALL).count() == 1
 
 
@@ -271,3 +277,121 @@ def test_standard_window_replaces_the_office_hours_placeholder(org_a):
     scenario = ScenarioDefinition.objects.get(pk=party.source_scenario_id)
     assert (party.time_from, party.time_to) == call_window(scenario, timezone.localdate())
     assert party.time_from != time(9, 0)
+
+
+def _open_call(api, admin, account):
+    created = api(admin).post(
+        "/api/v1/measures/",
+        {
+            "kind": "call",
+            "account_ids": [account.id],
+            "template_name": "Напоминание",
+            "time_from": "00:00",
+            "time_to": "23:59:59",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    return created.json()["id"]
+
+
+@pytest.mark.django_db
+def test_specialist_dials_open_party_from_the_card(api, admin_a, specialist_a, account_a, fake_gateway):
+    party_id = _open_call(api, admin_a, account_a)
+    response = api(specialist_a).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["dialed"] == 1
+    item = MeasureItem.objects.get(measure_id=party_id)
+    assert item.call_result == MeasureItem.CallResult.ANSWERED
+    assert item.external_call is False
+    again = api(specialist_a).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert again.status_code == 400
+    assert "закрыта" in again.content.decode()
+
+
+@pytest.mark.django_db
+def test_dial_outside_the_measure_window_keeps_the_row(api, admin_a, specialist_a, account_a, fake_gateway):
+    now = timezone.localtime()
+    other = (now.hour + 12) % 24
+    created = api(admin_a).post(
+        "/api/v1/measures/",
+        {
+            "kind": "call",
+            "account_ids": [account_a.id],
+            "template_name": "Напоминание",
+            "time_from": f"{other:02d}:00",
+            "time_to": f"{other:02d}:10",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    response = api(specialist_a).post(f"/api/v1/measures/{created.json()['id']}/dial/", {}, format="json")
+    assert response.status_code == 400
+    assert "окна" in response.content.decode()
+    item = MeasureItem.objects.get(measure_id=created.json()["id"])
+    assert item.call_result == ""
+
+
+@pytest.mark.django_db
+def test_observer_and_supplier_cannot_dial(api, admin_a, observer_a, account_a, org_a, fake_gateway):
+    from apps.users.models import User
+
+    from .conftest import make_user
+
+    party_id = _open_call(api, admin_a, account_a)
+    observer = api(observer_a).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert observer.status_code == 403
+    supplier = make_user("sup_dial", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    denied = api(supplier).post(f"/api/v1/measures/{party_id}/dial/", {}, format="json")
+    assert denied.status_code == 403
+    item = MeasureItem.objects.get(measure_id=party_id)
+    assert item.call_result == ""
+    denied = api(observer_a).post("/api/v1/measures/conduct/", {"ids": [party_id]}, format="json")
+    assert denied.status_code == 403
+    supplier_batch = api(supplier).post("/api/v1/measures/conduct/", {"ids": [party_id]}, format="json")
+    assert supplier_batch.status_code == 403
+
+
+@pytest.mark.django_db
+def test_measure_card_lists_every_account_of_the_step(api, admin_a, org_a):
+    from apps.nsi.services.scenarios import assign_run
+
+    first = _owing(org_a, 9801, 1, "+375291110301")
+    second = _owing(org_a, 9802, 1, "+375291110302")
+    scenario = _scenario(org_a, "Один шаг", {"1": {"every_days": 1}})
+    assign_run(first, scenario, admin_a)
+    assign_run(second, scenario, admin_a)
+    opened = Measure.objects.get(accounts=first, kind=Measure.Kind.CALL)
+    response = api(admin_a).get(f"/api/v1/measures/{opened.pk}/")
+    assert response.status_code == 200, response.content
+    body = response.json()
+    numbers = {row["client_account"] for row in body["items"]}
+    assert first.client_account in numbers
+    assert second.client_account in numbers
+    assert body["campaign_total"] == 2
+    assert {row["measure"] for row in body["items"]} == {
+        opened.pk,
+        Measure.objects.get(accounts=second, kind=Measure.Kind.CALL).pk,
+    }
+
+
+@pytest.mark.django_db
+def test_registry_conduct_dials_manual_and_skips_scenario(
+    api, admin_a, specialist_a, org_a, account_a, fake_gateway,
+):
+    from apps.nsi.services.scenarios import assign_run
+
+    manual = _open_call(api, admin_a, account_a)
+    person = _owing(org_a, 9811, 1, "+375291110401")
+    assign_run(person, _scenario(org_a, "Сценарий", {"1": {"every_days": 1}}), admin_a)
+    scenario_id = Measure.objects.get(accounts=person, kind=Measure.Kind.CALL).pk
+    response = api(specialist_a).post(
+        "/api/v1/measures/conduct/", {"ids": [manual, scenario_id]}, format="json",
+    )
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["dialed"] == 1
+    assert any(row["id"] == scenario_id and "сценари" in row["reason"].lower() for row in body["skipped"])
+    assert MeasureItem.objects.get(measure_id=manual).call_result == MeasureItem.CallResult.ANSWERED
+    assert MeasureItem.objects.get(measure_id=scenario_id).call_result == ""

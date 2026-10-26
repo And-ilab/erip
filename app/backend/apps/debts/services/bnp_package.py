@@ -1,6 +1,7 @@
 """Пакет заявления в личный кабинет БНП.
 
-Собирает манифест, PDF и слоты ЭЦП (.pdf.sgn / .pdf.p7s). В кабинет ничего не отправляет:
+Собирает манифест, PDF и слоты ЭЦП (.pdf.sgn / .pdf.p7s). Подпись приходит
+отсоединённым PKCS#7 с рабочего места AvCMXWebP. В кабинет ничего не отправляет:
 это делает заглушка send_to_notary, когда появится способ подачи. Правила полей те же,
 что у BnpManifest в шлюзе (app/gateway/app/integrations/bnp/schemas.py).
 """
@@ -16,6 +17,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from django.core.files.base import ContentFile
+from django.db.models import Count, Sum
 from django.utils import timezone
 
 from apps.debts.models import (
@@ -28,6 +30,7 @@ from apps.debts.models import (
 )
 from apps.debts.services.artifacts import ensure_writ_checks, render_text_pdf
 from apps.debts.services.claims import ClaimBlocked
+from apps.debts.services.eds import Pkcs7Error, inspect_detached_pkcs7
 from apps.nsi.models import BnpDebtType, BnpDocType, BnpService
 
 MAX_FILE_BYTES = 15 * 1024 * 1024
@@ -53,6 +56,7 @@ DEBTOR_FIELDS = (
     "unp", "regNumber", "regName",
 )
 PERSONAL_ID_RE = re.compile(r"^\d{7}[A-Z]\d{3}[A-Z]{2}\d$")
+PERSONAL_ID_RULE = "7 цифр, латинская буква, 3 цифры, 2 латинские буквы, цифра"
 UNP_RE = re.compile(r"^\d{9}$")
 AMOUNT_RE = re.compile(r"^\d+\.\d{2}$")
 EMAIL_RE = re.compile(r"^[^@\s,]+@[^@\s,]+\.[^@\s,]+$")
@@ -260,21 +264,51 @@ def update_document_layout(
     return document
 
 
-def stamp_package_signatures(case: ClaimCase) -> ClaimPackage:
-    """Одна отметка на весь комплект. Это не ЭЦП ГосСУОК и не отправка в кабинет."""
+def sign_documents(case: ClaimCase, user, signatures) -> ClaimCase:
+    """Кладёт отсоединённый PKCS#7 к PDF. В кабинет БНП пакет не уходит."""
     package = stored_package(case)
     if package is None:
         raise ClaimBlocked("Сначала соберите документы комплекта")
-    docs = [doc for doc in package.documents.all() if doc.pdf and doc.doc_type in OUTGOING_DOCS]
-    if not docs:
-        raise ClaimBlocked("В комплекте нет PDF для подписи")
-    mark = "STUB-PACKAGE-SIGNATURE\nЛокальная отметка пакета. ЭЦП ГосСУОК не проверялась.\n".encode()
-    for doc in docs:
-        doc.signer = _signer(doc.doc_type)
-        doc.signature_name = _signature_name(doc.file_name, "p7s")
-        doc.signature.save(doc.signature_name, ContentFile(mark), save=False)
-        doc.save()
-    return package
+    rows = list(signatures or [])
+    if not rows:
+        raise ClaimBlocked(
+            "Подпись ставит плагин AvCMXWebP на компьютере с «Комплектом абонента АВЕСТ» и ключом AvPass. "
+            "Локальная отметка не записывается.",
+        )
+    saved = []
+    for item in rows:
+        if not isinstance(item, dict):
+            raise ClaimBlocked("Подпись передаётся вместе с документом комплекта")
+        try:
+            doc_id = int(item.get("doc_id"))
+        except (TypeError, ValueError) as exc:
+            raise ClaimBlocked("Укажите документ комплекта") from exc
+        document = package.documents.filter(pk=doc_id).first()
+        if document is None or not document.pdf:
+            raise ClaimBlocked("Документ не из этого пакета или у него нет PDF")
+        payload = item.get("pkcs7")
+        if isinstance(payload, str):
+            payload = payload.encode()
+        try:
+            checked = inspect_detached_pkcs7(bytes(payload or b""))
+        except Pkcs7Error as exc:
+            raise ClaimBlocked(f"{document.file_name}: {exc}") from exc
+        document.signer = _signer(document.doc_type)
+        document.signature_name = _signature_name(document.file_name, "p7s")
+        document.signature.save(document.signature_name, ContentFile(checked.der), save=False)
+        document.save()
+        saved.append(f"{document.file_name} ({checked.subject})")
+    reason = "ЭЦП ГосСУОК, отсоединённая подпись: " + "; ".join(saved)
+    ClaimEvent.objects.create(
+        case=case,
+        actor=user if getattr(user, "is_authenticated", False) else None,
+        old_stage=case.stage,
+        new_stage=case.stage,
+        reason=reason[:500],
+    )
+    if package.formed_at:
+        write_archive(case)
+    return case
 
 
 def sign_and_send(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
@@ -284,13 +318,16 @@ def sign_and_send(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
     package = stored_package(case)
     if package is None or not package.formed_at:
         form_package(case, user)
-    stamp_package_signatures(case)
+        package = stored_package(case)
+    problems = signature_blockers(package)
+    if problems:
+        raise ClaimBlocked("; ".join(problems))
     write_archive(case)
     return send_to_notary(case, user, skip_reason)
 
 
 def write_archive(case: ClaimCase) -> ClaimPackage:
-    """Zip манифеста, PDF и файлов отметки. В кабинет БНП архив не отправляется."""
+    """Zip манифеста, PDF и файлов ЭЦП. В кабинет БНП архив не отправляется."""
     package = stored_package(case)
     if package is None or not package.formed_at:
         raise ClaimBlocked("Сначала сформируйте пакет")
@@ -458,9 +495,17 @@ def store_document(
         document.signature_name = _signature_name(document.file_name, signature_kind)
         manifest_changed = True
     if signature is not None:
-        _reject_size(signature)
+        payload = _read(signature)
+        if not payload:
+            raise ClaimBlocked("Пустой файл")
+        if len(payload) > MAX_FILE_BYTES:
+            raise ClaimBlocked("Файл больше 15 МБ")
         _check_signature_upload(getattr(signature, "name", ""), document.signature_name)
-        document.signature.save(document.signature_name, ContentFile(_read(signature)), save=False)
+        try:
+            checked = inspect_detached_pkcs7(payload)
+        except Pkcs7Error as exc:
+            raise ClaimBlocked(str(exc)) from exc
+        document.signature.save(document.signature_name, ContentFile(checked.der), save=False)
     document.save()
     if manifest_changed:
         _invalidate(package)
@@ -483,17 +528,18 @@ def form_package(case: ClaimCase, user) -> ClaimPackage:
     package = stored_package(case)
     if package is None:
         raise ClaimBlocked("Сначала сохраните состав пакета")
+    _use_registration_personal_id(case.account, package)
     problems = _problems(case, package)
     package.problems = problems
     if problems:
         package.formed_at = None
         package.manifest = {}
-        package.save(update_fields=["problems", "formed_at", "manifest", "updated_at"])
+        package.save(update_fields=["debtors", "problems", "formed_at", "manifest", "updated_at"])
         WritCheck.objects.filter(account_id=case.account_id, code="package").update(done=False)
         raise ClaimBlocked("; ".join(problems))
     package.manifest = _manifest(case, package)
     package.formed_at = timezone.now()
-    package.save(update_fields=["problems", "manifest", "formed_at", "updated_at"])
+    package.save(update_fields=["debtors", "problems", "manifest", "formed_at", "updated_at"])
     ensure_writ_checks(case.account)
     WritCheck.objects.filter(account_id=case.account_id, code="package").update(done=True)
     ClaimEvent.objects.create(
@@ -503,6 +549,7 @@ def form_package(case: ClaimCase, user) -> ClaimPackage:
         new_stage=case.stage,
         reason="Сформирован пакет для личного кабинета БНП",
     )
+    write_archive(case)
     return package
 
 
@@ -540,15 +587,35 @@ def open_document(case: ClaimCase, doc_id: int, kind: str):
     return document.signature, document.signature_name
 
 
+def signature_blockers(package: ClaimPackage | None) -> list[str]:
+    if package is None:
+        return []
+    missing = []
+    blockers = []
+    for doc in package.documents.all():
+        if not doc.pdf:
+            continue
+        if not doc.signature:
+            missing.append(doc.file_name)
+            continue
+        try:
+            inspect_detached_pkcs7(_field_bytes(doc.signature))
+        except OSError:
+            blockers.append(f"{doc.file_name}: файл ЭЦП не читается")
+        except Pkcs7Error as exc:
+            blockers.append(f"{doc.file_name}: {exc}")
+    if missing:
+        blockers.append("Нет файла ЭЦП: " + ", ".join(missing))
+    return blockers
+
+
 def send_blockers(case: ClaimCase, package: ClaimPackage | None) -> list[str]:
     if package is None or not package.formed_at:
         return ["Сначала сформируйте пакет для личного кабинета БНП"]
     blockers = []
     if _amounts_changed(case.account, package):
         blockers.append("Сумма в АИС изменилась. Сформируйте пакет снова")
-    missing = [doc.file_name for doc in package.documents.all() if doc.pdf and not doc.signature]
-    if missing:
-        blockers.append("Нет файла ЭЦП: " + ", ".join(missing))
+    blockers.extend(signature_blockers(package))
     return blockers
 
 
@@ -602,6 +669,25 @@ def _suggestion(case: ClaimCase) -> dict:
         "debtors": _suggest_debtors(account),
         "debts": [_debt_row(account, "balance", "", timezone.localdate().isoformat(), "", "")],
     }
+
+
+def _use_registration_personal_id(account: Account, package: ClaimPackage) -> None:
+    """Номер из регистрации плательщика важнее копии, сохранённой в пакете раньше."""
+    live = _live_personal_id(account)
+    if not live or not package.debtors:
+        return
+    debtors = [dict(row) for row in package.debtors]
+    target = next((row for row in debtors if not row.get("solidary")), debtors[0])
+    target["personalId"] = live
+    package.debtors = debtors
+
+
+def _live_personal_id(account: Account) -> str:
+    regs = [reg for reg in account.registrations.all() if not reg.subj_is_check_out]
+    mains = [reg for reg in regs if reg.subj_is_main]
+    reg = mains[0] if mains else None
+    personal = reg.personal_num if reg is not None else ""
+    return (personal or account.payer_identifier or "").strip().upper()
 
 
 def _suggest_debtors(account: Account) -> list[dict]:
@@ -758,11 +844,37 @@ def _with_live_amount(account: Account, row: dict) -> dict:
 
 
 def _amount_for(account: Account, source: str) -> str:
+    """Сумма строки пакета — те же колонки услуг, что «Сумма основного долга» и пеня на карточке.
+
+    Колонка «Исходящее сальдо» самой карточки ЛС в обезличенной выгрузке обнулена,
+    хотя по услугам долг есть. Пока на счёте есть услуги, пакет берёт их сумму.
+    """
+    totals = _service_totals(account)
     if source == "penalty":
-        total = sum((service.balance_mulct_out or Decimal("0")) for service in account.services.all())
+        total = totals["penalty"]
+    elif totals["count"]:
+        total = totals["principal"]
     else:
         total = account.balance_out or Decimal("0")
     return f"{Decimal(total).quantize(Decimal('0.01')):.2f}"
+
+
+def _service_totals(account: Account) -> dict:
+    cached = getattr(account, "_bnp_service_totals", None)
+    if cached is not None:
+        return cached
+    row = account.services.aggregate(
+        count=Count("pk"),
+        principal=Sum("balance_out"),
+        penalty=Sum("balance_mulct_out"),
+    )
+    cached = {
+        "count": row["count"] or 0,
+        "principal": row["principal"] or Decimal("0"),
+        "penalty": row["penalty"] or Decimal("0"),
+    }
+    account._bnp_service_totals = cached
+    return cached
 
 
 def _iso(value, label: str) -> str:
@@ -817,8 +929,10 @@ def _debtor_problems(debtor: dict, index: int) -> list[str]:
     prefix = f"Должник {index}"
     missing = []
     if person in {"natural", "sole_trader"}:
-        if not PERSONAL_ID_RE.fullmatch(debtor.get("personalId") or ""):
-            missing.append("личный номер (14 символов, латинские прописные)")
+        personal = (debtor.get("personalId") or "").strip()
+        if not PERSONAL_ID_RE.fullmatch(personal):
+            shown = f" «{personal}»" if personal else ""
+            missing.append(f"личный номер{shown} ({PERSONAL_ID_RULE})")
         for key, title in (("secondName", "фамилия"), ("firstName", "имя"), ("middleName", "отчество")):
             if not (debtor.get(key) or "").strip():
                 missing.append(title)
@@ -841,7 +955,7 @@ def _debt_problems(account: Account, debt: dict, allowed: set[str], known_types:
     problems = []
     amount = _amount_for(account, debt.get("source") or "balance")
     if not AMOUNT_RE.fullmatch(amount) or Decimal(amount) <= 0:
-        source = "пени" if debt.get("source") == "penalty" else "исходящего сальдо"
+        source = "пени" if debt.get("source") == "penalty" else "исходящего сальдо услуг"
         problems.append(f"В АИС нет положительной суммы {source}")
     type_id = debt.get("typeId") or ""
     if not type_id:
@@ -964,7 +1078,7 @@ def _application_lines(case: ClaimCase, package: ClaimPackage) -> list[str]:
         f"Лицевой счёт: {account.client_account}",
         f"Адрес: {account.account_address}",
         f"Должник: {name}",
-        f"Исходящее сальдо по данным АИС: {_amount_for(account, 'balance')} BYN",
+        f"Сумма основного долга по данным АИС: {_amount_for(account, 'balance')} BYN",
         f"Пеня по данным АИС: {_amount_for(account, 'penalty')} BYN",
         f"Дата вручения предупреждения: {case.warning_delivered_on or 'не указана'}",
         f"Нотариальный тариф: {case.notary_tariff if case.notary_tariff is not None else 'не указан'}",
@@ -1035,6 +1149,14 @@ def _read(uploaded) -> bytes:
     if hasattr(uploaded, "seek"):
         uploaded.seek(0)
     return uploaded.read()
+
+
+def _field_bytes(field) -> bytes:
+    field.open("rb")
+    try:
+        return field.read()
+    finally:
+        field.close()
 
 
 def _drop_other_signatures(document: ClaimPackageDocument) -> None:

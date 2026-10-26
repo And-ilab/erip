@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from django.utils import timezone
+
 from apps.debts.models import Measure, MeasureTask, TaskCheck
 from apps.users.models import User
 
@@ -33,7 +35,8 @@ def set_task_status(measure: Measure, task_id: int, status: str) -> MeasureTask:
     if status not in {MeasureTask.Status.OPEN, MeasureTask.Status.DONE}:
         raise TaskError({"status": "Статус: open или done"})
     task.status = status
-    task.save(update_fields=["status", "updated_at"])
+    task.completed_on = timezone.localdate() if status == MeasureTask.Status.DONE else None
+    task.save(update_fields=["status", "completed_on", "updated_at"])
     return task
 
 
@@ -54,6 +57,21 @@ def set_check(measure: Measure, check_id: int, done: bool) -> TaskCheck:
     row.done = bool(done)
     row.save(update_fields=["done", "updated_at"])
     return row
+
+
+def task_row(task: MeasureTask) -> dict:
+    """Один вид задания для карточки партии и для вкладки «Мероприятия» на ЛС."""
+    return {
+        "id": task.id,
+        "title": task.title,
+        "due_on": task.due_on.isoformat() if task.due_on else None,
+        "status": task.status,
+        "status_label": task.get_status_display(),
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "completed_on": task.completed_on.isoformat() if task.completed_on else None,
+        "assignee_name": task.assignee.display_name if task.assignee_id else "",
+        "checks": [{"id": item.id, "title": item.title, "done": item.done} for item in task.checks.all()],
+    }
 
 
 def _date(value):

@@ -1,0 +1,26 @@
+$kind: http-example
+name: '200 OK'
+request:
+  method: POST
+  url: '{{base_url}}/gw/v1/voice/batch'
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "data": {
+          "results": [
+            {"phone": "+375291110033", "status": "answered", "error": "", "duration_sec": 36, "listen_percent": 72, "provider_message_id": "voice-1", "external_call": false, "caller_id": "+375172000001", "recording_ref": ""},
+            {"phone": "+375291110000", "status": "bad_number", "error": "Неверный номер", "duration_sec": 0, "listen_percent": null, "provider_message_id": "voice-2", "external_call": false, "caller_id": "+375172000001", "recording_ref": ""},
+            {"phone": "+375291110001", "status": "busy", "error": "", "duration_sec": 0, "listen_percent": null, "provider_message_id": "voice-3", "external_call": false, "caller_id": "+375172000001", "recording_ref": ""},
+            {"phone": "+375291110002", "status": "no_answer", "error": "", "duration_sec": 0, "listen_percent": null, "provider_message_id": "voice-4", "external_call": false, "caller_id": "+375172000001", "recording_ref": ""},
+            {"phone": "+491511234567", "status": "bad_number", "error": "Не номер +375", "duration_sec": 0, "listen_percent": null, "provider_message_id": "voice-5", "external_call": false, "caller_id": "+375172000001", "recording_ref": ""}
+          ]
+        },
+        "meta": {"request_id": "req", "duration_ms": 1}
+      }

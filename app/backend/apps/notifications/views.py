@@ -146,6 +146,8 @@ class NotificationViewSet(ScopedQuerysetMixin, mixins.CreateModelMixin, mixins.L
     @action(detail=True, methods=["post"], url_path="mark-read", write_roles=None)
     def mark_read(self, request, pk=None):
         notification = self.get_object()
+        if notification.channel == Channel.EMAIL:
+            raise ValidationError("Прочтение письма не отмечается")
         if notification.recipient_user_id != request.user.id:
             raise PermissionDenied("Отметить прочитанным можно только своё уведомление")
         notification.is_read = True
@@ -171,5 +173,7 @@ class NotificationViewSet(ScopedQuerysetMixin, mixins.CreateModelMixin, mixins.L
         apply_delivery_status(
             notification, data.validated_data["status"], error=data.validated_data["error"],
             text=data.validated_data["rendered_text"],
+            provider_message_id=data.validated_data["provider_message_id"],
+            external_call=data.validated_data["external_call"],
         )
         return Response({"id": notification.pk, "status": notification.status})

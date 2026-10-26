@@ -10,8 +10,9 @@
   padding: 20px 16px 28px;
   overflow: auto;
   scrollbar-gutter: stable;
-  max-height: calc(100vh - 200px);
-  min-height: 360px;
+  max-height: var(--sheet-max-height, calc(100vh - 200px));
+  min-height: var(--sheet-min-height, 360px);
+  height: var(--sheet-height, auto);
   border-radius: 2px;
 }
 
@@ -46,6 +47,23 @@
 }
 
 .doc-block { margin: 0 0 2mm; }
+
+.doc-row.split {
+  display: flex;
+  align-items: flex-start;
+  gap: 6mm;
+}
+
+.doc-row.split .doc-block {
+  flex: 1 1 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.doc-row.split .prose-text {
+  text-indent: 0;
+  text-align: inherit;
+}
 
 .doc-block.on {
   outline: 0.3mm dashed rgba(29, 79, 99, 0.45);
@@ -148,6 +166,7 @@
 
 .prose {
   margin: 1.4mm 0;
+  text-align: inherit;
 }
 
 .prose-text {

@@ -8,12 +8,13 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { Notification } from '../../core/models';
 
 @Component({
   selector: 'app-notifications-page',
   standalone: true,
-  imports: [DatePipe, FormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MatSelectModule, MatButtonModule],
+  imports: [DatePipe, FormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MatSelectModule, MatButtonModule, GridResizeDirective],
   template: `
     <div class="page">
       <div class="page-header">
@@ -43,7 +44,7 @@ import { Notification } from '../../core/models';
       </div>
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
       <div class="list-pane">
-      <table mat-table [dataSource]="rows()" class="mat-elevation-z1">
+      <table mat-table [dataSource]="rows()" class="mat-elevation-z1" appGridResize="notifications">
         <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Создано</th><td mat-cell *matCellDef="let n">{{ n.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
         <ng-container matColumnDef="channel"><th mat-header-cell *matHeaderCellDef>Канал</th><td mat-cell *matCellDef="let n">{{ n.channel_display }}</td></ng-container>
         <ng-container matColumnDef="recipient"><th mat-header-cell *matHeaderCellDef>Получатель</th><td mat-cell *matCellDef="let n">{{ n.recipient_name }} <span class="muted">{{ n.recipient_address }}</span></td></ng-container>

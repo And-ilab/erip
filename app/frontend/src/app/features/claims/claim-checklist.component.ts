@@ -8,7 +8,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 
-import { DateFieldComponent } from '../../core/date-field.component';
+import { DateFieldComponent, HoldDraftDirective } from '../../core/date-field.component';
 import { ApiService, BlankPenaltyRow, BlankPeriodPair, BlankResident, BlankSection, BlankServiceRow, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
 import { SheetBlock, SheetEditor, bodyBlock, normalizeBlock } from '../settings/document-flow';
 import { OfficialSheetComponent } from '../settings/official-sheet.component';
@@ -40,10 +40,11 @@ const COURT: Slot[] = [
 
 @Component({
   selector: 'app-claim-checklist',
+  host: { '[class.file-open]': 'editing() || pdfUrl()' },
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule,
-    MatSnackBarModule, DateFieldComponent, PrintSheetComponent, OfficialSheetComponent,
+    MatSnackBarModule, DateFieldComponent, HoldDraftDirective, PrintSheetComponent, OfficialSheetComponent,
   ],
   template: `
     <div class="split" [attr.data-slot]="selected()">
@@ -70,20 +71,22 @@ const COURT: Slot[] = [
             }
           </div>
           @if (scope() === 'court') { <ng-content /> }
-          @if (slot.mode === 'date') {
-            <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate()" (valueChange)="warningDateChange.emit($event)" />
-          }
-          @if (slot.mode === 'tariff') {
-            <mat-form-field [class.need]="!(tariff() && +tariff() > 0)" subscriptSizing="dynamic">
-              <mat-label>Нотариальный тариф *</mat-label>
-              <input matInput [ngModel]="tariff()" (ngModelChange)="tariffChange.emit($event)" />
-            </mat-form-field>
-            <mat-checkbox [ngModel]="withdrawn()" (ngModelChange)="withdrawnChange.emit($event)">Заявление отозвано</mat-checkbox>
-            <p class="meta">Тариф считает АИС. Отзыв заявления обнуляет тариф при сохранении дела.</p>
+          @if (scope() !== 'court') {
+            <div [hidden]="slot.mode !== 'date'">
+              <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate()" (valueChange)="warningDateChange.emit($event)" />
+            </div>
+            <div [hidden]="slot.mode !== 'tariff'">
+              <mat-form-field [class.need]="!(tariff() && +tariff() > 0)" subscriptSizing="dynamic">
+                <mat-label>Нотариальный тариф *</mat-label>
+                <input matInput holdDraft [ngModel]="tariff()" (ngModelChange)="emitTariff($event)" />
+              </mat-form-field>
+              <mat-checkbox holdDraft [ngModel]="withdrawn()" (ngModelChange)="emitWithdrawn($event)">Заявление отозвано</mat-checkbox>
+              <p class="meta">Тариф считает АИС. Отзыв заявления обнуляет тариф при сохранении дела.</p>
+            </div>
           }
           @if (slot.mode === 'ais') {
             @for (debt of pack()?.debts || []; track $index) {
-              <p>{{ debt.source === 'penalty' ? 'Пеня' : 'Исходящее сальдо' }}: {{ debt.amount }} {{ debt.currency }}</p>
+              <p>{{ debt.source === 'penalty' ? 'Пеня' : 'Сумма основного долга' }}: {{ debt.amount }} {{ debt.currency }}</p>
             }
             @if (!(pack()?.debts || []).length) {
               <p>Сумм из АИС на деле пока нет. ПМ их не вводит.</p>
@@ -183,6 +186,11 @@ const COURT: Slot[] = [
     .checks li.need { border-color: #c62828; }
     .need { color: #c62828; }
     .sheet { width: 100%; height: min(420px, 46vh); border: 0; border-radius: 6px; background: #f4f6f8; }
+    :host.file-open { flex: none; min-height: auto; --sheet-max-height: none; --sheet-min-height: 520px; --sheet-height: min(780px, 70vh); }
+    :host.file-open .split { flex: none; min-height: auto; align-items: start; }
+    :host.file-open .viewer { overflow: visible; min-height: auto; }
+    :host.file-open .checks { overflow: visible; }
+    :host.file-open .sheet { height: min(780px, 70vh); min-height: 520px; }
     .row {
       display: grid; grid-template-columns: 16px minmax(0, 1fr) 2.75rem; align-items: center; column-gap: 8px;
       width: 100%; min-width: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; padding: 2px 0;
@@ -262,6 +270,7 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   private rawUrl = '';
   private lastKind = '';
   private lastFocus = '';
+  private alive = true;
 
   constructor() {
     effect(() => {
@@ -304,7 +313,24 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.alive = false;
     this.revoke();
+  }
+
+  /** Снятие пункта с экрана не должно присылать пустой тариф. */
+  protected emitTariff(value: string | null): void {
+    const next = value ?? '';
+    queueMicrotask(() => {
+      if (!this.alive) return;
+      this.tariffChange.emit(next);
+    });
+  }
+
+  protected emitWithdrawn(value: boolean): void {
+    queueMicrotask(() => {
+      if (!this.alive) return;
+      this.withdrawnChange.emit(!!value);
+    });
   }
 
   protected visibleSlots(): Slot[] {

@@ -38,7 +38,7 @@ class AccountFilter(django_filters.FilterSet):
     balance_out__lte = django_filters.NumberFilter(field_name="balance_out", lookup_expr="lte")
     rating = django_filters.CharFilter(field_name="rating")
     rating__in = django_filters.BaseInFilter(field_name="rating")
-    funnel_stage = django_filters.CharFilter(field_name="funnel_stage")
+    funnel_stage = django_filters.CharFilter(method="filter_funnel")
     assigned_to = django_filters.NumberFilter(field_name="assigned_to")
     assigned_name = django_filters.CharFilter(method="filter_assigned_name")
     ownership = django_filters.CharFilter(field_name="ownership_type_name", lookup_expr="icontains")
@@ -61,6 +61,11 @@ class AccountFilter(django_filters.FilterSet):
         model = Account
         fields = ["provider_id", "organization", "is_private_enterprise", "house_id"]
 
+    def filter_funnel(self, queryset, name, value):
+        from apps.debts.services.funnel import stored_codes
+
+        return queryset.filter(funnel_stage__in=stored_codes(value))
+
     def filter_assigned_name(self, queryset, name, value):
         text = str(value).strip()
         if not text:
@@ -76,7 +81,13 @@ class AccountFilter(django_filters.FilterSet):
 
     @staticmethod
     def _shown_group(value):
-        return Q(debt_group_manual=value) | Q(debt_group_manual__isnull=True, debt_group=value)
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return Q(pk__in=[])
+        if number == 0:
+            return Q(debt_group_manual=0) | Q(debt_group_manual__isnull=True, debt_group__isnull=True)
+        return Q(debt_group_manual=number) | Q(debt_group_manual__isnull=True, debt_group=number)
 
     def filter_effective_group(self, queryset, name, value):
         return queryset.filter(self._shown_group(value))
@@ -115,7 +126,7 @@ class ContractFilter(django_filters.FilterSet):
     debt_group__in = django_filters.BaseInFilter(method="filter_effective_groups")
     debtor_category = django_filters.NumberFilter(field_name="account__debtor_category")
     billing_provider = django_filters.CharFilter(method="filter_billing")
-    funnel_stage = django_filters.CharFilter(field_name="account__funnel_stage")
+    funnel_stage = django_filters.CharFilter(method="filter_funnel")
     assigned_to = django_filters.NumberFilter(field_name="account__assigned_to")
     assigned_name = django_filters.CharFilter(method="filter_assigned_name")
     ownership = django_filters.CharFilter(field_name="account__ownership_type_name", lookup_expr="icontains")
@@ -133,7 +144,13 @@ class ContractFilter(django_filters.FilterSet):
 
     @staticmethod
     def _shown_group(value):
-        return Q(debt_group_manual=value) | Q(debt_group_manual__isnull=True, debt_group=value)
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return Q(pk__in=[])
+        if number == 0:
+            return Q(debt_group_manual=0) | Q(debt_group_manual__isnull=True, debt_group__isnull=True)
+        return Q(debt_group_manual=number) | Q(debt_group_manual__isnull=True, debt_group=number)
 
     def filter_effective_group(self, queryset, name, value):
         return queryset.filter(self._shown_group(value))
@@ -143,6 +160,11 @@ class ContractFilter(django_filters.FilterSet):
         for item in value:
             condition |= self._shown_group(item)
         return queryset.filter(condition)
+
+    def filter_funnel(self, queryset, name, value):
+        from apps.debts.services.funnel import stored_codes
+
+        return queryset.filter(account__funnel_stage__in=stored_codes(value))
 
     def filter_assigned_name(self, queryset, name, value):
         text = str(value).strip()

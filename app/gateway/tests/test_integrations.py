@@ -98,6 +98,10 @@ def test_pris_echo_and_claimant_info(client):
     info = client.post("/gw/v1/integrations/pris/claimant-info", json={"p_proc_num": "60118000051"}).json()["data"]
     assert info["mode"] == "stub"
     assert info["items"][0]["p_ispdoc"][0]["proc_num"] == "60118000051"
+    nsi = client.get("/gw/v1/integrations/pris/nsi").json()["data"]
+    assert nsi["mode"] == "stub"
+    assert nsi["items"][0]["type"] == "120"
+    assert nsi["items"][0]["content"]["data"][1]["code"] == 801
 
 
 _ADDRESS = {

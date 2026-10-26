@@ -40,9 +40,11 @@ def period_rows(service: AccountService) -> list[dict]:
     return rows
 
 
-def service_line(service: AccountService) -> dict:
-    return {
+def service_line(service: AccountService, *, with_periods: bool = True) -> dict:
+    row = {
         "service_list_id": service.service_list_id,
+        "agreement_number": service.agreement_number or "",
+        "payment_due_day": service.payment_due_day or None,
         "service_name": service.service_name or "",
         "start_date": _iso(service.start_date),
         "shot_name": service.shot_name or "",
@@ -53,11 +55,13 @@ def service_line(service: AccountService) -> dict:
         "repayment_due_on": _iso(service.repayment_due_on),
         "last_payment_date": _iso(service.last_payment_date),
         "debt_started_on": _iso(service.debt_started_on),
-        "periods": period_rows(service),
     }
+    if with_periods:
+        row["periods"] = period_rows(service)
+    return row
 
 
-def board_service_lines(services) -> tuple[list[dict], int]:
-    lines = [service_line(service) for service in services]
+def board_service_lines(services, *, with_periods: bool = True) -> tuple[list[dict], int]:
+    lines = [service_line(service, with_periods=with_periods) for service in services]
     debt_count = sum(1 for service in services if _has_debt(service))
     return lines, debt_count

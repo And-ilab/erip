@@ -1,9 +1,9 @@
-import { Component, inject, signal } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
 import { MatBadgeModule } from '@angular/material/badge';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
-import { MatSidenavModule } from '@angular/material/sidenav';
+import { MatSidenavContainer, MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
@@ -26,6 +26,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
         [attr.aria-expanded]="!navCompact()" aria-controls="app-menu">
         <mat-icon>apps</mat-icon>
       </button>
+      <img class="logo" src="erip-logo.png?v=2" alt="" />
       <span class="brand">ЕРИП · Работа с задолженностью</span>
       <span class="spacer"></span>
       <button mat-icon-button (click)="panel.toggle()" matTooltip="Уведомления">
@@ -41,7 +42,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     </mat-toolbar>
 
     <mat-sidenav-container class="container">
-      <mat-sidenav id="app-menu" mode="side" opened class="menu" [class.compact]="navCompact()">
+      <mat-sidenav #menu id="app-menu" mode="side" opened class="menu" [class.compact]="navCompact()">
         <mat-nav-list>
           @for (item of navItems(); track item.link) {
             <a mat-list-item [routerLink]="item.link" routerLinkActive="active"
@@ -65,6 +66,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     .spacer { flex: 1; }
     .topbar { gap: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); z-index: 2; }
     .topbar .mat-mdc-icon-button { color: #fff; }
+    .logo { height: 40px; width: auto; display: block; }
     .brand { font-weight: 600; font-size: 17px; }
     .org, .user { font-size: 13px; }
     .org { padding: 4px 12px; border-radius: 6px; background: rgba(255, 255, 255, .14); }
@@ -74,7 +76,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
       background: rgba(255, 255, 255, .2); font-size: 13px; font-weight: 600; cursor: default;
     }
     .container { flex: 1; min-height: 0; }
-    mat-sidenav-content { display: flex; flex-direction: column; min-height: 0; }
+    mat-sidenav-content { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
     .menu {
       width: 260px; border-right: 0; border-radius: 0; background: var(--erip-primary);
       border-top: 1px solid rgba(255, 255, 255, .12);
@@ -98,18 +100,37 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
     .panel { width: 380px; }
   `,
 })
-export class ShellComponent {
+export class ShellComponent implements AfterViewInit, OnDestroy {
   protected readonly auth = inject(AuthService);
   protected readonly store = inject(NotificationsStore);
   protected readonly navCompact = signal(false);
+  @ViewChild('menu', { read: ElementRef }) private menu?: ElementRef<HTMLElement>;
+  @ViewChild(MatSidenavContainer) private frame?: MatSidenavContainer;
+  private menuSize?: ResizeObserver;
+
+  ngAfterViewInit(): void {
+    const node = this.menu?.nativeElement;
+    const frame = this.frame;
+    if (!node || !frame) return;
+    this.menuSize = new ResizeObserver(() => frame.updateContentMargins());
+    this.menuSize.observe(node);
+  }
+
+  ngOnDestroy(): void {
+    this.menuSize?.disconnect();
+  }
 
   protected navItems(): { link: string; label: string; icon: string }[] {
     const items = [
       { link: '/accounts', label: 'Реестр ЛС', icon: 'badge' },
-      { link: '/contracts', label: 'Реестр договоров', icon: 'article' },
+    ];
+    if (this.auth.canOpenContracts()) {
+      items.push({ link: '/contracts', label: 'Реестр договоров', icon: 'article' });
+    }
+    items.push(
       { link: '/measures', label: 'Мероприятия', icon: 'event_note' },
       { link: '/claims', label: 'Претензионно-исковая работа', icon: 'gavel' },
-    ];
+    );
     if (this.auth.canWrite() && this.auth.me()?.contour !== 'supplier') {
       items.push({ link: '/settings', label: 'Настройка', icon: 'tune' });
     }

@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ElementRef, Input, OnChanges, OnDestroy, SimpleChanges, ViewChild, inject, output, signal } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, Input, OnChanges, OnDestroy, SimpleChanges, ViewChild, computed, inject, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import type { Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 
@@ -174,17 +174,25 @@ const GROUP_COLOR: Record<number, string> = {
     <p class="muted">Число в пузыре — лицевые счета, цвет — группа, которой в этом месте больше. Подложка — файл карты на этом сервере.</p>
     @if (error()) { <p class="status-failed">{{ error() }}</p> }
     @if (mapFailed()) { <p class="status-failed">{{ mapFailed() }}</p> }
-    <ul class="tree">
-      @for (child of level()?.children ?? []; track child.id) {
-        <li>
-          <button type="button" (click)="open(child)">
-            <i [style.background]="color(child.dominant_group)"></i>
-            {{ child.name }}
-            <b>{{ child.accounts }}</b>
-          </button>
-        </li>
-      }
-    </ul>
+    <label class="street-search">Улица
+      <input [value]="streetQuery()" (input)="streetQuery.set($any($event.target).value)" placeholder="Поиск по названию улицы" />
+    </label>
+    @for (group of addressGroups(); track group.title) {
+      <details class="addr-group">
+        <summary>{{ group.title }} <b>{{ group.rows.length }}</b></summary>
+        <ul class="tree">
+          @for (child of group.rows; track child.id) {
+            <li>
+              <button type="button" (click)="open(child)">
+                <i [style.background]="color(child.dominant_group)"></i>
+                {{ child.name }}
+                <b>{{ child.accounts }}</b>
+              </button>
+            </li>
+          }
+        </ul>
+      </details>
+    }
     <div #canvas class="map-canvas"></div>
     @if (level() && !level()!.children.length && !error()) {
       <p>На этом уровне по текущему фильтру лицевых счетов нет.</p>
@@ -202,6 +210,10 @@ const GROUP_COLOR: Record<number, string> = {
     .tree { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 0; margin: 0; }
     .tree button { display: flex; align-items: center; gap: 8px; border: 1px solid var(--erip-border); background: #fff; border-radius: 999px; padding: 6px 12px; cursor: pointer; }
     .tree i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .street-search { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; }
+    .street-search input { flex: 1; max-width: 360px; }
+    .addr-group { margin: 4px 0; }
+    .addr-group summary { cursor: pointer; font-weight: 600; }
   `],
 })
 export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy {
@@ -212,6 +224,22 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
   readonly openList = output<{ id: number; name: string }>();
 
   protected readonly level = signal<MapLevel | null>(null);
+  protected readonly streetQuery = signal('');
+  protected readonly addressGroups = computed(() => {
+    const query = this.streetQuery().trim().toLowerCase();
+    const children = [...(this.level()?.children ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const filtered = query ? children.filter((child) => child.name.toLowerCase().includes(query)) : children;
+    const buckets = new Map<string, MapBubble[]>();
+    for (const child of filtered) {
+      const title = child.kind === 'street' || child.kind === 'house'
+        ? (child.name.replace(/^[^А-ЯA-Zа-яa-z]+/, '').charAt(0).toUpperCase() || 'Прочие')
+        : this.kindTitle(child.kind);
+      const rows = buckets.get(title) ?? [];
+      rows.push(child);
+      buckets.set(title, rows);
+    }
+    return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ru')).map(([title, rows]) => ({ title, rows }));
+  });
   protected readonly error = signal('');
   protected readonly mapFailed = signal('');
   private parentId: number | null = null;
@@ -307,6 +335,14 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     this.load();
   }
 
+  private kindTitle(kind: string): string {
+    const titles: Record<string, string> = {
+      oblast: 'Области', district: 'Районы', settlement: 'Населённые пункты',
+      microdistrict: 'Микрорайоны', street: 'Улицы', house: 'Дома', country: 'Страна',
+    };
+    return titles[kind] || 'Адреса';
+  }
+
   color(group: number | null): string {
     return GROUP_COLOR[group ?? 0] ?? '#1d4f63';
   }
@@ -384,7 +420,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     if (placed.length === 1) {
       map.jumpTo({
         center: [placed[0].longitude as number, placed[0].latitude as number],
-        zoom: this.zoom(placed[0].kind),
+        zoom: this.zoom(placed[0].kind, level.parent?.kind),
       });
       return;
     }
@@ -395,8 +431,8 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
     }
   }
 
-  private zoom(kind: string): number {
-    if (kind === 'oblast') return 7;
+  private zoom(kind: string, parentKind?: string): number {
+    if (kind === 'oblast' || (kind === 'settlement' && parentKind === 'country')) return 7;
     if (kind === 'settlement') return 11;
     if (kind === 'district' || kind === 'microdistrict') return 12;
     if (kind === 'street') return 14;

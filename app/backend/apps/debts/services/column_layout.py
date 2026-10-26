@@ -6,6 +6,13 @@ COLUMN_MARK = "__explicit"
 HIDE_PREFIX = "__hide__:"
 
 
+def explicit_layout(order: list[str], hidden: set[str] | frozenset[str]) -> list[str]:
+    """Порядок по умолчанию: скрытые столбцы помнят место и не видны, пока пользователь их не включит."""
+    stored = [f"{HIDE_PREFIX}{name}" if name in hidden else name for name in order]
+    stored.append(COLUMN_MARK)
+    return stored
+
+
 def column_layout(stored: list, allowed: list[str]) -> tuple[list[str], list[str]]:
     """Видимые столбцы и полный порядок, включая скрытые."""
     raw = [item for item in (stored or []) if isinstance(item, str)]

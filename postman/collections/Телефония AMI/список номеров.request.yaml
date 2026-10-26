@@ -1,0 +1,41 @@
+$kind: http-request
+method: POST
+url: '{{base_url}}/gw/v1/voice/batch'
+order: 8000
+headers:
+  - key: X-Internal-Token
+    value: '{{internal_token}}'
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "text": "Долг",
+      "caller_id": "+375172000001",
+      "calls": [
+        {"phone": "+375291110033"},
+        {"phone": "+375291110000"},
+        {"phone": "+375291110001"},
+        {"phone": "+375291110002"},
+        {"phone": "+491511234567"}
+      ]
+    }
+examples: './.resources/список номеров.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const rows = pm.response.json().data.results;
+      const mode = pm.collectionVariables.get('voice_mode') || 'stub';
+      pm.test('200', function () { pm.response.to.have.status(200); });
+      pm.test('пять номеров', function () { pm.expect(rows).to.have.lengthOf(5); });
+      if (mode !== 'ami') {
+          pm.test('заглушка: список исходов', function () {
+              pm.expect(rows.map(function (row) { return row.status; })).to.eql([
+                  'answered', 'bad_number', 'busy', 'no_answer', 'bad_number'
+              ]);
+              pm.expect(rows[4].error).to.eql('Не номер +375');
+              pm.expect(rows[4].external_call).to.eql(false);
+          });
+      }

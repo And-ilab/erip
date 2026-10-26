@@ -306,6 +306,23 @@ def _stub_accepted(cl_num: str) -> Envelope:
     )
 
 
+# Сокращённый пример GetNSIData из регламента: только справочник 120. Остальные номера
+# приходят с контура Минюста, в заглушку их не подставляем.
+STUB_NSI = [{
+    "type": "120",
+    "type_name": "ОРГАНЫ ПРИНУДИТЕЛЬНОГО ИСПОЛНЕНИЯ МИНИСТЕРСТВА ЮСТИЦИИ",
+    "content": {
+        "code": "1",
+        "data": [
+            {"code": 0, "lex1": "(пусто)", "code_sorting": 0},
+            {"code": 801, "lex1": "ГУПИ МИНИСТЕРСТВА ЮСТИЦИИ РЕСПУБЛИКИ БЕЛАРУСЬ", "code_sorting": 0},
+        ],
+        "message": "",
+        "tag": "",
+    },
+}]
+
+
 SAMPLE_CLAIMANT_INFO = {
     "p_ispdoc": [{"doc_name": "15", "doc_num": "7-5334", "doc_date": "02.11.2017 0:00:00", "proc_num": "60118000051",
                   "opi": "601", "crednum": "", "req_init": "205"}],
@@ -364,5 +381,4 @@ class StubPrisClient(_TokenMixin, PrisClient):
 
     async def get_nsi(self) -> list[dict]:
         await self.token()
-        return [{"type": "120", "type_name": "ОРГАНЫ ПРИНУДИТЕЛЬНОГО ИСПОЛНЕНИЯ МИНИСТЕРСТВА ЮСТИЦИИ",
-                 "content": {"code": "1", "data": [{"code": 801, "lex1": "ГУПИ МИНИСТЕРСТВА ЮСТИЦИИ", "code_sorting": 0}]}}]
+        return list(STUB_NSI)

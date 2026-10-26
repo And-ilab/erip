@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, importGuard, settingsAdminGuard, superadminGuard } from './core/auth.guard';
+import { authGuard, contractsGuard, importGuard, settingsAdminGuard, superadminGuard } from './core/auth.guard';
 import { ShellComponent } from './layout/shell.component';
 
 export const routes: Routes = [
@@ -29,10 +29,12 @@ export const routes: Routes = [
       },
       {
         path: 'contracts',
+        canActivate: [contractsGuard],
         loadComponent: () => import('./features/contracts/contracts-list.component').then((m) => m.ContractsListComponent),
       },
       {
         path: 'contracts/:id',
+        canActivate: [contractsGuard],
         loadComponent: () => import('./features/contracts/contract-detail.component').then((m) => m.ContractDetailComponent),
       },
       {
@@ -44,7 +46,7 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),
       },
-      { path: 'templates', redirectTo: 'settings/work/messages', pathMatch: 'full' },
+      { path: 'templates', redirectTo: 'settings/work/forms', pathMatch: 'full' },
       { path: 'scenarios', redirectTo: 'settings/work/scenario', pathMatch: 'full' },
       {
         path: 'claims',
@@ -79,13 +81,14 @@ export const routes: Routes = [
                 path: 'scenario',
                 loadComponent: () => import('./features/scenarios/scenarios.component').then((m) => m.ScenariosComponent),
               },
-              {
-                path: 'messages',
-                loadComponent: () => import('./features/templates/templates.component').then((m) => m.TemplatesComponent),
-              },
+              { path: 'messages', redirectTo: '/settings/work/forms' },
               {
                 path: 'forms',
                 loadComponent: () => import('./features/settings/print-forms.component').then((m) => m.PrintFormsComponent),
+              },
+              {
+                path: 'extra',
+                loadComponent: () => import('./features/settings/extra-measures.component').then((m) => m.ExtraMeasuresComponent),
               },
             ],
           },

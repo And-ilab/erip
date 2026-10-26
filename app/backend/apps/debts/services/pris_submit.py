@@ -11,8 +11,10 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 
-from apps.debts.models import Attachment, ClaimCase, ClaimPackageDocument, Payment, Registration
+from apps.core.exceptions import GatewayUnavailable
+from apps.debts.models import Attachment, ClaimCase, ClaimPackageDocument, Payment, PrisExchange, Registration
 from apps.debts.services.claims import ClaimBlocked, move_case
+from apps.debts.services.eds import Pkcs7Error, inspect_detached_pkcs7
 from apps.debts.services.pris_gateway import get_pris_transport
 
 _DATE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
@@ -33,6 +35,8 @@ _ADDRESS_KEYS = (
     "full_adr", "country", "region", "area", "np_type", "np", "street_type", "street",
     "house", "corp", "flat", "post_index",
 )
+_INQUIRY_KEYS = ("p_ispdoc", "p_ost", "p_cred", "p_debt", "p_status", "p_action", "p_nachisl", "p_repay")
+_SIGN_EXT = (".p7s", ".sgn")
 
 
 def pris_card(case: ClaimCase) -> dict:
@@ -46,6 +50,8 @@ def pris_card(case: ClaimCase) -> dict:
         "process_message": case.pris_process_message,
         "request": case.pris_request or {},
         "claimant": case.organization.pris_claimant or {},
+        "inquiry": case.pris_inquiry or {},
+        "exchanges": _exchanges(case),
     }
 
 
@@ -77,7 +83,7 @@ def submit_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
         raise ClaimBlocked("Пакет ПРИС не собран: " + "; ".join(problems))
     payload, wofe = _payload(case)
     path = "/gw/v1/integrations/pris/save-data-debt-wofe" if wofe else "/gw/v1/integrations/pris/save-data-debt/validate"
-    result = get_pris_transport().post(path, payload)
+    result = _post_pris(case, user, "submit", path, payload)
     _remember_acceptance(case, result)
     if result.get("mode") == "http":
         case.opi_mode = "pris"
@@ -98,15 +104,14 @@ def submit_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
 
 def refresh_pris(case: ClaimCase, user) -> ClaimCase:
     if case.opi_number.strip():
-        result = get_pris_transport().post(
-            "/gw/v1/integrations/pris/claimant-info", {"p_proc_num": case.opi_number.strip()},
-        )
+        path = "/gw/v1/integrations/pris/claimant-info"
+        payload = {"p_proc_num": case.opi_number.strip()}
     elif case.pris_cl_num.strip():
-        result = get_pris_transport().post(
-            "/gw/v1/integrations/pris/claimant-info-by-debt", {"p_cl_num": case.pris_cl_num.strip()},
-        )
+        path = "/gw/v1/integrations/pris/claimant-info-by-debt"
+        payload = {"p_cl_num": case.pris_cl_num.strip()}
     else:
         raise ClaimBlocked("Сначала передайте задолженность в ПРИС или запишите номер производства")
+    result = _post_pris(case, user, "refresh", path, payload)
     if result.get("mode") != "http":
         from apps.debts.services.claims import _event
 
@@ -127,7 +132,8 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
     if status:
         case.opi_status = status[:40]
     case.opi_mode = "pris"
-    case.save(update_fields=["opi_number", "opi_status", "opi_mode", "updated_at"])
+    case.pris_inquiry = _inquiry(info)
+    case.save(update_fields=["opi_number", "opi_status", "opi_mode", "pris_inquiry", "updated_at"])
     if proc and case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT}:
         case = move_case(case, ClaimCase.Stage.OPI, user, f"ПРИС: производство {proc}, статус {status}")
     actions = info.get("p_action") or []
@@ -142,7 +148,7 @@ def repay_pris(case: ClaimCase, user) -> ClaimCase:
     payload, problems = _repay_payload(case)
     if problems:
         raise ClaimBlocked("Погашение ПРИС не собрано: " + "; ".join(problems))
-    result = get_pris_transport().post("/gw/v1/integrations/pris/save-repay-debt", payload)
+    result = _post_pris(case, user, "repay", "/gw/v1/integrations/pris/save-repay-debt", payload)
     _remember_acceptance(case, result)
     if result.get("mode") == "http":
         note = f"ПРИС принял погашение, код {case.pris_process_status}"
@@ -157,12 +163,131 @@ def repay_pris(case: ClaimCase, user) -> ClaimCase:
     return case
 
 
+def refresh_open_proceedings() -> dict:
+    """Обновляет ход по делам, которые уже переданы в ПРИС или имеют номер производства."""
+
+    stages = set(_SEND_STAGES) | {ClaimCase.Stage.OPI_MEASURES}
+    refreshed = 0
+    blocked: list[dict] = []
+    cases = ClaimCase.objects.select_related("organization", "account").filter(stage__in=stages)
+    cases = cases.exclude(pris_cl_num="", opi_number="")
+    for case in cases.iterator(chunk_size=100):
+        try:
+            refresh_pris(case, None)
+            refreshed += 1
+        except (ClaimBlocked, GatewayUnavailable) as exc:
+            blocked.append({"id": case.pk, "message": str(exc)[:300]})
+    return {"refreshed": refreshed, "blocked": blocked}
+
+
 def _remember_acceptance(case: ClaimCase, result: dict) -> None:
     rows = result.get("data") or []
     first = rows[0] if rows else {}
     case.pris_response_id = str(first.get("responseId") or "")[:64]
     case.pris_process_status = str(first.get("processStatus") or "")[:10]
     case.pris_process_message = str(first.get("processMessage") or "")[:500]
+
+
+def _post_pris(case: ClaimCase, user, operation: str, path: str, payload: dict) -> dict:
+    try:
+        result = get_pris_transport().post(path, payload)
+    except (ClaimBlocked, GatewayUnavailable) as exc:
+        _store_exchange(case, user, operation, path, payload, {"error": str(exc)[:500]})
+        raise
+    stored = result
+    if result.get("mode") != "http" and operation == "refresh":
+        stored = {"mode": result.get("mode") or "stub", "applied": False, "note": "Ход производства не записывался"}
+    elif result.get("mode") != "http" and operation in {"submit", "repay"}:
+        stored = {**result, "note": "В АИС ПРИС не отправлено: канал-заглушка"}
+    _store_exchange(case, user, operation, path, payload, stored)
+    return result
+
+
+def _store_exchange(case: ClaimCase, user, operation: str, path: str, payload: dict, response: dict) -> None:
+    redacted = _redact(response)
+    data = redacted.get("data") if isinstance(redacted, dict) else None
+    status = ""
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        status = str(data[0].get("processStatus") or "")[:10]
+    PrisExchange.objects.create(
+        case=case,
+        actor=user if getattr(user, "is_authenticated", False) else None,
+        operation=operation[:20],
+        mode=str(response.get("mode") or "")[:20],
+        path=path[:120],
+        process_status=status,
+        request=_redact(payload),
+        response=redacted,
+    )
+
+
+def _redact(value):
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            if key == "file_body" and isinstance(item, str):
+                redacted[key] = f"<скрыто, {len(item)} симв.>"
+            elif key == "file_ecp" and isinstance(item, str) and "." not in item:
+                redacted[key] = f"<скрыто, {len(item)} симв.>"
+            else:
+                redacted[key] = _redact(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
+
+
+def _exchanges(case: ClaimCase) -> list[dict]:
+    rows = case.pris_exchanges.order_by("-id")[:8]
+    return [
+        {
+            "id": row.pk,
+            "operation": row.operation,
+            "mode": row.mode,
+            "process_status": row.process_status,
+            "created_at": row.created_at.isoformat(),
+            "note": _exchange_note(row.response or {}),
+            "request": row.request or {},
+            "response": row.response or {},
+        }
+        for row in rows
+    ]
+
+
+def _exchange_note(response: dict) -> str:
+    if response.get("note"):
+        return str(response["note"])[:500]
+    if response.get("error"):
+        return str(response["error"])[:500]
+    data = response.get("data") or []
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return str(data[0].get("processMessage") or "")[:500]
+    return ""
+
+
+def _inquiry(info: dict) -> dict:
+    stored = {"applied": True}
+    for key in _INQUIRY_KEYS:
+        value = info.get(key) or []
+        stored[key] = value if isinstance(value, list) else []
+    return stored
+
+
+def _signature_problems(name: str, field) -> list[str]:
+    if not name.lower().endswith(_SIGN_EXT):
+        return ["файл подписи для ПРИС — отдельный .p7s или .sgn, не PDF и не локальная отметка пакета"]
+    try:
+        with field.open("rb") as handle:
+            payload = handle.read()
+    except OSError:
+        return ["файл подписи не читается"]
+    try:
+        inspect_detached_pkcs7(payload)
+    except Pkcs7Error as exc:
+        if "локальная отметка" in str(exc):
+            return ["локальная отметка пакета БНП не является подписью для АИС ПРИС"]
+        return [str(exc)]
+    return []
 
 
 def _problems(case: ClaimCase) -> list[str]:
@@ -184,8 +309,11 @@ def _problems(case: ClaimCase) -> list[str]:
             problems.append(f"нет {label}")
         elif key in {"doc_date", "doc_date_in"} and not _DATE.match(_pris_date(request.get(key))):
             problems.append(f"{label} нужна в формате ДД.ММ.ГГГГ")
-    if _pair(case) is None:
+    pair = _pair(case)
+    if pair is None:
         problems.append("нет PDF исполнительного документа и отдельного файла подписи (.p7s или .sgn)")
+    else:
+        problems += _signature_problems(pair[2], pair[3])
     debtor, debtor_problems = _debtor(case)
     problems += debtor_problems
     if debtor is not None and not debtor["p_arr_sum"]:

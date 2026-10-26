@@ -24,6 +24,12 @@ export class AuthService {
   readonly isSuperadmin = computed(() => this.me()?.role === 'superadmin');
   readonly canManageTemplates = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
   readonly canWrite = computed(() => ['superadmin', 'local_admin', 'specialist'].includes(this.me()?.role ?? ''));
+  readonly canOpenContracts = computed(() => {
+    const me = this.me();
+    if (!me) return false;
+    if (me.contour === 'supplier') return true;
+    return ['superadmin', 'local_admin', 'observer', 'viewer'].includes(me.role);
+  });
   readonly canLaunchMeasure = computed(() => ['superadmin', 'local_admin'].includes(this.me()?.role ?? ''));
   readonly canSkip = computed(() => {
     const me = this.me();
@@ -53,18 +59,6 @@ export class AuthService {
 
   chooseRole(ticket: string, role: string): Observable<Me> {
     return this.http.post<{ access: string }>('/api/v1/auth/role-choice/', { ticket, role }).pipe(
-      tap((tokens) => this.storeAccess(tokens.access)),
-      switchMap(() => this.loadMe()),
-    );
-  }
-
-  /** Временный вход без пароля. Список пуст, если заглушка выключена (прод). */
-  stubRoles(): Observable<{ id: string; label: string }[]> {
-    return this.http.get<{ id: string; label: string }[]>('/api/v1/auth/stub-role/');
-  }
-
-  loginAsRole(role: string): Observable<Me> {
-    return this.http.post<{ access: string }>('/api/v1/auth/stub-role/', { role }).pipe(
       tap((tokens) => this.storeAccess(tokens.access)),
       switchMap(() => this.loadMe()),
     );

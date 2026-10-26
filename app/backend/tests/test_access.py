@@ -88,6 +88,61 @@ def test_notification_stays_inside_provider_contour(api, specialist_a, admin_a, 
     assert own.status_code == 201, own.json()
 
 
+def test_local_admin_edits_name_role_contacts_and_keeps_password(api, admin_a, specialist_a, org_a):
+    supplier = ServiceOrganization.objects.create(
+        organization=org_a, provider_id=42, short_name="ЖЭС 42", is_supplier=True,
+    )
+    response = api(admin_a).patch(
+        f"/api/v1/users/{specialist_a.id}/",
+        {
+            "last_name": "Иванова",
+            "first_name": "Мария",
+            "middle_name": "Сергеевна",
+            "username": "spec_a_new",
+            "email": "maria@example.com",
+            "phone": "+375291112233",
+            "position": "Юрист",
+            "role": "specialist",
+            "can_approve": True,
+            "contour": "supplier",
+            "service_organizations": [supplier.id],
+            "password": "N3w-pass-word",
+        },
+        format="json",
+    )
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["registry_name"] == "Иванова Мария Сергеевна"
+    assert body["username"] == "spec_a_new"
+    assert body["email"] == "maria@example.com"
+    assert body["phone"] == "+375291112233"
+    assert body["position"] == "Юрист"
+    assert body["can_approve"] is True
+    assert body["contour"] == "supplier"
+    assert body["service_organizations"] == [supplier.id]
+    specialist_a.refresh_from_db()
+    assert specialist_a.check_password("N3w-pass-word")
+
+    kept = api(admin_a).patch(
+        f"/api/v1/users/{specialist_a.id}/",
+        {
+            "role": "observer",
+            "can_approve": False,
+            "contour": "billing",
+            "service_organizations": [],
+        },
+        format="json",
+    )
+    assert kept.status_code == 200, kept.json()
+    assert kept.json()["role"] == "observer"
+    assert kept.json()["can_approve"] is False
+    assert kept.json()["contour"] == "billing"
+    assert kept.json()["service_organizations"] == []
+    assert kept.json()["registry_name"] == "Иванова Мария Сергеевна"
+    specialist_a.refresh_from_db()
+    assert specialist_a.check_password("N3w-pass-word")
+
+
 def test_local_admin_creates_user_in_own_schema(api, admin_a, org_a, org_b):
     response = api(admin_a).post("/api/v1/users/", {"username": "new", "role": "specialist",
                                                     "organization": org_b.id, "password": "Passw0rd!x"},

@@ -77,6 +77,7 @@ def test_call_keeps_only_accounts_with_belarus_phone(api, admin_a, specialist_a,
     assert reasons["00003001"].startswith("Юридическое лицо")
     assert "Нет номера" in reasons["00003002"]
     assert body["accounts_count"] == 1
+    assert body["manual"] is True
     item = MeasureItem.objects.get(measure_id=body["id"])
     assert item.phone.startswith("+375")
     assert item.status == MeasureItem.Status.ASSIGNED
@@ -216,6 +217,7 @@ def test_paid_suspension_asks_to_resume(api, admin_a, specialist_a, account_a):
 
 @pytest.mark.django_db
 def test_approval_blocks_supplier_until_admin_agrees(api, specialist_a, admin_a, org_a, account_a):
+    _warning(api, admin_a, account_a, timezone.localdate().isoformat())
     CalculationSettings.load()
     CalculationSettings.objects.filter(pk=1).update(disconnect_requires_approval=True)
     service = account_a.services.get()

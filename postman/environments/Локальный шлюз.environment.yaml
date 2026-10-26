@@ -1,0 +1,17 @@
+name: Локальный шлюз
+values:
+  - key: base_url
+    value: 'http://127.0.0.1:8001'
+    enabled: true
+    type: default
+    description: 'Шлюз напрямую. Через Docker nginx — http://localhost:8080'
+  - key: internal_token
+    value: dev
+    enabled: true
+    type: default
+    description: 'Тот же секрет, что GW_INTERNAL_TOKEN. В Docker возьмите значение из app/.env'
+  - key: voice_mode
+    value: stub
+    enabled: true
+    type: default
+    description: 'Перезаписывается запросом «состояние канала»'

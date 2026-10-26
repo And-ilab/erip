@@ -18,31 +18,48 @@ export interface DomainField {
   options?: { id: string; label: string }[];
 }
 
-const STAGES = [
-  { id: 'new', label: 'Новый должник' },
-  { id: 'prevention', label: 'Автообзвон/уведомления' },
-  { id: 'warning', label: 'Предупреждение вручено' },
-  { id: 'disconnect', label: 'Отключение услуг' },
-  { id: 'enforcement', label: 'Исполнительная надпись / иск' },
-  { id: 'court', label: 'ОПИ' },
-  { id: 'closed', label: 'Не должник' },
-];
+import { FUNNEL_STAGES } from './funnel-stages';
 
-const GROUPS = [1, 2, 3, 4, 5, 6].map((group) => ({ id: String(group), label: String(group) }));
+const STAGES = FUNNEL_STAGES.map((stage) => ({ id: stage.id, label: stage.title }));
+
+const GROUPS = [0, 1, 2, 3, 4, 5, 6].map((group) => ({ id: String(group), label: String(group) }));
 const RATINGS = ['A', 'B', 'C', 'D', 'E'].map((letter) => ({ id: letter, label: letter }));
 
 export function accountDomainFields(): DomainField[] {
   return [
+    { id: 'client_account', label: 'Номер ЛС', kind: 'text' },
+    { id: 'unified_account', label: 'Уникальный единый номер (УЕН)', kind: 'number' },
+    { id: 'account_id', label: 'ID ЛС', kind: 'number' },
+    { id: 'short_fio', label: 'ФИО плательщика', kind: 'text' },
+    { id: 'account_address', label: 'Адрес', kind: 'text' },
+    { id: 'payer_identifier', label: 'Идентификационный номер (ИН)', kind: 'text' },
+    { id: 'payer_unp', label: 'УНП', kind: 'text' },
+    { id: 'provider_short_name', label: 'Обслуживающая организация', kind: 'text' },
+    { id: 'schema_label', label: 'Наименование схемы', kind: 'text' },
     { id: 'debt_group', label: 'Группа задолженности', kind: 'choice', options: GROUPS },
     { id: 'rating', label: 'Рейтинг должника', kind: 'choice', options: RATINGS },
     { id: 'funnel_stage', label: 'Этап воронки', kind: 'choice', options: STAGES },
+    { id: 'scenario_name', label: 'Сценарий', kind: 'text' },
     { id: 'assigned_name', label: 'Закреплённый специалист', kind: 'text' },
     { id: 'ownership', label: 'Тип собственности', kind: 'text' },
     { id: 'housing', label: 'Тип объекта жилфонда', kind: 'text' },
     { id: 'months_debt', label: 'Кол-во месяцев долга', kind: 'number' },
     { id: 'subj_count', label: 'Кол-во проживающих', kind: 'number' },
+    { id: 'registered_count', label: 'Кол-во зарегистрированных', kind: 'number' },
+    { id: 'debt_total', label: 'Сумма основного долга', kind: 'number' },
+    { id: 'mulct_total', label: 'Сумма пени', kind: 'number' },
+    { id: 'obligation_total', label: 'Суммарный долг по услугам ЛС', kind: 'number' },
+    { id: 'services_debt_count', label: 'Количество услуг с задолженностью', kind: 'number' },
     { id: 'balance_out', label: 'Исходящее сальдо', kind: 'number' },
-    { id: 'debt_started_on', label: 'Дата возникновения долга', kind: 'date' },
+    { id: 'debt_started_on', label: 'Наиболее ранний период возникновения долга', kind: 'date' },
+    { id: 'contract_number', label: 'Номер договора', kind: 'text' },
+    { id: 'contract_date', label: 'Дата договора', kind: 'date' },
+    { id: 'service_provider', label: 'Поставщик услуги', kind: 'text' },
+    { id: 'initial_principal', label: 'Первоначальная сумма задолженности', kind: 'number' },
+    { id: 'initial_penalty', label: 'Первоначальная сумма пени', kind: 'number' },
+    { id: 'period_balances', label: 'Остатки задолженности и пени по периодам', kind: 'date' },
+    { id: 'repayment_due_on', label: 'Срок погашения по договору', kind: 'date' },
+    { id: 'last_payment_date', label: 'Дата последней оплаты', kind: 'date' },
     { id: 'inheritance_case', label: 'Наследственное дело', kind: 'bool' },
   ];
 }

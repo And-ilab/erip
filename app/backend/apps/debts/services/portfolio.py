@@ -21,14 +21,6 @@ from apps.debts.services.grouping import DebtGroupCalculator
 from apps.nsi.models import CalculationSettings, ScenarioRule
 from apps.users.models import ServiceOrganization
 
-STAGE_BY_GROUP = {
-    1: "prevention",
-    2: "warning",
-    3: "disconnect",
-    4: "enforcement",
-    5: "enforcement",
-    6: "court",
-}
 AUTO_MEASURES = {
     Measure.Kind.CALL,
     Measure.Kind.NOTICE,
@@ -167,6 +159,11 @@ class PortfolioRefresher:
         if operational and account.operational_date != operational:
             account.operational_date = operational
             account.save(update_fields=["operational_date", "updated_at"])
+        from apps.debts.services.extra_measures import release_expired_holds
+        from apps.debts.services.registration_flags import sync_account_flags
+
+        sync_account_flags(account)
+        release_expired_holds(account)
         before_group = account.debt_group
         self.calculator.recalculate(account, due_day=self.settings.payment_due_day, operational=operational)
         account.refresh_from_db()
@@ -225,10 +222,20 @@ class PortfolioRefresher:
             account.save(update_fields=["scenario_name", "updated_at"])
 
     def _funnel(self, account: Account) -> None:
+        """Группа долга этап не выбирает. Оплата до нуля с уже начатой воронки ставит «Взыскано»."""
+        from apps.debts.services.scenario_flow import account_is_clear
+        from apps.debts.services.funnel import normalize, settle_paid
+
+        if account_is_clear(account):
+            settle_paid(account)
+            return
         if account.funnel_locked:
             return
-        stage = "closed" if account.effective_group is None else STAGE_BY_GROUP.get(account.effective_group, "new")
-        if account.funnel_stage != stage:
+        stage = normalize(account.funnel_stage)
+        if stage != (account.funnel_stage or "new") and stage in {
+            "new", "call", "notice", "disconnect", "prep", "notary", "writ_done", "refused",
+            "lawsuit", "judgment", "opi", "opi_measures", "recovered", "impossible", "writeoff",
+        }:
             self._log(account, StatusHistory.Kind.FUNNEL, account.funnel_stage, stage)
             account.funnel_stage = stage
             account.save(update_fields=["funnel_stage", "updated_at"])
@@ -389,7 +396,11 @@ class PortfolioRefresher:
 
     def _close_paid(self, account: Account) -> None:
         from apps.debts.services.measures import close_paid_measures, note_disconnected_but_paid
+        from apps.debts.services.scenario_flow import settle_if_paid
 
+        if settle_if_paid(account):
+            note_disconnected_but_paid(account)
+            return
         threshold = self.settings.close_threshold or Decimal("0")
         for service in account.services.all():
             balance = service.balance_out if service.balance_out is not None else Decimal("0")

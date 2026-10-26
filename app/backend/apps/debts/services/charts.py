@@ -12,18 +12,11 @@ from django.db.models.functions import Coalesce, TruncMonth
 from django.utils import timezone
 
 from apps.debts.models import Account, AccountService, BalanceHistory
+from apps.debts.services.funnel import FUNNEL_STAGES, normalize
 from apps.nsi.models import DebtGroupScale
 
 MONEY = Decimal("0.01")
-STAGES = [
-    ("new", "Новый должник"),
-    ("prevention", "Автообзвон/уведомления"),
-    ("warning", "Предупреждение вручено"),
-    ("disconnect", "Отключение услуг"),
-    ("enforcement", "Исполнительная надпись / иск"),
-    ("court", "ОПИ"),
-]
-CLOSED = ("closed", "Не должник")
+STAGES = list(FUNNEL_STAGES)
 
 
 def _money(value) -> str:
@@ -32,7 +25,7 @@ def _money(value) -> str:
 
 
 def _stage(raw: str | None) -> str:
-    return raw or "new"
+    return normalize(raw)
 
 
 def _period(value) -> str:
@@ -86,9 +79,6 @@ class DebtCharts:
             bucket[1] += row["penalty"] or Decimal("0")
         ordered = list(STAGES)
         known = {code for code, _title in ordered}
-        if cases.get("closed") or money.get("closed"):
-            ordered.append(CLOSED)
-            known.add("closed")
         for code in list(cases) + list(money):
             if code not in known:
                 ordered.append((code, code))

@@ -15,12 +15,12 @@ BUSY = "busy"
 BAD_NUMBER = "bad_number"
 
 
-def call_outcome(phone: str, text: str, caller_id: str = "") -> dict:
+def call_outcome(phone: str, text: str, caller_id: str = "", audio: str = "") -> dict:
     compact = re.sub(r"\D", "", phone or "")
     tail = compact[-2:] if len(compact) >= 2 else ""
     if not compact.startswith("375"):
         return _row(BAD_NUMBER, "Не номер +375", 0, None, caller_id)
-    if not (text or "").strip():
+    if not (text or "").strip() and not (audio or "").strip():
         return _row(BAD_NUMBER, "Пустой текст шаблона", 0, None, caller_id)
     if tail == "00":
         return _row(BAD_NUMBER, "Неверный номер", 0, None, caller_id)
@@ -40,4 +40,5 @@ def _row(status: str, error: str, duration: int, listen: int | None, caller_id: 
         "provider_message_id": f"voice-{uuid.uuid4().hex[:12]}",
         "external_call": False,
         "caller_id": caller_id,
+        "recording_ref": "",
     }

@@ -93,12 +93,16 @@ _FILED = {
 _QUIET = {MeasureItem.Status.DONE, MeasureItem.Status.CANCELLED}
 
 
+_HIDDEN_ON_CALENDAR = {Measure.Kind.CALL, Measure.Kind.NOTICE}
+
+
 def account_calendar(accounts, start: date, end: date) -> list[dict]:
-    """Контрольные даты и открытые мероприятия по каждому лицевому счёту выборки."""
+    """Контрольные даты, задачи по месяцам долга и открытые мероприятия, кроме обзвона и уведомлений."""
     events = []
     events.extend(_warning_deadlines(accounts, start, end))
     events.extend(_claim_deadlines(accounts, start, end))
     events.extend(_measure_deadlines(accounts, start, end))
+    events.extend(_trigger_tasks(accounts, start, end))
     return events
 
 
@@ -175,6 +179,8 @@ def _measure_deadlines(accounts, start: date, end: date, services=None) -> list[
     events = []
     seen = set()
     for item in _items(accounts, start, end, services, pending=True):
+        if item.measure.kind in _HIDDEN_ON_CALENDAR:
+            continue
         key = (item.measure_id, item.account_id)
         if key in seen:
             continue
@@ -187,6 +193,8 @@ def _measure_deadlines(accounts, start: date, end: date, services=None) -> list[
             **account_mark(item.account),
         ))
     for item in _items(accounts, start, end, services, pending=False):
+        if item.measure.kind in _HIDDEN_ON_CALENDAR:
+            continue
         key = (item.measure_id, item.account_id)
         if key in seen:
             continue
@@ -234,6 +242,8 @@ def _bare_measures(accounts, start: date, end: date, services, seen: set) -> lis
         due_on__gte=start, due_on__lt=end,
     ).distinct()
     for measure, pending in [(row, True) for row in open_rows] + [(row, False) for row in done_rows]:
+        if measure.kind in _HIDDEN_ON_CALENDAR:
+            continue
         action = measure.get_kind_display()
         linked = measure.accounts.filter(pk__in=accounts.values("pk"))
         for account in linked:
@@ -248,6 +258,65 @@ def _bare_measures(accounts, start: date, end: date, services, seen: set) -> lis
                 **account_mark(account),
             ))
     return events
+
+
+def _trigger_tasks(accounts, start: date, end: date) -> list[dict]:
+    """Задачи по месяцам долга. Автообзвон и уведомления в календарь не попадают."""
+    today = timezone.localdate()
+    events = []
+    owing = accounts.filter(
+        Q(balance_out__gt=0) | Q(services__balance_out__gt=0) | Q(services__balance_mulct_out__gt=0),
+    ).distinct()
+    for account in owing.iterator(chunk_size=200):
+        months = account.months_debt if account.months_debt is not None else 0
+        number = account.client_account
+        mark = account_mark(account)
+        if months >= 2 and _warning_delivered(account) is None and not _step_done(account, "warning"):
+            events.append(present_deadline(
+                today, start=start, end=end, pending=True, kind="Предупреждение",
+                title=f"Направить предупреждение по ЛС {number}",
+                account_id=account.id, **mark,
+            ))
+        delivered = _warning_delivered(account)
+        if delivered is None or today < delivered + timedelta(days=5):
+            continue
+        day = delivered + timedelta(days=5)
+        follow = (
+            ("disconnect", f"Отключение услуги по ЛС {number}"),
+            ("writ", f"Сформировать пакет документов для совершения Исполнительной надписи нотариуса по ЛС {number}"),
+            ("lawsuit", f"Подать исковое заявление в суд по ЛС {number}"),
+            ("opi", f"Направить исполнительный документ в ОПИ по ЛС {number}"),
+        )
+        for action, title in follow:
+            if _step_done(account, action):
+                continue
+            events.append(present_deadline(
+                day, start=start, end=end, pending=True, kind=title.split()[0],
+                title=title, account_id=account.id, **mark,
+            ))
+    return events
+
+
+def _warning_delivered(account) -> date | None:
+    item = (
+        MeasureItem.objects.filter(account=account, measure__source_action="warning", delivered_on__isnull=False)
+        .order_by("-delivered_on")
+        .first()
+    )
+    if item is not None:
+        return item.delivered_on
+    item = (
+        MeasureItem.objects.filter(account=account, measure__kind=Measure.Kind.WARNING, delivered_on__isnull=False)
+        .order_by("-delivered_on")
+        .first()
+    )
+    return item.delivered_on if item is not None else None
+
+
+def _step_done(account, action: str) -> bool:
+    return Measure.objects.filter(
+        accounts=account, source_action=action, status__in=[Measure.Status.DONE, Measure.Status.CANCELLED],
+    ).exists()
 
 
 def _caption(account, action: str) -> str:

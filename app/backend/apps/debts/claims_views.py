@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.db.models import Prefetch
 from django.db.models.functions import Coalesce
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -15,7 +16,7 @@ from apps.audit.services import record_action
 from apps.core.permissions import RolePermission
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
-from .models import Account, ClaimCase
+from .models import Account, AccountService, Attachment, ClaimCase
 from .services.bnp_package import (
     delete_document,
     form_package,
@@ -26,6 +27,7 @@ from .services.bnp_package import (
     open_document,
     save_package,
     sign_and_send,
+    sign_documents,
     store_document,
     update_document_layout,
     update_document_text,
@@ -45,10 +47,11 @@ from .services.claims import (
     start_writeoff,
     update_case,
 )
+from .services.pris_nsi import load_pris_dictionaries
 from .services.pris_submit import refresh_pris, repay_pris, save_pris_draft, submit_pris
 
 EDITABLE = (
-    "warning_delivered_on", "notary_tariff", "application_withdrawn", "notary_note", "lawsuit_number", "lawsuit_kind",
+    "warning_delivered_on", "notary_tariff", "notary_office", "application_withdrawn", "notary_note", "lawsuit_number", "lawsuit_kind",
     "lawsuit_filed_on", "state_duty", "defendant_name", "package_filed_on", "lawsuit_note", "court_status",
     "eviction_stage", "skip_reason",
 )
@@ -61,17 +64,28 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     scope_provider_field = "account__provider_id"
 
     def list(self, request):
-        rows = [
-            case_payload(case)
-            for case in self.get_queryset().select_related("account__assigned_to").prefetch_related(
-                "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
-                "account__registrations", "package__documents",
+        cases = list(
+            self.get_queryset()
+            .select_related("account__assigned_to")
+            .defer("raw", "pris_request", "pris_inquiry", "account__raw")
+            .prefetch_related(
+                "acts",
+                "approvals__approver",
+                "events__actor",
+                Prefetch(
+                    "account__services",
+                    queryset=AccountService.objects.only("id", "account_id", "balance_mulct_out"),
+                ),
+                Prefetch(
+                    "account__attachments",
+                    queryset=Attachment.objects.only("id", "account_id", "doc_type", "original_name"),
+                ),
             )
-        ]
+        )
         return Response({
-            "results": rows,
+            "results": [case_payload(case) for case in cases],
             "stages": [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices],
-            "assigned": self._assigned([case.account_id for case in self.get_queryset()]),
+            "assigned": self._assigned([case.account_id for case in cases]),
         })
 
     def retrieve(self, request, pk=None):
@@ -191,18 +205,27 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             field.open("rb"), as_attachment=not inline, filename=name, content_type=content_type,
         )
 
+    @action(detail=True, methods=["post"], url_path="sign-documents")
+    def sign_docs(self, request, pk=None):
+        sign_documents(self._case(pk), request.user, request.data.get("signatures"))
+        case = self._case(pk)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"signed": "gosuok", "format": "pkcs7-detached"})
+        return Response(case_payload(case, with_choices=True))
+
     @action(detail=True, methods=["post"], url_path="sign-and-send")
     def sign_send(self, request, pk=None):
-        case = sign_and_send(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        sign_and_send(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        case = self._case(pk)
         record_action(
             request, AuditLog.Action.UPDATE, case,
-            after={"submission_id": case.submission_id, "mode": "stub", "signed": "package"},
+            after={"submission_id": case.submission_id, "mode": "stub"},
         )
         return Response(case_payload(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="send-notary")
     def send_notary(self, request, pk=None):
-        case = send_to_notary(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        send_to_notary(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
+        case = self._case(pk)
         record_action(request, AuditLog.Action.UPDATE, case, after={"submission_id": case.submission_id, "mode": "stub"})
         return Response(case_payload(case, with_choices=True))
 
@@ -229,6 +252,10 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": "manual"})
         return Response(case_payload(case, with_choices=True))
+
+    @action(detail=False, methods=["get"], url_path="pris-dictionaries")
+    def pris_dictionaries(self, request):
+        return Response(load_pris_dictionaries())
 
     @action(detail=True, methods=["post"], url_path="pris/draft")
     def pris_draft(self, request, pk=None):

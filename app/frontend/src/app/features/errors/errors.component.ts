@@ -9,12 +9,13 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { ErrorLogEntry } from '../../core/models';
 
 @Component({
   selector: 'app-errors',
   standalone: true,
-  imports: [DatePipe, FormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule],
+  imports: [DatePipe, FormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, GridResizeDirective],
   template: `
     <div class="page">
       <div class="page-header"><h2>Журнал ошибок</h2></div>
@@ -32,7 +33,7 @@ import { ErrorLogEntry } from '../../core/models';
       </div>
       @if (error()) { <p class="status-failed">{{ error() }}</p> }
       <div class="list-pane">
-      <table mat-table [dataSource]="rows()" class="mat-elevation-z1">
+      <table mat-table [dataSource]="rows()" class="mat-elevation-z1" appGridResize="errors">
         <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Время</th><td mat-cell *matCellDef="let e">{{ e.created_at | date: 'dd.MM.yyyy HH:mm:ss' }}</td></ng-container>
         <ng-container matColumnDef="service"><th mat-header-cell *matHeaderCellDef>Сервис</th><td mat-cell *matCellDef="let e">{{ e.service }}</td></ng-container>
         <ng-container matColumnDef="error_type"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let e">{{ e.error_type }}</td></ng-container>

@@ -1,4 +1,4 @@
-"""Временный вход по роли без пароля. Включён только при DEBUG. Удалить вместе с кнопками на экране входа."""
+"""Каталог ролей и привязка контура. Ими пользуется выбор роли после пароля тестовой учётки."""
 
 from django.db.models import Count
 
@@ -54,17 +54,6 @@ def bind_role(user: User, code: str) -> User:
     else:
         user.service_organizations.clear()
     return user
-
-
-def issue_stub_user(code: str) -> User:
-    spec = next((item for item in STUB_ROLES if item[0] == code), None)
-    if spec is None:
-        raise KeyError(code)
-    _code, _label, role, contour = spec
-    username = f"stub-{code.replace('_', '-')}"
-    user, _created = User.objects.get_or_create(username=username, defaults={"role": role, "contour": contour})
-    user.set_unusable_password()
-    return bind_role(user, code)
 
 
 def _busiest_supplier(organization) -> ServiceOrganization | None:

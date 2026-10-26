@@ -6,7 +6,7 @@
 import calendar
 from datetime import date
 
-from django.db.models import Count, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import CharField, Count, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 
 from apps.debts.models import Account, Measure
@@ -14,7 +14,7 @@ from apps.debts.services.portfolio import DEFAULT_SCENARIO_NAMES
 
 MATRIX_KINDS = (
     (Measure.Kind.CALL, "Автообзвон"),
-    (Measure.Kind.NOTICE, "E-mail"),
+    (Measure.Kind.NOTICE, "Уведомление"),
     (Measure.Kind.WARNING, "Предупреждение"),
     (Measure.Kind.DISCONNECT, "Отключение услуг"),
     (Measure.Kind.COLLECTION, "Испол. надпись"),
@@ -75,7 +75,7 @@ def annotate_registry(qs: QuerySet, visible: QuerySet, search: str = "") -> Quer
     visible_ids = visible.values("id")
     any_account = Account.objects.filter(pk__in=visible_ids, measures=OuterRef("pk")).order_by("client_account")
     preferred = _sample(visible_ids, search)
-    return qs.select_related("assignee").annotate(
+    return qs.select_related("assignee", "created_by").annotate(
         accounts_count=Count("accounts", filter=Q(accounts__in=visible_ids), distinct=True),
         items_total=Count("items", filter=Q(items__account__in=visible_ids), distinct=True),
         items_done=Count(
@@ -94,6 +94,22 @@ def annotate_registry(qs: QuerySet, visible: QuerySet, search: str = "") -> Quer
         debtor_id=Coalesce(
             Subquery(preferred.values("id")[:1]),
             Subquery(any_account.values("id")[:1]),
+        ),
+        debtor_rating=Coalesce(
+            Subquery(preferred.values("rating")[:1], output_field=CharField()),
+            Subquery(any_account.values("rating")[:1], output_field=CharField()),
+        ),
+        debtor_rating_repeat=Coalesce(
+            Subquery(preferred.values("rating_repeat")[:1], output_field=IntegerField()),
+            Subquery(any_account.values("rating_repeat")[:1], output_field=IntegerField()),
+        ),
+        debtor_debt_group=Coalesce(
+            Subquery(preferred.values("debt_group")[:1], output_field=IntegerField()),
+            Subquery(any_account.values("debt_group")[:1], output_field=IntegerField()),
+        ),
+        debtor_debt_group_manual=Coalesce(
+            Subquery(preferred.values("debt_group_manual")[:1], output_field=IntegerField()),
+            Subquery(any_account.values("debt_group_manual")[:1], output_field=IntegerField()),
         ),
     )
 
@@ -118,6 +134,32 @@ def _with_detail(base: str, detail: str) -> str:
     if not text or text.casefold() == base.casefold():
         return base
     return f"{base} — {text}"
+
+
+def assigned_items(measure: Measure, visible_accounts, limit: int = 300):
+    """Счета, которым назначено это мероприятие.
+
+    Ручной запуск хранит их в одной записи. Сценарий заводит запись на каждый
+    лицевой счёт, поэтому здесь собираются счета того же шага и шаблона.
+    """
+    from apps.debts.models import MeasureItem
+
+    rows = MeasureItem.objects.select_related("account")
+    if measure.source_scenario_id:
+        rows = rows.filter(
+            measure__organization_id=measure.organization_id,
+            measure__kind=measure.kind,
+            measure__source_scenario_id=measure.source_scenario_id,
+            measure__source_version=measure.source_version,
+            measure__source_step=measure.source_step,
+            measure__template_name=measure.template_name,
+        )
+    else:
+        rows = rows.filter(measure_id=measure.pk)
+    if visible_accounts is not None:
+        rows = rows.filter(account__in=visible_accounts)
+    total = rows.count()
+    return list(rows.order_by("account__client_account", "id")[:limit]), total
 
 
 def measure_title(measure: Measure) -> str:

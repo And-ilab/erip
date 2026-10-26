@@ -63,13 +63,20 @@ def api():
 
 
 def make_account(org, account_id, provider_id=501, client_account=None, **extra) -> Account:
-    ServiceOrganization.objects.get_or_create(organization=org, provider_id=provider_id,
-                                              defaults={"short_name": f"ЖЭС {provider_id}"})
+    service, _created = ServiceOrganization.objects.get_or_create(
+        organization=org, provider_id=provider_id, defaults={"short_name": f"ЖЭС {provider_id}"},
+    )
+    from apps.nsi.models import ServiceScenarioMode
+
+    ServiceScenarioMode.objects.get_or_create(
+        service_organization=service, defaults={"launch": ServiceScenarioMode.Launch.AUTO},
+    )
     extra.setdefault("contact_phone", "+375291112233")
+    extra.setdefault("balance_out", Decimal("150.00"))
     return Account.objects.create(
         organization=org, account_id=account_id, provider_id=provider_id,
         client_account=client_account or f"{account_id:08d}", short_fio="Иванов И.И.",
-        balance_out=Decimal("150.00"), **extra,
+        **extra,
     )
 
 

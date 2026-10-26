@@ -1,5 +1,6 @@
 """Справочники НСИ: /api/v1/nsi/{dict}/. Новый справочник = новая запись в NSI_REGISTRY."""
 
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -17,6 +18,8 @@ from .models import (
     CalculationSettings,
     DebtGroupScale,
     DebtorCategory,
+    ExtraMeasureCatalog,
+    NotaryOffice,
     PrintForm,
     ScenarioDefinition,
     ScenarioRule,
@@ -28,10 +31,33 @@ from .serializers import (
     CalculationSettingsSerializer,
     DebtGroupScaleSerializer,
     DebtorCategorySerializer,
+    ExtraMeasureCatalogSerializer,
+    NotaryOfficeSerializer,
     PrintFormSerializer,
     ScenarioDefinitionSerializer,
     ScenarioRuleSerializer,
 )
+
+
+def _mail_text(raw, field: str, limit: int) -> str:
+    text = str(raw or "").strip()
+    if len(text) > limit:
+        raise ValidationError({field: f"Не длиннее {limit} символов"})
+    return text
+
+
+def _mail_address(raw) -> str:
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    from django.core.validators import validate_email
+
+    text = _mail_text(raw, "mail_from", 254)
+    if not text:
+        return ""
+    try:
+        validate_email(text)
+    except DjangoValidationError as exc:
+        raise ValidationError({"mail_from": "Укажите адрес e-mail"}) from exc
+    return text
 
 
 def _outgoing_numbers(raw) -> list[str]:
@@ -75,7 +101,10 @@ def nsi_viewset(model, serializer, search: list[str], filters: list[str] | None 
 
 
 class DebtorCategoryViewSet(NsiViewSet):
-    """Центральные категории правит суперадминистратор, локальные — администратор схемы."""
+    """Центральные категории правит суперадминистратор, локальные — администратор схемы.
+
+    Список без параметра is_active отдаёт только активные. Прежний посев из четырёх записей выключен.
+    """
 
     queryset = DebtorCategory.objects.all()
     serializer_class = DebtorCategorySerializer
@@ -86,9 +115,11 @@ class DebtorCategoryViewSet(NsiViewSet):
     def get_queryset(self):
         qs = self.queryset
         user = self.request.user
-        if user.is_superadmin:
-            return qs
-        return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
+        if not user.is_superadmin:
+            qs = qs.filter(Q(organization__isnull=True) | Q(organization=user.organization))
+        if getattr(self, "action", None) == "list" and "is_active" not in self.request.query_params:
+            qs = qs.filter(is_active=True)
+        return qs
 
     def perform_create(self, serializer):
         if not self.request.user.is_superadmin:
@@ -287,6 +318,32 @@ class ScenarioDefinitionViewSet(NsiViewSet):
             "call_transfer": False,
             "dial_mobile_from_day": settings.dial_mobile_from_day,
             "dial_mobile_weekdays": settings.dial_mobile_weekdays,
+        })
+
+    @action(detail=False, methods=["get", "patch"], url_path="mail")
+    def mail(self, request):
+        """Отправитель, тема и подпись писем схемы. Прочтение не отмечается."""
+        self._admin_only()
+        organization = request.user.organization
+        if organization is None:
+            raise ValidationError({"organization": "У пользователя нет схемы"})
+        if request.method == "PATCH":
+            if "mail_from" in request.data:
+                organization.mail_from = _mail_address(request.data.get("mail_from"))
+            if "mail_from_name" in request.data:
+                organization.mail_from_name = _mail_text(request.data.get("mail_from_name"), "mail_from_name", 250)
+            if "mail_subject" in request.data:
+                organization.mail_subject = _mail_text(request.data.get("mail_subject"), "mail_subject", 250)
+            if "mail_signature" in request.data:
+                organization.mail_signature = _mail_text(request.data.get("mail_signature"), "mail_signature", 500)
+            organization.save(update_fields=[
+                "mail_from", "mail_from_name", "mail_subject", "mail_signature", "updated_at",
+            ])
+        return Response({
+            "mail_from": organization.mail_from,
+            "mail_from_name": organization.mail_from_name,
+            "mail_subject": organization.mail_subject,
+            "mail_signature": organization.mail_signature,
         })
 
     @action(detail=False, methods=["get", "patch"], url_path="timeline")
@@ -572,6 +629,31 @@ class DebtGroupScaleViewSet(NsiViewSet):
         return Response(self.get_serializer(self.get_queryset().filter(is_active=True), many=True).data)
 
 
+class ExtraMeasureCatalogViewSet(NsiViewSet):
+    """Справочник дополнительных мероприятий. Пишут суперадминистратор и локальный администратор."""
+
+    queryset = ExtraMeasureCatalog.objects.all()
+    serializer_class = ExtraMeasureCatalogSerializer
+    search_fields = ["name"]
+    filterset_fields = ["is_active"]
+    write_roles = ("superadmin", "local_admin")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if getattr(self, "action", None) == "list" and "is_active" not in self.request.query_params:
+            qs = qs.filter(is_active=True)
+        return qs
+
+
+class NotaryOfficeViewSet(NsiViewSet):
+    """Действующие конторы с belnotary.by. Снятая с публикации запись в список не попадает."""
+
+    queryset = NotaryOffice.objects.active()
+    serializer_class = NotaryOfficeSerializer
+    search_fields = ["name", "district", "address"]
+    filterset_fields = ["district"]
+
+
 NSI_REGISTRY = {
     "debt-groups": DebtGroupScaleViewSet,
     "debtor-categories": DebtorCategoryViewSet,
@@ -582,4 +664,6 @@ NSI_REGISTRY = {
     "bnp-services": nsi_viewset(BnpService, BnpServiceSerializer, ["name"], ["type_id", "is_active"]),
     "bnp-debt-types": nsi_viewset(BnpDebtType, BnpDebtTypeSerializer, ["code", "name"]),
     "bnp-doc-types": nsi_viewset(BnpDocType, BnpDocTypeSerializer, ["code", "name"]),
+    "notary-offices": NotaryOfficeViewSet,
+    "extra-measures": ExtraMeasureCatalogViewSet,
 }

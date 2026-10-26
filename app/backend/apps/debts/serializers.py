@@ -154,11 +154,17 @@ class AccountListSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         from .services.board_lines import board_service_lines
+        from .services.card_sheet import unified_from_raw
 
         data = super().to_representation(instance)
         data = _supplier_totals(instance, data)
         data["obligation_total"] = _add_money(data.get("debt_total"), data.get("mulct_total"))
-        lines, debt_count = board_service_lines(instance.services.all())
+        if not data.get("unified_account"):
+            data["unified_account"] = unified_from_raw(instance) or None
+        lines, debt_count = board_service_lines(
+            instance.services.all(),
+            with_periods=self.context.get("with_periods", True),
+        )
         data["service_lines"] = lines
         data["services_debt_count"] = debt_count
         return data
@@ -194,7 +200,7 @@ def _supplier_group(instance, data):
     """Группа, сценарий и этап на карточке поставщика — по его услугам, не по старшей группе счёта."""
     if not hasattr(instance, "supplier_group"):
         return data
-    from apps.debts.services.portfolio import STAGE_BY_GROUP, rating_letter, scenario_names
+    from apps.debts.services.portfolio import rating_letter, scenario_names
 
     group = instance.supplier_group
     if "effective_group" in data:
@@ -220,13 +226,11 @@ def _supplier_group(instance, data):
     if "rating_label" in data:
         repeat = instance.rating_repeat if letter == instance.rating else None
         data["rating_label"] = _rating_label(letter, repeat)
-    if "funnel_stage" in data:
-        data["funnel_stage"] = "closed" if not group else STAGE_BY_GROUP.get(group, "new")
     return data
 
 
 PM_WRITABLE = {
-    "debt_group_manual", "debt_group_manual_reason", "funnel_stage", "scenario_name", "assigned_to",
+    "debt_group_manual", "debt_group_manual_reason", "funnel_stage", "parallel_stage", "scenario_name", "assigned_to",
     "contact_source_mode", "debtor_category", "inheritance_case", "inheritance_until", "residence_note",
     "bankruptcy", "legal_status", "warning_due", "claim_due",
 }
@@ -236,9 +240,12 @@ class AccountDetailSerializer(serializers.ModelSerializer):
     effective_group = serializers.IntegerField(read_only=True)
     group_name = serializers.SerializerMethodField()
     rating_label = serializers.SerializerMethodField()
+    debtor_category_name = serializers.CharField(source="debtor_category.name", default="", read_only=True)
     assigned_name = serializers.CharField(source="assigned_to.registry_name", default="", read_only=True)
     schema_label = serializers.SerializerMethodField()
     scenario_brief = serializers.SerializerMethodField()
+    receipt_pay = serializers.SerializerMethodField()
+    heritage_from_file = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
@@ -266,8 +273,28 @@ class AccountDetailSerializer(serializers.ModelSerializer):
             published_scenario(obj.organization_id, cache)
         return scenario_brief(obj, cache)
 
+    def get_receipt_pay(self, obj) -> str:
+        from django.db.models import Sum
+
+        payments = obj.payments.all()
+        if obj.operational_date:
+            payments = payments.filter(acc_oper_date=obj.operational_date)
+        totals = payments.aggregate(services=Sum("pay_service_summ"), penalty=Sum("pay_mulct_summ"))
+        return _add_money(totals["services"], totals["penalty"])
+
+    def get_heritage_from_file(self, obj) -> bool:
+        from django.db.models import Q
+
+        return obj.registrations.filter(
+            Q(heritage_transfer="accept") | Q(subj_heritage_date__isnull=False),
+        ).exists()
+
     def to_representation(self, instance):
+        from .services.card_sheet import unified_from_raw
+
         data = super().to_representation(instance)
+        if not data.get("unified_account"):
+            data["unified_account"] = unified_from_raw(instance) or None
         return _supplier_totals(instance, data)
 
     def validate(self, attrs):
@@ -275,8 +302,8 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         reason = attrs.get("debt_group_manual_reason", getattr(self.instance, "debt_group_manual_reason", ""))
         if group is not None and not reason:
             raise serializers.ValidationError({"debt_group_manual_reason": "Укажите причину корректировки группы"})
-        if group is not None and not 1 <= group <= 6:
-            raise serializers.ValidationError({"debt_group_manual": "Группа от 1 до 6"})
+        if group is not None and not 0 <= group <= 6:
+            raise serializers.ValidationError({"debt_group_manual": "Группа от 0 до 6"})
         category = attrs.get("debtor_category", getattr(self.instance, "debtor_category", None))
         if category is not None and category.organization_id not in {None, self.instance.organization_id}:
             raise serializers.ValidationError({"debtor_category": "Категория другой схемы"})
@@ -295,21 +322,48 @@ class AccountDetailSerializer(serializers.ModelSerializer):
 
         old_stage = instance.funnel_stage
         funnel_reason = ""
-        if "funnel_stage" in validated_data and validated_data["funnel_stage"] != instance.funnel_stage:
+        request = self.context.get("request")
+        actor = getattr(request, "user", None) if request is not None else None
+        if "funnel_stage" in validated_data:
+            from rest_framework.exceptions import PermissionDenied
+
+            from apps.debts.services.funnel import canonical, set_stage
+            from apps.users.access import can_skip_stage
+
+            requested = validated_data.pop("funnel_stage")
+            if not can_skip_stage(actor):
+                raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
+            if getattr(actor, "contour", "") == "supplier":
+                raise PermissionDenied("Поставщик не меняет этап воронки")
+            funnel_reason = str(request.data.get("funnel_reason") or "").strip() if request is not None else ""
+            set_stage(instance, canonical(requested), actor, funnel_reason, lock=True)
+            instance.refresh_from_db()
+            old_stage = instance.funnel_stage
+        if "parallel_stage" in validated_data:
             from rest_framework.exceptions import PermissionDenied
 
             from apps.users.access import can_skip_stage
 
-            request = self.context.get("request")
-            actor = getattr(request, "user", None) if request is not None else None
+            requested = (validated_data.pop("parallel_stage") or "").strip()
+            if requested not in {"", "p1", "p2"}:
+                raise serializers.ValidationError({"parallel_stage": "Ветвь: не начата, уведомление или выселение"})
             if not can_skip_stage(actor):
                 raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
-            funnel_reason = str(request.data.get("funnel_reason") or "").strip() if request is not None else ""
-            if not funnel_reason:
-                raise serializers.ValidationError({
-                    "funnel_reason": "Укажите основание смены этапа воронки взыскания",
-                })
-            instance.funnel_locked = True
+            if getattr(actor, "contour", "") == "supplier":
+                raise PermissionDenied("Поставщик не меняет этап воронки")
+            group = instance.effective_group or 0
+            if requested and group < 4:
+                raise serializers.ValidationError({"parallel_stage": "Ветвь выселения доступна для групп задолженности 4–6"})
+            if instance.parallel_stage != requested:
+                from apps.debts.models import StatusHistory
+
+                StatusHistory.objects.create(
+                    organization=instance.organization, account=instance, kind=StatusHistory.Kind.FUNNEL,
+                    old_value=instance.parallel_stage or "p0", new_value=requested or "p0",
+                    reason="Параллельная ветвь выселения", author=actor,
+                )
+                instance.parallel_stage = requested
+                instance.save(update_fields=["parallel_stage", "updated_at"])
         if "scenario_name" in validated_data and validated_data["scenario_name"] != instance.scenario_name:
             instance.scenario_locked = True
         if "debt_group_manual" in validated_data and validated_data["debt_group_manual"] != instance.debt_group_manual:
@@ -423,7 +477,8 @@ class AccountServiceSerializer(serializers.ModelSerializer):
     assigned_name = serializers.CharField(source="account.assigned_to.registry_name", default="", read_only=True)
     ownership_type_name = serializers.CharField(source="account.ownership_type_name", read_only=True)
     housing_object = serializers.CharField(source="account.acc_category_full", read_only=True)
-    subj_count = serializers.IntegerField(source="account.subj_count", read_only=True)
+    subj_count = serializers.SerializerMethodField()
+    payment_due_day = serializers.SerializerMethodField()
     account_months = serializers.IntegerField(source="account.months_debt", read_only=True)
     scenario_brief = serializers.SerializerMethodField()
     obligation_total = serializers.SerializerMethodField()
@@ -456,6 +511,23 @@ class AccountServiceSerializer(serializers.ModelSerializer):
             published_scenario(obj.account.organization_id, cache)
         return scenario_brief(obj.account, cache)
 
+    def get_subj_count(self, obj) -> int:
+        if "resident_count" in obj.__dict__:
+            return obj.resident_count or 0
+        return obj.account.subj_count or 0
+
+    def get_payment_due_day(self, obj) -> int:
+        if obj.payment_due_day:
+            return int(obj.payment_due_day)
+        cached = self.context.get("org_due_day")
+        if cached is None:
+            from apps.nsi.models import CalculationSettings
+
+            row = CalculationSettings.objects.order_by("pk").first()
+            cached = row.payment_due_day if row else 25
+            self.context["org_due_day"] = cached
+        return cached
+
     def get_periods(self, obj) -> list:
         from .services.board_lines import period_rows
 
@@ -469,8 +541,8 @@ class AccountServiceSerializer(serializers.ModelSerializer):
         reason = attrs.get("debt_group_manual_reason", getattr(self.instance, "debt_group_manual_reason", ""))
         if group is not None and not reason:
             raise serializers.ValidationError({"debt_group_manual_reason": "Укажите причину корректировки группы"})
-        if group is not None and not 1 <= group <= 6:
-            raise serializers.ValidationError({"debt_group_manual": "Группа от 1 до 6"})
+        if group is not None and not 0 <= group <= 6:
+            raise serializers.ValidationError({"debt_group_manual": "Группа от 0 до 6"})
         return attrs
 
     def update(self, instance, validated_data):
@@ -492,10 +564,20 @@ class AccountServiceSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     payment_type_display = serializers.CharField(source="get_payment_type_display", read_only=True)
+    ais_account_id = serializers.SerializerMethodField()
+    file_fields = serializers.SerializerMethodField()
+
+    def get_ais_account_id(self, obj) -> int:
+        return obj.account.account_id
 
     class Meta:
         model = Payment
         exclude = ["raw"]
+
+    def get_file_fields(self, obj) -> list[dict]:
+        from .services.card_sheet import payment_file_fields
+
+        return payment_file_fields(obj)
 
 
 def mask_identifier(value: str) -> str:
@@ -511,6 +593,8 @@ REGISTRATION_PM = {"social_category", "unfit_for_work", "heritage_transfer"}
 class RegistrationSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="__str__", read_only=True)
     debtor_role = serializers.SerializerMethodField()
+    solidary = serializers.SerializerMethodField()
+    sheet = serializers.SerializerMethodField()
 
     class Meta:
         model = Registration
@@ -518,7 +602,19 @@ class RegistrationSerializer(serializers.ModelSerializer):
         read_only_fields = [f.name for f in Registration._meta.fields if f.name not in REGISTRATION_PM]
 
     def get_debtor_role(self, obj) -> str:
-        return "Плательщик" if obj.subj_is_main else "Солидарный должник"
+        from .services.card_sheet import debtor_role
+
+        return debtor_role(obj)
+
+    def get_solidary(self, obj) -> bool:
+        from .services.card_sheet import is_solidary
+
+        return is_solidary(obj)
+
+    def get_sheet(self, obj) -> list[dict]:
+        from .services.card_sheet import registration_sheet
+
+        return registration_sheet(obj)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -609,7 +705,7 @@ class DebtWorkItemSerializer(serializers.ModelSerializer):
 class AttachmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Attachment
-        fields = ["id", "account", "work_item", "doc_type", "original_name", "uploaded_by", "created_at"]
+        fields = ["id", "account", "work_item", "doc_type", "original_name", "file", "uploaded_by", "created_at"]
         read_only_fields = fields
 
 
@@ -623,9 +719,9 @@ class MeasureItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = MeasureItem
         fields = [
-            "id", "account", "client_account", "debtor_name", "status", "status_display",
+            "id", "measure", "account", "client_account", "debtor_name", "status", "status_display",
             "phone", "call_result", "call_result_display", "duration_sec", "listen_percent",
-            "provider_message_id", "caller_id", "external_call",
+            "recording_ref", "provider_message_id", "caller_id", "external_call",
             "recipient", "delivery_error", "delivery_method", "delivery_method_display",
             "delivered_on", "recipient_name", "refused", "postal_id", "postal_status",
             "suspended_on", "resumed_on", "note", "warning_item", "acted_at",
@@ -640,20 +736,25 @@ class MeasureSerializer(serializers.ModelSerializer):
     debtor_name = serializers.SerializerMethodField()
     debtor_account = serializers.SerializerMethodField()
     debtor_id = serializers.SerializerMethodField()
+    rating_label = serializers.SerializerMethodField()
+    effective_group = serializers.SerializerMethodField()
     assignee_name = serializers.SerializerMethodField()
+    initiator_name = serializers.SerializerMethodField()
     next_action = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
     account_item_status = serializers.SerializerMethodField()
     account_call_line = serializers.SerializerMethodField()
+    manual = serializers.SerializerMethodField()
 
     class Meta:
         model = Measure
         fields = [
             "id", "kind", "kind_display", "status", "status_display", "channel", "template_name",
-            "scenario_name", "note", "assignee", "assignee_name", "started_on", "due_on", "days",
+            "scenario_name", "note", "assignee", "assignee_name", "started_on", "finished_on",
+            "finish_reason", "stopped", "initiator_name", "due_on", "days",
             "time_from", "time_to", "created_at", "accounts_count", "artifact", "title",
-            "debtor_name", "debtor_account", "debtor_id", "next_action", "progress",
-            "account_item_status", "account_call_line", "needs_approval", "approval", "approval_note",
+            "debtor_name", "debtor_account", "debtor_id", "rating_label", "effective_group", "next_action", "progress",
+            "account_item_status", "account_call_line", "manual", "needs_approval", "approval", "approval_note",
             "suspension_confirmed_on", "suspension_source", "resumed_on", "resume_source",
             "owner_provider_id", "owner_name",
         ]
@@ -664,6 +765,9 @@ class MeasureSerializer(serializers.ModelSerializer):
             cached = debtor_fields(obj)
             obj.__dict__["_debtor_cache"] = cached
         return cached
+
+    def get_manual(self, obj) -> bool:
+        return obj.source_scenario_id is None
 
     def get_accounts_count(self, obj) -> int:
         return accounts_count(obj)
@@ -680,9 +784,37 @@ class MeasureSerializer(serializers.ModelSerializer):
     def get_debtor_id(self, obj):
         return self._debtor(obj)[2]
 
+    def _shown_account(self, obj):
+        if "debtor_rating" in obj.__dict__:
+            return None
+        return obj.accounts.order_by("client_account").first()
+
+    def get_rating_label(self, obj) -> str:
+        if "debtor_rating" in obj.__dict__:
+            return _rating_label(obj.debtor_rating or "", obj.debtor_rating_repeat)
+        account = self._shown_account(obj)
+        if account is None:
+            return ""
+        return _rating_label(account.rating, account.rating_repeat)
+
+    def get_effective_group(self, obj):
+        if "debtor_debt_group" in obj.__dict__ or "debtor_debt_group_manual" in obj.__dict__:
+            manual = obj.debtor_debt_group_manual
+            if manual is not None:
+                return manual
+            return obj.debtor_debt_group
+        account = self._shown_account(obj)
+        if account is None:
+            return None
+        return account.effective_group
+
     def get_assignee_name(self, obj) -> str:
         user = obj.assignee
         return user.display_name if user is not None else ""
+
+    def get_initiator_name(self, obj) -> str:
+        user = obj.created_by
+        return user.registry_name if user is not None else ""
 
     def get_next_action(self, obj) -> str:
         return next_action(obj)
@@ -721,10 +853,14 @@ class MeasureSerializer(serializers.ModelSerializer):
             return ""
         parts = [item.get_call_result_display()]
         if item.duration_sec is not None:
-            listen = 0 if item.listen_percent is None else item.listen_percent
-            parts.append(f"{item.duration_sec} с, прослушано {listen}%")
+            if item.listen_percent is None:
+                parts.append(f"{item.duration_sec} с")
+            else:
+                parts.append(f"{item.duration_sec} с, прослушано {item.listen_percent}%")
         if item.caller_id:
             parts.append(f"исходящий {item.caller_id}")
+        if item.recording_ref:
+            parts.append(f"запись {item.recording_ref}")
         line = ", ".join(parts)
         if item.external_call is False:
             line = f"{line}. Внешний вызов не выполнялся"
@@ -733,18 +869,32 @@ class MeasureSerializer(serializers.ModelSerializer):
 
 class MeasureDetailSerializer(MeasureSerializer):
     items = serializers.SerializerMethodField()
+    campaign_total = serializers.SerializerMethodField()
     events = serializers.SerializerMethodField()
     tasks = serializers.SerializerMethodField()
 
     class Meta(MeasureSerializer.Meta):
-        fields = [*MeasureSerializer.Meta.fields, "items", "events", "tasks", "call_legal", "group_from", "group_to"]
+        fields = [
+            *MeasureSerializer.Meta.fields, "items", "campaign_total", "events", "tasks",
+            "call_legal", "group_from", "group_to",
+        ]
+
+    def _assigned(self, obj):
+        cached = obj.__dict__.get("_assigned_items")
+        if cached is None:
+            from apps.debts.services.registry import assigned_items
+
+            cached = assigned_items(obj, self.context.get("visible_accounts"))
+            obj.__dict__["_assigned_items"] = cached
+        return cached
 
     def get_items(self, obj):
-        qs = obj.items.select_related("account")
-        visible = self.context.get("visible_accounts")
-        if visible is not None:
-            qs = qs.filter(account__in=visible)
-        return MeasureItemSerializer(qs, many=True).data
+        rows, _total = self._assigned(obj)
+        return MeasureItemSerializer(rows, many=True).data
+
+    def get_campaign_total(self, obj) -> int:
+        _rows, total = self._assigned(obj)
+        return total
 
     def get_events(self, obj):
         rows = obj.events.select_related("actor")[:40]
@@ -762,17 +912,10 @@ class MeasureDetailSerializer(MeasureSerializer):
         ]
 
     def get_tasks(self, obj):
-        rows = []
-        for task in obj.tasks.select_related("assignee").prefetch_related("checks"):
-            rows.append({
-                "id": task.id,
-                "title": task.title,
-                "due_on": task.due_on.isoformat() if task.due_on else None,
-                "status": task.status,
-                "assignee_name": task.assignee.display_name if task.assignee_id else "",
-                "checks": [{"id": item.id, "title": item.title, "done": item.done} for item in task.checks.all()],
-            })
-        return rows
+        from apps.debts.services.tasks import task_row
+
+        tasks = obj.tasks.select_related("assignee").prefetch_related("checks")
+        return [task_row(task) for task in tasks]
 
 
 class RefreshRequestSerializer(serializers.ModelSerializer):

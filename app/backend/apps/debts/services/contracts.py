@@ -4,11 +4,12 @@
 отделить от реестра лицевых счетов, не перенося HTTP-слой.
 """
 
-from django.db.models import Case, CharField, Count, IntegerField, Max, Min, Q, Sum, Value, When
-from django.db.models.functions import Cast, Coalesce, NullIf
+from django.db.models import Case, CharField, Count, F, IntegerField, Max, Min, Q, Sum, Value, When, Window
+from django.db.models.functions import Cast, Coalesce, NullIf, RowNumber
 from rest_framework.exceptions import ValidationError
 
 from apps.debts.services.assignees import specialist_label
+from apps.debts.services.funnel import FUNNEL_RANK, RANK_STAGE, canonical, open_badges, set_stage
 from apps.debts.services.portfolio import debtor_peers
 from apps.users.scoping import AccessScope
 
@@ -21,18 +22,6 @@ SUPPLIER_ACCOUNT_FIELDS = frozenset({
     "legal_status",
     "contact_source_mode",
 })
-
-FUNNEL_RANK = {
-    "closed": 0,
-    "new": 1,
-    "prevention": 2,
-    "warning": 3,
-    "disconnect": 4,
-    "enforcement": 5,
-    "court": 6,
-}
-RANK_STAGE = {rank: code for code, rank in FUNNEL_RANK.items()}
-
 
 def _rating_label(rating: str | None, repeat) -> str:
     letter = rating or ""
@@ -114,13 +103,8 @@ def _with_person(qs):
         ),
         shown_group=Coalesce("debt_group_manual", "debt_group"),
         stage_rank=Case(
-            When(account__funnel_stage="court", then=Value(6)),
-            When(account__funnel_stage="enforcement", then=Value(5)),
-            When(account__funnel_stage="disconnect", then=Value(4)),
-            When(account__funnel_stage="warning", then=Value(3)),
-            When(account__funnel_stage="prevention", then=Value(2)),
-            When(account__funnel_stage="closed", then=Value(0)),
-            default=Value(1),
+            *[When(account__funnel_stage=code, then=Value(rank)) for code, rank in FUNNEL_RANK.items()],
+            default=Value(FUNNEL_RANK["new"]),
             output_field=IntegerField(),
         ),
     )
@@ -143,6 +127,7 @@ def _person_groups(qs):
         housing_object=Max("account__acc_category_full"),
         months_debt=Max("account__months_debt"),
         subj_count=Max("account__subj_count"),
+        account_number=Max("account__client_account"),
         category=Max("account__debtor_category__name"),
         earliest=Min("debt_started_on"),
         due_on=Min("repayment_due_on"),
@@ -153,18 +138,18 @@ def _person_groups(qs):
     )
     return grouped.annotate(
         group_rank=Case(
-            When(debt_group=1, then=Value(FUNNEL_RANK["prevention"])),
-            When(debt_group=2, then=Value(FUNNEL_RANK["warning"])),
+            When(debt_group=1, then=Value(FUNNEL_RANK["call"])),
+            When(debt_group=2, then=Value(FUNNEL_RANK["notice"])),
             When(debt_group=3, then=Value(FUNNEL_RANK["disconnect"])),
-            When(debt_group__in=(4, 5), then=Value(FUNNEL_RANK["enforcement"])),
-            When(debt_group__gte=6, then=Value(FUNNEL_RANK["court"])),
+            When(debt_group__in=(4, 5), then=Value(FUNNEL_RANK["prep"])),
+            When(debt_group__gte=6, then=Value(FUNNEL_RANK["opi"])),
             default=Value(FUNNEL_RANK["new"]),
             output_field=IntegerField(),
         ),
     )
 
 
-def _lines_by_person(qs, keys: list) -> dict:
+def _lines_by_person(qs, keys: list, *, with_periods: bool = True) -> dict:
     from django.db.models import Prefetch
 
     from apps.debts.models import ServiceDebtPeriod
@@ -172,37 +157,40 @@ def _lines_by_person(qs, keys: list) -> dict:
 
     if not keys:
         return {}
-    rows = (
-        _with_person(qs)
-        .filter(person_key__in=keys)
-        .prefetch_related(None)
-        .prefetch_related(Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period")))
-        .order_by("service_name", "id")
-    )
+    rows = _with_person(qs).filter(person_key__in=keys).order_by("service_name", "id")
+    if with_periods:
+        rows = rows.prefetch_related(None).prefetch_related(
+            Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period")),
+        )
     bucket: dict = {}
     for service in rows:
         bucket.setdefault(service.person_key, []).append(service)
-    return {key: board_service_lines(items) for key, items in bucket.items()}
+    return {key: board_service_lines(items, with_periods=with_periods) for key, items in bucket.items()}
 
 
-def _registered_by_account(account_ids: list[int]) -> dict[int, int]:
+def _counted_by_account(account_ids: list[int], mode: str) -> dict[int, int]:
     from apps.debts.models import Registration
+    from apps.debts.services.registration_flags import active_q, resident_q
 
     if not account_ids:
         return {}
+    extra = active_q() if mode == "active" else resident_q()
     rows = (
         Registration.objects.filter(account_id__in=account_ids)
+        .filter(extra)
         .values("account_id")
         .annotate(total=Count("id"))
     )
     return {row["account_id"]: row["total"] for row in rows}
 
 
-def _public_person(row, lines_by_key: dict, supplier: bool, registered: int | None = None) -> dict:
+def _public_person(row, lines_by_key: dict, supplier: bool, registered: int | None = None, residents: int | None = None) -> dict:
     lines, debt_count = lines_by_key.get(row["person_key"], ([], 0))
     extra = _person_extra(row, supplier)
     if registered is not None:
         extra["registered_count"] = registered
+    if residents is not None:
+        extra["subj_count"] = residents
     return {
         "payer_identifier": row["payer_identifier"] or "",
         "payer_unp": row["payer_unp"] or "",
@@ -227,50 +215,98 @@ def person_page(qs, page: int, page_size: int, supplier: bool = False) -> tuple[
     keys = [row["person_key"] for row in chunk]
     lines = _lines_by_person(qs, keys)
     accounts = _account_ids(qs, keys)
-    registered = _registered_by_account([item for values in accounts.values() for item in values])
+    flat = [item for values in accounts.values() for item in values]
+    registered = _counted_by_account(flat, "active")
+    residents = _counted_by_account(flat, "resident")
     return total, [
         _public_person(
             row, lines, supplier,
             sum(registered.get(item, 0) for item in accounts.get(row["person_key"], [])),
+            sum(residents.get(item, 0) for item in accounts.get(row["person_key"], [])),
         )
         for row in chunk
     ]
 
 
+def _kanban_pages(grouped, rank_field: str, start: int, page_size: int):
+    """Счётчики и страница всех колонок — два запроса, а не пара на каждую колонку."""
+    totals = {
+        row[rank_field]: row["total"]
+        for row in grouped.order_by().values(rank_field).annotate(total=Count("person_key", distinct=True))
+    }
+    end = start + page_size
+    numbered = grouped.annotate(
+        row_n=Window(
+            expression=RowNumber(),
+            partition_by=[F(rank_field)],
+            order_by=[F("payer").asc(), F("sample_id").asc()],
+        ),
+    ).filter(row_n__gt=start, row_n__lte=end)
+    chunks: dict = {}
+    for row in numbered:
+        chunks.setdefault(row[rank_field], []).append(row)
+    for rows in chunks.values():
+        rows.sort(key=lambda item: ((item.get("payer") or ""), item.get("sample_id") or 0))
+    return totals, chunks
+
+
 def kanban_columns(qs, stages: list[tuple[str, str]], page: int, page_size: int, supplier: bool = False) -> list[dict]:
     grouped = _person_groups(qs)
-    columns = []
     start = (page - 1) * page_size
     rank_field = "group_rank" if supplier else "rank"
+    totals, chunks = _kanban_pages(grouped, rank_field, start, page_size)
+    prepared = []
+    keys = []
     for code, title in stages:
-        rank = 1 if code == "new" else FUNNEL_RANK[code]
-        column = grouped.filter(**{rank_field: rank}).order_by("payer")
-        total = column.count()
-        chunk = list(column[start:start + page_size])
-        keys = [row["person_key"] for row in chunk]
-        ids = _account_ids(qs, keys)
-        lines = _lines_by_person(qs, keys)
-        registered = _registered_by_account([item for values in ids.values() for item in values])
-        columns.append({
-            "stage": code,
-            "title": title,
-            "total": total,
-            "cards": [
-                {
-                    **_public_person(
-                        row, lines, supplier,
-                        sum(registered.get(item, 0) for item in ids.get(row["person_key"], [])),
-                    ),
-                    "service_count": row["service_count"],
-                    "service_name": row["service_name"] or "",
-                    "address": row["address"] or "",
-                    "debt_group": row["debt_group"],
-                    "due_on": row["due_on"],
-                    "account_ids": ids.get(row["person_key"], []),
-                }
-                for row in chunk
-            ],
-        })
+        rank = FUNNEL_RANK[code]
+        chunk = chunks.get(rank, [])
+        prepared.append((code, title, totals.get(rank, 0), chunk))
+        keys.extend(row["person_key"] for row in chunk)
+    ids = _account_ids(qs, keys)
+    # Карточка берёт название услуги и число услуг с долгом. Остатки периодов здесь не рисуются.
+    lines = _lines_by_person(qs, keys, with_periods=False)
+    flat = [item for values in ids.values() for item in values]
+    registered = _counted_by_account(flat, "active")
+    residents = _counted_by_account(flat, "resident")
+    columns = []
+    cards_by_stage: dict[str, list] = {}
+    for code, title, total, chunk in prepared:
+        cards = []
+        for row in chunk:
+            account_ids = ids.get(row["person_key"], [])
+            cards.append({
+                **_public_person(
+                    row, lines, supplier,
+                    sum(registered.get(item, 0) for item in account_ids),
+                    sum(residents.get(item, 0) for item in account_ids),
+                ),
+                "account_number": row.get("account_number") or "",
+                "service_count": row["service_count"],
+                "service_name": row["service_name"] or "",
+                "address": row["address"] or "",
+                "debt_group": row["debt_group"],
+                "due_on": row["due_on"],
+                "account_ids": account_ids,
+            })
+        cards_by_stage[code] = cards
+        columns.append({"stage": code, "title": title, "total": total, "cards": cards})
+    badge_map = open_badges([
+        (account_id, code)
+        for code, cards in cards_by_stage.items()
+        for card in cards
+        for account_id in card["account_ids"]
+    ])
+    for code, cards in cards_by_stage.items():
+        for card in cards:
+            merged = []
+            seen = set()
+            for account_id in card["account_ids"]:
+                for badge in badge_map.get(account_id, []):
+                    if badge["measure_id"] in seen:
+                        continue
+                    seen.add(badge["measure_id"])
+                    merged.append(badge)
+            card["open_badges"] = merged
     return columns
 
 
@@ -385,8 +421,8 @@ def supplier_portfolio(qs) -> dict:
         penalty=Sum("balance_mulct_out"),
     )
     measures_by_provider = _count_pairs(
-        qs.order_by().filter(measures__isnull=False).values("provider_id", "measures__kind", "measures__id").distinct(),
-        "provider_id", "measures__kind", "measures__id", Measure.Kind.choices,
+        qs.order_by().filter(measures__isnull=False).values("provider_id", "measures__kind", "account_id").distinct(),
+        "provider_id", "measures__kind", "account_id", Measure.Kind.choices,
     )
     cases_by_provider = _count_pairs(
         debt.order_by().filter(account__claim_case__isnull=False).values(
@@ -448,21 +484,16 @@ def supplier_portfolio(qs) -> dict:
 
 
 def move_stage(user, accounts, stage: str, reason: str = "") -> None:
-    """Этап карточки должника — этап всех его видимых лицевых счетов. Без основания переход не пишется."""
+    """Этап всех видимых лицевых счетов должника. Основание необязательно: лента и канбан пишут переход сразу."""
     from rest_framework.exceptions import PermissionDenied
 
-    from apps.debts.models import StatusHistory
     from apps.users.access import can_skip_stage
 
     if not can_skip_stage(user):
         raise PermissionDenied("Этап воронки переносит администратор или специалист с согласованием")
     if getattr(user, "contour", "") == "supplier":
-        raise ValidationError({"funnel_stage": "Поставщик не меняет этап воронки"})
-    if stage not in FUNNEL_RANK:
-        raise ValidationError({"funnel_stage": "Неизвестный этап"})
-    reason = (reason or "").strip()
-    if not reason:
-        raise ValidationError({"funnel_reason": "Укажите основание смены этапа воронки взыскания"})
+        raise PermissionDenied("Поставщик не меняет этап воронки")
+    stage = canonical(stage)
     rows = list(accounts)
     if not rows:
         return
@@ -470,13 +501,4 @@ def move_stage(user, accounts, stage: str, reason: str = "") -> None:
     if len(organizations) > 1:
         raise ValidationError({"account_ids": "Несколько схем в одной операции"})
     for account in rows:
-        if account.funnel_stage == stage:
-            continue
-        previous = account.funnel_stage
-        account.funnel_stage = stage
-        account.funnel_locked = True
-        account.save(update_fields=["funnel_stage", "funnel_locked", "updated_at"])
-        StatusHistory.objects.create(
-            organization=account.organization, account=account, kind=StatusHistory.Kind.FUNNEL,
-            old_value=previous, new_value=stage, reason=reason[:500], author=user,
-        )
+        set_stage(account, stage, user, reason, lock=True)

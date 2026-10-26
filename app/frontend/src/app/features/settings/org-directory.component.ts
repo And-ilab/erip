@@ -9,21 +9,33 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
+import { Observable } from 'rxjs';
+
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DirectoryUser, OrganizationOption, Role, ServiceOrganizationOption } from '../../core/models';
+import { GridResizeDirective } from '../grid-resize.directive';
 
 interface UserDraft {
   last_name: string;
   first_name: string;
   middle_name: string;
   username: string;
-  password: string;
+  password?: string;
   email: string;
+  phone: string;
+  position: string;
   role: Role;
   can_approve: boolean;
   contour: 'billing' | 'supplier';
   service_organizations: number[];
+}
+
+interface UserDialogData {
+  roles: { id: Role; label: string }[];
+  services: ServiceOrganizationOption[];
+  user?: DirectoryUser;
+  save: (draft: UserDraft) => Observable<DirectoryUser>;
 }
 
 @Component({
@@ -69,18 +81,26 @@ export class OrgDraftDialog {
   standalone: true,
   imports: [FormsModule, MatDialogModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule],
   template: `
-    <h2 mat-dialog-title>Новый пользователь</h2>
+    <h2 mat-dialog-title>{{ data.user ? 'Пользователь' : 'Новый пользователь' }}</h2>
     <mat-dialog-content class="form">
       <div class="line">
-        <mat-form-field><mat-label>Фамилия</mat-label><input matInput [(ngModel)]="lastName" /></mat-form-field>
-        <mat-form-field><mat-label>Имя</mat-label><input matInput [(ngModel)]="firstName" /></mat-form-field>
-        <mat-form-field><mat-label>Отчество</mat-label><input matInput [(ngModel)]="middleName" /></mat-form-field>
+        <mat-form-field><mat-label>Фамилия</mat-label><input matInput [(ngModel)]="lastName" maxlength="150" /></mat-form-field>
+        <mat-form-field><mat-label>Имя</mat-label><input matInput [(ngModel)]="firstName" maxlength="150" /></mat-form-field>
+        <mat-form-field><mat-label>Отчество</mat-label><input matInput [(ngModel)]="middleName" maxlength="150" /></mat-form-field>
       </div>
       <div class="line">
-        <mat-form-field><mat-label>Логин</mat-label><input matInput [(ngModel)]="username" /></mat-form-field>
-        <mat-form-field><mat-label>Пароль</mat-label><input matInput type="password" [(ngModel)]="password" /></mat-form-field>
+        <mat-form-field><mat-label>Логин</mat-label><input matInput [(ngModel)]="username" maxlength="150" /></mat-form-field>
+        <mat-form-field>
+          <mat-label>{{ data.user ? 'Новый пароль' : 'Пароль' }}</mat-label>
+          <input matInput type="password" [(ngModel)]="password" autocomplete="new-password" />
+        </mat-form-field>
       </div>
-      <mat-form-field><mat-label>E-mail</mat-label><input matInput [(ngModel)]="email" /></mat-form-field>
+      @if (data.user) { <p class="hint">Пустой пароль оставляет прежний.</p> }
+      <div class="line">
+        <mat-form-field><mat-label>E-mail</mat-label><input matInput [(ngModel)]="email" maxlength="254" /></mat-form-field>
+        <mat-form-field><mat-label>Телефон</mat-label><input matInput [(ngModel)]="phone" maxlength="50" /></mat-form-field>
+      </div>
+      <mat-form-field><mat-label>Должность</mat-label><input matInput [(ngModel)]="position" maxlength="250" /></mat-form-field>
       <div class="line">
         <mat-form-field><mat-label>Роль</mat-label>
           <mat-select [(ngModel)]="role">
@@ -108,8 +128,8 @@ export class OrgDraftDialog {
       @if (error) { <p class="err">{{ error }}</p> }
     </mat-dialog-content>
     <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Отмена</button>
-      <button mat-flat-button color="primary" (click)="save()">Создать</button>
+      <button mat-button mat-dialog-close [disabled]="saving">Отмена</button>
+      <button mat-flat-button color="primary" (click)="save()" [disabled]="saving">{{ data.user ? 'Сохранить' : 'Создать' }}</button>
     </mat-dialog-actions>
   `,
   styles: `
@@ -123,19 +143,22 @@ export class OrgDraftDialog {
   `,
 })
 export class UserDraftDialog {
-  private readonly ref = inject(MatDialogRef<UserDraftDialog, UserDraft>);
-  protected readonly data = inject<{ roles: { id: Role; label: string }[]; services: ServiceOrganizationOption[] }>(MAT_DIALOG_DATA);
-  protected lastName = '';
-  protected firstName = '';
-  protected middleName = '';
-  protected username = '';
+  private readonly ref = inject(MatDialogRef<UserDraftDialog, boolean>);
+  protected readonly data = inject<UserDialogData>(MAT_DIALOG_DATA);
+  protected lastName = this.data.user?.last_name ?? '';
+  protected firstName = this.data.user?.first_name ?? '';
+  protected middleName = this.data.user?.middle_name ?? '';
+  protected username = this.data.user?.username ?? '';
   protected password = '';
-  protected email = '';
-  protected role: Role = this.data.roles[0]?.id ?? 'specialist';
-  protected contour: 'billing' | 'supplier' = 'billing';
-  protected canApprove = false;
-  protected services: number[] = [];
+  protected email = this.data.user?.email ?? '';
+  protected phone = this.data.user?.phone ?? '';
+  protected position = this.data.user?.position ?? '';
+  protected role: Role = this.data.user?.role ?? this.data.roles[0]?.id ?? 'specialist';
+  protected contour: 'billing' | 'supplier' = this.data.user?.role === 'specialist' ? this.data.user.contour : 'billing';
+  protected canApprove = !!this.data.user?.can_approve;
+  protected services: number[] = [...(this.data.user?.service_organizations ?? [])];
   protected error = '';
+  protected saving = false;
 
   protected toggleService(id: number, event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
@@ -144,11 +167,12 @@ export class UserDraftDialog {
 
   protected save(): void {
     const username = this.username.trim();
-    if (!username || !this.password) {
+    const password = this.password.trim();
+    if (!username || (!this.data.user && !password)) {
       this.error = 'Укажите логин и пароль';
       return;
     }
-    if (this.password.length < 8) {
+    if (password && password.length < 8) {
       this.error = 'Пароль не короче 8 символов';
       return;
     }
@@ -157,17 +181,27 @@ export class UserDraftDialog {
       this.error = 'Отметьте хотя бы одну организацию поставщика';
       return;
     }
-    this.ref.close({
+    this.error = '';
+    this.saving = true;
+    this.data.save({
       last_name: this.lastName.trim(),
       first_name: this.firstName.trim(),
       middle_name: this.middleName.trim(),
       username,
-      password: this.password,
+      password: password || undefined,
       email: this.email.trim(),
+      phone: this.phone.trim(),
+      position: this.position.trim(),
       role: this.role,
       can_approve: this.role === 'specialist' && this.canApprove,
       contour,
       service_organizations: contour === 'supplier' ? this.services : [],
+    }).subscribe({
+      next: () => this.ref.close(true),
+      error: (err) => {
+        this.saving = false;
+        this.error = errorMessage(err);
+      },
     });
   }
 }
@@ -177,6 +211,7 @@ export class UserDraftDialog {
   standalone: true,
   imports: [
     FormsModule, MatButtonModule, MatIconModule, MatTooltipModule, MatSnackBarModule, MatDialogModule,
+    GridResizeDirective,
   ],
   template: `
     <div class="bar">
@@ -207,7 +242,33 @@ export class UserDraftDialog {
       <section class="card">
         @if (selected(); as org) {
           <h2>Пользователи — {{ org.name }}</h2>
-          <p class="muted">Учётные записи ведутся в разрезе организации. Роль назначается в рамках организации; при блокировке открытые задания, мероприятия и закреплённые счета переходят другому сотруднику той же схемы и того же контура.</p>
+          <p class="muted">Учётные записи ведутся в разрезе организации. ФИО, логин, контакты, должность, роль и контур меняются кнопкой «Изменить». При блокировке открытые задания, мероприятия и закреплённые счета переходят другому сотруднику той же схемы и того же контура.</p>
+          @if (auth.canManageTemplates()) {
+            <details class="pris">
+              <summary>Реквизиты взыскателя для АИС ПРИС</summary>
+              <p class="muted">Эти реквизиты уходят в пакет каждого дела схемы. Коды справочников 306, 308 и 309 подставятся списком, когда Минюст отдаст GetNSIData.</p>
+              <div class="pris-grid">
+                @for (field of prisFields; track field.key) {
+                  <label>{{ field.label }}
+                    <input [ngModel]="prisClaimant[field.key]" (ngModelChange)="setPris(field.key, $event)" />
+                  </label>
+                }
+              </div>
+              <button mat-stroked-button type="button" (click)="savePris()">Сохранить реквизиты</button>
+            </details>
+            <details class="pris">
+              <summary>Режим запуска сценария по обслуживающей организации</summary>
+              <p class="muted">Вручную — сценарий проставляется, мероприятия ждут кнопку «Запустить сценарий». Автоматически — первое доступное мероприятие начинается сразу. По умолчанию вручную и базовый сценарий.</p>
+              @for (row of serviceModes(); track row.id) {
+                <label>{{ row.name }}
+                  <select [ngModel]="row.launch" (ngModelChange)="saveLaunch(row.id, $event)">
+                    <option value="manual">Вручную</option>
+                    <option value="auto">Автоматически</option>
+                  </select>
+                </label>
+              }
+            </details>
+          }
           <div class="toolbar">
             <button mat-stroked-button (click)="createUser()">+ Новый пользователь</button>
             <button type="button" class="tab" [class.on]="tab() === 'users'" (click)="tab.set('users')">Пользователи</button>
@@ -217,9 +278,16 @@ export class UserDraftDialog {
           </div>
           @if (tab() === 'users') {
             <div class="list-pane">
-              <table>
+              <table appGridResize="org-users">
                 <thead>
-                  <tr><th>Пользователь</th><th>Логин</th><th>Роль</th><th>Статус</th><th>Последний вход</th><th></th></tr>
+                  <tr>
+                    <th data-col="name">Пользователь</th>
+                    <th data-col="login">Логин</th>
+                    <th data-col="role">Роль</th>
+                    <th data-col="status">Статус</th>
+                    <th data-col="seen">Последний вход</th>
+                    <th data-col="open"></th>
+                  </tr>
                 </thead>
                 <tbody>
                   @for (user of users(); track user.id) {
@@ -237,8 +305,11 @@ export class UserDraftDialog {
                       </td>
                       <td><span class="status" [class.off]="!user.is_active">{{ user.is_active ? 'активен' : 'заблокирован' }}</span></td>
                       <td>{{ when(user.last_login) }}</td>
-                      <td>
+                      <td class="actions">
                         @if (canToggle(user)) {
+                          <button mat-icon-button type="button" (click)="editUser(user)" matTooltip="Изменить" aria-label="Изменить">
+                            <mat-icon>edit</mat-icon>
+                          </button>
                           <button mat-icon-button type="button" (click)="toggle(user)" [matTooltip]="user.is_active ? 'Заблокировать' : 'Вернуть доступ'">
                             <mat-icon>{{ user.is_active ? 'block' : 'lock_open' }}</mat-icon>
                           </button>
@@ -294,6 +365,7 @@ export class UserDraftDialog {
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--erip-border); font-size: 13px; vertical-align: middle; }
     th { color: var(--erip-muted); }
+    .actions { white-space: nowrap; text-align: right; }
     .who { display: flex; align-items: center; gap: 8px; }
     .role {
       display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
@@ -311,6 +383,10 @@ export class UserDraftDialog {
     .rights { display: flex; flex-direction: column; gap: 10px; }
     .rights article { border: 1px solid var(--erip-border); border-radius: 10px; padding: 10px 12px; }
     .rights p { margin: 4px 0 0; }
+    .pris { margin-top: 12px; }
+    .pris-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+    .pris-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--erip-muted); min-width: 180px; }
+    .pris-grid input { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; font: inherit; color: inherit; }
     @media (max-width: 980px) { .split { grid-template-columns: 1fr; } }
   `,
 })
@@ -323,8 +399,31 @@ export class OrgDirectoryComponent implements OnInit {
   protected readonly orgs = signal<OrganizationOption[]>([]);
   protected readonly users = signal<DirectoryUser[]>([]);
   protected readonly selectedId = signal<number | null>(null);
+  protected readonly serviceModes = signal<{ id: number; name: string; launch: string }[]>([]);
   protected readonly query = signal('');
   protected readonly tab = signal<'users' | 'rights'>('users');
+  protected prisClaimant: Record<string, string> = {};
+  protected readonly prisFields = [
+    { key: 'opf', label: 'ОПФ' },
+    { key: 'country', label: 'Страна, справочник 306' },
+    { key: 'full_adr', label: 'Полный адрес' },
+    { key: 'region', label: 'Область' },
+    { key: 'area', label: 'Район' },
+    { key: 'np_type', label: 'Тип населённого пункта, 309' },
+    { key: 'np', label: 'Населённый пункт' },
+    { key: 'street_type', label: 'Тип улицы, 308' },
+    { key: 'street', label: 'Улица' },
+    { key: 'house', label: 'Дом' },
+    { key: 'corp', label: 'Корпус' },
+    { key: 'flat', label: 'Квартира' },
+    { key: 'post_index', label: 'Индекс' },
+    { key: 'bank_unp', label: 'УНП получателя' },
+    { key: 'bank_code', label: 'SWIFT' },
+    { key: 'acc_num', label: 'Счёт' },
+    { key: 'acc_type', label: 'Тип счёта' },
+    { key: 'curr_code', label: 'Валюта, ОКРБ' },
+    { key: 'budget_code', label: 'Код платежа в бюджет' },
+  ];
   protected readonly rights = [
     { title: 'Суперадминистратор', text: 'Все схемы. Меняет границы групп, рейтинг, организации и любых пользователей.' },
     { title: 'Локальный администратор', text: 'Пользователи своей схемы, сценарии и печатные формы схемы. Границы групп задаёт суперадминистратор.' },
@@ -332,6 +431,8 @@ export class OrgDirectoryComponent implements OnInit {
     { title: 'Специалист поставщика', text: 'Только услуги, где его организация назначена поставщиком. Пустой список поставщика оставляет реестр пустым.' },
     { title: 'Наблюдатель', text: 'Просмотр данных своей схемы без изменений.' },
   ];
+
+  private searchTimer = 0;
 
   ngOnInit(): void {
     this.loadOrgs();
@@ -373,7 +474,9 @@ export class OrgDirectoryComponent implements OnInit {
       superadmin: 'Суперадминистратор',
       local_admin: 'Локальный администратор',
       specialist: 'Специалист',
+      legal: 'Специалист ЮС',
       observer: 'Наблюдатель',
+      viewer: 'Специалист «Просмотр»',
     }[user.role];
   }
 
@@ -396,22 +499,76 @@ export class OrgDirectoryComponent implements OnInit {
   protected canToggle(user: DirectoryUser): boolean {
     if (user.id === this.auth.me()?.id) return false;
     if (this.auth.isSuperadmin()) return true;
-    return user.role === 'specialist' || user.role === 'observer';
+    return user.role === 'specialist' || user.role === 'legal' || user.role === 'observer';
   }
 
   protected onSearch(value: string): void {
     this.query.set(value);
-    const visible = this.visibleOrgs();
-    if (this.selectedId() != null && !visible.some((org) => org.id === this.selectedId())) {
-      this.selectedId.set(visible[0]?.id ?? null);
-    }
-    this.loadUsers();
+    window.clearTimeout(this.searchTimer);
+    this.searchTimer = window.setTimeout(() => {
+      const visible = this.visibleOrgs();
+      if (this.selectedId() != null && !visible.some((org) => org.id === this.selectedId())) {
+        this.selectedId.set(visible[0]?.id ?? null);
+        const selected = this.selectedId();
+        if (selected != null) this.loadPris(selected);
+      }
+      this.loadUsers();
+    }, 300);
   }
 
   protected pick(id: number): void {
     this.selectedId.set(id);
     this.tab.set('users');
     this.loadUsers();
+    this.loadPris(id);
+    this.loadModes(id);
+  }
+
+  protected saveLaunch(id: number, launch: string): void {
+    this.api.serviceScenarioMode(id, { launch }).subscribe({
+      next: () => this.serviceModes.update((rows) => rows.map((row) => row.id === id ? { ...row, launch } : row)),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private loadModes(orgId: number): void {
+    this.api.serviceOrganizations(orgId).subscribe({
+      next: (page) => {
+        const rows = page.results;
+        if (!rows.length) {
+          this.serviceModes.set([]);
+          return;
+        }
+        let left = rows.length;
+        const modes: { id: number; name: string; launch: string }[] = [];
+        for (const org of rows) {
+          this.api.serviceScenarioMode(org.id).subscribe({
+            next: (mode) => {
+              modes.push({ id: org.id, name: org.short_name, launch: mode.launch });
+              if (--left === 0) this.serviceModes.set(modes.sort((a, b) => a.name.localeCompare(b.name, 'ru')));
+            },
+            error: () => { if (--left === 0) this.serviceModes.set(modes); },
+          });
+        }
+      },
+      error: () => this.serviceModes.set([]),
+    });
+  }
+
+  protected setPris(key: string, value: string): void {
+    this.prisClaimant = { ...this.prisClaimant, [key]: value };
+  }
+
+  protected savePris(): void {
+    const org = this.selectedId();
+    if (org == null) return;
+    this.api.saveOrganizationPris(org, this.prisClaimant).subscribe({
+      next: (row) => {
+        this.prisClaimant = { ...row.claimant };
+        this.snack.open('Реквизиты взыскателя сохранены', 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   protected createOrg(): void {
@@ -428,26 +585,11 @@ export class OrgDirectoryComponent implements OnInit {
   }
 
   protected createUser(): void {
-    const org = this.selected();
-    if (!org) return;
-    this.api.serviceOrganizations(org.id).subscribe({
-      next: (page) => {
-        this.dialog.open(UserDraftDialog, {
-          data: { roles: this.creatableRoles(), services: page.results },
-          width: '560px',
-        }).afterClosed().subscribe((draft: UserDraft | undefined) => {
-          if (!draft) return;
-          this.api.saveUser({ ...draft, organization: org.id }).subscribe({
-            next: () => {
-              this.snack.open('Пользователь создан', 'OK', { duration: 2000 });
-              this.loadOrgs(org.id);
-            },
-            error: (err) => this.snack.open(errorMessage(err), 'OK'),
-          });
-        });
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
+    this.openUserDialog();
+  }
+
+  protected editUser(user: DirectoryUser): void {
+    this.openUserDialog(user);
   }
 
   protected toggleApprove(user: DirectoryUser): void {
@@ -497,13 +639,67 @@ export class OrgDirectoryComponent implements OnInit {
     URL.revokeObjectURL(url);
   }
 
-  private creatableRoles(): { id: Role; label: string }[] {
+  private creatableRoles(current?: Role): { id: Role; label: string }[] {
+    const labels: Record<Role, string> = {
+      superadmin: 'Суперадминистратор',
+      local_admin: 'Локальный администратор',
+      specialist: 'Специалист',
+      legal: 'Специалист ЮС',
+      observer: 'Наблюдатель',
+      viewer: 'Специалист «Просмотр»',
+    };
     const roles: { id: Role; label: string }[] = [
-      { id: 'specialist', label: 'Специалист' },
-      { id: 'observer', label: 'Наблюдатель' },
+      { id: 'specialist', label: labels.specialist },
+      { id: 'legal', label: labels.legal },
+      { id: 'observer', label: labels.observer },
+      { id: 'viewer', label: labels.viewer },
     ];
-    if (this.auth.isSuperadmin()) roles.unshift({ id: 'local_admin', label: 'Локальный администратор' });
+    if (this.auth.isSuperadmin()) roles.unshift({ id: 'local_admin', label: labels.local_admin });
+    if (current && !roles.some((item) => item.id === current)) roles.unshift({ id: current, label: labels[current] });
     return roles;
+  }
+
+  private openUserDialog(user?: DirectoryUser): void {
+    const org = this.selected();
+    if (!org) return;
+    this.api.serviceOrganizations(org.id).subscribe({
+      next: (page) => {
+        this.dialog.open(UserDraftDialog, {
+          data: {
+            roles: this.creatableRoles(user?.role),
+            services: page.results,
+            user,
+            save: (draft: UserDraft) => this.api.saveUser(this.userPayload(draft, org.id, user?.id)),
+          },
+          width: '640px',
+        }).afterClosed().subscribe((saved) => {
+          if (!saved) return;
+          this.snack.open(user ? 'Пользователь изменён' : 'Пользователь создан', 'OK', { duration: 2000 });
+          this.loadOrgs(org.id);
+        });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private userPayload(draft: UserDraft, organization: number, id?: number): Partial<DirectoryUser> & { password?: string } {
+    const body: Partial<DirectoryUser> & { password?: string } = {
+      last_name: draft.last_name,
+      first_name: draft.first_name,
+      middle_name: draft.middle_name,
+      username: draft.username,
+      email: draft.email,
+      phone: draft.phone,
+      position: draft.position,
+      role: draft.role,
+      can_approve: draft.can_approve,
+      contour: draft.contour,
+      service_organizations: draft.service_organizations,
+      organization,
+    };
+    if (id) body.id = id;
+    if (draft.password) body.password = draft.password;
+    return body;
   }
 
   private loadOrgs(prefer?: number): void {
@@ -514,8 +710,21 @@ export class OrgDirectoryComponent implements OnInit {
         const current = prefer ?? this.selectedId();
         this.selectedId.set(visible.find((org) => org.id === current)?.id ?? visible[0]?.id ?? null);
         this.loadUsers();
+        const selected = this.selectedId();
+        if (selected != null) {
+          this.loadPris(selected);
+          this.loadModes(selected);
+        }
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private loadPris(id: number): void {
+    if (!this.auth.canManageTemplates()) return;
+    this.api.organizationPris(id).subscribe({
+      next: (row) => { this.prisClaimant = { curr_code: '933', ...row.claimant }; },
+      error: () => { this.prisClaimant = { curr_code: '933' }; },
     });
   }
 

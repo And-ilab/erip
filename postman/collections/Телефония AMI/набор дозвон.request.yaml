@@ -1,0 +1,44 @@
+$kind: http-request
+method: POST
+url: '{{base_url}}/gw/v1/voice/dial'
+order: 2000
+headers:
+  - key: X-Internal-Token
+    value: '{{internal_token}}'
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "phone": "+375291112233",
+      "text": "Долг Иванов",
+      "caller_id": "+375172000001",
+      "record": false,
+      "transfer": false
+    }
+examples: './.resources/набор дозвон.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const data = pm.response.json().data;
+      const mode = pm.collectionVariables.get('voice_mode') || 'stub';
+      pm.test('200', function () { pm.response.to.have.status(200); });
+      if (mode === 'ami') {
+          pm.test('AMI принял вызов', function () {
+              pm.expect(data.external_call).to.eql(true);
+              pm.expect(data.provider_message_id).to.match(/^ami-/);
+              pm.expect(['answered', 'no_answer', 'busy', 'bad_number']).to.include(data.status);
+          });
+      } else {
+          pm.test('заглушка: дозвон', function () {
+              pm.expect(data.status).to.eql('answered');
+              pm.expect(data.external_call).to.eql(false);
+              pm.expect(data.duration_sec).to.eql(36);
+              pm.expect(data.listen_percent).to.eql(72);
+              pm.expect(data.recording_ref).to.eql('');
+              pm.expect(data.caller_id).to.eql('+375172000001');
+              pm.expect(data.provider_message_id).to.match(/^voice-/);
+          });
+      }

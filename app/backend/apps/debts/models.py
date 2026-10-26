@@ -94,6 +94,10 @@ class Account(AisRecord):
     rating_repeat = models.PositiveSmallIntegerField("Подрейтинг (раз)", null=True, blank=True)
     funnel_stage = models.CharField("Этап воронки", max_length=20, blank=True, default="new")
     funnel_locked = models.BooleanField("Этап задан вручную", default=False)
+    parallel_stage = models.CharField(
+        "Параллельная ветвь выселения", max_length=20, blank=True, default="",
+        help_text="P1 или P2 для групп 4–6. Колонку основной ветви не меняет.",
+    )
     scenario_name = models.CharField("Сценарий мероприятий", max_length=250, blank=True)
     scenario_locked = models.BooleanField("Сценарий задан вручную", default=False)
     assigned_to = models.ForeignKey(
@@ -108,6 +112,8 @@ class Account(AisRecord):
         verbose_name="Категория должника",
     )
     inheritance_case = models.BooleanField("Наследственное дело", default=False)
+    payer_deceased = models.BooleanField("Плательщик умер", default=False)
+    deceased_payer_id = models.BigIntegerField("Умерший плательщик", null=True, blank=True)
     inheritance_until = models.DateField("Приостановка до", null=True, blank=True)
     inheritance_payer_id = models.BigIntegerField("Плательщик на момент флага", null=True, blank=True)
     residence_note = models.CharField("Фактическое проживание", max_length=500, blank=True)
@@ -128,6 +134,8 @@ class Account(AisRecord):
         indexes = [
             models.Index(fields=["organization", "provider_id", "debt_group"], name="account_scope_group"),
             models.Index(fields=["organization", "balance_out"], name="account_org_balance"),
+            models.Index(fields=["organization", "client_account"], name="account_org_number"),
+            models.Index(fields=["organization", "funnel_stage"], name="account_org_stage"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["organization", "provider_id", "account_id"], name="uniq_account_in_scope")
@@ -147,7 +155,7 @@ class Territory(TimeStampedModel):
     """Узел адреса: страна, область, район, населённый пункт, улица, дом.
 
     У лицевого счёта нет полей области и района. Дерево собирается из текста адреса.
-    Город Минск — ребёнок Минской области, чтобы на карте не было двух корней с одним именем.
+    Город Минск висит на Беларуси рядом с Минской областью, а не внутри неё.
     """
 
     class Kind(models.TextChoices):
@@ -255,9 +263,14 @@ class AccountService(AisRecord):
     initial_penalty = money("Первоначальная пеня")
     last_payment_date = models.DateField("Дата последней оплаты", null=True, blank=True)
     repayment_due_on = models.DateField("Срок погашения", null=True, blank=True)
+    agreement_number = models.CharField("Номер договора", max_length=100, blank=True, default="")
+    payment_due_day = models.PositiveSmallIntegerField("День срока погашения по договору", null=True, blank=True)
 
     class Meta:
         ordering = ["sort_code", "service_name"]
+        indexes = [
+            models.Index(fields=["account", "provider_id"], name="service_account_provider"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["account", "service_list_id"], name="uniq_service_contract")
         ]
@@ -312,6 +325,9 @@ class ServiceDebtPeriod(AisRecord):
 
     class Meta:
         ordering = ["period"]
+        indexes = [
+            models.Index(fields=["account", "period"], name="debt_period_account_period"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["service", "period"], name="uniq_service_debt_period"),
         ]
@@ -369,6 +385,9 @@ class Payment(AisRecord):
 
     class Meta:
         ordering = ["-pay_date"]
+        indexes = [
+            models.Index(fields=["account", "acc_oper_date"], name="payment_account_oper"),
+        ]
         constraints = [models.UniqueConstraint(fields=["account", "receipt_id"], name="uniq_payment_receipt")]
         verbose_name = "Оплата"
         verbose_name_plural = "Оплаты"
@@ -413,6 +432,9 @@ class Registration(AisRecord):
     is_close_relative = models.BooleanField("Является членом семьи плательщика", default=False)
     subj_is_check_out = models.BooleanField("Снят с регистрационного учёта", default=False)
     idler_val = models.BooleanField("Незанятые в экономике", default=False)
+    reg_status = models.PositiveSmallIntegerField("Статус регистрации", null=True, blank=True)
+    left_country = models.BooleanField("Незанятые, выехавшие за пределы РБ", default=False)
+    sheet_removed = models.BooleanField("Снят по колонке файла", default=False)
     social_category = models.CharField("Социальная категория граждан", max_length=250, blank=True)
     unfit_for_work = models.BooleanField("Нетрудоспособен", default=False)
     heritage_transfer = models.CharField(
@@ -433,6 +455,7 @@ class Registration(AisRecord):
         ordering = ["-subj_is_main", "fam", "im"]
         indexes = [
             models.Index(fields=["personal_num"], name="registration_personal_num"),
+            models.Index(fields=["account", "subj_is_main"], name="registration_account_main"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["account", "registration_id"], name="uniq_registration")
@@ -489,6 +512,9 @@ class BalanceHistory(AisRecord):
 
     class Meta:
         ordering = ["-period", "service_id"]
+        indexes = [
+            models.Index(fields=["account", "-period"], name="balance_account_period"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["service", "period"], name="uniq_service_period_balance"),
         ]
@@ -510,6 +536,7 @@ class StatusHistory(AisRecord):
         REGISTRATION = "registration", "Регистрация"
         RESIDENCE = "residence", "Проживание"
         LEGAL = "legal", "Статус лица"
+        MEASURE = "measure", "Мероприятие"
 
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="status_history", verbose_name="ЛС")
     service = models.ForeignKey(
@@ -526,6 +553,9 @@ class StatusHistory(AisRecord):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["account", "-created_at"], name="status_account_created"),
+        ]
         verbose_name = "История статуса"
         verbose_name_plural = "История статусов"
 
@@ -593,6 +623,7 @@ class Measure(AisRecord):
         DISCONNECT = "disconnect", "Отключение"
         COLLECTION = "collection", "Взыскание"
         SCENARIO = "scenario", "Смена сценария"
+        EXTRA = "extra", "Дополнительное"
 
     class Status(models.TextChoices):
         ASSIGNED = "assigned", "Назначено"
@@ -616,6 +647,9 @@ class Measure(AisRecord):
     )
     artifact = models.FileField("Файл для внешней системы", upload_to="measures/%Y/%m/", blank=True)
     started_on = models.DateField("Дата начала", null=True, blank=True)
+    finished_on = models.DateField("Дата окончания", null=True, blank=True)
+    finish_reason = models.CharField("Основание окончания", max_length=250, blank=True)
+    stopped = models.BooleanField("Остановлено специалистом", default=False)
     due_on = models.DateField("Контрольная дата", null=True, blank=True)
     days = models.PositiveSmallIntegerField("Дней", null=True, blank=True)
     time_from = models.TimeField("Время с", null=True, blank=True)
@@ -632,6 +666,9 @@ class Measure(AisRecord):
         help_text="Пусто у мероприятия начисляющей организации. У двух поставщиков один и тот же вид живёт отдельно.",
     )
     owner_name = models.CharField("Поставщик-автор", max_length=250, blank=True)
+    extra = models.BooleanField("Дополнительное", default=False)
+    pause_until = models.DateField("Приостановлено до", null=True, blank=True)
+    pause_reason = models.CharField("Основание приостановки", max_length=500, blank=True, default="")
     call_legal = models.BooleanField("Звонить юридическим лицам", default=False)
     source_scenario = models.ForeignKey(
         "nsi.ScenarioDefinition", null=True, blank=True, on_delete=models.SET_NULL,
@@ -687,6 +724,10 @@ class MeasureItem(AisRecord):
     call_result = models.CharField("Результат звонка", max_length=20, choices=CallResult.choices, blank=True)
     duration_sec = models.PositiveIntegerField("Длительность, с", null=True, blank=True)
     listen_percent = models.PositiveSmallIntegerField("Доля прослушивания, %", null=True, blank=True)
+    recording_ref = models.CharField(
+        "Запись разговора", max_length=500, blank=True,
+        help_text="Ссылка или путь, который прислала станция. Файл в ПМ не хранится.",
+    )
     provider_message_id = models.CharField("Идентификатор отправления", max_length=64, blank=True)
     caller_id = models.CharField("Исходящий номер", max_length=30, blank=True)
     external_call = models.BooleanField(
@@ -717,11 +758,39 @@ class MeasureItem(AisRecord):
 
     class Meta:
         ordering = ["account_id", "id"]
+        indexes = [
+            models.Index(fields=["account", "delivered_on"], name="measure_item_delivered"),
+            models.Index(fields=["account", "status"], name="measure_item_status"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["measure", "account"], name="uniq_measure_item"),
         ]
         verbose_name = "Частное мероприятие"
         verbose_name_plural = "Частные мероприятия"
+
+
+class CallAttempt(TimeStampedModel):
+    """Одна попытка обзвона. Успешный дозвон закрывает только этот день, не всё мероприятие."""
+
+    class Status(models.TextChoices):
+        DONE = "done", "Выполнено"
+        NO_ANSWER = "no_answer", "Недозвон"
+        BUSY = "busy", "Занято"
+        BAD_NUMBER = "bad_number", "Неверный номер"
+        FAILED = "failed", "Ошибка"
+
+    item = models.ForeignKey(MeasureItem, on_delete=models.CASCADE, related_name="call_attempts", verbose_name="Строка")
+    attempted_at = models.DateTimeField("Дата и время")
+    duration_sec = models.PositiveIntegerField("Длительность, с", null=True, blank=True)
+    listen_percent = models.PositiveSmallIntegerField("Доля прослушивания, %", null=True, blank=True)
+    status = models.CharField("Статус", max_length=20, choices=Status.choices)
+    recording_ref = models.CharField("Запись", max_length=500, blank=True)
+    external_call = models.BooleanField("Внешний вызов выполнен", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-attempted_at", "-id"]
+        verbose_name = "Попытка обзвона"
+        verbose_name_plural = "Попытки обзвона"
 
 
 class MeasureEvent(TimeStampedModel):
@@ -760,6 +829,7 @@ class MeasureTask(AisRecord):
     title = models.CharField("Задание", max_length=250)
     due_on = models.DateField("Срок", null=True, blank=True)
     status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.OPEN)
+    completed_on = models.DateField("Дата окончания", null=True, blank=True)
 
     class Meta:
         ordering = ["due_on", "id"]
@@ -832,8 +902,19 @@ class ClaimCase(AisRecord):
         APPROVED = "approved", "Согласовано"
         REJECTED = "rejected", "Отказ согласующего"
 
-    account = models.OneToOneField(Account, on_delete=models.CASCADE, related_name="claim_case", verbose_name="ЛС")
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="claim_case", verbose_name="ЛС")
     stage = models.CharField("Этап", max_length=20, choices=Stage.choices, default=Stage.PREP, db_index=True)
+    debt_from = models.DateField("Период задолженности с", null=True, blank=True)
+    debt_to = models.DateField("Период задолженности по", null=True, blank=True)
+    non_delivery_act_on = models.DateField("Дата акта о невручении предупреждения", null=True, blank=True)
+    repayment_days = models.PositiveSmallIntegerField("Дней на погашение", default=7)
+    writ_principal = models.DecimalField(
+        "Долг по услугам за период", max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+    writ_penalty = models.DecimalField(
+        "Долг по пене за период", max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+    notary_office = models.CharField("Нотариальная контора", max_length=250, blank=True)
     warning_delivered_on = models.DateField("Дата вручения предупреждения", null=True, blank=True)
     notary_tariff = models.DecimalField("Нотариальный тариф", max_digits=12, decimal_places=2, null=True, blank=True)
     application_withdrawn = models.BooleanField("Заявление отозвано", default=False)
@@ -861,6 +942,12 @@ class ClaimCase(AisRecord):
         blank=True,
         help_text="Коды справочников 120, 201, 214, 217, 309 и выбранные файлы. Пустые коды не подставляются.",
     )
+    pris_inquiry = models.JSONField(
+        "Ход производства ПРИС",
+        default=dict,
+        blank=True,
+        help_text="Ответ 3.11.04 или 3.11.05. В заглушке не заполняется, чтобы не записать номер из примера.",
+    )
     tariff_received = models.BooleanField("Тариф поступил по выгрузке", default=False)
     ais_debt_cleared = models.BooleanField("Выгрузка показала погашение долга и пени", default=False)
     eviction_stage = models.CharField("Параллельная ветвь выселения", max_length=20, blank=True)
@@ -871,6 +958,10 @@ class ClaimCase(AisRecord):
     writeoff_note = models.CharField("Итог списания", max_length=500, blank=True)
 
     class Meta:
+        indexes = [
+            models.Index(fields=["account", "debt_from"], name="claim_account_period"),
+            models.Index(fields=["organization", "notary_office"], name="claim_org_office"),
+        ]
         verbose_name = "Дело взыскания"
         verbose_name_plural = "Дела взыскания"
 
@@ -966,6 +1057,27 @@ class ClaimApproval(AisRecord):
         verbose_name_plural = "Согласования списания"
 
 
+class PrisExchange(TimeStampedModel):
+    """Журнал обмена с АИС ПРИС по одному делу. Тела файлов в запрос не пишутся."""
+
+    case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="pris_exchanges", verbose_name="Дело")
+    actor = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", verbose_name="Кто",
+    )
+    operation = models.CharField("Операция", max_length=20)
+    mode = models.CharField("Канал", max_length=20, blank=True)
+    path = models.CharField("Путь шлюза", max_length=120)
+    process_status = models.CharField("Код обработки", max_length=10, blank=True)
+    request = models.JSONField("Запрос", default=dict, blank=True)
+    response = models.JSONField("Ответ", default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [models.Index(fields=["case", "id"], name="debts_pris_case_id_idx")]
+        verbose_name = "Обмен с ПРИС"
+        verbose_name_plural = "Обмен с ПРИС"
+
+
 class ClaimEvent(TimeStampedModel):
     """Переход дела: кто, когда, откуда, куда, почему."""
 
@@ -991,6 +1103,10 @@ class AccountScenarioRun(AisRecord):
         "nsi.ScenarioDefinition", on_delete=models.PROTECT, related_name="runs", verbose_name="Сценарий",
     )
     version = models.PositiveIntegerField("Версия")
+    assigned_on = models.DateField("Дата назначения", null=True, blank=True)
+    finished_on = models.DateField("Дата окончания", null=True, blank=True)
+    finish_reason = models.CharField("Основание окончания", max_length=250, blank=True)
+    awaiting_start = models.BooleanField("Ждёт кнопку запуска", default=False)
     paused = models.BooleanField("Приостановлен", default=False)
     pause_reason = models.CharField("Причина приостановки", max_length=500, blank=True)
     last_skip = models.CharField("Почему шаг не стартовал", max_length=300, blank=True)
@@ -999,6 +1115,42 @@ class AccountScenarioRun(AisRecord):
     class Meta:
         verbose_name = "Запуск сценария"
         verbose_name_plural = "Запуски сценариев"
+
+
+class ScenarioAssignment(AisRecord):
+    """Назначение сценария на лицевой счёт. Замена закрывает предыдущую строку, не затирает даты."""
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="scenario_assignments", verbose_name="ЛС")
+    scenario = models.ForeignKey(
+        "nsi.ScenarioDefinition", on_delete=models.PROTECT, related_name="assignments", verbose_name="Сценарий",
+    )
+    version = models.PositiveIntegerField("Версия")
+    assigned_on = models.DateField("Дата назначения")
+    finished_on = models.DateField("Дата окончания", null=True, blank=True)
+    finish_reason = models.CharField("Основание окончания", max_length=250, blank=True)
+
+    class Meta:
+        ordering = ["-assigned_on", "-id"]
+        verbose_name = "Назначение сценария"
+        verbose_name_plural = "Назначения сценариев"
+
+
+class CalendarNote(TimeStampedModel):
+    """Личная заметка специалиста. Видна специалистам той же схемы."""
+
+    organization = models.ForeignKey(
+        "users.Organization", on_delete=models.CASCADE, related_name="calendar_notes", verbose_name="Схема",
+    )
+    author = models.ForeignKey(
+        "users.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="calendar_notes", verbose_name="Автор",
+    )
+    day = models.DateField("Дата")
+    text = models.CharField("Текст", max_length=500)
+
+    class Meta:
+        ordering = ["day", "id"]
+        verbose_name = "Заметка календаря"
+        verbose_name_plural = "Заметки календаря"
 
 
 class ScenarioPause(TimeStampedModel):
@@ -1037,16 +1189,50 @@ class RefreshRequest(AisRecord):
 
 
 class RegistryPreference(TimeStampedModel):
-    """Какие колонки реестра включены и в каком порядке, включая скрытые."""
+    """Колонки и ширина грида этой учётной записи. Чужому пользователю не отдаются."""
 
     user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="registry_preferences")
-    target = models.CharField("Реестр", max_length=20)
+    target = models.CharField("Реестр", max_length=40)
     columns = models.JSONField("Колонки", default=list)
+    widths = models.JSONField("Ширина столбцов", default=dict, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["user", "target"], name="uniq_registry_preference"),
         ]
+
+
+class StageActivity(OrganizationScopedModel):
+    """Пункт чек-листа этапа на карточке лицевого счёта. Создаётся из шаблона этапа."""
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "В работе"
+        DONE = "done", "Завершено"
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="stage_activities", verbose_name="ЛС")
+    stage = models.CharField("Этап", max_length=20)
+    code = models.CharField("Код пункта", max_length=40)
+    parent_code = models.CharField("Код группы", max_length=40, blank=True)
+    title = models.CharField("Название", max_length=200)
+    kind = models.CharField("Вид шага", max_length=20)
+    status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.RUNNING)
+    measure = models.ForeignKey(
+        Measure, null=True, blank=True, on_delete=models.SET_NULL, related_name="stage_activities",
+        verbose_name="Мероприятие",
+    )
+    sort = models.PositiveSmallIntegerField("Порядок", default=0)
+    note = models.CharField("Результат шага", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["sort", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["account", "stage", "code"], name="uniq_stage_activity"),
+        ]
+        verbose_name = "Активность этапа"
+        verbose_name_plural = "Активности этапа"
+
+    def __str__(self) -> str:
+        return f"{self.account_id}:{self.stage}:{self.code}"
 
 
 class SavedFilter(TimeStampedModel):

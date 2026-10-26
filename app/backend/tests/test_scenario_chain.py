@@ -33,23 +33,19 @@ def test_chain_starts_with_a_call_for_any_group(org_a):
     ensure_imported_run(young)
     ensure_imported_run(senior)
     for account in (young, senior):
-        row = Measure.objects.get(accounts=account)
-        assert row.kind == Measure.Kind.CALL
+        row = Measure.objects.get(accounts=account, kind=Measure.Kind.CALL)
         assert row.template_name == "Автообзвон"
+        assert Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE).exists()
 
 
 @pytest.mark.django_db
 def test_org_wait_holds_the_next_step(org_a):
     account = _owing(org_a, 9103, 1)
-    ensure_imported_run(account)
-    call = Measure.objects.get(accounts=account)
-    call.status = Measure.Status.DONE
-    call.save(update_fields=["status", "updated_at"])
-    call.items.update(status="done")
     org_a.step_waits = {"email": 10}
     org_a.save(update_fields=["step_waits"])
-    advance_account(account)
-    assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE).exists()
+    ensure_imported_run(account)
+    assert Measure.objects.filter(accounts=account, kind=Measure.Kind.CALL).exists()
+    assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE, channel="email").exists()
 
 
 @pytest.mark.django_db
@@ -124,6 +120,15 @@ def test_specialist_adds_a_task_and_a_checklist(api, admin_a, specialist_a, acco
         format="json",
     )
     assert marked.json()["tasks"][0]["checks"][0]["done"] is True
+    board = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/scenario/")
+    assert board.status_code == 200, board.content
+    body = board.json()
+    rows = [row for step in body["steps"] for row in step["measures"]] + body["manual"]
+    same = next(row for row in rows if row["id"] == measure_id)
+    assert same["tasks"][0]["title"] == "Позвонить повторно"
+    assert same["tasks"][0]["due_on"] == "2026-10-20"
+    assert same["tasks"][0]["status_label"] == "Открыто"
+    assert same["tasks"][0]["checks"][0]["done"] is True
 
 
 @pytest.mark.django_db
@@ -143,7 +148,7 @@ def test_funnel_skip_needs_an_approver(api, specialist_a, account_a):
     )
     assert moved.status_code == 200, moved.content
     account_a.refresh_from_db()
-    assert account_a.funnel_stage == "warning"
+    assert account_a.funnel_stage == "notice"
 
 
 @pytest.mark.django_db

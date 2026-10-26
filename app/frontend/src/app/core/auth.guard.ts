@@ -25,6 +25,14 @@ export const settingsAdminGuard: CanActivateFn = () => {
   return auth.canManageTemplates() || router.createUrlTree(['/settings/rules']);
 };
 
+export const contractsGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  return auth.ensureLoaded().pipe(
+    map((ok) => (ok && auth.canOpenContracts()) || router.createUrlTree(['/accounts'])),
+  );
+};
+
 export const importGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);

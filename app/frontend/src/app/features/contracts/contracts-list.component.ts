@@ -10,12 +10,18 @@ import { MatTableModule } from '@angular/material/table';
 import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
-import { hideColumn, resolveColumnOrder, showColumn } from '../column-layout';
+import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate } from '../../core/api.service';
+import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
+import { ColumnDragDirective } from '../column-drag.directive';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { DomainFilterComponent, DomainRule, contractDomainFields, parseDomain } from '../domain-filter.component';
+import { GridResizeDirective } from '../grid-resize.directive';
+import { FUNNEL_STAGES, funnelId, funnelTitle } from '../funnel-stages';
+import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -29,6 +35,7 @@ import {
   MessageTemplate,
   SavedFilter,
   ServiceChoice,
+  categoryGroups,
 } from '../../core/models';
 
 type CustomField = 'group' | 'category' | 'stage' | 'billing' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
@@ -53,7 +60,7 @@ const PERSON_FIELDS = [
   'principal', 'penalty', 'obligation', 'effective_group', 'assigned_name', 'ownership_type_name',
   'housing_object', 'months_debt', 'subj_count', 'registered_count', 'services_debt_count', 'earliest',
   'contract_number', 'contract_date', 'service_provider', 'initial_principal', 'initial_penalty',
-  'period_balances', 'repayment_due_on', 'last_payment_date', 'category',
+  'repayment_due_on', 'last_payment_date', 'category',
 ];
 
 const COLUMN_LABELS: Record<string, string> = {
@@ -82,17 +89,20 @@ const COLUMN_LABELS: Record<string, string> = {
   category: 'Категория должника',
   account_number: 'Номер ЛС',
   service_name: 'Наименование услуги',
-  service_list_id: 'Номер договора',
+  service_list_id: 'ID договора',
+  agreement_number: 'Номер договора',
+  address: 'Адрес',
+  idn_unp: 'ИДНУНП',
   start_date: 'Дата договора',
   shot_name: 'Поставщик услуги',
   billing_provider: 'Обслуживающая организация',
   schema_label: 'Наименование схемы',
-  balance_out: 'Остаток задолженности',
-  balance_mulct_out: 'Остаток пени',
+  balance_out: 'Сумма основного долга',
+  balance_mulct_out: 'Сумма пени',
   obligation_total: 'Суммарный долг по услуге',
-  initial_principal: 'Первоначальная сумма задолженности',
+  initial_principal: 'Первоначальная сумма основного долга',
   initial_penalty: 'Первоначальная сумма пени',
-  debt_started_on: 'Наиболее ранний период возникновения долга',
+  debt_started_on: 'Дата возникновения долга',
   repayment_due_on: 'Срок погашения по договору',
   last_payment_date: 'Дата последней оплаты',
   scenario_brief: 'Сценарий',
@@ -102,14 +112,16 @@ const COLUMN_LABELS: Record<string, string> = {
 
 @Component({
   selector: 'app-contracts-list',
+  host: { '[class.board]': 'view() === "kanban"' },
   standalone: true,
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatButtonModule, CalendarBoardComponent, AnalyticsComponent, RegistryViewsComponent, RouterLink,
-    DomainFilterComponent,
+    DomainFilterComponent, KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, ColumnDragDirective,
+    FunnelGateDialogComponent,
   ],
   template: `
-    <div class="registry">
+    <div class="registry" [class.board]="view() === 'kanban'">
       <div class="control">
         <span class="crumb">Реестр договоров</span>
         <div class="search-wrap" (click)="$event.stopPropagation()">
@@ -171,8 +183,11 @@ const COLUMN_LABELS: Record<string, string> = {
                   }
                 </div>
                 <div class="sub">Категория</div>
-                @for (item of categories(); track item.id) {
-                  <button type="button" class="menu-item" [class.on]="category.value === '' + item.id" (click)="setCategory(item.id)">{{ item.name }}</button>
+                @for (group of categoryGroups(categories()); track group.section) {
+                  @if (group.section) { <div class="sub">{{ group.section }}</div> }
+                  @for (item of group.items; track item.id) {
+                    <button type="button" class="menu-item" [class.on]="category.value === '' + item.id" (click)="setCategory(item.id)">{{ item.name }}</button>
+                  }
                 }
                 <div class="sub">Этап</div>
                 @for (item of stages; track item.id) {
@@ -253,8 +268,9 @@ const COLUMN_LABELS: Record<string, string> = {
         }
         <div class="views">
           @if (view() === 'suppliers' || view() === 'persons' || view() === 'services' || view() === 'grouped') {
-            <button type="button" class="view-btn wide" [class.on]="view() === 'suppliers'" (click)="showSuppliers()">Поставщики</button>
-            <button type="button" class="view-btn wide" [class.on]="view() === 'persons'" (click)="showPersons()">Лица</button>
+            @if (canSeeSuppliers()) {
+              <button type="button" class="view-btn wide" [class.on]="view() === 'suppliers'" (click)="showSuppliers()">Поставщики</button>
+            }
             <button type="button" class="view-btn wide" [class.on]="view() === 'services'" (click)="showServices()">Услуги</button>
           }
           <app-registry-views [mode]="registryMode()" (modeChange)="showRegistry($event)" />
@@ -273,20 +289,20 @@ const COLUMN_LABELS: Record<string, string> = {
               По видимым услугам поставщиков: лицевых счетов с задолженностью <b>{{ s.ls_count }}</b>,
               сумма основного долга <app-money [value]="s.principal" [blank]="false" />,
               сумма пени <app-money [value]="s.penalty" [blank]="false" />.
-              Мероприятия: {{ actionLine(s.measures) }}.
+              Мероприятия: {{ actionLine(s.measures, 'ЛС') }}.
               Претензионно-исковые действия: {{ actionLine(s.claims) }}.
             </p>
           }
         }
         @if (view() === 'suppliers') {
-          <div class="list-pane">
-          <table mat-table [dataSource]="summary()?.suppliers ?? []">
+          <div class="list-pane fill">
+          <table mat-table appGridResize="contracts-suppliers" [dataSource]="summary()?.suppliers ?? []">
             <ng-container matColumnDef="name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ r.name }}</td></ng-container>
             <ng-container matColumnDef="ls_count"><th mat-header-cell *matHeaderCellDef>Количество ЛС с задолженностью</th><td mat-cell *matCellDef="let r">{{ r.ls_count }}</td></ng-container>
             <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Сумма основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="penalty"><th mat-header-cell *matHeaderCellDef>Сумма пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.penalty" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="obligation"><th mat-header-cell *matHeaderCellDef>Сумма задолженности <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="obligation(r.principal, r.penalty)" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="measures"><th mat-header-cell *matHeaderCellDef>Мероприятия</th><td mat-cell *matCellDef="let r" class="actions">{{ actionLine(r.measures) }}</td></ng-container>
+            <ng-container matColumnDef="measures"><th mat-header-cell *matHeaderCellDef>Мероприятия</th><td mat-cell *matCellDef="let r" class="actions">{{ actionLine(r.measures, 'ЛС') }}</td></ng-container>
             <ng-container matColumnDef="claims"><th mat-header-cell *matHeaderCellDef>Претензионно-исковые действия</th><td mat-cell *matCellDef="let r" class="actions">{{ actionLine(r.claims) }}</td></ng-container>
             <tr mat-header-row *matHeaderRowDef="supplierColumns"></tr>
             <tr mat-row *matRowDef="let row; columns: supplierColumns" class="clickable-row" (click)="openSupplier(row)"></tr>
@@ -300,8 +316,8 @@ const COLUMN_LABELS: Record<string, string> = {
         }
         @if (error()) { <p class="status-failed">{{ error() }}</p> }
         @if (view() === 'persons') {
-          <div class="list-pane">
-          <table mat-table [dataSource]="persons()">
+          <div class="list-pane fill">
+          <table mat-table appGridResize="contracts-persons" [dataSource]="persons()">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef></th>
               <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
@@ -342,8 +358,8 @@ const COLUMN_LABELS: Record<string, string> = {
           <mat-paginator [length]="total()" [pageSize]="50" (page)="pageChanged($event)" />
         }
         @if (view() === 'services') {
-          <div class="list-pane">
-          <table mat-table [dataSource]="rows()">
+          <div class="list-pane fill">
+          <table mat-table appGridResize="contracts-services" appColumnDrag (columnMove)="moveServiceColumn($event)" [dataSource]="rows()">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef></th>
               <td mat-cell *matCellDef="let r" (click)="$event.stopPropagation()">
@@ -354,22 +370,25 @@ const COLUMN_LABELS: Record<string, string> = {
             <ng-container matColumnDef="payer_identifier"><th mat-header-cell *matHeaderCellDef>Идентификационный номер (ИН)</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier }}</td></ng-container>
             <ng-container matColumnDef="payer_unp"><th mat-header-cell *matHeaderCellDef>Учётный номер плательщика (УНП)</th><td mat-cell *matCellDef="let r">{{ r.payer_unp }}</td></ng-container>
             <ng-container matColumnDef="account_number"><th mat-header-cell *matHeaderCellDef>Номер ЛС</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/accounts', r.account]" (click)="$event.stopPropagation()">{{ r.account_number }}</a></td></ng-container>
+            <ng-container matColumnDef="address"><th mat-header-cell *matHeaderCellDef>Адрес</th><td mat-cell *matCellDef="let r">{{ r.address }}</td></ng-container>
             <ng-container matColumnDef="rating_label"><th mat-header-cell *matHeaderCellDef>Рейтинг должника</th><td mat-cell *matCellDef="let r">@if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> }</td></ng-container>
             <ng-container matColumnDef="funnel_stage"><th mat-header-cell *matHeaderCellDef>Этап воронки взыскания</th><td mat-cell *matCellDef="let r">{{ stageLabel(r.funnel_stage) }}</td></ng-container>
             <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ short(r.service_name) }}</td></ng-container>
-            <ng-container matColumnDef="service_list_id"><th mat-header-cell *matHeaderCellDef>Номер договора</th><td mat-cell *matCellDef="let r">{{ r.service_list_id }}</td></ng-container>
+            <ng-container matColumnDef="service_list_id"><th mat-header-cell *matHeaderCellDef>ID договора</th><td mat-cell *matCellDef="let r"><a [routerLink]="['/contracts', r.id]" (click)="$event.stopPropagation()">{{ r.service_list_id }}</a></td></ng-container>
+            <ng-container matColumnDef="agreement_number"><th mat-header-cell *matHeaderCellDef>Номер договора</th><td mat-cell *matCellDef="let r">{{ r.agreement_number || '—' }}</td></ng-container>
+            <ng-container matColumnDef="idn_unp"><th mat-header-cell *matHeaderCellDef>ИДНУНП</th><td mat-cell *matCellDef="let r">{{ r.payer_identifier || r.payer_unp || '—' }}</td></ng-container>
             <ng-container matColumnDef="start_date"><th mat-header-cell *matHeaderCellDef>Дата договора</th><td mat-cell *matCellDef="let r">{{ r.start_date }}</td></ng-container>
             <ng-container matColumnDef="shot_name"><th mat-header-cell *matHeaderCellDef>Поставщик услуги</th><td mat-cell *matCellDef="let r">{{ short(r.shot_name) }}</td></ng-container>
             <ng-container matColumnDef="billing_provider"><th mat-header-cell *matHeaderCellDef>Обслуживающая организация</th><td mat-cell *matCellDef="let r">{{ r.billing_provider }}</td></ng-container>
             <ng-container matColumnDef="schema_label"><th mat-header-cell *matHeaderCellDef>Наименование схемы</th><td mat-cell *matCellDef="let r">{{ r.schema_label }}</td></ng-container>
-            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Остаток задолженности <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Остаток пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="balance_out"><th mat-header-cell *matHeaderCellDef>Сумма основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_out" [blank]="false" /></td></ng-container>
+            <ng-container matColumnDef="balance_mulct_out"><th mat-header-cell *matHeaderCellDef>Сумма пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.balance_mulct_out" [blank]="false" /></td></ng-container>
             <ng-container matColumnDef="obligation_total"><th mat-header-cell *matHeaderCellDef>Суммарный долг по услуге <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.obligation_total" [blank]="false" /></td></ng-container>
-            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма задолженности <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_principal" /></td></ng-container>
+            <ng-container matColumnDef="initial_principal"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_principal" /></td></ng-container>
             <ng-container matColumnDef="initial_penalty"><th mat-header-cell *matHeaderCellDef>Первоначальная сумма пени <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.initial_penalty" /></td></ng-container>
             <ng-container matColumnDef="period_balances"><th mat-header-cell *matHeaderCellDef>Остатки задолженности и пени по периодам</th><td mat-cell *matCellDef="let r">{{ periodText(r) }}</td></ng-container>
-            <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Наиболее ранний период возникновения долга</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
-            <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef>Срок погашения по договору</th><td mat-cell *matCellDef="let r">{{ r.repayment_due_on }}</td></ng-container>
+            <ng-container matColumnDef="debt_started_on"><th mat-header-cell *matHeaderCellDef>Дата возникновения долга</th><td mat-cell *matCellDef="let r">{{ r.debt_started_on }}</td></ng-container>
+            <ng-container matColumnDef="repayment_due_on"><th mat-header-cell *matHeaderCellDef title="Оплата за предыдущий месяц вносится до этого числа. К году и месяцу срок не привязан">Срок погашения по договору</th><td mat-cell *matCellDef="let r" title="Оплата за предыдущий месяц вносится до этого числа. К году и месяцу срок не привязан">{{ r.payment_due_day || '—' }}</td></ng-container>
             <ng-container matColumnDef="last_payment_date"><th mat-header-cell *matHeaderCellDef>Дата последней оплаты</th><td mat-cell *matCellDef="let r">{{ r.last_payment_date }}</td></ng-container>
             <ng-container matColumnDef="effective_group"><th mat-header-cell *matHeaderCellDef>Группа задолженности</th><td mat-cell *matCellDef="let r">{{ r.effective_group }}</td></ng-container>
             <ng-container matColumnDef="scenario_brief"><th mat-header-cell *matHeaderCellDef>Сценарий</th><td mat-cell *matCellDef="let r" class="one-line">{{ short(r.scenario_brief) }}</td></ng-container>
@@ -389,65 +408,39 @@ const COLUMN_LABELS: Record<string, string> = {
         @if (view() === 'kanban') {
           <div class="k-board">
             @for (column of kanban(); track column.stage) {
-              <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
-                       (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
-                <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
-                <div class="list-pane cards">
+              <section class="k-col" [attr.data-kanban-stage]="column.stage" [attr.data-stage]="column.stage">
+                <h3><span [attr.title]="column.title">{{ column.title }}</span><b>{{ column.total }}</b></h3>
+                <div class="k-cards">
                 @for (card of column.cards; track card.sample_id) {
                   <article class="k-card g{{ card.debt_group ?? 0 }}" [class.picked]="isSelected(card.sample_id)"
-                           [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                    <div class="card-head">
-                      <div class="name">{{ card.payer || 'Без наименования' }}</div>
-                      @if (card.rating_label || card.debt_group) {
-                        <div class="card-marks">
-                          @if (card.rating_label) {
-                            <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                          }
-                          @if (card.debt_group) {
-                            <span class="group-badge g{{ card.debt_group }}" tabindex="0" title="Группа задолженности {{ card.debt_group }}">{{ card.debt_group }}</span>
-                          }
-                        </div>
-                      }
-                    </div>
-                    <div class="line">
-                      <span tabindex="0" title="Идентификатор">{{ personId(card) }}</span>
-                      · <span tabindex="0" title="Лицевые счета">{{ card.ls_count }}</span>
-                      · <span tabindex="0" title="Услуги с задолженностью">{{ card.services_debt_count ?? card.service_count || 0 }}</span>
-                    </div>
-                    @if (card.service_name) {
-                      <div class="line" tabindex="0" title="Услуга">{{ short(card.service_name) }}</div>
-                    }
-                    @if (card.address) {
-                      <div class="line" tabindex="0" title="Адрес">{{ street(card.address) }}</div>
-                    }
-                    @if (card.category) {
-                      <div class="line" tabindex="0" title="Категория">{{ card.category }}</div>
-                    }
-                    @if (card.ownership_type_name || card.housing_object) {
-                      <div class="line">
-                        @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
-                        @if (card.ownership_type_name && card.housing_object) { · }
-                        @if (card.housing_object) { <span tabindex="0" title="Тип объекта жилфонда">{{ short(card.housing_object) }}</span> }
+                           [appKanbanDrag]="card.sample_id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                           (click)="openCard($event, card)">
+                    <app-kanban-debtor
+                      [name]="card.account_number || card.payer || 'Без номера'"
+                      [rating]="card.rating_label"
+                      [group]="card.debt_group"
+                      [account]="''"
+                      [address]="card.address || ''"
+                      scenarioTitle="Услуга"
+                      [scenario]="contractLine(card)"
+                      [ownership]="''"
+                      [housing]="''"
+                      [months]="card.months_debt"
+                      [monthsOnly]="true"
+                      [residents]="null"
+                      [registered]="card.registered_count"
+                      [total]="card.obligation"
+                      [principal]="card.principal"
+                      [penalty]="card.penalty"
+                      [when]="cardMark(card)"
+                      [specialist]="card.assigned_name" />
+                    @if (card.open_badges?.length) {
+                      <div class="measure-badges">
+                        @for (badge of card.open_badges; track badge.measure_id) {
+                          <button type="button" class="measure-badge" (click)="openBadge($event, badge)">{{ badge.label }}</button>
+                        }
                       </div>
                     }
-                    <div class="line">
-                      <span tabindex="0" title="Кол-во месяцев долга">{{ card.months_debt ?? '—' }}</span>
-                      · <span tabindex="0" title="Проживающих">{{ card.subj_count ?? '—' }}</span>
-                      · <span tabindex="0" title="Зарегистрированных">{{ card.registered_count ?? '—' }}</span>
-                    </div>
-                    <div class="money">
-                      <span tabindex="0" title="Сумма задолженности"><app-money [value]="card.obligation" [blank]="false" [sign]="false" /></span>
-                      <small>
-                        <span tabindex="0" title="Сумма основного долга"><app-money [value]="card.principal" [blank]="false" [sign]="false" /></span>
-                        · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="card.penalty" [blank]="false" [sign]="false" /></span>
-                      </small>
-                    </div>
-                    <div class="foot">
-                      <span class="when">{{ cardMark(card) }}</span>
-                      @if (initials(card.assigned_name); as who) {
-                        <span class="who" [style.background]="avatarColor(card.assigned_name)" tabindex="0" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
-                      }
-                    </div>
                   </article>
                 }
                 </div>
@@ -475,11 +468,11 @@ const COLUMN_LABELS: Record<string, string> = {
             <p class="hint">По этому отбору договоров нет.</p>
           }
           @if (sections().length) {
-            <table class="grouped-board">
+            <table class="grouped-board" appGridResize="contracts-persons">
               <thead>
                 <tr>
                   @for (name of shownPersons(); track name) {
-                    <th>{{ name === 'select' ? '' : columnLabel(name) }}</th>
+                    <th [attr.data-col]="name">{{ name === 'select' ? '' : columnLabel(name) }}</th>
                   }
                 </tr>
               </thead>
@@ -549,30 +542,25 @@ const COLUMN_LABELS: Record<string, string> = {
           (cancel)="customOpen.set(false)" />
       }
 
-      @if (reasonOpen()) {
-        <div class="backdrop" (click)="reasonOpen.set(false)">
-          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
-            <h3>Смена этапа воронки взыскания</h3>
-            <p class="hint">Это переход карточки между этапами воронки взыскания. Мероприятие этой кнопкой не меняется. Без заполненного основания этап не меняется.</p>
-            <div class="save-row">
-              <select [formControl]="funnelStage" (click)="$event.stopPropagation()">
-                @for (item of stages; track item.id) { <option [value]="item.id">{{ item.label }}</option> }
-              </select>
-            </div>
-            <div class="save-row">
-              <input [formControl]="funnelReason" placeholder="Основание" (click)="$event.stopPropagation()" />
-            </div>
-            <div class="dialog-actions">
-              <button mat-flat-button color="primary" type="button" (click)="confirmMove()">Перевести</button>
-              <button mat-stroked-button type="button" (click)="reasonOpen.set(false)">Отмена</button>
-            </div>
-          </div>
-        </div>
-      }
+      <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
+
     </div>
   `,
   styles: `
     :host { display: block; }
+    :host.board {
+      display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+    }
+    .registry.board { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box; }
+    .registry.board > :not(.body) { flex: 0 0 auto; }
+    .registry.board .body {
+      display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
+    }
+    .registry.board .k-board {
+      flex: 1; min-height: 0; min-width: 0;
+      overflow-x: auto; overflow-y: hidden; align-items: stretch;
+    }
+    .registry.board .k-cards { padding-top: 8px; }
     .one-line { white-space: nowrap; }
     .control {
       display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px;
@@ -595,11 +583,12 @@ const COLUMN_LABELS: Record<string, string> = {
     .chevron { border: 0; background: transparent; color: var(--erip-muted); cursor: pointer; font-size: 12px; padding: 4px; }
     .search-panel {
       position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
-      display: grid; grid-template-columns: 1.2fr .9fr .9fr; width: min(860px, 100%);
+      display: grid; grid-template-columns: 1.2fr .9fr .9fr; width: min(960px, calc(100vw - 300px));
+      overflow: auto; overflow-wrap: anywhere;
       background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
       box-shadow: 0 8px 24px rgba(16, 42, 67, .16); max-height: 70vh;
     }
-    .col { padding: 8px 0 12px; min-width: 0; overflow: auto; }
+    .col { padding: 8px 0 12px; min-width: 0; overflow: auto; max-height: 60vh; overflow-wrap: anywhere; }
     .col + .col { border-left: 1px solid var(--erip-border); }
     .col-title {
       padding: 6px 16px 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
@@ -615,7 +604,7 @@ const COLUMN_LABELS: Record<string, string> = {
     .pill.on, .menu-item.on { background: var(--erip-primary-soft); color: var(--erip-primary); font-weight: 600; border-color: transparent; }
     .menu-item, .menu-add {
       display: block; width: 100%; text-align: left; border: 0; background: transparent;
-      padding: 6px 16px; font-size: 13px; color: #1f2933;
+      padding: 6px 16px; font-size: 13px; color: #1f2933; white-space: normal;
     }
     .menu-item:hover, .menu-add:hover, .pill:hover { background: #f3f6f8; }
     .menu-add { color: var(--erip-link); }
@@ -647,25 +636,54 @@ const COLUMN_LABELS: Record<string, string> = {
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .actions { white-space: normal; max-width: 280px; }
     .body { padding: 16px 24px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; }
-    .k-col h3 {
-      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
-      font-size: 13px; font-weight: 600; color: #243140;
+    .k-board {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      min-height: 0;
     }
-    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col {
+      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      display: flex; flex-direction: column;
+    }
+    .k-cards {
+      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+    }
+    .k-card.kanban-source { opacity: .35; }
+    .measure-badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+    .measure-badge {
+      border: 0; background: #e7f2f4; color: var(--erip-primary); border-radius: 10px;
+      font: inherit; font-size: 11px; line-height: 1.3; padding: 2px 8px; cursor: pointer; text-align: left;
+    }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
+      border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
+      color: #243140; background: var(--erip-bg);
+    }
+    .k-col h3 span {
+      flex: 1 1 auto; min-width: 0; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
-    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
-    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="call"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="notice"] h3 { border-bottom-color: #0f766e; }
     .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
-    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
-    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
-    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-col[data-stage="prep"] h3 { border-bottom-color: #7c3aed; }
+    .k-col[data-stage="notary"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="writ_done"] h3 { border-bottom-color: #b45309; }
+    .k-col[data-stage="refused"] h3 { border-bottom-color: #9f1239; }
+    .k-col[data-stage="lawsuit"] h3 { border-bottom-color: #1d4ed8; }
+    .k-col[data-stage="judgment"] h3 { border-bottom-color: #1e3a8a; }
+    .k-col[data-stage="opi"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="opi_measures"] h3 { border-bottom-color: #7f1d1d; }
+    .k-col[data-stage="recovered"] h3 { border-bottom-color: #15803d; }
+    .k-col[data-stage="impossible"] h3 { border-bottom-color: #6b7280; }
+    .k-col[data-stage="writeoff"] h3 { border-bottom-color: #9ca3af; }
     .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1; border-radius: 8px;
-      padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
+      padding: 10px 12px 4px; margin-bottom: 8px; cursor: pointer; box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card[draggable="true"] { cursor: grab; }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
@@ -727,16 +745,8 @@ export class ContractsListComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   protected readonly auth = inject(AuthService);
-  protected readonly groupNumbers = [1, 2, 3, 4, 5, 6];
-  protected readonly stages = [
-    { id: 'new', label: 'Новый должник' },
-    { id: 'prevention', label: 'Автообзвон/уведомления' },
-    { id: 'warning', label: 'Предупреждение вручено' },
-    { id: 'disconnect', label: 'Отключение услуг' },
-    { id: 'enforcement', label: 'Исполнительная надпись / иск' },
-    { id: 'court', label: 'ОПИ' },
-    { id: 'closed', label: 'Не должник' },
-  ];
+  protected readonly groupNumbers = [0, 1, 2, 3, 4, 5, 6];
+  protected readonly stages = FUNNEL_STAGES.map((stage) => ({ id: stage.id, label: stage.title }));
   protected readonly groupOptions = [
     { id: 'debt_group', label: 'Группа задолженности' },
     { id: 'schema', label: 'Наименование схемы' },
@@ -762,7 +772,7 @@ export class ContractsListComponent implements OnInit {
   protected readonly sectionsLoading = signal(false);
   private groupTicket = 0;
   protected readonly supplierColumns = ['name', 'ls_count', 'principal', 'penalty', 'obligation', 'measures', 'claims'];
-  protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('suppliers');
+  protected readonly view = signal<'suppliers' | 'persons' | 'services' | 'kanban' | 'calendar' | 'charts' | 'grouped'>('kanban');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
   protected readonly contractFields = contractDomainFields();
@@ -774,10 +784,12 @@ export class ContractsListComponent implements OnInit {
   protected readonly summary = signal<ContractSummary | null>(null);
   protected readonly dial = signal<{ dial_mobile_from_day: number; dial_mobile_from_hour: number | null; dial_mobile_to_hour: number | null } | null>(null);
   protected readonly categories = signal<DebtorCategory[]>([]);
+  protected readonly categoryGroups = categoryGroups;
   protected readonly saved = signal<SavedFilter[]>([]);
   protected readonly specialists = signal<{ name: string }[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
+  protected readonly gate = signal<FunnelGateInfo | null>(null);
   protected readonly stageMenu = signal<number | null>(null);
   protected readonly dropStage = signal<string | null>(null);
   protected readonly selected = signal<Set<number>>(new Set());
@@ -842,7 +854,7 @@ export class ContractsListComponent implements OnInit {
     this.periodTo.valueChanges.subscribe(() => this.reload());
     this.groupBy.valueChanges.subscribe((value) => {
       if (value) this.showGrouped();
-      else if (this.view() === 'grouped') this.showSuppliers();
+      else if (this.view() === 'grouped') this.openList();
     });
     this.customField.valueChanges.subscribe(() => this.customValue.setValue(''));
     this.api.categories().subscribe((page) => this.categories.set(page.results));
@@ -856,16 +868,16 @@ export class ContractsListComponent implements OnInit {
 
   private serviceColumns(): string[] {
     const columns = [
-      'select', 'payer', 'payer_identifier', 'payer_unp', 'account_number', 'rating_label', 'funnel_stage',
-      'service_name', 'service_list_id', 'start_date',
+      'select', 'account_number', 'address', 'service_list_id', 'start_date', 'agreement_number',
+      'service_name', 'effective_group', 'rating_label', 'funnel_stage', 'scenario_brief',
+      'debt_started_on', 'balance_out', 'balance_mulct_out', 'obligation_total',
+      'initial_principal', 'initial_penalty', 'repayment_due_on', 'last_payment_date', 'payer', 'idn_unp',
     ];
-    if (this.auth.showSupplier()) columns.push('shot_name');
     if (this.auth.showServiceOrg()) columns.push('billing_provider');
-    if (this.auth.showSchema()) columns.push('schema_label');
+    if (this.auth.showSupplier()) columns.push('shot_name');
     columns.push(
-      'balance_out', 'balance_mulct_out', 'obligation_total', 'initial_principal', 'initial_penalty',
-      'period_balances', 'debt_started_on', 'repayment_due_on', 'last_payment_date', 'effective_group', 'scenario_brief',
-      'assigned_name', 'ownership_type_name', 'housing_object', 'debt_period', 'subj_count', 'registered_count', 'category_name',
+      'category_name', 'assigned_name', 'ownership_type_name', 'housing_object', 'debt_period',
+      'subj_count', 'registered_count',
     );
     return columns;
   }
@@ -904,6 +916,17 @@ export class ContractsListComponent implements OnInit {
     event.stopPropagation();
     this.panelOpen.set(false);
     this.columnsOpen.update((open) => !open);
+  }
+
+  protected moveServiceColumn(shift: { from: string; to: string }): void {
+    const current = { order: this.serviceOrder(), visible: this.serviceShown() };
+    const next = moveColumn(current, shift.from, shift.to);
+    if (next.visible === current.visible && next.order === current.order) return;
+    this.serviceOrder.set(next.order);
+    this.serviceShown.set(next.visible);
+    this.api.saveContractColumns('services', next.visible, next.order).subscribe({
+      error: (e) => this.error.set(errorMessage(e)),
+    });
   }
 
   protected toggleColumn(name: string): void {
@@ -951,7 +974,7 @@ export class ContractsListComponent implements OnInit {
   }
 
   stageLabel(id: string): string {
-    return this.stages.find((item) => item.id === id)?.label ?? id;
+    return funnelTitle(id);
   }
 
   categoryLabel(id: string): string {
@@ -1147,14 +1170,42 @@ export class ContractsListComponent implements OnInit {
     return [...ids];
   }
 
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const sample = Number(event.id);
+    if (!sample || !this.canMove()) return;
+    const card = this.kanban().flatMap((column) => column.cards).find((item) => item.sample_id === sample);
+    if (card && funnelId(card.funnel_stage) === event.stage) return;
+    const samples = this.selected().has(sample) ? [...this.selected()] : [sample];
+    const ids = this.accountIds(samples);
+    this.moveAccounts(ids.length ? ids : (card?.account_ids || []), event.stage);
+  }
+
+  protected openBadge(event: Event, badge: { account_id: number; measure_id: number }): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.router.navigate(['/accounts', badge.account_id], { queryParams: { tab: 'activities', measure: badge.measure_id } });
+  }
+
   private moveAccounts(ids: number[], stage: string): void {
     this.stageMenu.set(null);
     if (!ids.length) return;
-    this.pendingIds = ids;
-    this.pendingStage = stage;
-    this.funnelStage.setValue(stage || 'new');
-    this.funnelReason.setValue('');
-    this.reasonOpen.set(true);
+    this.api.contractStage(ids, stage, '').subscribe({
+      next: () => {
+        this.selected.set(new Set());
+        this.showKanban();
+      },
+      error: (e) => {
+        const blocked = funnelGate(e);
+        if (blocked) {
+          this.error.set('');
+          this.gate.set(blocked);
+          this.showKanban();
+          return;
+        }
+        this.error.set(errorMessage(e));
+        this.showKanban();
+      },
+    });
   }
 
   protected openStage(event: Event, card: ContractPerson): void {
@@ -1178,8 +1229,24 @@ export class ContractsListComponent implements OnInit {
         this.pendingIds = [];
         this.showKanban();
       },
-      error: (e) => this.error.set(errorMessage(e)),
+      error: (e) => {
+        const blocked = funnelGate(e);
+        if (blocked) {
+          this.error.set('');
+          this.gate.set(blocked);
+          return;
+        }
+        this.error.set(errorMessage(e));
+      },
     });
+  }
+
+  protected openGate(): void {
+    const blocked = this.gate();
+    this.gate.set(null);
+    const id = blocked?.accountId;
+    if (!id) return;
+    this.router.navigate(['/accounts', id], { queryParams: { tab: blocked.tab || 'activities' } });
   }
 
   protected togglePerson(row: ContractPerson): void {
@@ -1196,9 +1263,9 @@ export class ContractsListComponent implements OnInit {
     this.selected.set(next);
   }
 
-  protected actionLine(items: ContractAction[] | null | undefined): string {
+  protected actionLine(items: ContractAction[] | null | undefined, unit = ''): string {
     if (!items?.length) return 'нет';
-    return items.map((item) => `${item.label} ${item.total}`).join(', ');
+    return items.map((item) => unit ? `${item.label} по ${item.total} ${unit}` : `${item.label} ${item.total}`).join(', ');
   }
 
   protected providerLabel(): string {
@@ -1216,7 +1283,7 @@ export class ContractsListComponent implements OnInit {
   protected clearProvider(event: Event): void {
     event.stopPropagation();
     this.provider.setValue('');
-    this.showSuppliers();
+    this.openList();
   }
 
   protected obligation(principal: string | null, penalty: string | null): number {
@@ -1229,8 +1296,18 @@ export class ContractsListComponent implements OnInit {
     return current;
   }
 
+  protected canSeeSuppliers(): boolean {
+    const role = this.auth.me()?.role;
+    return role === 'superadmin' || role === 'local_admin';
+  }
+
+  private openList(): void {
+    if (this.canSeeSuppliers()) this.showSuppliers();
+    else this.showServices();
+  }
+
   showRegistry(mode: string): void {
-    if (mode === 'list') this.showSuppliers();
+    if (mode === 'list') this.openList();
     else if (mode === 'kanban') this.showKanban();
     else if (mode === 'calendar') this.showCalendar();
     else if (mode === 'charts') this.view.set('charts');
@@ -1452,6 +1529,17 @@ export class ContractsListComponent implements OnInit {
     return briefText(text || '');
   }
 
+  protected personLine(card: ContractPerson): string {
+    return `${this.personId(card)} · ${card.ls_count} ЛС`;
+  }
+
+  protected contractLine(card: ContractPerson): string {
+    const name = this.short(card.service_name || card.category || '');
+    const count = card.services_debt_count ?? card.service_count ?? 0;
+    if (count > 1) return `${name && name !== '—' ? name : 'Услуга'} · услуг с долгом: ${count}`;
+    return name && name !== '—' ? name : '—';
+  }
+
   protected periodText(row: AccountService): string {
     const periods = row.periods || [];
     if (!periods.length) return '—';
@@ -1465,9 +1553,8 @@ export class ContractsListComponent implements OnInit {
   }
 
   protected cardMark(card: ContractPerson): string {
-    if (card.due_on) return `срок ${card.due_on}`;
     if (card.earliest) return `долг с ${card.earliest}`;
-    return 'срок не задан';
+    return '';
   }
 
   protected initials(name: string | undefined): string {

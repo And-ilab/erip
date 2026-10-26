@@ -2,7 +2,7 @@
 
 У лицевого счёта хранится только текст адреса. Узел создаётся из этого текста,
 родитель один, как колонка «Родительская задача». Пустой адрес узел не получает.
-Город Минск вешается на Минскую область.
+Город Минск — сосед Минской области, оба висят на Беларуси.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import math
 import re
 from decimal import Decimal
 
+from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import Coalesce
 
@@ -19,15 +20,16 @@ from apps.debts.models import Account, Territory, TerritoryLink
 from apps.debts.services.street_catalog import StreetCatalog, default_catalog
 from apps.debts.services.street_names import STREET_PREFIX as _STREET_PREFIX
 from apps.debts.services.street_names import STREET_RE as _STREET
-from apps.debts.services.street_names import norm, title_name as _title
+from apps.debts.services.street_names import norm
+from apps.debts.services.street_names import title_name as _title
 
 COUNTRY = "Беларусь"
 UNKNOWN_OBLAST = "Без области"
 UNKNOWN_SETTLEMENT = "Без населённого пункта"
 
-# Город без слова «область» в адресе. Минск специально лежит в Минской области.
+# Город без слова «область» в адресе. Минск в этот список не входит:
+# на карте он стоит рядом с Минской областью, а не внутри неё.
 CITY_OBLAST = {
-    "минск": "Минская область",
     "фаниполь": "Минская область",
     "дзержинск": "Минская область",
     "борисов": "Минская область",
@@ -200,13 +202,17 @@ def _catalog_point(
 
 def _point(
     kind: str, name_key: str, parent: Territory | None, catalog: StreetCatalog | None = None,
-) -> tuple[Decimal, Decimal]:
-    # Справочник точнее ручного списка: ул. Кольцова в нём на севере Минска, а не в Грушевке.
-    if catalog is not None and kind in (Territory.Kind.STREET, Territory.Kind.SETTLEMENT, Territory.Kind.HOUSE):
+) -> tuple[Decimal, Decimal] | None:
+    # Справочник точнее ручного списка. Дом, которого в нём нет, не сдвигается _spread на газон:
+    # точка остаётся на родителе (улица или район), а не в стороне от дома.
+    catalog_ready = catalog is not None and not catalog.is_empty
+    if catalog_ready and kind in (Territory.Kind.STREET, Territory.Kind.SETTLEMENT, Territory.Kind.HOUSE):
         found = _catalog_point(kind, name_key, parent, catalog)
         if found:
             lat, lon = found
             return Decimal(str(lat)), Decimal(str(lon))
+        if kind in (Territory.Kind.STREET, Territory.Kind.HOUSE) and parent is not None and parent.latitude is not None:
+            return parent.latitude, parent.longitude
     known = KNOWN_POINTS.get((kind, name_key))
     if known:
         lat, lon = known
@@ -231,12 +237,13 @@ class AddressPath:
         self._drop_far_place(parts)
         settlement_key = norm(parts["settlement"]) if parts["settlement"] else ""
         district_key = norm(parts["district"]).removesuffix(" район") if parts["district"] else ""
-        oblast_name = parts["oblast"] or CITY_OBLAST.get(settlement_key) or UNKNOWN_OBLAST
+        minsk_city = settlement_key == "минск" or district_key in MINSK_DISTRICTS
         chain: list[tuple[str, str, str]] = [
             (Territory.Kind.COUNTRY, COUNTRY, norm(COUNTRY)),
-            (Territory.Kind.OBLAST, oblast_name, norm(oblast_name)),
         ]
-        minsk_city = settlement_key == "минск" or district_key in MINSK_DISTRICTS
+        if not minsk_city:
+            oblast_name = parts["oblast"] or CITY_OBLAST.get(settlement_key) or UNKNOWN_OBLAST
+            chain.append((Territory.Kind.OBLAST, oblast_name, norm(oblast_name)))
         if minsk_city:
             chain.append((Territory.Kind.SETTLEMENT, "Минск", "минск"))
             if district_key:
@@ -352,6 +359,113 @@ class AddressPath:
         return found
 
 
+def pin_minsk_city() -> None:
+    """Город Минск стоит на своих координатах и виден на Беларуси, а не у Колодищ."""
+    lat, lon = KNOWN_POINTS[("settlement", "минск")]
+    city = Territory.objects.filter(kind=Territory.Kind.SETTLEMENT, name_key="минск").first()
+    if city is None:
+        return
+    fields = []
+    point_lat, point_lon = Decimal(str(lat)), Decimal(str(lon))
+    if city.latitude != point_lat or city.longitude != point_lon:
+        city.latitude = point_lat
+        city.longitude = point_lon
+        fields.extend(["latitude", "longitude"])
+    country = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
+    if (
+        country is not None
+        and city.parent_id != country.pk
+        and city.parent is not None
+        and city.parent.kind == Territory.Kind.OBLAST
+    ):
+        city.parent = country
+        fields.append("parent")
+    if not fields:
+        return
+    fields.append("updated_at")
+    city.save(update_fields=fields)
+    if "parent" in fields:
+        _rewire_ancestors(city)
+
+
+def release_unlisted_houses(catalog: StreetCatalog | None = None) -> int:
+    """Дом без точки в справочнике не рисуется: счёт уходит в «Без адреса», а не на газон."""
+    book = default_catalog() if catalog is None else catalog
+    if book.is_empty:
+        return 0
+    released = 0
+    houses = Territory.objects.filter(kind=Territory.Kind.HOUSE).iterator(chunk_size=200)
+    for house in houses:
+        street = _ancestor(house, Territory.Kind.STREET)
+        settlement = _ancestor(house, Territory.Kind.SETTLEMENT)
+        oblast = _ancestor(house, Territory.Kind.OBLAST)
+        number = house.name_key.removeprefix("д.").strip()
+        found = None
+        if street is not None and settlement is not None and number:
+            found = book.house_point(
+                street.name_key, number, settlement.name_key, oblast.name_key if oblast else "",
+            )
+        if found is not None:
+            continue
+        updated = Account.objects.filter(territory=house).update(territory=None)
+        released += updated
+    return released
+
+
+def lift_minsk_city() -> None:
+    """Переносит уже построенный Минск с Минской области на Беларусь.
+
+    Раньше город был ребёнком области. Счета остаются на тех же домах,
+    меняется только родитель города и связи предков.
+    """
+    with transaction.atomic():
+        city = (
+            Territory.objects.select_for_update()
+            .filter(
+                kind=Territory.Kind.SETTLEMENT,
+                name_key="минск",
+                parent__kind=Territory.Kind.OBLAST,
+                parent__name_key="минская область",
+            )
+            .select_related("parent")
+            .first()
+        )
+        if city is None:
+            return
+        country = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
+        if country is None:
+            return
+        if Territory.objects.filter(
+            parent=country, kind=Territory.Kind.SETTLEMENT, name_key="минск",
+        ).exclude(pk=city.pk).exists():
+            return
+        city.parent = country
+        city.save(update_fields=["parent", "updated_at"])
+        _rewire_ancestors(city)
+
+
+def _rewire_ancestors(node: Territory) -> None:
+    """Внешние предки поддерева заменяются цепочкой нового родителя. Внутри поддерева связи те же."""
+    subtree = list(TerritoryLink.objects.filter(ancestor=node).values_list("descendant_id", "depth"))
+    if not subtree:
+        TerritoryIndex._link(node, node.parent)
+        subtree = [(node.pk, 0)]
+    descendant_ids = [item[0] for item in subtree]
+    TerritoryLink.objects.filter(descendant_id__in=descendant_ids).exclude(ancestor_id__in=descendant_ids).delete()
+    ancestors: list[tuple[int, int]] = []
+    current = node.parent
+    depth = 1
+    while current is not None:
+        ancestors.append((current.pk, depth))
+        current = current.parent
+        depth += 1
+    TerritoryLink.objects.bulk_create([
+        TerritoryLink(ancestor_id=ancestor_id, descendant_id=descendant_id, depth=ancestor_depth + descendant_depth)
+        for descendant_id, descendant_depth in subtree
+        for ancestor_id, ancestor_depth in ancestors
+    ])
+
+
 class TerritoryIndex:
     """Кладёт лицевой счёт на дом (или на самый глубокий распознанный узел)."""
 
@@ -361,6 +475,7 @@ class TerritoryIndex:
         self._parser = AddressPath(self._catalog)
 
     def assign_queryset(self, queryset: QuerySet) -> int:
+        lift_minsk_city()
         changed: list[Account] = []
         updated = 0
         # Реестр уже делает select_related("organization"). only() без сброса
@@ -390,8 +505,13 @@ class TerritoryIndex:
     def place_for(self, text: str, hint: str = "") -> Territory | None:
         parent = None
         node = None
-        for kind, name, name_key in self._parser.steps(text, hint):
+        steps = self._parser.steps(text, hint)
+        if not steps:
+            return None
+        for kind, name, name_key in steps:
             node = self._node(parent, kind, name, name_key)
+            if node is None:
+                return None
             parent = node
         return node
 
@@ -400,7 +520,10 @@ class TerritoryIndex:
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
-        latitude, longitude = _point(kind, name_key, parent, self._catalog)
+        point = _point(kind, name_key, parent, self._catalog)
+        if point is None:
+            return None
+        latitude, longitude = point
         node, created = Territory.objects.get_or_create(
             parent=parent,
             kind=kind,
@@ -431,6 +554,8 @@ class TerritoryMap:
     """Один уровень дерева: дети текущего узла и число лицевых счетов в поддереве."""
 
     def level(self, accounts: QuerySet, parent: Territory | None) -> dict:
+        lift_minsk_city()
+        pin_minsk_city()
         if parent is None:
             parent = Territory.objects.filter(kind=Territory.Kind.COUNTRY, name_key=norm(COUNTRY)).first()
         accounts = accounts.order_by()

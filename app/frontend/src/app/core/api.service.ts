@@ -1,10 +1,11 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 import {
   AccountDetail,
   AccountRow,
+  ActivityBoard,
   DebtShare,
   DebtCharts,
   AccountService,
@@ -14,6 +15,8 @@ import {
   DialSettings,
   ApiError,
   AttachmentRow,
+  ScenarioBoard,
+  WritDraft,
   BalanceRow,
   CalendarEvent,
   ContactRow,
@@ -106,6 +109,35 @@ export function errorMessage(error: unknown): string {
   return 'Неизвестная ошибка';
 }
 
+/** Закрытый переход воронки: что сделать и на какую вкладку карточки вести. */
+export interface FunnelGateInfo {
+  message: string;
+  actions: string[];
+  tab: string;
+  tabLabel: string;
+  accountId: number | null;
+}
+
+export function funnelGate(error: unknown): FunnelGateInfo | null {
+  if (!(error instanceof HttpErrorResponse)) return null;
+  const body = error.error as ApiError | undefined;
+  if (body?.error?.code !== 'funnel_gate') return null;
+  const details = body.error.details;
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
+  const row = details as Record<string, unknown>;
+  const actions = Array.isArray(row['actions'])
+    ? row['actions'].filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+    : [];
+  const account = Number(row['account_id']);
+  return {
+    message: body.error.message,
+    actions,
+    tab: typeof row['tab'] === 'string' && row['tab'] ? row['tab'] : 'activities',
+    tabLabel: typeof row['tab_label'] === 'string' && row['tab_label'] ? row['tab_label'] : 'Активности',
+    accountId: Number.isFinite(account) && account > 0 ? account : null,
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -127,8 +159,23 @@ export class ApiService {
     return this.http.get<DebtShare[]>(`${this.base}/accounts/${id}/debt-shares/`);
   }
 
-  updateAccount(id: number, body: Partial<AccountDetail> & { funnel_reason?: string }): Observable<AccountDetail> {
+  updateAccount(id: number, body: Partial<AccountDetail> & { funnel_reason?: string; parallel_stage?: string }): Observable<AccountDetail> {
     return this.http.patch<AccountDetail>(`${this.base}/accounts/${id}/`, body);
+  }
+
+  accountActivities(id: number): Observable<ActivityBoard> {
+    return this.http.get<ActivityBoard>(`${this.base}/accounts/${id}/activities/`);
+  }
+
+  actOnActivity(id: number, activityId: number, note = '', file?: File): Observable<ActivityBoard> {
+    if (file) {
+      const body = new FormData();
+      body.append('id', String(activityId));
+      if (note) body.append('note', note);
+      body.append('file', file);
+      return this.http.post<ActivityBoard>(`${this.base}/accounts/${id}/activities/`, body);
+    }
+    return this.http.post<ActivityBoard>(`${this.base}/accounts/${id}/activities/`, { id: activityId, note });
   }
 
   updateAccountGroup(id: number, group: number | null, reason: string): Observable<AccountDetail> {
@@ -155,6 +202,54 @@ export class ApiService {
     return this.http.get<Page<AttachmentRow>>(`${this.base}/accounts/${id}/attachments/`, { params: toParams({ page_size: 200 }) });
   }
 
+  stopMeasure(accountId: number, measureId: number): Observable<{ finished_on: string | null }> {
+    return this.http.post<{ finished_on: string | null }>(`${this.base}/accounts/${accountId}/stop-measure/`, { measure_id: measureId });
+  }
+
+  startScenarios(body: Record<string, unknown>): Observable<{ started: number }> {
+    return this.http.post<{ started: number }>(`${this.base}/accounts/start-scenario/`, body);
+  }
+
+  changeScenarios(body: Record<string, unknown>): Observable<{ changed: number }> {
+    return this.http.post<{ changed: number }>(`${this.base}/accounts/change-scenario/`, body);
+  }
+
+  assignLegal(body: Record<string, unknown>): Observable<{ assigned: number }> {
+    return this.http.post<{ assigned: number }>(`${this.base}/accounts/assign-legal/`, body);
+  }
+
+  saveCalendarNote(day: string, text: string): Observable<{ id: number }> {
+    return this.http.post<{ id: number }>(`${this.base}/accounts/calendar-notes/`, { day, text });
+  }
+
+  accountScenario(id: number): Observable<ScenarioBoard> {
+    return this.http.get<ScenarioBoard>(`${this.base}/accounts/${id}/scenario/`);
+  }
+
+  writDraft(id: number, params?: Record<string, string>): Observable<WritDraft> {
+    let httpParams = new HttpParams();
+    if (params) {
+      for (const [key, value] of Object.entries(params)) httpParams = httpParams.set(key, value ?? '');
+    }
+    return this.http.get<WritDraft>(`${this.base}/accounts/${id}/writ-draft/`, { params: httpParams });
+  }
+
+  createWrit(id: number, body: object): Observable<{ id: number }> {
+    return this.http.post<{ id: number }>(`${this.base}/accounts/${id}/writ-draft/`, body);
+  }
+
+  deleteAttachment(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/attachments/${id}/`);
+  }
+
+  downloadAttachment(id: number): Observable<Blob> {
+    return this.http.get(`${this.base}/attachments/${id}/download/`, { responseType: 'blob' });
+  }
+
+  downloadClaimFile(claimId: number, docId: number): Observable<Blob> {
+    return this.http.get(`${this.base}/claims/${claimId}/package/documents/${docId}/pdf/`, { responseType: 'blob' });
+  }
+
   refreshAccount(id: number): Observable<{ id: number; status: string }> {
     return this.http.post<{ id: number; status: string }>(`${this.base}/accounts/${id}/refresh/`, {});
   }
@@ -175,6 +270,14 @@ export class ApiService {
     return this.http.get(`${this.base}/accounts/export/`, { params: toParams(params), responseType: 'blob' });
   }
 
+  cardColumns(board: 'services' | 'payments' | 'registration'): Observable<ColumnPrefs> {
+    return this.http.get<ColumnPrefs>(`${this.base}/accounts/card-columns/`, { params: toParams({ board }) });
+  }
+
+  saveCardColumns(board: 'services' | 'payments' | 'registration', columns: string[], order: string[]): Observable<ColumnPrefs> {
+    return this.http.put<ColumnPrefs>(`${this.base}/accounts/card-columns/`, { board, columns, order });
+  }
+
   columns(): Observable<ColumnPrefs> {
     return this.http.get<ColumnPrefs>(`${this.base}/accounts/columns/`);
   }
@@ -189,6 +292,18 @@ export class ApiService {
 
   saveContractColumns(board: 'persons' | 'services', columns: string[], order: string[]): Observable<ColumnPrefs> {
     return this.http.put<ColumnPrefs>(`${this.base}/contracts/columns/`, { board, columns, order });
+  }
+
+  boardWidths(board: string): Observable<Record<string, number>> {
+    return this.http.get<{ widths: Record<string, number> }>(`${this.base}/board-widths/${board}/`).pipe(
+      map((body) => body.widths ?? {}),
+    );
+  }
+
+  saveBoardWidths(board: string, widths: Record<string, number>): Observable<Record<string, number>> {
+    return this.http.put<{ widths: Record<string, number> }>(`${this.base}/board-widths/${board}/`, { widths }).pipe(
+      map((body) => body.widths ?? {}),
+    );
   }
 
   contracts(params: Params): Observable<Page<AccountService>> {
@@ -237,6 +352,35 @@ export class ApiService {
 
   contractDossier(id: number): Observable<ContractDossier> {
     return this.http.get<ContractDossier>(`${this.base}/contracts/${id}/dossier/`);
+  }
+
+  extraMeasureCatalog(): Observable<Page<{ id: number; name: string; note: string; is_active: boolean }>> {
+    return this.http.get<Page<{ id: number; name: string; note: string; is_active: boolean }>>(`${this.base}/nsi/extra-measures/`);
+  }
+
+  saveExtraMeasure(body: { id?: number; name: string; note?: string }): Observable<{ id: number; name: string; note: string }> {
+    if (body.id) return this.http.patch<{ id: number; name: string; note: string }>(`${this.base}/nsi/extra-measures/${body.id}/`, body);
+    return this.http.post<{ id: number; name: string; note: string }>(`${this.base}/nsi/extra-measures/`, body);
+  }
+
+  deleteExtraMeasure(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/nsi/extra-measures/${id}/`);
+  }
+
+  addExtraMeasures(body: { catalog_id: number; account_ids: number[] }): Observable<{ id: number; name: string }> {
+    return this.http.post<{ id: number; name: string }>(`${this.base}/accounts/extra-measures/`, body);
+  }
+
+  addContractExtra(id: number, catalogId: number): Observable<{ id: number; name: string }> {
+    return this.http.post<{ id: number; name: string }>(`${this.base}/contracts/${id}/extra-measure/`, { catalog_id: catalogId });
+  }
+
+  holdMeasure(id: number, until: string, reason: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`${this.base}/measures/${id}/hold/`, { until, reason });
+  }
+
+  releaseMeasure(id: number): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`${this.base}/measures/${id}/release/`, {});
   }
 
   saveRegistration(id: number, body: Partial<Registration>): Observable<Registration> {
@@ -298,6 +442,16 @@ export class ApiService {
 
   createMeasure(body: Record<string, unknown>): Observable<MeasureRow> {
     return this.http.post<MeasureRow>(`${this.base}/measures/`, body);
+  }
+
+  dialMeasure(id: number): Observable<MeasureDetail> {
+    return this.http.post<MeasureDetail>(`${this.base}/measures/${id}/dial/`, {});
+  }
+
+  conductMeasures(ids: number[]): Observable<{ dialed: number; sent: number; skipped: { id: number; reason: string }[] }> {
+    return this.http.post<{ dialed: number; sent: number; skipped: { id: number; reason: string }[] }>(
+      `${this.base}/measures/conduct/`, { ids },
+    );
   }
 
   addMeasureTask(id: number, title: string, dueOn = ''): Observable<MeasureDetail> {
@@ -397,8 +551,14 @@ export class ApiService {
     return this.http.delete<void>(`${this.base}/nsi/debtor-categories/${id}/`);
   }
 
+  notaryOffices(): Observable<Page<NotaryOffice>> {
+    return this.http.get<Page<NotaryOffice>>(`${this.base}/nsi/notary-offices/`, { params: { page_size: 500 } });
+  }
+
   categories(): Observable<Page<DebtorCategory>> {
-    return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, { params: toParams({ page_size: 100 }) });
+    return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, {
+      params: toParams({ page_size: 100, is_active: true }),
+    });
   }
 
   savedFilters(target: string): Observable<Page<SavedFilter>> {
@@ -411,16 +571,16 @@ export class ApiService {
 
   accountServices(id: number, withDebt = false): Observable<Page<AccountService>> {
     return this.http.get<Page<AccountService>>(`${this.base}/accounts/${id}/services/`, {
-      params: toParams({ page_size: 200, with_debt: withDebt ? 1 : null }),
+      params: toParams({ page_size: 500, with_debt: withDebt ? 1 : null }),
     });
   }
 
   accountPayments(id: number): Observable<Page<Payment>> {
-    return this.http.get<Page<Payment>>(`${this.base}/accounts/${id}/payments/`, { params: toParams({ page_size: 200 }) });
+    return this.http.get<Page<Payment>>(`${this.base}/accounts/${id}/payments/`, { params: toParams({ page_size: 500 }) });
   }
 
   accountRegistrations(id: number): Observable<Page<Registration>> {
-    return this.http.get<Page<Registration>>(`${this.base}/accounts/${id}/registrations/`, { params: toParams({ page_size: 200 }) });
+    return this.http.get<Page<Registration>>(`${this.base}/accounts/${id}/registrations/`, { params: toParams({ page_size: 500 }) });
   }
 
   notifications(params: Params): Observable<Page<Notification>> {
@@ -491,6 +651,18 @@ export class ApiService {
 
   claimAction(id: number, action: string, body: object = {}): Observable<ClaimCase> {
     return this.http.post<ClaimCase>(`${this.base}/claims/${id}/${action}/`, body);
+  }
+
+  prisDictionaries(): Observable<PrisDictionaries> {
+    return this.http.get<PrisDictionaries>(`${this.base}/claims/pris-dictionaries/`);
+  }
+
+  organizationPris(id: number): Observable<{ claimant: Record<string, string> }> {
+    return this.http.get<{ claimant: Record<string, string> }>(`${this.base}/organizations/${id}/pris-claimant/`);
+  }
+
+  saveOrganizationPris(id: number, claimant: Record<string, string>): Observable<{ claimant: Record<string, string> }> {
+    return this.http.patch<{ claimant: Record<string, string> }>(`${this.base}/organizations/${id}/pris-claimant/`, claimant);
   }
 
   uploadClaimDocument(
@@ -580,6 +752,39 @@ export class ApiService {
     );
   }
 
+  scenarioMail(): Observable<{
+    mail_from: string;
+    mail_from_name: string;
+    mail_subject: string;
+    mail_signature: string;
+  }> {
+    return this.http.get<{
+      mail_from: string;
+      mail_from_name: string;
+      mail_subject: string;
+      mail_signature: string;
+    }>(`${this.base}/nsi/scenarios/mail/`);
+  }
+
+  saveScenarioMail(body: {
+    mail_from: string;
+    mail_from_name: string;
+    mail_subject: string;
+    mail_signature: string;
+  }): Observable<{
+    mail_from: string;
+    mail_from_name: string;
+    mail_subject: string;
+    mail_signature: string;
+  }> {
+    return this.http.patch<{
+      mail_from: string;
+      mail_from_name: string;
+      mail_subject: string;
+      mail_signature: string;
+    }>(`${this.base}/nsi/scenarios/mail/`, body);
+  }
+
   debtGroups(): Observable<Page<DebtGroupBand>> {
     return this.http.get<Page<DebtGroupBand>>(`${this.base}/nsi/debt-groups/`, { params: { page_size: 20 } });
   }
@@ -600,7 +805,7 @@ export class ApiService {
       });
   }
 
-  directoryUsers(params: { organization?: number; search?: string } = {}): Observable<Page<DirectoryUser>> {
+  directoryUsers(params: { organization?: number; search?: string; role?: string } = {}): Observable<Page<DirectoryUser>> {
     return this.http.get<Page<DirectoryUser>>(`${this.base}/users/`, { params: toParams({ page_size: 500, ...params }) });
   }
 
@@ -610,14 +815,24 @@ export class ApiService {
       : this.http.post<DirectoryUser>(`${this.base}/users/`, row);
   }
 
+  serviceScenarioMode(id: number, body?: { launch?: string; scenario?: number | null }): Observable<{ launch: string; scenario: number | null; scenario_name: string }> {
+    const url = `${this.base}/service-organizations/${id}/scenario-mode/`;
+    if (body) {
+      return this.http.patch<{ launch: string; scenario: number | null; scenario_name: string }>(url, body);
+    }
+    return this.http.get<{ launch: string; scenario: number | null; scenario_name: string }>(url);
+  }
+
   serviceOrganizations(organization: number): Observable<Page<ServiceOrganizationOption>> {
     return this.http.get<Page<ServiceOrganizationOption>>(`${this.base}/service-organizations/`, {
       params: toParams({ organization, page_size: 200 }),
     });
   }
 
-  debtorCategories(): Observable<Page<{ id: number; name: string }>> {
-    return this.http.get<Page<{ id: number; name: string }>>(`${this.base}/nsi/debtor-categories/`, { params: { page_size: 100 } });
+  debtorCategories(): Observable<Page<DebtorCategory>> {
+    return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, {
+      params: toParams({ page_size: 100, is_active: true }),
+    });
   }
 
   previewPrintForm(body: object): Observable<Blob> {
@@ -685,6 +900,14 @@ export class ApiService {
 
 export interface Named { id: string; label: string }
 
+export interface NotaryOffice {
+  code: string;
+  name: string;
+  district: string;
+  address: string;
+  phones: string;
+}
+
 export interface AssignedAccount {
   account: number;
   client_account: string;
@@ -707,7 +930,10 @@ export interface ClaimCase {
   balance_out: string | null;
   stage: string;
   stage_label: string;
+  debt_from?: string | null;
+  debt_to?: string | null;
   warning_delivered_on: string | null;
+  notary_office: string;
   notary_tariff: string | null;
   application_withdrawn: boolean;
   submission_id: string;
@@ -748,6 +974,34 @@ export interface ClaimCase {
   package?: ClaimPackage;
 }
 
+export interface PrisDictRow { code: string; name: string }
+
+export interface PrisDictionaries {
+  mode: string;
+  dictionaries: Record<string, { name: string; rows: PrisDictRow[] }>;
+}
+
+export interface PrisInquiry {
+  applied?: boolean;
+  p_ost?: { req_sum?: string; ost_sum?: string; curr_code?: string }[];
+  p_status?: { status?: string; date_status?: string; actual?: string }[];
+  p_action?: Record<string, string>[];
+  p_nachisl?: Record<string, string>[];
+  p_repay?: Record<string, string>[];
+  p_ispdoc?: { proc_num?: string; doc_num?: string }[];
+}
+
+export interface PrisExchangeRow {
+  id: number;
+  operation: string;
+  mode: string;
+  process_status: string;
+  created_at: string;
+  note: string;
+  request: Record<string, unknown>;
+  response: Record<string, unknown>;
+}
+
 export interface PrisCard {
   problems: string[];
   ready: boolean;
@@ -757,6 +1011,8 @@ export interface PrisCard {
   process_message: string;
   request: Record<string, string | number>;
   claimant: Record<string, string>;
+  inquiry?: PrisInquiry;
+  exchanges?: PrisExchangeRow[];
 }
 
 export interface ClaimPackage {

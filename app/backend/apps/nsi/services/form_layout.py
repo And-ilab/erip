@@ -126,8 +126,18 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
             "blocks": [_block("body", "Текст", "", 12, True)],
             "name": _title(name),
         }
-    text = _pdf_text(raw) if lower.endswith(".pdf") else raw.decode("utf-8", errors="ignore")
-    text = text.replace("\x00", "").strip()
+    if lower.endswith(".pdf"):
+        laid = _letter_blocks(raw)
+        if laid:
+            return {
+                "recognized": True,
+                "note": "Черновик повторяет бланк: шапка в две колонки, заголовок по центру, дальше обычные абзацы. Проверьте и сохраните.",
+                "blocks": laid,
+                "name": _title(name),
+            }
+        text = _pdf_text(raw)
+    else:
+        text = _plain(raw.decode("utf-8", errors="ignore"))
     if not text:
         return {
             "recognized": False,
@@ -135,33 +145,29 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
             "blocks": [_block("body", "Текст", "", 12, True)],
             "name": _title(name),
         }
-    body = _tokens(text)
     return {
         "recognized": True,
         "note": "Черновик разложен по полям. Проверьте макет и сохраните.",
-        "blocks": [
-            _block("body", "Текст", body, 12, True, 12),
-            _block("signatory", "Подпись", "{organization}", 12, True, 280),
-        ],
+        "blocks": [_block("body", "Текст", _tokens(text), 12, True, 12)],
         "name": _title(name),
     }
 
 
-def _block(key: str, title: str, text: str, size: int, enabled: bool, y: int = 12) -> dict:
+def _block(key: str, title: str, text: str, size: int, enabled: bool, y: int = 12, align: str = "left", x: int = 4, w: int = 92) -> dict:
     return {
         "key": key,
         "title": title,
         "enabled": enabled,
-        "align": "left",
+        "align": align,
         "bold": False,
         "italic": False,
         "font_size": size,
         "text": text,
         "columns": [],
         "rows": [],
-        "x": 4,
+        "x": x,
         "y": y,
-        "w": 92,
+        "w": w,
     }
 
 
@@ -220,30 +226,197 @@ def _fill_cell(cell, values: dict) -> str:
 
 
 def _tokens(text: str) -> str:
-    lines = []
-    for line in text.splitlines():
-        lowered = line.lower()
-        replaced = line
-        for label, token in LABELS:
-            if label in lowered and "{" not in line:
-                head, sep, _tail = line.partition(":")
-                if sep and label in head.lower():
-                    replaced = f"{head.strip()}: {{{token}}}"
-                break
-        lines.append(replaced)
-    return "\n".join(lines).strip()
+    return "\n".join(_token_line(line) for line in text.splitlines()).strip()
+
+
+def _token_line(line: str) -> str:
+    """Короткая строка «Подпись: значение» становится меткой. Абзац письма не трогаем."""
+    if "{" in line or ":" not in line or len(line) > 80:
+        return line
+    head, sep, _tail = line.partition(":")
+    if not sep or len(head.strip()) > 40:
+        return line
+    lowered = head.lower()
+    for label, token in LABELS:
+        if label in lowered:
+            return f"{head.strip()}: {{{token}}}"
+    return line
 
 
 def _pdf_text(raw: bytes) -> str:
+    lines = _positioned_lines(raw)
+    if not lines:
+        return ""
+    text = "\n".join(line["text"] for line in lines)
+    if "%PDF-" in text or "endstream" in text or "endobj" in text:
+        return ""
+    return text
+
+
+def _letter_blocks(raw: bytes) -> list[dict] | None:
+    """Письмо АИС: шапка слева и справа, заголовок по центру, абзацы без лесенки."""
+    positioned = _positioned(raw)
+    if not positioned:
+        return None
+    lines, width = positioned
+    title_at = _title_index(lines, width)
+    if title_at is None:
+        return None
+    left, right = _header_columns(lines[:title_at], width)
+    body = _body_text(lines[title_at], lines[title_at + 1:])
+    blocks = []
+    if left:
+        blocks.append(_block("block-1", "Шапка", "\n".join(_token_line(line) for line in left), 12, True, 12, x=4, w=48))
+    if right:
+        blocks.append(_block("block-2", "Адресат", "\n".join(_token_line(line) for line in right), 12, True, 12, align="right", x=52, w=44))
+    blocks.append(_block("body", "Текст", body, 12, True, 80))
+    return blocks
+
+
+def _positioned(raw: bytes):
+    lines = _positioned_lines(raw)
+    if not lines:
+        return None
+    return lines, _page_width(raw)
+
+
+def _page_width(raw: bytes) -> float:
+    try:
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        box = PdfReader(BytesIO(raw)).pages[0].mediabox
+        return float(box.width) or 595.0
+    except Exception:
+        return 595.0
+
+
+def _positioned_lines(raw: bytes) -> list[dict]:
     try:
         from io import BytesIO
 
         from pypdf import PdfReader
 
         reader = PdfReader(BytesIO(raw))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
     except Exception:
-        return raw.decode("utf-8", errors="ignore")
+        return []
+    lines: list[dict] = []
+    for page in reader.pages:
+        runs: list[dict] = []
+
+        def visitor(text, _cm, tm, _font, font_size):
+            cleaned = " ".join(str(text).replace("\xa0", " ").split())
+            if cleaned:
+                runs.append({"x": float(tm[4]), "y": float(tm[5]), "size": float(font_size or 10), "text": cleaned})
+
+        try:
+            page.extract_text(visitor_text=visitor)
+        except Exception:
+            continue
+        lines.extend(_group_lines(runs))
+    return lines
+
+
+def _group_lines(runs: list[dict]) -> list[dict]:
+    ordered = sorted(runs, key=lambda run: (-run["y"], run["x"]))
+    grouped: list[dict] = []
+    for run in ordered:
+        if grouped and abs(grouped[-1]["y"] - run["y"]) <= 2.5:
+            grouped[-1]["runs"].append(run)
+            continue
+        grouped.append({"y": run["y"], "runs": [run]})
+    lines = []
+    for group in grouped:
+        runs = sorted(group["runs"], key=lambda run: run["x"])
+        lines.append({
+            "y": group["y"],
+            "x": runs[0]["x"],
+            "size": runs[0]["size"],
+            "runs": runs,
+            "text": _join_runs(runs),
+        })
+    return lines
+
+
+def _join_runs(runs: list[dict]) -> str:
+    parts: list[str] = []
+    previous_end = None
+    for run in runs:
+        if parts and previous_end is not None and run["x"] > previous_end + (run["size"] or 10) * 0.35:
+            parts.append(" ")
+        parts.append(run["text"])
+        previous_end = run["x"] + (run["size"] or 10) * 0.48 * len(run["text"])
+    return " ".join("".join(parts).split())
+
+
+def _title_index(lines: list[dict], width: float) -> int | None:
+    for index, line in enumerate(lines):
+        text = line["text"].strip()
+        letters = [char for char in text if char.isalpha()]
+        if len(text) < 4 or len(text) > 40 or len(letters) < 4:
+            continue
+        if any(char.islower() for char in letters):
+            continue
+        size = line["size"] or 10
+        center = line["x"] + size * 0.5 * len(text) / 2
+        if abs(center - width / 2) <= width * 0.2:
+            return index
+    return None
+
+
+def _header_columns(lines: list[dict], width: float) -> tuple[list[str], list[str]]:
+    middle = width * 0.55
+    left: list[str] = []
+    right: list[str] = []
+    for line in lines:
+        left_runs = [run for run in line["runs"] if run["x"] < middle]
+        right_runs = [run for run in line["runs"] if run["x"] >= middle]
+        if left_runs:
+            left.append(_join_runs(left_runs))
+        if right_runs:
+            right.append(_join_runs(right_runs))
+    return left, right
+
+
+def _body_text(title: dict, lines: list[dict]) -> str:
+    chunks = [title["text"].strip(), ""]
+    if not lines:
+        return title["text"].strip()
+    margin = min(line["x"] for line in lines)
+    paragraph: list[str] = []
+    previous = None
+    for line in lines:
+        text = line["text"]
+        gap = (previous["y"] - line["y"]) if previous else 0
+        indented = line["x"] >= margin + 12
+        new_paragraph = bool(paragraph) and (indented or gap > 16 or _new_sentence(paragraph[-1], text))
+        if new_paragraph:
+            chunks.append(" ".join(paragraph))
+            chunks.append("")
+            paragraph = []
+        paragraph.append(text)
+        previous = line
+    if paragraph:
+        chunks.append(" ".join(paragraph))
+    return "\n".join(_token_line(line) if line else "" for line in chunks).strip()
+
+
+def _new_sentence(previous: str, text: str) -> bool:
+    tail = previous.rstrip()
+    if not tail or tail[-1] not in ".!?":
+        return False
+    head = text.lstrip()
+    return bool(head) and head[0].isupper()
+
+
+def _plain(text: str) -> str:
+    lines = []
+    for line in text.replace("\x00", "").replace("\xa0", " ").splitlines():
+        clean = " ".join(line.split())
+        if clean:
+            lines.append(clean)
+    return "\n".join(lines).strip()
 
 
 def _title(name: str) -> str:

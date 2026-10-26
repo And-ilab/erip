@@ -42,6 +42,19 @@ class Organization(TimeStampedModel, SoftDeleteModel):
         "Ожидание перед шагом, дней", default=dict, blank=True,
         help_text="Ключ — действие шага сценария. Пустой ключ берёт срок из самого шага.",
     )
+    mail_from = models.CharField(
+        "E-mail отправителя", max_length=254, blank=True,
+        help_text="Адрес From для писем этой схемы. Пусто — боевой SMTP письмо не примет.",
+    )
+    mail_from_name = models.CharField("Имя отправителя", max_length=250, blank=True)
+    mail_subject = models.CharField(
+        "Тема письма", max_length=250, blank=True,
+        help_text="Берётся, если у шаблона тема пустая.",
+    )
+    mail_signature = models.CharField(
+        "Подпись письма", max_length=500, blank=True,
+        help_text="Пусто — шлюз ставит «С уважением, ЖКУ». Прочтение письма не отмечается.",
+    )
 
     class Meta:
         ordering = ["name"]
@@ -80,7 +93,9 @@ class User(AbstractUser):
         SUPERADMIN = "superadmin", "Суперадминистратор"
         LOCAL_ADMIN = "local_admin", "Локальный администратор"
         SPECIALIST = "specialist", "Специалист"
+        LEGAL = "legal", "Специалист ЮС"
         OBSERVER = "observer", "Наблюдатель"
+        VIEWER = "viewer", "Специалист «Просмотр»"
 
     class Contour(models.TextChoices):
         BILLING = "billing", "Начисляющая организация"

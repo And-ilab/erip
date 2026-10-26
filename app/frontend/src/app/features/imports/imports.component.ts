@@ -9,6 +9,7 @@ import { MatTableModule } from '@angular/material/table';
 import { catchError, concatMap, from, map, of } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { GridResizeDirective } from '../grid-resize.directive';
 import { AuthService } from '../../core/auth.service';
 import { ImportJob, OrganizationOption } from '../../core/models';
 
@@ -55,7 +56,7 @@ function classify(name: string): { entity: string; schemaCode: string } {
 @Component({
   selector: 'app-imports',
   standalone: true,
-  imports: [DatePipe, FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatTableModule],
+  imports: [DatePipe, FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatTableModule, GridResizeDirective],
   template: `
     <div class="page">
       <div class="page-header">
@@ -109,7 +110,7 @@ function classify(name: string): { entity: string; schemaCode: string } {
 
       @if (queue().length) {
         <div class="list-pane">
-          <table mat-table [dataSource]="queue()">
+          <table mat-table [dataSource]="queue()" appGridResize="import-queue">
             <ng-container matColumnDef="file"><th mat-header-cell *matHeaderCellDef>Файл</th><td mat-cell *matCellDef="let row">{{ row.file.name }}</td></ng-container>
             <ng-container matColumnDef="entity">
               <th mat-header-cell *matHeaderCellDef>Тип</th>
@@ -144,7 +145,7 @@ function classify(name: string): { entity: string; schemaCode: string } {
       <h3>Журнал</h3>
       @if (jobsError()) { <p class="status-failed">{{ jobsError() }}</p> }
       <div class="list-pane">
-        <table mat-table [dataSource]="jobs()">
+        <table mat-table [dataSource]="jobs()" appGridResize="import-jobs">
           <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Когда</th><td mat-cell *matCellDef="let job">{{ job.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
           <ng-container matColumnDef="file_name"><th mat-header-cell *matHeaderCellDef>Файл</th><td mat-cell *matCellDef="let job">{{ job.file_name }}</td></ng-container>
           <ng-container matColumnDef="entity_display"><th mat-header-cell *matHeaderCellDef>Тип</th><td mat-cell *matCellDef="let job">{{ job.entity_display }}</td></ng-container>

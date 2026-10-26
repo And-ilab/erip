@@ -73,20 +73,24 @@ class NotificationService:
             logger.info("Доставка %s уже выполняется другим процессом", log_id)
             return
         request_id_var.set(request_id)
-        text = await self.renderer.render(payload.template_body, payload.context, user_name=payload.user_name)
+        text = await self.renderer.render(
+            payload.template_body, payload.context, user_name=payload.user_name,
+            sign=str(payload.meta.get("signature") or ""),
+        )
         adapter = self.registry.get(payload.channel)
         message = OutgoingMessage(payload.channel, payload.recipient, text, payload.subject, payload.meta)
-        status, error, provider_id = "delivered", "", ""
+        status, error, provider_id, external_call = "delivered", "", "", True
         try:
             result = await adapter.send(message)
             provider_id = result.provider_message_id
+            external_call = result.external_call
             if not result.delivered:
                 status, error = "failed", result.error or "Не доставлено"
         except AdapterError as exc:
-            status, error = "failed", exc.message
+            status, error, external_call = "failed", exc.message, False
             await report_error(exc, path=f"adapter:{payload.channel}")
         except Exception as exc:  # noqa: BLE001 — любая ошибка канала фиксируется, процесс не падает
-            status, error = "failed", f"Внутренняя ошибка: {exc}"
+            status, error, external_call = "failed", f"Внутренняя ошибка: {exc}", False
             await report_error(exc, path=f"adapter:{payload.channel}")
 
         async with self.db.session() as session:
@@ -95,7 +99,7 @@ class NotificationService:
             log.provider_message_id, log.finished_at = provider_id, utcnow()
             await session.commit()
         logger.info("Оповещение %s: %s", payload.notification_id, status, extra={"delivery_id": log_id})
-        await self._callback(payload, status, error, text, request_id)
+        await self._callback(payload, status, error, text, request_id, provider_id, external_call)
 
     def callback_url(self, notification_id: int) -> str:
         """Адрес backend берётся только из настроек, не из тела запроса."""
@@ -138,7 +142,10 @@ class NotificationService:
             )
             await session.commit()
 
-    async def _callback(self, payload: NotificationIn, status: str, error: str, text: str, request_id: str) -> None:
+    async def _callback(
+        self, payload: NotificationIn, status: str, error: str, text: str, request_id: str,
+        provider_message_id: str, external_call: bool,
+    ) -> None:
         if payload.notification_id is None:
             return
         url = self.callback_url(payload.notification_id)
@@ -147,7 +154,13 @@ class NotificationService:
             try:
                 response = await self.http.client.post(
                     url,
-                    json={"status": status, "error": error, "rendered_text": text},
+                    json={
+                        "status": status,
+                        "error": error,
+                        "rendered_text": text,
+                        "provider_message_id": provider_message_id,
+                        "external_call": external_call,
+                    },
                     headers={"X-Internal-Token": self.settings.internal_token, "X-Request-ID": request_id},
                 )
                 response.raise_for_status()

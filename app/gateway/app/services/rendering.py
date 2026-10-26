@@ -6,7 +6,7 @@
 
 import re
 
-from ..decorators.greeting import with_greeting
+from ..decorators.greeting import DEFAULT_SIGN, with_greeting
 
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -25,6 +25,11 @@ class MessageRenderer:
 
         return _PLACEHOLDER.sub(replace, template_body)
 
-    @with_greeting()
-    async def render(self, template_body: str, context: dict, *, user_name: str) -> str:
-        return self.render_body(template_body, context)
+    async def render(self, template_body: str, context: dict, *, user_name: str, sign: str = "") -> str:
+        closing = sign.strip() or DEFAULT_SIGN
+
+        @with_greeting(sign=closing)
+        async def wrapped(*, user_name: str) -> str:
+            return self.render_body(template_body, context)
+
+        return await wrapped(user_name=user_name)

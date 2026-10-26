@@ -1,0 +1,28 @@
+$kind: http-request
+method: POST
+url: '{{base_url}}/gw/v1/voice/dial'
+order: 6000
+headers:
+  - key: X-Internal-Token
+    value: '{{internal_token}}'
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "phone": "+491511234567",
+      "text": "Долг"
+    }
+examples: './.resources/набор иностранный номер.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const data = pm.response.json().data;
+      pm.test('200', function () { pm.response.to.have.status(200); });
+      pm.test('не +375 на станцию не уходит', function () {
+          pm.expect(data.status).to.eql('bad_number');
+          pm.expect(data.error).to.eql('Не номер +375');
+          pm.expect(data.external_call).to.eql(false);
+      });

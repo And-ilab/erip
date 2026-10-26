@@ -32,7 +32,10 @@ class DebtGroupScale(TimeStampedModel, SoftDeleteModel):
 
 
 class DebtorCategory(TimeStampedModel, SoftDeleteModel):
-    """Категория должника (ТЗ 4.2.1.4, 4.2.2.6). Пустая организация — центральная запись НСИ."""
+    """Категория должника (ТЗ 4.2.1.4, 4.2.2.6). Пустая организация — центральная запись НСИ.
+
+    Центральный перечень — строки «Основные документы/Категории должников.docx», миграция nsi.0016.
+    """
 
     organization = models.ForeignKey(
         "users.Organization", null=True, blank=True, on_delete=models.CASCADE, related_name="debtor_categories",
@@ -41,9 +44,11 @@ class DebtorCategory(TimeStampedModel, SoftDeleteModel):
     code = models.CharField("Код", max_length=50)
     name = models.CharField("Наименование", max_length=250)
     note = models.CharField("Влияние на сценарии", max_length=500, blank=True)
+    section = models.CharField("Раздел списка", max_length=250, blank=True)
+    sort_order = models.PositiveIntegerField("Порядок в списке", default=1000)
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["sort_order", "name"]
         constraints = [
             models.UniqueConstraint(
                 fields=["code"], condition=models.Q(organization__isnull=True), name="uniq_central_debtor_category",
@@ -127,6 +132,28 @@ class ScenarioDefinition(TimeStampedModel, SoftDeleteModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+class ServiceScenarioMode(TimeStampedModel):
+    """Режим запуска сценария обслуживающей организации. По умолчанию — вручную, сценарий базовый."""
+
+    class Launch(models.TextChoices):
+        MANUAL = "manual", "Вручную"
+        AUTO = "auto", "Автоматически"
+
+    service_organization = models.OneToOneField(
+        "users.ServiceOrganization", on_delete=models.CASCADE, related_name="scenario_mode",
+        verbose_name="Обслуживающая организация",
+    )
+    launch = models.CharField("Режим запуска", max_length=10, choices=Launch.choices, default=Launch.MANUAL)
+    scenario = models.ForeignKey(
+        ScenarioDefinition, null=True, blank=True, on_delete=models.SET_NULL, related_name="service_modes",
+        verbose_name="Сценарий по умолчанию",
+    )
+
+    class Meta:
+        verbose_name = "Режим сценария организации"
+        verbose_name_plural = "Режимы сценариев организаций"
 
 
 class ScenarioRevision(TimeStampedModel):
@@ -309,6 +336,25 @@ class BnpService(TimeStampedModel, SoftDeleteModel):
         return f"{self.service_id} {self.name}"
 
 
+class NotaryOffice(TimeStampedModel, SoftDeleteModel):
+    """Контора с сайта Белорусской нотариальной палаты. Удаление — деактивация."""
+
+    code = models.CharField("Код", max_length=80, primary_key=True)
+    source_id = models.PositiveIntegerField("Идентификатор на belnotary.by", unique=True)
+    name = models.CharField("Наименование", max_length=250)
+    district = models.CharField("Нотариальный округ", max_length=80)
+    address = models.CharField("Адрес", max_length=250, blank=True)
+    phones = models.CharField("Телефоны", max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["district", "name"]
+        verbose_name = "Нотариальная контора"
+        verbose_name_plural = "Нотариальные конторы"
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class BnpDocType(TimeStampedModel, SoftDeleteModel):
     """Тип документа БНП (docTypeId)."""
 
@@ -319,6 +365,25 @@ class BnpDocType(TimeStampedModel, SoftDeleteModel):
         ordering = ["code"]
         verbose_name = "Тип документа БНП"
         verbose_name_plural = "Типы документов БНП"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ExtraMeasureCatalog(TimeStampedModel, SoftDeleteModel):
+    """Справочник дополнительных мероприятий. Ведёт локальный администратор."""
+
+    organization = models.ForeignKey(
+        "users.Organization", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="extra_measures", verbose_name="Схема",
+    )
+    name = models.CharField("Наименование", max_length=250)
+    note = models.CharField("Пояснение", max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Дополнительное мероприятие"
+        verbose_name_plural = "Дополнительные мероприятия"
 
     def __str__(self) -> str:
         return self.name

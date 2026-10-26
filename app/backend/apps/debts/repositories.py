@@ -1,9 +1,89 @@
 """Запросы к данным реестра ЛС (сложные выборки вынесены из вьюх)."""
 
-from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery, Sum
+from decimal import Decimal
+
+from django.db.models import (
+    Count, DateField, DecimalField, Exists, IntegerField, Max, Min, OuterRef, Q, QuerySet, Subquery, Sum,
+)
 from django.db.models.functions import Coalesce
 
-from .models import Account, ClaimCase, Measure, MeasureItem, Registration
+from .models import Account, AccountService, ClaimCase, Measure, MeasureItem, Registration
+from .services.registration_flags import active_q
+
+
+def _count_by_account(model, extra=None):
+    rows = model.objects.filter(account_id=OuterRef("pk"))
+    if extra is not None:
+        rows = rows.filter(extra)
+    return Coalesce(
+        Subquery(
+            rows.order_by()
+            .values("account_id")
+            .annotate(total=Count("pk"))
+            .values("total")[:1],
+            output_field=IntegerField(),
+        ),
+        0,
+    )
+
+
+def _sum_services(field: str):
+    return Coalesce(
+        Subquery(
+            AccountService.objects.filter(account_id=OuterRef("pk"))
+            .order_by()
+            .values("account_id")
+            .annotate(total=Sum(field))
+            .values("total")[:1],
+            output_field=DecimalField(max_digits=20, decimal_places=2),
+        ),
+        Decimal("0"),
+    )
+
+
+def supplier_annotations(provider_ids: list[int]) -> dict:
+    """Суммы поставщика отдельными подзапросами, без JOIN услуг к каждому ЛС.
+
+    Прежний Sum по services заставлял группировать строку счёта и тормозил поиск.
+    Пустая выборка поставщика остаётся NULL у сумм и 0 у числа услуг, как раньше.
+    """
+    allowed = provider_ids or [-1]
+    debt = Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0)
+
+    def scoped():
+        return AccountService.objects.filter(account_id=OuterRef("pk"), provider_id__in=allowed)
+
+    def total(field: str):
+        return Subquery(
+            scoped().order_by().values("account_id").annotate(total=Sum(field)).values("total")[:1],
+            output_field=DecimalField(max_digits=20, decimal_places=2),
+        )
+
+    def extreme(agg, field, output):
+        return Subquery(
+            scoped().filter(debt).order_by().values("account_id").annotate(total=agg(field)).values("total")[:1],
+            output_field=output,
+        )
+
+    counted = Coalesce(
+        Subquery(
+            scoped().order_by().values("account_id").annotate(total=Count("pk")).values("total")[:1],
+            output_field=IntegerField(),
+        ),
+        0,
+    )
+    return {
+        "supplier_principal": total("balance_out"),
+        "supplier_penalty": total("balance_mulct_out"),
+        "supplier_services": counted,
+        "supplier_balance_in": total("balance_in"),
+        "supplier_calc": total("calc_sum"),
+        "supplier_paid": total("share_service_summ"),
+        "supplier_subsidy": total("calc_result_sum"),
+        "supplier_group": extreme(Max, Coalesce("debt_group_manual", "debt_group"), IntegerField()),
+        "supplier_months": extreme(Max, "debt_period", IntegerField()),
+        "supplier_started": extreme(Min, "debt_started_on", DateField()),
+    }
 
 
 class AccountRepository:
@@ -11,14 +91,19 @@ class AccountRepository:
         self.base = base if base is not None else Account.objects.all()
 
     def registry(self) -> QuerySet:
-        """Реестр ЛС: итоги по услугам считаются в одном запросе."""
-        # Meta.ordering не применяется к запросам с GROUP BY — порядок задаётся явно
+        """Реестр ЛС: итоги по услугам — отдельные подзапросы, без GROUP BY всей карточки.
+
+        Соединение услуг и регистраций в одном JOIN раздувало сумму долга и заставляло
+        PostgreSQL группировать исходный JSON выгрузки.
+        """
         legal = Registration.objects.filter(account_id=OuterRef("pk"), subj_legal_entity=True)
-        return self.base.select_related("assigned_to", "debtor_category", "scenario_run__scenario").annotate(
-            services_count=Count("services", distinct=True),
-            debt_total=Sum("services__balance_out"),
-            mulct_total=Sum("services__balance_mulct_out"),
-            registered_count=Count("registrations", distinct=True),
+        return self.base.defer("raw").select_related(
+            "assigned_to", "debtor_category", "scenario_run__scenario",
+        ).annotate(
+            services_count=_count_by_account(AccountService),
+            debt_total=_sum_services("balance_out"),
+            mulct_total=_sum_services("balance_mulct_out"),
+            registered_count=_count_by_account(Registration, active_q()),
             is_legal=Exists(legal),
             sort_group=Coalesce("debt_group_manual", "debt_group"),
         ).order_by("client_account", "id")
@@ -29,14 +114,26 @@ class AccountRepository:
         term = term.strip()
         if not term:
             return qs
-        condition = Q(client_account__icontains=term) | Q(short_fio__icontains=term) | Q(
-            account_address__icontains=term
+        condition = (
+            Q(client_account__icontains=term)
+            | Q(short_fio__icontains=term)
+            | Q(account_address__icontains=term)
+            | Q(provider_short_name__icontains=term)
+            | Q(ownership_type_name__icontains=term)
+            | Q(acc_category_full__icontains=term)
+            | Q(scenario_name__icontains=term)
+            | Q(schema_name__icontains=term)
+            | Q(assigned_to__last_name__icontains=term)
+            | Q(assigned_to__first_name__icontains=term)
+            | Q(scenario_run__scenario__name__icontains=term)
         )
         if term.isdigit():
             condition |= Q(client_account__endswith=term.lstrip("0") or "0") | Q(unified_account=int(term)) | Q(
                 account_id=int(term)
             )
         condition |= Q(payer_identifier__icontains=term) | Q(payer_unp__icontains=term)
+        # Все условия — поля счёта или связь «один к одному». distinct() здесь
+        # заставлял PostgreSQL сортировать всю выборку перед каждой страницей поиска.
         return qs.filter(condition)
 
     def group_summary(self) -> list[dict]:

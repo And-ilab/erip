@@ -11,16 +11,21 @@ import { MatTableModule } from '@angular/material/table';
 import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate } from '../../core/api.service';
 import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
-import { AccountRow, CalendarEvent, KanbanColumn, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
+import { AccountRow, CalendarEvent, DirectoryUser, KanbanColumn, MeasureRow, MessageTemplate, SavedFilter, ServiceChoice } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 import { CalendarBoardComponent, CalendarDraft, CalendarMode } from '../calendar/calendar-board.component';
 import { briefText, bucketParam, groupSectionTitle } from '../group-title';
 import { DomainFilterComponent, DomainRule, accountDomainFields, parseDomain } from '../domain-filter.component';
+import { GridResizeDirective } from '../grid-resize.directive';
+import { FUNNEL_STAGES, funnelId, funnelTitle } from '../funnel-stages';
+import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { AccountsMapComponent } from './accounts-map.component';
 
 const LABELS: Record<string, string> = {
@@ -59,17 +64,52 @@ const LABELS: Record<string, string> = {
   funnel_stage: 'Этап воронки взыскания',
 };
 
+const SHORT_LABELS: Record<string, string> = {
+  account_id: 'ID ЛС',
+  client_account: 'Номер\nЛС',
+  unified_account: 'УЕН',
+  provider_short_name: 'Обслуж.\nорганизация',
+  schema_label: 'Схема',
+  account_address: 'Адрес',
+  short_fio: 'ФИО /\nнаименование',
+  payer_identifier: 'ИН',
+  payer_unp: 'УНП',
+  rating_label: 'Рейтинг',
+  debt_started_on: 'Ранний\nпериод долга',
+  debt_total: 'Основной\nдолг',
+  mulct_total: 'Пеня',
+  obligation_total: 'Суммарный\nдолг',
+  services_debt_count: 'Услуг\nс долгом',
+  contract_number: 'Номер\nдоговора',
+  contract_date: 'Дата\nдоговора',
+  service_provider: 'Поставщик\nуслуги',
+  initial_principal: 'Первонач.\nдолг',
+  initial_penalty: 'Первонач.\nпеня',
+  period_balances: 'Остатки\nпо периодам',
+  repayment_due_on: 'Срок\nпогашения',
+  last_payment_date: 'Последняя\nоплата',
+  effective_group: 'Группа',
+  scenario_name: 'Сценарий',
+  scenario_brief: 'Сценарий',
+  assigned_name: 'Специалист',
+  ownership_type_name: 'Собствен-\nность',
+  acc_category_full: 'Жилфонд',
+  months_debt: 'Месяцев\nдолга',
+  subj_count: 'Прожива-\nющие',
+  registered_count: 'Зареги-\nстрировано',
+  funnel_stage: 'Этап\nворонки',
+};
+
 const MONEY_COLUMNS = new Set([
   'debt_total', 'mulct_total', 'obligation_total', 'initial_principal', 'initial_penalty', 'period_balances',
 ]);
 
 const BASE_COLUMNS = [
-  'client_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
+  'client_account', 'unified_account', 'account_id', 'short_fio', 'account_address', 'payer_identifier', 'payer_unp',
+  'provider_short_name', 'schema_label',
   'rating_label', 'funnel_stage', 'debt_total', 'mulct_total', 'obligation_total', 'effective_group',
   'scenario_brief', 'assigned_name', 'ownership_type_name', 'acc_category_full', 'months_debt',
-  'subj_count', 'registered_count', 'services_debt_count', 'debt_started_on',
-  'contract_number', 'contract_date', 'service_provider', 'initial_principal', 'initial_penalty',
-  'period_balances', 'repayment_due_on', 'last_payment_date',
+  'subj_count', 'registered_count', 'debt_started_on',
 ];
 
 type CustomField = 'group' | 'rating' | 'stage' | 'specialist' | 'ownership' | 'housing' | 'months' | 'residents';
@@ -91,18 +131,20 @@ interface GroupSection {
 
 @Component({
   selector: 'app-accounts-list',
+  host: { '[class.board]': 'view() === "kanban"' },
   standalone: true,
   imports: [
     ReactiveFormsModule, MatTableModule, MatPaginatorModule, MatSortModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatSnackBarModule, AccountsMapComponent, AnalyticsComponent,
     CalendarBoardComponent, RegistryViewsComponent, MoneyComponent, BynSignComponent, DomainFilterComponent,
+    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, FunnelGateDialogComponent,
   ],
   template: `
-    <div class="registry">
-      <div class="control">
+    <div class="registry" [class.board]="view() === 'kanban'">
+      <div class="control" [class.tools-tight]="toolsTight()">
         <span class="crumb">Реестр ЛС</span>
         <div class="search-wrap" (click)="$event.stopPropagation()">
-          <div class="search" (click)="panelOpen.set(true)">
+          <div class="search" (click)="openFilters()">
             @if (groupsSelected.value.length) {
               <button type="button" class="fchip" (click)="clearGroups($event)">Группа: {{ groupsSelected.value.join(', ') }} ×</button>
             }
@@ -142,7 +184,7 @@ interface GroupSection {
             <input
               [formControl]="search"
               placeholder="Поиск по ФИО плательщиков, лицевому счёту, адресу, идентификационному номеру…"
-              (focus)="panelOpen.set(true)"
+              (focus)="openFilters()"
             />
             <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
           </div>
@@ -223,11 +265,17 @@ interface GroupSection {
           <button type="button" class="tool" (click)="clearSelection()">Снять</button>
         }
         @if (canLaunch()) {
-          <button type="button" class="tool" (click)="measureOpen.set(!measureOpen())">Мероприятие</button>
+          <button type="button" class="tool" title="Мероприятие" (click)="measureOpen.set(!measureOpen())">{{ toolLabel('Мероприятие', 'Меропр.') }}</button>
+          @if (selectedCount()) {
+            <button type="button" class="tool" title="Дополнительное мероприятие" (click)="openExtra()">{{ toolLabel('Доп. мероприятие', 'Доп.') }}</button>
+          }
+          <button type="button" class="tool" title="Изменить сценарий" (click)="scenarioOpen.set(!scenarioOpen())">{{ toolLabel('Изменить сценарий', 'Сценарий') }}</button>
+          <button type="button" class="tool" title="Запустить сценарий" (click)="runScenarios()">{{ toolLabel('Запустить сценарий', 'Запуск') }}</button>
+          <button type="button" class="tool" title="Передать специалисту ЮС" (click)="legalOpen.set(!legalOpen())">{{ toolLabel('Передать специалисту ЮС', 'ЮС') }}</button>
         }
-        <button type="button" class="tool" (click)="exportCsv()">CSV</button>
+        <button type="button" class="tool" title="CSV" (click)="exportCsv()">CSV</button>
         <div class="columns-wrap" (click)="$event.stopPropagation()">
-          <button type="button" class="tool" [attr.aria-expanded]="columnsOpen()" (click)="toggleColumns($event)">Столбцы</button>
+          <button type="button" class="tool" title="Столбцы" [attr.aria-expanded]="columnsOpen()" (click)="toggleColumns($event)">{{ toolLabel('Столбцы', 'Столб.') }}</button>
           @if (columnsOpen()) {
             <div class="columns-panel" role="dialog" aria-label="Столбцы реестра">
               @for (name of catalog(); track name) {
@@ -245,15 +293,57 @@ interface GroupSection {
           (modeChange)="showRegistry($event)" />
       </div>
 
+      @if (scenarioOpen()) {
+        <div class="measure">
+          <p class="hint">Сценарий выбирается из справочника. Дальше мера стартует сама или ждёт кнопку — как настроено у обслуживающей организации.</p>
+          <div class="filters">
+            <mat-form-field>
+              <mat-label>Сценарий</mat-label>
+              <mat-select [formControl]="scenarioId">
+                @for (item of scenarioChoices(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <button mat-flat-button color="primary" (click)="changeScenario()">Изменить сценарий</button>
+          </div>
+        </div>
+      }
+      @if (legalOpen()) {
+        <div class="measure">
+          <p class="hint">Специалист ЮС становится закреплённым и исполнителем меры взыскания. В реестре показывается фамилия, имя и отчество целиком.</p>
+          <div class="filters">
+            <mat-form-field>
+              <mat-label>Специалист ЮС</mat-label>
+              <mat-select [formControl]="legalId">
+                @for (item of legalUsers(); track item.id) { <mat-option [value]="item.id">{{ item.registry_name || item.username }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <button mat-flat-button color="primary" (click)="assignLegal()">Передать</button>
+          </div>
+        </div>
+      }
+      @if (extraOpen()) {
+        <div class="measure">
+          <p class="hint">Дополнительное мероприятие по {{ selectedCount() }} выбранным лицевым счетам.</p>
+          <div class="filters">
+            <mat-form-field>
+              <mat-label>Мероприятие</mat-label>
+              <mat-select [formControl]="extraId">
+                @for (item of extraOptions(); track item.id) { <mat-option [value]="item.id">{{ item.name }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <button mat-flat-button color="primary" type="button" (click)="addMassExtra()">Добавить</button>
+          </div>
+        </div>
+      }
       @if (measureOpen()) {
         <div class="measure">
           <p class="hint">
             @if (selectedCount()) {
-              Мероприятие уйдёт по {{ selectedCount() }} выбранным лицевым счетам.
+              Мероприятие назначается по {{ selectedCount() }} выбранным лицевым счетам.
             } @else {
-              Мероприятие уйдёт по всем лицевым счетам текущего фильтра.
+              Мероприятие назначается по всем лицевым счетам текущего фильтра.
             }
-            Шаблон выбирается из списка. Поставщик отмечает свои услуги: в партию попадут только они.
+            Запуск — кнопкой «Провести» в реестре мероприятий. Мероприятие сценария идёт само.
           </p>
           <div class="filters">
             <mat-form-field>
@@ -267,7 +357,7 @@ interface GroupSection {
                 <mat-label>Шаблон</mat-label>
                 <mat-select [formControl]="templateId">
                   @for (item of templateOptions(); track item.id) {
-                    <mat-option [value]="item.id">{{ item.name }} ({{ item.channel_display }})</mat-option>
+                    <mat-option [value]="item.id">{{ templateLabel(item) }}</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -304,7 +394,13 @@ interface GroupSection {
               <mat-form-field><mat-label>Исполнитель (id)</mat-label><input matInput [formControl]="assignee" /></mat-form-field>
               <mat-form-field><mat-label>Срок</mat-label><input matInput type="date" [formControl]="dueOn" /></mat-form-field>
             }
-            <button mat-flat-button color="primary" (click)="launch()">Запустить</button>
+            @if (measureKind.value === 'call') {
+              <p class="hint">В справочнике тексты заведены с каналом e-mail. Для обзвона берётся текст, письмо не отправляется.</p>
+            }
+            @if (measureKind.value === 'notice' && !templateOptions().length) {
+              <p class="hint">Для канала «{{ channel.value === 'sms' ? 'SMS' : 'E-mail' }}» шаблонов нет. Загруженные тексты заведены как e-mail.</p>
+            }
+            <button mat-flat-button color="primary" (click)="launch()">Назначить</button>
           </div>
         </div>
       }
@@ -321,8 +417,8 @@ interface GroupSection {
         }
 
         @if (view() === 'list') {
-          <div class="list-pane">
-          <table mat-table [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
+          <div class="list-pane fill">
+          <table mat-table appGridResize="accounts" [dataSource]="rows()" matSort (matSortChange)="sortBy($event)">
             <ng-container matColumnDef="select">
               <th mat-header-cell *matHeaderCellDef>
                 <input type="checkbox" aria-label="Выбрать страницу" [checked]="pageAllSelected()" (change)="togglePage($event)" />
@@ -334,10 +430,12 @@ interface GroupSection {
             @for (name of columns(); track name) {
               <ng-container [matColumnDef]="name">
                 <th mat-header-cell *matHeaderCellDef [mat-sort-header]="sortable(name) ? name : ''" [disabled]="!sortable(name)"
-                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)">
-                  {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }
+                    draggable="true" (dragstart)="startColumn($event, name)" (dragover)="allowColumn($event)" (drop)="dropColumn($event, name)"
+                    [attr.title]="label(name)">
+                  <span class="col-head" [style.width.ch]="columnCh(name)">{{ shortLabel(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }</span>
                 </th>
-                <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'">
+                <td mat-cell *matCellDef="let r" [class.amount-danger]="name === 'mulct_total' && +r.mulct_total > 0" [class.one-line]="name === 'scenario_brief'"
+                    [attr.title]="name === 'provider_short_name' ? cell(r, name) : null">
                   @switch (name) {
                     @case ('effective_group') { @if (r.effective_group) { <span class="group-badge g{{ r.effective_group }}">{{ r.effective_group }}</span> } }
                     @case ('rating_label') { @if (r.rating_label) { <span class="rating-badge r{{ r.rating_label[0] }}">{{ r.rating_label }}</span> } }
@@ -362,18 +460,18 @@ interface GroupSection {
         }
 
         @if (view() === 'grouped') {
-          <div class="list-pane groups">
+          <div class="list-pane fill groups">
           @if (sectionsLoading()) {
             <p class="hint">Загрузка групп…</p>
           } @else if (!sections().length && !error()) {
             <p class="hint">По этому отбору лицевых счетов нет.</p>
           }
           @if (sections().length) {
-            <table class="grouped-board">
+            <table class="grouped-board" appGridResize="accounts">
               <thead>
                 <tr>
                   @for (name of shownColumns(); track name) {
-                    <th>@if (name !== 'select') { {{ label(name) }}@if (moneyColumn(name)) { <app-byn-sign /> } }</th>
+                    <th [attr.data-col]="name" [attr.title]="name === 'select' ? '' : label(name)">@if (name !== 'select') { <span class="col-head" [style.width.ch]="columnCh(name)">{{ shortLabel(name) }}@if (moneyColumn(name)) { <app-byn-sign /> }</span> }</th>
                   }
                 </tr>
               </thead>
@@ -393,7 +491,8 @@ interface GroupSection {
                     @for (r of section.rows; track r.id) {
                       <tr class="clickable-row" [class.picked]="isSelected(r.id)" (click)="openRow($event, r)">
                         @for (name of shownColumns(); track name) {
-                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)" [class.one-line]="name === 'scenario_brief'">
+                          <td [class.check]="name === 'select'" [class.amount-danger]="penaltyMarked(name, r)" [class.one-line]="name === 'scenario_brief'"
+                              [attr.title]="name === 'provider_short_name' ? cell(r, name) : null">
                             @switch (name) {
                               @case ('select') {
                                 <input type="checkbox" [attr.aria-label]="'Выбрать ЛС ' + r.client_account" [checked]="isSelected(r.id)" (click)="$event.stopPropagation()" (change)="toggleRow(r, $event)" />
@@ -442,61 +541,37 @@ interface GroupSection {
         @if (view() === 'kanban') {
           <div class="k-board">
             @for (column of board(); track column.stage) {
-              <section class="k-col" [class.drop]="dropStage() === column.stage" [attr.data-stage]="column.stage"
-                       (dragover)="allowDrop($event, column.stage)" (dragleave)="clearDrop(column.stage)" (drop)="dropOnStage($event, column.stage)">
-                <h3><span>{{ column.title }}</span><b>{{ column.total }}</b></h3>
-                <div class="list-pane cards">
+              <section class="k-col" [attr.data-kanban-stage]="column.stage" [attr.data-stage]="column.stage">
+                <h3><span [attr.title]="column.title">{{ column.title }}</span><b>{{ column.total }}</b></h3>
+                <div class="k-cards">
                 @for (card of column.cards; track card.id) {
                   <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
-                           [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                    <div class="card-head">
-                      <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                      @if (card.rating_label || card.effective_group) {
-                        <div class="card-marks">
-                          @if (card.rating_label) {
-                            <span class="rating-badge r{{ card.rating_label[0] }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                          }
-                          @if (card.effective_group) {
-                            <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
-                          }
-                        </div>
-                      }
-                    </div>
-                    <div class="line">
-                      <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
-                      @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ short(street(card.account_address)) }}</span> }
-                    </div>
-                    <div class="line one-line" tabindex="0" title="Сценарий">{{ short(card.scenario_brief) === '—' ? 'Сценарий не назначен' : short(card.scenario_brief) }}</div>
-                    @if (card.ownership_type_name || card.acc_category_full) {
-                      <div class="line">
-                        @if (card.ownership_type_name) { <span tabindex="0" title="Тип собственности">{{ short(card.ownership_type_name) }}</span> }
-                        @if (card.ownership_type_name && card.acc_category_full) { · }
-                        @if (card.acc_category_full) { <span tabindex="0" title="Тип объекта жилфонда">{{ short(card.acc_category_full) }}</span> }
+                           [appKanbanDrag]="card.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                           (click)="openCard($event, card)">
+                    <app-kanban-debtor
+                      [name]="card.client_account"
+                      [rating]="card.rating_label"
+                      [group]="card.effective_group"
+                      [account]="''"
+                      [address]="card.account_address || ''"
+                      [scenario]="scenarioLine(card)"
+                      [ownership]="card.ownership_type_name ? short(card.ownership_type_name) : ''"
+                      [housing]="card.acc_category_full ? short(card.acc_category_full) : ''"
+                      [months]="card.months_debt"
+                      [residents]="card.subj_count"
+                      [registered]="card.registered_count"
+                      [total]="card.obligation_total"
+                      [principal]="card.debt_total"
+                      [penalty]="card.mulct_total"
+                      [when]="mark(card)"
+                      [specialist]="card.assigned_name" />
+                    @if (card.open_badges?.length) {
+                      <div class="measure-badges">
+                        @for (badge of card.open_badges; track badge.measure_id) {
+                          <button type="button" class="measure-badge" (click)="openBadge($event, card, badge.measure_id)">{{ badge.label }}</button>
+                        }
                       </div>
                     }
-                    <div class="line">
-                      <span tabindex="0" title="Кол-во месяцев долга">{{ card.months_debt ?? '—' }}</span>
-                      · <span tabindex="0" title="Проживающих">{{ card.subj_count ?? '—' }}</span>
-                      · <span tabindex="0" title="Зарегистрированных">{{ card.registered_count ?? '—' }}</span>
-                    </div>
-                    <div class="money">
-                      <span tabindex="0" title="Сумма задолженности"><app-money [value]="card.obligation_total" [blank]="false" [sign]="false" /></span>
-                      <small>
-                        <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
-                        · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></span>
-                      </small>
-                    </div>
-                    <div class="foot">
-                      @if (mark(card); as note) {
-                        <span class="when">
-                          <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-                          {{ note }}
-                        </span>
-                      } @else { <span></span> }
-                      @if (initials(card.assigned_name); as who) {
-                        <span class="who" [style.background]="avatarColor(card.assigned_name)" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
-                      }
-                    </div>
                   </article>
                 }
                 </div>
@@ -506,12 +581,19 @@ interface GroupSection {
         }
 
         @if (view() === 'calendar') {
+          @if (canLaunch()) {
+            <div class="filters">
+              <input placeholder="дд.мм.гггг" [formControl]="noteDay" />
+              <input placeholder="Заметка специалиста" [formControl]="noteText" />
+              <button type="button" class="tool" (click)="saveNote()">Заметка</button>
+            </div>
+          }
           <app-calendar-board
             [events]="events()" [from]="spanFrom" [to]="spanTo" [mode]="calendarMode" [canCreate]="canLaunch()"
             [supplier]="supplierContour()" [templates]="templates()" [serviceChoices]="serviceChoices()"
             captionTail="мероприятия по делам" [selectedGroups]="groupsSelected.value"
             (modeChange)="calendarMode = $event" (spanChange)="setSpan($event)" (openEvent)="openCalendarEvent($event)"
-            (createEvent)="submitCalendar($event)" (filters)="panelOpen.set(true)"
+            (createEvent)="submitCalendar($event)" (filters)="openFilters()"
             (groupsChange)="applyCalendarGroups($event)" />
         }
       </div>
@@ -524,32 +606,25 @@ interface GroupSection {
           (cancel)="customOpen.set(false)" />
       }
 
-      @if (reasonOpen()) {
-        <div class="backdrop" (click)="reasonOpen.set(false)">
-          <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Основание смены этапа">
-            <h3>Смена этапа воронки взыскания</h3>
-            <p class="muted">Это переход карточки между этапами воронки взыскания. Мероприятие этой кнопкой не меняется. Без заполненного основания этап не меняется.</p>
-            <mat-form-field class="reason-field">
-              <mat-label>Этап воронки взыскания</mat-label>
-              <mat-select [formControl]="funnelStage">
-                @for (item of stages; track item.id) { <mat-option [value]="item.id">{{ item.label }}</mat-option> }
-              </mat-select>
-            </mat-form-field>
-            <mat-form-field class="reason-field">
-              <mat-label>Основание</mat-label>
-              <input matInput [formControl]="funnelReason" />
-            </mat-form-field>
-            <div class="dialog-actions">
-              <button mat-flat-button color="primary" type="button" (click)="confirmMove()">Перевести</button>
-              <button mat-stroked-button type="button" (click)="reasonOpen.set(false)">Отмена</button>
-            </div>
-          </div>
-        </div>
-      }
+      <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
+
     </div>
   `,
   styles: `
     :host { display: block; }
+    :host.board {
+      display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+    }
+    .registry.board { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box; }
+    .registry.board > :not(.body) { flex: 0 0 auto; }
+    .registry.board .body {
+      display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
+    }
+    .registry.board .k-board {
+      flex: 1; min-height: 0; min-width: 0;
+      overflow-x: auto; overflow-y: hidden; align-items: stretch;
+    }
+    .registry.board .k-cards { padding-top: 8px; }
     .control {
       display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px;
       background: #f7f9fb; border-bottom: 1px solid var(--erip-border);
@@ -571,9 +646,12 @@ interface GroupSection {
     .chevron {
       border: 0; background: transparent; color: var(--erip-muted); cursor: pointer; font-size: 12px; padding: 4px;
     }
+    .control.tools-tight { gap: 6px; }
+    .control.tools-tight .tool { padding: 0 6px; font-size: 12px; }
     .search-panel {
       position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
-      display: grid; grid-template-columns: 1.15fr 1fr .9fr; width: min(820px, 100%);
+      display: grid; grid-template-columns: minmax(260px, 1.15fr) minmax(220px, 1fr) minmax(200px, .9fr);
+      width: min(960px, calc(100vw - 248px));
       background: #fff; border: 1px solid var(--erip-border); border-radius: 6px;
       box-shadow: 0 8px 24px rgba(16, 42, 67, .16);
     }
@@ -581,9 +659,9 @@ interface GroupSection {
     .col + .col { border-left: 1px solid var(--erip-border); }
     .col-title {
       padding: 6px 16px 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
-      text-transform: uppercase; color: var(--erip-muted);
+      text-transform: uppercase; color: var(--erip-muted); white-space: nowrap;
     }
-    .sub { padding: 4px 16px; font-size: 12px; color: var(--erip-muted); }
+    .sub { padding: 4px 16px; font-size: 12px; color: var(--erip-muted); white-space: nowrap; }
     .pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
     .pill, .menu-item, .menu-add, .save-row button, .tool, .view-btn { font: inherit; cursor: pointer; }
     .pill {
@@ -593,7 +671,7 @@ interface GroupSection {
     .pill.on, .menu-item.on { background: var(--erip-primary-soft); color: var(--erip-primary); font-weight: 600; border-color: transparent; }
     .menu-item, .menu-add {
       display: block; width: 100%; text-align: left; border: 0; background: transparent;
-      padding: 6px 16px; font-size: 13px; color: #1f2933;
+      padding: 6px 16px; font-size: 13px; color: #1f2933; white-space: nowrap;
     }
     .menu-item:hover, .menu-add:hover, .pill:hover { background: #f3f6f8; }
     .menu-add { color: var(--erip-link); }
@@ -626,24 +704,53 @@ interface GroupSection {
     .measure { padding: 10px 16px 0; background: #fff; border-bottom: 1px solid var(--erip-border); }
     .hint { margin: 0 0 8px; font-size: 13px; color: var(--erip-muted); }
     .body { padding: 16px 24px; }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; }
-    .k-col h3 {
-      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
-      font-size: 13px; font-weight: 600; color: #243140;
+    .k-board {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      min-height: 0;
     }
-    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col {
+      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      display: flex; flex-direction: column;
+    }
+    .k-cards {
+      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+    }
+    .k-card.kanban-source { opacity: .35; }
+    .measure-badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+    .measure-badge {
+      border: 0; background: #e7f2f4; color: var(--erip-primary); border-radius: 10px;
+      font: inherit; font-size: 11px; line-height: 1.3; padding: 2px 8px; cursor: pointer; text-align: left;
+    }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
+      border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
+      color: #243140; background: var(--erip-bg);
+    }
+    .k-col h3 span {
+      flex: 1 1 auto; min-width: 0; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .k-col[data-stage="new"] h3 { border-bottom-color: #1f9d55; }
-    .k-col[data-stage="prevention"] h3 { border-bottom-color: #2563eb; }
-    .k-col[data-stage="warning"] h3 { border-bottom-color: #e0a106; }
+    .k-col[data-stage="call"] h3 { border-bottom-color: #2563eb; }
+    .k-col[data-stage="notice"] h3 { border-bottom-color: #0f766e; }
     .k-col[data-stage="disconnect"] h3 { border-bottom-color: #f08c2e; }
-    .k-col[data-stage="enforcement"] h3 { border-bottom-color: #e53935; }
-    .k-col[data-stage="court"] h3 { border-bottom-color: #8e2430; }
-    .k-col[data-stage="closed"] h3 { border-bottom-color: #9ca3af; }
+    .k-col[data-stage="prep"] h3 { border-bottom-color: #7c3aed; }
+    .k-col[data-stage="notary"] h3 { border-bottom-color: #e53935; }
+    .k-col[data-stage="writ_done"] h3 { border-bottom-color: #b45309; }
+    .k-col[data-stage="refused"] h3 { border-bottom-color: #9f1239; }
+    .k-col[data-stage="lawsuit"] h3 { border-bottom-color: #1d4ed8; }
+    .k-col[data-stage="judgment"] h3 { border-bottom-color: #1e3a8a; }
+    .k-col[data-stage="opi"] h3 { border-bottom-color: #8e2430; }
+    .k-col[data-stage="opi_measures"] h3 { border-bottom-color: #7f1d1d; }
+    .k-col[data-stage="recovered"] h3 { border-bottom-color: #15803d; }
+    .k-col[data-stage="impossible"] h3 { border-bottom-color: #6b7280; }
+    .k-col[data-stage="writeoff"] h3 { border-bottom-color: #9ca3af; }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
-      border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
+      border-radius: 8px; padding: 10px 12px 4px; margin-bottom: 8px; cursor: pointer;
       box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
@@ -651,6 +758,13 @@ interface GroupSection {
     .k-col.drop { outline: 2px dashed var(--erip-primary); outline-offset: 2px; border-radius: 8px; }
     .picked-count { font-size: 13px; color: var(--erip-primary); white-space: nowrap; }
     th[draggable="true"] { cursor: grab; }
+    .col-head {
+      display: inline-block; white-space: pre-line; line-height: 1.15; vertical-align: bottom;
+      font-size: 12px; font-weight: 600;
+    }
+    .list-pane.fill .mat-mdc-header-cell { white-space: normal; vertical-align: bottom; }
+    :host ::ng-deep .list-pane.fill .mat-sort-header-content { white-space: normal; text-align: left; overflow: visible; }
+    .list-pane.fill td.mat-mdc-cell, .grouped-board td { white-space: nowrap; }
     th app-byn-sign { margin-left: 0.28em; }
     .k-card.g1 { border-left-color: #1f9d55; } .k-card.g2 { border-left-color: #c8962e; }
     .k-card.g3 { border-left-color: #ef6c00; } .k-card.g4 { border-left-color: #e53935; }
@@ -719,17 +833,9 @@ export class AccountsListComponent implements OnInit {
   private readonly snack = inject(MatSnackBar);
   private readonly auth = inject(AuthService);
 
-  protected readonly groups = [1, 2, 3, 4, 5, 6];
+  protected readonly groups = [0, 1, 2, 3, 4, 5, 6];
   protected readonly letters = ['A', 'B', 'C', 'D', 'E'];
-  protected readonly stages = [
-    { id: 'new', label: 'Новый должник' },
-    { id: 'prevention', label: 'Автообзвон/уведомления' },
-    { id: 'warning', label: 'Предупреждение вручено' },
-    { id: 'disconnect', label: 'Отключение услуг' },
-    { id: 'enforcement', label: 'Исполнительная надпись / иск' },
-    { id: 'court', label: 'ОПИ' },
-    { id: 'closed', label: 'Не должник' },
-  ];
+  protected readonly stages = FUNNEL_STAGES.map((stage) => ({ id: stage.id, label: stage.title }));
   protected readonly groupOptions = [
     { id: 'provider', label: 'Обслуживающая организация' },
     { id: 'debt_group', label: 'Группа задолженности' },
@@ -753,12 +859,24 @@ export class AccountsListComponent implements OnInit {
   protected readonly rows = signal<AccountRow[]>([]);
   protected readonly total = signal(0);
   protected readonly error = signal('');
-  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map' | 'charts'>('list');
+  protected readonly gate = signal<FunnelGateInfo | null>(null);
+  protected readonly view = signal<'list' | 'kanban' | 'calendar' | 'grouped' | 'map' | 'charts'>('kanban');
   protected readonly panelOpen = signal(false);
   protected readonly customOpen = signal(false);
   protected readonly accountFields = accountDomainFields();
   protected readonly domain = signal<DomainRule | null>(null);
   protected readonly measureOpen = signal(false);
+  protected readonly extraOpen = signal(false);
+  protected readonly extraId = new FormControl<number | null>(null);
+  protected readonly extraOptions = signal<{ id: number; name: string }[]>([]);
+  protected readonly scenarioOpen = signal(false);
+  protected readonly legalOpen = signal(false);
+  protected readonly scenarioChoices = signal<{ id: number; name: string }[]>([]);
+  protected readonly legalUsers = signal<DirectoryUser[]>([]);
+  protected readonly scenarioId = new FormControl<number | null>(null);
+  protected readonly legalId = new FormControl<number | null>(null);
+  protected readonly noteDay = new FormControl('', { nonNullable: true });
+  protected readonly noteText = new FormControl('', { nonNullable: true });
   protected readonly mapQuery = signal<Record<string, string | number | null>>({});
   protected readonly territoryId = signal<number | null>(null);
   protected readonly territoryName = signal('');
@@ -871,16 +989,41 @@ export class AccountsListComponent implements OnInit {
       next: (page) => this.templates.set(page.results),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+    this.api.scenarios().subscribe({
+      next: (page) => this.scenarioChoices.set(page.results.map((row) => ({ id: row.id, name: row.name }))),
+      error: () => this.scenarioChoices.set([]),
+    });
+    this.api.directoryUsers({ role: 'legal' }).subscribe({
+      next: (page) => this.legalUsers.set(page.results),
+      error: () => this.legalUsers.set([]),
+    });
     this.api.serviceChoices().subscribe({
       next: (page) => this.serviceChoices.set(page.results),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
     this.channel.valueChanges.subscribe(() => this.keepTemplateInList());
-    this.reload(1);
+    this.showKanban();
   }
 
   label(name: string): string {
     return LABELS[name] ?? name;
+  }
+
+  protected shortLabel(name: string): string {
+    return SHORT_LABELS[name] ?? this.label(name);
+  }
+
+  protected columnCh(name: string): number {
+    let longest = 0;
+    const take = (row: AccountRow) => {
+      longest = Math.max(longest, this.shownText(row, name).length);
+    };
+    for (const row of this.rows()) take(row);
+    for (const section of this.sections()) {
+      for (const row of section.rows) take(row);
+    }
+    const head = Math.max(...this.shortLabel(name).split('\n').map((line) => line.length), 4);
+    return Math.max(longest, head, 4);
   }
 
   protected moneyColumn(name: string): boolean {
@@ -888,7 +1031,7 @@ export class AccountsListComponent implements OnInit {
   }
 
   stageLabel(id: string): string {
-    return this.stages.find((item) => item.id === id)?.label ?? id;
+    return funnelTitle(id);
   }
 
   setSpecialist(name: string): void {
@@ -927,6 +1070,24 @@ export class AccountsListComponent implements OnInit {
     return briefText(text || '');
   }
 
+  protected scenarioLine(card: AccountRow): string {
+    const text = this.short(card.scenario_brief);
+    return text === '—' ? 'Сценарий не назначен' : text;
+  }
+
+  private shownText(row: AccountRow, name: string): string {
+    if (name === 'funnel_stage') return this.stageLabel(row.funnel_stage);
+    if (name === 'scenario_brief') return this.short(row.scenario_brief);
+    if (name === 'short_fio') return `${row.short_fio || ''}${row.is_legal ? ' ЮЛ' : ''}`;
+    if (name === 'effective_group') return row.effective_group ? String(row.effective_group) : '';
+    if (name === 'rating_label') return row.rating_label || '';
+    if (name === 'debt_total' || name === 'mulct_total' || name === 'obligation_total' || name === 'initial_principal' || name === 'initial_penalty') {
+      const raw = name.startsWith('initial') ? this.boardCell(row, name) : String(row[name as keyof AccountRow] ?? '');
+      return raw;
+    }
+    return this.boardCell(row, name);
+  }
+
   boardCell(row: AccountRow, name: string): string {
     const lines = row.service_lines || [];
     const join = (pick: (line: NonNullable<AccountRow['service_lines']>[number]) => string) => {
@@ -947,15 +1108,44 @@ export class AccountsListComponent implements OnInit {
       ).join('; '));
     }
     const raw = this.cell(row, name);
-    if (['account_address', 'ownership_type_name', 'acc_category_full', 'assigned_name', 'provider_short_name', 'schema_label'].includes(name)) {
+    if (name === 'account_address' || name === 'provider_short_name') return raw;
+    if (name === 'assigned_name') return raw;
+    if (['ownership_type_name', 'acc_category_full', 'schema_label'].includes(name)) {
       return briefText(raw);
     }
     return raw;
   }
 
+  protected toolsTight(): boolean {
+    return this.panelOpen() || this.columnsOpen() || this.measureOpen() || this.extraOpen() || this.scenarioOpen() || this.legalOpen();
+  }
+
+  protected toolLabel(full: string, short: string): string {
+    return this.toolsTight() ? short : full;
+  }
+
+  protected openFilters(): void {
+    if (this.panelOpen()) return;
+    this.panelOpen.set(true);
+    this.markFilterOpen();
+  }
+
   togglePanel(event: Event): void {
     event.stopPropagation();
+    const opening = !this.panelOpen();
     this.panelOpen.update((open) => !open);
+    if (opening) this.markFilterOpen();
+  }
+
+  private markFilterOpen(): void {
+    const started = performance.now();
+    requestAnimationFrame(() => {
+      agentDbg('C', 'accounts-list.component.ts:openFilters', 'filter panel frame', {
+        ms: Math.round(performance.now() - started),
+        rows: this.rows().length,
+        specialists: this.specialists().length,
+      });
+    });
   }
 
   applyCalendarGroups(groups: number[]): void {
@@ -1126,10 +1316,7 @@ export class AccountsListComponent implements OnInit {
       : { kind: draft.kind, filters: this.query(), all_matching: true };
     this.fillEvent(body, draft);
     this.api.createMeasure(body).subscribe({
-      next: (measure) => {
-        this.snack.open(`${measure.kind_display}: ${measure.status_display}`, 'OK', { duration: 5000 });
-        this.loadCalendar();
-      },
+      next: (measure) => this.afterCallLaunch(measure, () => this.loadCalendar()),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
@@ -1160,6 +1347,30 @@ export class AccountsListComponent implements OnInit {
 
   protected selectedCount(): number {
     return this.selected().size;
+  }
+
+  protected openExtra(): void {
+    this.extraOpen.update((open) => !open);
+    if (!this.extraOpen() || this.extraOptions().length) return;
+    this.api.extraMeasureCatalog().subscribe({
+      next: (page) => {
+        this.extraOptions.set(page.results);
+        this.extraId.setValue(page.results[0]?.id ?? null);
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
+  }
+
+  protected addMassExtra(): void {
+    const catalogId = this.extraId.value;
+    if (catalogId == null || !this.selected().size) return;
+    this.api.addExtraMeasures({ catalog_id: catalogId, account_ids: [...this.selected()] }).subscribe({
+      next: () => {
+        this.extraOpen.set(false);
+        this.snack.open('Дополнительное мероприятие добавлено', 'OK');
+      },
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+    });
   }
 
   protected isSelected(id: number): boolean {
@@ -1240,6 +1451,10 @@ export class AccountsListComponent implements OnInit {
   }
 
   protected startColumn(event: DragEvent, name: string): void {
+    if (event.target instanceof Element && event.target.closest('.col-resize')) {
+      event.preventDefault();
+      return;
+    }
     this.draggedColumn = name;
     event.dataTransfer?.setData('text/plain', name);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
@@ -1277,35 +1492,27 @@ export class AccountsListComponent implements OnInit {
     this.api.saveColumns(visible, order).subscribe({ error: (e) => this.snack.open(errorMessage(e), 'OK') });
   }
 
-  protected startCard(event: DragEvent, card: AccountRow): void {
-    if (!this.canMove()) {
-      event.preventDefault();
-      return;
-    }
-    this.cardDragged = true;
-    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
-    event.dataTransfer?.setData('text/plain', ids.join(','));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const id = Number(event.id);
+    if (!id || !this.canMove()) return;
+    const card = this.board().flatMap((column) => column.cards).find((item) => item.id === id);
+    if (card && funnelId(card.funnel_stage) === event.stage) return;
+    const ids = this.selected().has(id) ? [...this.selected()] : [id];
+    this.moveIds(ids, event.stage);
+  }
+
+  protected openGate(): void {
+    const blocked = this.gate();
+    this.gate.set(null);
+    const id = blocked?.accountId;
+    if (!id) return;
+    this.router.navigate(['/accounts', id], { queryParams: { tab: blocked.tab || 'activities' } });
+  }
+
+  protected openBadge(event: Event, card: AccountRow, measureId: number): void {
+    event.preventDefault();
     event.stopPropagation();
-  }
-
-  protected allowDrop(event: DragEvent, stage: string): void {
-    if (!this.canMove()) return;
-    event.preventDefault();
-    this.dropStage.set(stage);
-  }
-
-  protected clearDrop(stage: string): void {
-    if (this.dropStage() === stage) this.dropStage.set(null);
-  }
-
-  protected dropOnStage(event: DragEvent, stage: string): void {
-    event.preventDefault();
-    this.dropStage.set(null);
-    if (!this.canMove()) return;
-    const raw = event.dataTransfer?.getData('text/plain') || '';
-    const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
-    if (ids.length) this.moveIds(ids, stage);
+    this.router.navigate(['/accounts', card.id], { queryParams: { tab: 'activities', measure: measureId } });
   }
 
   protected openCard(event: MouseEvent, card: AccountRow): void {
@@ -1335,10 +1542,28 @@ export class AccountsListComponent implements OnInit {
 
   private moveIds(ids: number[], stage: string): void {
     this.stageMenu.set(null);
-    this.pendingMove = { ids, stage };
-    this.funnelStage.setValue(stage || 'new');
-    this.funnelReason.setValue('');
-    this.reasonOpen.set(true);
+    const pending = [...ids];
+    const step = (): void => {
+      const id = pending.shift();
+      if (id == null) {
+        this.selected.set(new Set());
+        this.showKanban();
+        return;
+      }
+      this.api.updateAccount(id, { funnel_stage: stage }).subscribe({
+        next: () => step(),
+        error: (e) => {
+          this.showKanban();
+          const blocked = funnelGate(e);
+          if (blocked) {
+            this.gate.set(blocked.accountId ? blocked : { ...blocked, accountId: id });
+            return;
+          }
+          this.snack.open(errorMessage(e), 'OK');
+        },
+      });
+    };
+    step();
   }
 
   protected openStage(event: Event, card: AccountRow): void {
@@ -1367,7 +1592,14 @@ export class AccountsListComponent implements OnInit {
       }
       this.api.updateAccount(id, { funnel_stage: stage, funnel_reason: reason }).subscribe({
         next: () => step(),
-        error: (e) => this.snack.open(errorMessage(e), 'OK'),
+        error: (e) => {
+          const blocked = funnelGate(e);
+          if (blocked) {
+            this.gate.set(blocked.accountId ? blocked : { ...blocked, accountId: id });
+            return;
+          }
+          this.snack.open(errorMessage(e), 'OK');
+        },
       });
     };
     step();
@@ -1512,10 +1744,72 @@ export class AccountsListComponent implements OnInit {
   templateOptions(): MessageTemplate[] {
     const all = this.templates();
     if (this.measureKind.value !== 'notice') return all;
-    const channel = this.channel.value;
-    if (channel !== 'email' && channel !== 'sms') return all;
-    const matched = all.filter((item) => item.channel === channel);
-    return matched.length ? matched : all;
+    return all.filter((item) => item.channel === this.channel.value);
+  }
+
+  templateLabel(item: MessageTemplate): string {
+    return this.measureKind.value === 'notice' ? `${item.name} (${item.channel_display})` : item.name;
+  }
+
+  protected saveNote(): void {
+    const text = this.noteText.value.trim();
+    const raw = this.noteDay.value.trim();
+    const match = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (!text || !match) {
+      this.snack.open('Укажите дату дд.мм.гггг и текст заметки', 'OK');
+      return;
+    }
+    this.api.saveCalendarNote(`${match[3]}-${match[2]}-${match[1]}`, text).subscribe({
+      next: () => {
+        this.noteText.setValue('');
+        this.loadCalendar();
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected runScenarios(): void {
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = chosen.length ? { account_ids: chosen } : { all_matching: true, filters: this.query() };
+    this.api.startScenarios(body).subscribe({
+      next: (result) => this.snack.open(`Сценарий запущен по ${result.started} счетам`, 'OK', { duration: 4000 }),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected changeScenario(): void {
+    if (this.scenarioId.value == null) {
+      this.snack.open('Выберите сценарий', 'OK');
+      return;
+    }
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = {
+      scenario_id: this.scenarioId.value,
+      ...(chosen.length ? { account_ids: chosen } : { all_matching: true, filters: this.query() }),
+    };
+    this.api.changeScenarios(body).subscribe({
+      next: (result) => this.snack.open(`Сценарий изменён у ${result.changed} счетов`, 'OK', { duration: 4000 }),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected assignLegal(): void {
+    if (this.legalId.value == null) {
+      this.snack.open('Выберите специалиста ЮС', 'OK');
+      return;
+    }
+    const chosen = [...this.selected()];
+    const body: Record<string, unknown> = {
+      user_id: this.legalId.value,
+      ...(chosen.length ? { account_ids: chosen } : { all_matching: true, filters: this.query() }),
+    };
+    this.api.assignLegal(body).subscribe({
+      next: (result) => {
+        this.snack.open(`Передано счетов: ${result.assigned}`, 'OK', { duration: 4000 });
+        this.reload(1);
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   launch(): void {
@@ -1554,12 +1848,15 @@ export class AccountsListComponent implements OnInit {
       body['due_on'] = this.dueOn.value;
     }
     this.api.createMeasure(body).subscribe({
-      next: (measure) => {
-        const file = measure.artifact ? ` Файл: ${measure.artifact}` : '';
-        this.snack.open(`${measure.kind_display}: ${measure.status_display}.${file}`, 'OK', { duration: 5000 });
-      },
+      next: (measure) => this.afterCallLaunch(measure),
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  private afterCallLaunch(measure: MeasureRow, done?: () => void): void {
+    this.snack.open('Мероприятие назначено. Запуск — кнопкой «Провести» в реестре мероприятий.', 'OK', { duration: 5000 });
+    done?.();
+    if (!done) this.router.navigate(['/measures', measure.id]);
   }
 
   private keepTemplateInList(): void {
@@ -1745,15 +2042,35 @@ export class AccountsListComponent implements OnInit {
       return;
     }
     this.view.set('list');
+    const started = performance.now();
     this.api.accounts({ page, page_size: this.pageSize, ordering: this.ordering, ...this.query() }).subscribe({
       next: (result) => {
+        agentDbg('D', 'accounts-list.component.ts:reload', 'accounts list', {
+          ms: Math.round(performance.now() - started),
+          page,
+          pageSize: this.pageSize,
+          count: result.count,
+          rows: result.results.length,
+        });
         this.rows.set(result.results);
         this.total.set(result.count);
         this.error.set('');
       },
-      error: (e) => this.error.set(errorMessage(e)),
+      error: (e) => {
+        agentDbg('D', 'accounts-list.component.ts:reload', 'accounts list failed', {
+          ms: Math.round(performance.now() - started),
+          page,
+        });
+        this.error.set(errorMessage(e));
+      },
     });
   }
+}
+
+function agentDbg(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
+  // #region agent log
+  fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb728a'},body:JSON.stringify({sessionId:'cb728a',runId:'pre-fix',hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 }
 
 function monthStart(): string {

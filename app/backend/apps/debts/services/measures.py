@@ -2,7 +2,9 @@
 
 Партия — одна запись Measure. По каждому ЛС — частная MeasureItem со своим статусом.
 Обзвон пишет в частную строку ответ голосового адаптера. Пока адаптер — заглушка AMI,
-набор не выполняется, и это видно на карточке. SMTP и Белпочта по-прежнему не боевые.
+набор не выполняется, и это видно на карточке. Письмо уходит в почтовый адаптер:
+пока GW_EMAIL_MODE=stub, отправка не выполняется и это видно на карточке.
+Белпочта по-прежнему не боевая.
 Задание поставщику кладётся во входящие ПМ.
 """
 
@@ -11,6 +13,7 @@ from __future__ import annotations
 import re
 from datetime import date, time, timedelta
 
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -24,7 +27,7 @@ from apps.debts.models import (
     StatusHistory,
 )
 from apps.debts.services.contacts import choose_phone
-from apps.notifications.models import Channel, Notification
+from apps.notifications.models import Channel, MessageTemplate, Notification
 from apps.nsi.models import CalculationSettings
 from apps.users.models import ServiceOrganization, User
 from apps.users.scoping import AccessScope
@@ -507,7 +510,7 @@ def collection_executor(account: Account):
     return (
         User.objects.filter(
             organization_id=account.organization_id, is_active=True,
-            contour=User.Contour.BILLING, role=User.Role.SPECIALIST,
+            contour=User.Contour.BILLING, role__in=(User.Role.LEGAL, User.Role.SPECIALIST),
         )
         .order_by("id")
         .first()
@@ -519,7 +522,7 @@ def _leads_collection(user, account: Account) -> bool:
         user.is_active
         and user.organization_id == account.organization_id
         and user.contour == User.Contour.BILLING
-        and user.role == User.Role.SPECIALIST
+        and user.role in {User.Role.LEGAL, User.Role.SPECIALIST}
     )
 
 
@@ -669,6 +672,13 @@ def launch_measure(user, accounts: list[Account], services: list[AccountService]
     elif kind == Measure.Kind.DISCONNECT:
         _notify_disconnect(measure)
     rollup(measure)
+    if not needs_approval:
+        from apps.debts.services.funnel import MEASURE_STAGE, promote
+
+        opened = MEASURE_STAGE.get(kind)
+        if opened:
+            for account in accounts:
+                promote(account, opened, user, "Открыто мероприятие")
     inheritance_ids = [row["account_id"] for row in skipped if row["reason"] == "Открыто наследственное дело"]
     return {
         "measure": measure,
@@ -701,6 +711,7 @@ def write_call_result(
     external_call: bool | None = None,
     provider_message_id: str = "",
     caller_id: str = "",
+    recording_ref: str | None = None,
     acted_at=None,
 ) -> MeasureItem:
     """Один и тот же набор полей для заглушки AMI, боевого адаптера и ручного звонка."""
@@ -722,11 +733,16 @@ def write_call_result(
     error = (data.get("error") or "").strip()
     old = item.status
     item.call_result = result
-    item.status = CALL_DONE[result]
+    scenario_dial = bool(measure.source_scenario_id) and measure.source_action in {"call", "manual_call"} and not measure.stopped
+    item.status = MeasureItem.Status.RUNNING if scenario_dial else CALL_DONE[result]
     item.note = note[:500]
     item.delivery_error = error[:500]
     item.provider_message_id = (provider_message_id or "")[:64]
     item.caller_id = (caller_id or "")[:30]
+    if recording_ref is not None:
+        item.recording_ref = recording_ref[:500]
+    elif "recording_ref" in data:
+        item.recording_ref = str(data.get("recording_ref") or "")[:500]
     item.external_call = external_call
     item.acted_by = user if getattr(user, "is_authenticated", False) else None
     item.acted_at = acted_at or timezone.now()
@@ -740,9 +756,41 @@ def write_call_result(
         reason = ". ".join(parts)
     else:
         reason = note or item.get_call_result_display()
+        if item.recording_ref:
+            reason = f"{reason}. Запись: {item.recording_ref}"
     log_event(measure, item, item.acted_by, old, item.status, reason)
+    _remember_attempt(item)
     rollup(measure)
+    if scenario_dial and (item.listen_percent or 0) >= 70:
+        from apps.nsi.services.scenario_engine import advance_account
+
+        advance_account(item.account)
     return item
+
+
+def _remember_attempt(item: MeasureItem) -> None:
+    from apps.debts.models import CallAttempt
+
+    listened = item.listen_percent is not None and item.listen_percent >= 70
+    if listened:
+        status = CallAttempt.Status.DONE
+    elif item.call_result == MeasureItem.CallResult.BUSY:
+        status = CallAttempt.Status.BUSY
+    elif item.call_result == MeasureItem.CallResult.BAD_NUMBER:
+        status = CallAttempt.Status.BAD_NUMBER
+    elif item.call_result == MeasureItem.CallResult.NO_ANSWER:
+        status = CallAttempt.Status.NO_ANSWER
+    else:
+        status = CallAttempt.Status.FAILED if not listened else CallAttempt.Status.DONE
+    CallAttempt.objects.create(
+        item=item,
+        attempted_at=item.acted_at or timezone.now(),
+        duration_sec=item.duration_sec,
+        listen_percent=item.listen_percent,
+        status=status,
+        recording_ref=item.recording_ref or "",
+        external_call=item.external_call,
+    )
 
 
 def record_item(measure: Measure, item: MeasureItem, user, data) -> MeasureItem:
@@ -874,15 +922,9 @@ def apply_confirmation(measure: Measure, step: str, source: str, user) -> Measur
 
 
 def _move_funnel(account: Account, user) -> None:
-    if account.funnel_locked or account.funnel_stage == "disconnect":
-        return
-    old = account.funnel_stage
-    account.funnel_stage = "disconnect"
-    account.save(update_fields=["funnel_stage", "updated_at"])
-    StatusHistory.objects.create(
-        organization=account.organization, account=account, kind=StatusHistory.Kind.FUNNEL,
-        old_value=old, new_value="disconnect", reason="Принято отключение услуги", author=user,
-    )
+    from apps.debts.services.funnel import promote
+
+    promote(account, "disconnect", user, "Принято отключение услуги")
 
 
 def accept_disconnect(measure: Measure, user) -> Measure:
@@ -961,7 +1003,10 @@ def cancel_disconnect(measure: Measure, user, reason: str) -> Measure:
     return measure
 
 
-def sync_notice_status(notification_id: int, delivered: bool, error: str = "") -> None:
+def sync_notice_status(
+    notification_id: int, delivered: bool, error: str = "", *,
+    provider_message_id: str = "", external_call: bool | None = None,
+) -> None:
     item = MeasureItem.objects.filter(notification_id=notification_id).select_related("measure").first()
     if item is None or item.measure.kind != Measure.Kind.NOTICE:
         return
@@ -972,46 +1017,152 @@ def sync_notice_status(notification_id: int, delivered: bool, error: str = "") -
     else:
         item.status = MeasureItem.Status.FAILED
         item.delivery_error = (error or "Ошибка доставки")[:500]
+    fields = ["status", "delivery_error", "acted_at", "updated_at"]
+    if provider_message_id:
+        item.provider_message_id = provider_message_id[:64]
+        fields.append("provider_message_id")
+    if external_call is not None:
+        item.external_call = external_call
+        fields.append("external_call")
     item.acted_at = timezone.now()
-    item.save(update_fields=["status", "delivery_error", "acted_at", "updated_at"])
-    log_event(item.measure, item, None, old, item.status, item.delivery_error or "Доставлено")
+    item.save(update_fields=fields)
+    log_event(item.measure, item, None, old, item.status, _notice_reason(item, delivered, error, external_call))
     rollup(item.measure)
 
 
+def _notice_reason(item: MeasureItem, delivered: bool, error: str, external_call: bool | None) -> str:
+    if external_call is False:
+        quiet = "Письмо не отправлялось" if item.measure.channel == "email" else "Сообщение не отправлялось"
+        if error:
+            return f"{error}. {quiet}"[:500]
+        return quiet
+    if delivered:
+        return "Доставлено"
+    return (error or "Ошибка доставки")[:500]
+
+
+def notice_template(measure: Measure, account: Account, channel: str) -> MessageTemplate | None:
+    """Сначала шаблон с названием партии, иначе каркас группы долга."""
+    from apps.notifications.services.dispatcher import template_for_account
+
+    named = MessageTemplate.objects.filter(is_active=True, channel=channel, name=measure.template_name)
+    local = named.filter(organization_id=measure.organization_id).order_by("id").first()
+    if local is not None:
+        return local
+    central = named.filter(organization__isnull=True).order_by("id").first()
+    if central is not None:
+        return central
+    return template_for_account(account, channel)
+
+
 def queue_notices(measure: Measure, items, user) -> int:
-    """Ставит письма и SMS в оповещения. Шлюз может быть заглушкой: ошибка видна в частном мероприятии."""
+    """Ставит письма и SMS в оповещения. Повтор той же строки второе письмо не создаёт.
+
+    Шлюз может быть заглушкой: ошибка и признак «не отправлялось» приходят в частную строку.
+    """
     if measure.kind != Measure.Kind.NOTICE:
         raise MeasureLaunchError({"kind": "Отправка относится к уведомлению"})
+    if measure.channel not in NOTICE_CHANNELS:
+        raise MeasureLaunchError({"channel": "Канал уведомления: email или sms"})
     from apps.notifications.services.dispatcher import NotificationDispatcher
 
     dispatcher = NotificationDispatcher()
-    count = 0
     channel = Channel.EMAIL if measure.channel == "email" else Channel.SMS
-    for item in items:
-        if item.status == MeasureItem.Status.DONE:
-            continue
-        notification = Notification.objects.create(
-            organization=measure.organization, channel=channel, account=item.account,
-            body=measure.template_name, recipient_address=item.recipient, status=Notification.Status.NEW,
-        )
-        notification = dispatcher.dispatch(notification)
-        item.notification_id = notification.id
-        old = item.status
-        if notification.status == Notification.Status.FAILED:
-            item.status = MeasureItem.Status.FAILED
-            item.delivery_error = (notification.error or "Ошибка доставки")[:500]
-        else:
-            item.status = MeasureItem.Status.RUNNING
-            item.delivery_error = ""
-        item.acted_by = user
-        item.acted_at = timezone.now()
-        item.save()
-        log_event(measure, item, user, old, item.status, item.delivery_error)
-        count += 1
-    rollup(measure)
-    if not count:
+    count = 0
+    kept = 0
+    for raw in items:
+        result = _queue_one(measure, raw.pk, user, channel, dispatcher)
+        if result == "sent":
+            count += 1
+        elif result == "kept":
+            kept += 1
+    if count:
+        rollup(measure)
+    if not count and not kept:
         raise MeasureLaunchError({"item_ids": "Нет уведомлений для отправки"})
     return count
+
+
+def _queue_one(measure: Measure, item_id: int, user, channel: str, dispatcher) -> str:
+    """Сначала фиксирует одно оповещение, потом отдаёт его в шлюз.
+
+    Пока строка заблокирована, второй щелчок «Отправить» видит уже созданное письмо
+    и не заводит ещё одно. Сам вызов шлюза идёт после фиксации, чтобы ответ шлюза
+    нашёл запись.
+    """
+    with transaction.atomic():
+        item = MeasureItem.objects.select_for_update().get(pk=item_id, measure=measure)
+        if item.status == MeasureItem.Status.DONE:
+            return "skip"
+        linked = Notification.objects.filter(pk=item.notification_id).first() if item.notification_id else None
+        if linked and linked.status in {Notification.Status.QUEUED, Notification.Status.SENT}:
+            return "kept"
+        if linked and linked.status == Notification.Status.NEW:
+            notification_id = linked.id
+        else:
+            notification = _insert_notice(measure, item, user, channel)
+            if notification.status != Notification.Status.NEW:
+                item.notification_id = notification.id
+                item.save(update_fields=["notification_id", "updated_at"])
+                return "kept"
+            notification_id = notification.id
+            item.notification_id = notification_id
+            item.save(update_fields=["notification_id", "updated_at"])
+    with transaction.atomic():
+        notification = Notification.objects.select_for_update().get(pk=notification_id)
+        if notification.status != Notification.Status.NEW:
+            return "kept"
+        notification = dispatcher.dispatch(notification)
+        item = MeasureItem.objects.select_for_update().get(pk=item_id)
+        _apply_queue_result(measure, item, notification, user)
+    return "sent"
+
+
+def _insert_notice(measure: Measure, item: MeasureItem, user, channel: str) -> Notification:
+    template = notice_template(measure, item.account, channel)
+    actor = user if getattr(user, "is_authenticated", False) else None
+    try:
+        with transaction.atomic():
+            return Notification.objects.create(
+                organization=measure.organization, channel=channel, account=item.account,
+                template=template, template_version=template.version if template else None,
+                body=template.body if template else measure.template_name,
+                recipient_address=item.recipient, status=Notification.Status.NEW,
+                created_by=actor,
+            )
+    except IntegrityError:
+        found = _open_notice(user, item.account, template, channel)
+        if found is None:
+            raise
+        return found
+
+
+def _open_notice(user, account: Account, template: MessageTemplate | None, channel: str) -> Notification | None:
+    if template is None or not getattr(user, "is_authenticated", False):
+        return None
+    return (
+        Notification.objects.filter(
+            created_by=user, account=account, template=template, channel=channel,
+            status__in=(Notification.Status.NEW, Notification.Status.QUEUED),
+        )
+        .order_by("-id")
+        .first()
+    )
+
+
+def _apply_queue_result(measure: Measure, item: MeasureItem, notification: Notification, user) -> None:
+    old = item.status
+    item.notification_id = notification.id
+    if notification.status == Notification.Status.FAILED:
+        item.status = MeasureItem.Status.FAILED
+        item.delivery_error = (notification.error or "Ошибка доставки")[:500]
+    else:
+        item.status = MeasureItem.Status.RUNNING
+        item.delivery_error = ""
+    item.acted_by = user if getattr(user, "is_authenticated", False) else None
+    item.acted_at = timezone.now()
+    item.save()
+    log_event(measure, item, item.acted_by, old, item.status, item.delivery_error)
 
 
 def close_paid_measures(account: Account, service: AccountService | None) -> None:

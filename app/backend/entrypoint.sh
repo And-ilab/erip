@@ -2,7 +2,7 @@
 set -e
 
 python manage.py migrate --noinput
-python manage.py loaddata debt_group_scale bnp_dictionaries message_templates
+python manage.py loaddata debt_group_scale bnp_dictionaries notary_offices message_templates
 python manage.py collectstatic --noinput
 python manage.py ensure_superuser
 python manage.py seed_role_testers

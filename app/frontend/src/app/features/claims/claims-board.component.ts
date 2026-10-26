@@ -5,27 +5,33 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
-import { DateFieldComponent } from '../../core/date-field.component';
-import { ApiService, AssignedAccount, ClaimCase, Named, errorMessage } from '../../core/api.service';
+import { ApiService, AssignedAccount, ClaimCase, Named, NotaryOffice, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
-import { AccountRow, CalendarEvent, KanbanColumn } from '../../core/models';
+import { AccountRow, CalendarEvent, KanbanColumn, WritDraft } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
 import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board.component';
 import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
+import { briefText } from '../group-title';
+import { GridResizeDirective } from '../grid-resize.directive';
+import { KanbanDebtorComponent } from '../kanban-debtor.component';
+import { KanbanDragDirective } from '../kanban-drag.directive';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
   selector: 'app-claims-board',
-  host: { '[class.case-open]': 'caseOpen()' },
+  host: {
+    '[class.case-open]': 'caseOpen()',
+    '[class.board]': '!caseOpen() && mode() === "kanban"',
+  },
   standalone: true,
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
-    DateFieldComponent,
+    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective,
   ],
   template: `
-    <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()">
+    <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()" [class.board]="!caseOpen() && mode() === 'kanban'">
       @if (!caseOpen()) {
       <div class="toolbar">
         <h2>Претензионно-исковая работа</h2>
@@ -58,18 +64,18 @@ import { RegistryViewsComponent } from '../registry-views.component';
               </div>
             } @else {
               <div class="list-pane">
-              <table>
+              <table appGridResize="claims">
                 <thead>
                   <tr>
-                    <th>Должник</th>
-                    <th>Лицевой счёт (Номер ЛС)</th>
-                    <th>Адрес ЛС запросом (Адрес)</th>
-                    <th>Группа</th>
-                    <th>Рейтинг</th>
-                    <th>Исходящее сальдо с пенями <app-byn-sign /></th>
-                    <th>Исходящее сальдо пени <app-byn-sign /></th>
-                    <th>Этап</th>
-                    <th>Дело</th>
+                    <th data-col="debtor">Должник</th>
+                    <th data-col="account">Лицевой счёт (Номер ЛС)</th>
+                    <th data-col="address">Адрес ЛС запросом (Адрес)</th>
+                    <th data-col="group">Группа</th>
+                    <th data-col="rating">Рейтинг</th>
+                    <th data-col="debt">Исходящее сальдо с пенями <app-byn-sign /></th>
+                    <th data-col="mulct">Исходящее сальдо пени <app-byn-sign /></th>
+                    <th data-col="stage">Этап</th>
+                    <th data-col="case">Дело</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -83,7 +89,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td><app-money [value]="row.debt_total" [blank]="false" /></td>
                       <td [class.amount-danger]="+(row.mulct_total || 0) > 0"><app-money [value]="row.mulct_total" [blank]="false" /></td>
                       <td>{{ stageLabel(row.funnel_stage) }}</td>
-                      <td>{{ claimOf(row)?.stage_label || 'не открыто' }}</td>
+                      <td>
+                        @for (claim of datedClaims(row); track claim.id) {
+                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: 'pack' }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
+                        } @empty { не заведена }
+                      </td>
                     </tr>
                   }
                 </tbody>
@@ -99,49 +109,35 @@ import { RegistryViewsComponent } from '../registry-views.component';
       @if (!caseOpen() && mode() === 'kanban') {
         <div class="k-board">
           @for (lane of shownLanes(); track lane.id) {
-            <section class="k-col" [class.drop]="dropStage() === lane.id" [attr.data-lane]="lane.id"
-                     (dragover)="allowDrop($event, lane.id)" (dragleave)="clearDrop(lane.id)" (drop)="dropOnLane($event, lane)">
-              <h3><span>{{ lane.label }}</span><b>{{ laneTotal(lane) }}</b></h3>
-              <div class="list-pane cards">
+            <section class="k-col" [attr.data-kanban-stage]="lane.entry" [attr.data-lane]="lane.id">
+              <h3><span [attr.title]="lane.label">{{ lane.label }}</span><b>{{ laneTotal(lane) }}</b></h3>
+              <div class="k-cards">
               @for (card of laneCards(lane); track card.id) {
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
-                         [draggable]="canMove()" (dragstart)="startCard($event, card)" (click)="openCard($event, card)">
-                  <div class="card-head">
-                    <div class="name">{{ card.short_fio || 'Без ФИО' }}</div>
-                    @if (card.rating_label || card.effective_group) {
-                      <div class="card-marks">
-                        @if (card.rating_label) {
-                          <span class="rating-badge r{{ letter(card.rating_label) }}" tabindex="0" title="Рейтинг должника">{{ card.rating_label }}</span>
-                        }
-                        @if (card.effective_group) {
-                          <span class="group-badge g{{ card.effective_group }}" tabindex="0" title="Группа задолженности {{ card.effective_group }}">{{ card.effective_group }}</span>
-                        }
-                      </div>
+                         [appKanbanDrag]="card.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                         (click)="openCard($event, card)">
+                  <app-kanban-debtor
+                    [name]="card.short_fio || 'Без ФИО'"
+                    [rating]="card.rating_label"
+                    [group]="card.effective_group"
+                    [account]="card.client_account"
+                    [address]="card.account_address ? short(street(card.account_address)) : ''"
+                    [scenario]="scenarioLine(card)"
+                    [ownership]="card.ownership_type_name ? short(card.ownership_type_name) : ''"
+                    [housing]="card.acc_category_full ? short(card.acc_category_full) : ''"
+                    [months]="card.months_debt"
+                    [residents]="card.subj_count"
+                    [registered]="card.registered_count"
+                    [total]="card.obligation_total"
+                    [principal]="card.debt_total"
+                    [penalty]="card.mulct_total"
+                    [when]="mark(card)"
+                    [specialist]="card.assigned_name">
+                    <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
+                    @if (module() === 'notary' && canMove() && courtFrom(card)) {
+                      <button type="button" class="court" (click)="toCourt($event, card)">{{ courtFrom(card) }}</button>
                     }
-                  </div>
-                  <div class="line">
-                    <span tabindex="0" title="Номер ЛС">{{ card.client_account }}</span>
-                    @if (card.account_address) { · <span tabindex="0" title="Адрес">{{ street(card.account_address || '') }}</span> }
-                  </div>
-                  <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
-                  @if (module() === 'notary' && canMove() && courtFrom(card)) {
-                    <button type="button" class="court" (click)="toCourt($event, card)">{{ courtFrom(card) }}</button>
-                  }
-                  <div class="money">
-                    <span tabindex="0" title="Исходящее сальдо с пенями"><app-money [value]="card.debt_total" [blank]="false" [sign]="false" /></span>
-                    <small class="amount-danger" tabindex="0" title="Исходящее сальдо пени"><app-money [value]="card.mulct_total" [blank]="false" [sign]="false" /></small>
-                  </div>
-                  <div class="foot">
-                    @if (mark(card); as note) {
-                      <span class="when">
-                        <svg class="cal" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.2 6.4h11.6M5 2v2.6M11 2v2.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-                        {{ note }}
-                      </span>
-                    } @else { <span></span> }
-                    @if (initials(card.assigned_name); as who) {
-                      <span class="who" [style.background]="avatarColor(card.assigned_name)" tabindex="0" [title]="'Закреплённый специалист: ' + card.assigned_name">{{ who }}</span>
-                    }
-                  </div>
+                  </app-kanban-debtor>
                 </article>
               }
               </div>
@@ -167,13 +163,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
 
       @if (dialog()) {
         <div class="backdrop" (click)="closeDialog()">
-          <form class="modal" (click)="pickerOpen.set(false); $event.stopPropagation()" (ngSubmit)="save(false)">
+          <form class="modal" (click)="closePickers($event)" (ngSubmit)="saveWrit()">
             <h2>Добавление исполнительной надписи</h2>
-            <p class="hint">
-              Пакет собирается из шаблона и вложений. Переход «Направлено нотариусу» возможен только с датой вручения предупреждения и нотариальным тарифом.
-              Названия, порядок и обязательность этапов задаёт чек-лист шага «Исполнительная надпись» в конструкторе сценариев.
-              Дальше пакет собирается на карточке: манифест, PDF и файлы ЭЦП .pdf.sgn / .pdf.p7s. В личный кабинет БНП отправка не идёт.
-            </p>
+            <p class="hint">Новый период — отдельный пакет. Документы и почта уже открытых пакетов в него не копируются.</p>
 
             <h3>Дело</h3>
             <div class="picker" (click)="$event.stopPropagation()">
@@ -198,62 +190,59 @@ import { RegistryViewsComponent } from '../registry-views.component';
             </div>
             @if (picked(); as row) {
               <p class="chosen">{{ row.client_account }} — {{ row.short_fio || 'без ФИО' }} (Группа {{ groupOf(row) || '—' }})</p>
-              @if (early(row)) {
-                <p class="warn">
-                  Группа {{ groupOf(row) }}: исполнительная надпись не открывается.
-                  Для группы 2 — предупреждение и приостановление услуг в реестре мероприятий.
-                  Модуль включается с группы 3.
-                </p>
-              }
               @if ((groupOf(row) || 0) >= 4) {
                 <p class="hint">Группа {{ groupOf(row) }}: после надписи доступны иск о выселении и отчуждении жилья.</p>
               }
-              @if (already(); as open) {
-                <p class="hint">Дело уже есть: {{ open.stage_label }}. <a [routerLink]="['/claims', open.id]" (click)="closeDialog()">Открыть</a></p>
-              }
+              <div class="writ-form">
+                <label>Период с
+                  <input type="date" name="writFrom" [(ngModel)]="writFrom" (change)="refreshWritWindow()" />
+                </label>
+                <label>Период по
+                  <input type="date" name="writTo" [(ngModel)]="writTo" (change)="refreshWritWindow()" />
+                </label>
+                <label>Дата вручения предупреждения
+                  <input type="date" name="writWarning" [(ngModel)]="writWarning" (change)="refreshWritWindow()" />
+                </label>
+                <label>Дата акта о невручении
+                  <input type="date" name="writAct" [(ngModel)]="writAct" (change)="refreshWritWindow()" />
+                </label>
+                <label>Дней на погашение
+                  <input type="number" name="writDays" min="1" [(ngModel)]="writDays" />
+                </label>
+                <div class="picker office-picker wide" (click)="$event.stopPropagation()">
+                  <label>Нотариальная контора
+                    <input [(ngModel)]="office" name="office" autocomplete="off" placeholder="Название, округ или адрес"
+                           (focus)="officeOpen.set(true)" (input)="officeOpen.set(true)" />
+                  </label>
+                  @if (officeOpen()) {
+                    <div class="picks">
+                      @if (!officeHits().length) {
+                        <p>В справочнике такой конторы нет. Можно оставить вписанное название.</p>
+                      } @else {
+                        @for (item of officeHits(); track item.code) {
+                          <button type="button" [class.on]="office === item.name" (click)="chooseOffice(item)">
+                            {{ item.name }}
+                            <small>{{ item.district }}</small>
+                          </button>
+                        }
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+              <dl class="writ-sheet">
+                <div><dt>Долг по услугам</dt><dd>{{ writ()?.principal || '—' }}</dd></div>
+                <div><dt>Пеня</dt><dd>{{ writ()?.penalty || '—' }}</dd></div>
+                <div><dt>Тариф нотариуса</dt><dd>{{ writ()?.tariff || 'не передано из АИС' }}</dd></div>
+                <div><dt>ФИО ответчика</dt><dd>{{ writ()?.defendant_name || '—' }}</dd></div>
+              </dl>
+              @for (msg of writ()?.blockers || []; track msg) { <p class="warn">{{ msg }}</p> }
+              @if (writError()) { <p class="warn">{{ writError() }}</p> }
+            } @else {
+              <p class="hint">Сначала выберите лицевой счёт.</p>
             }
-            <label>Период задолженности
-              <input [value]="periodText()" readonly />
-            </label>
-            <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="warningDate = $event" />
-            <p class="check" [class.ok]="!!warningDate">
-              {{ warningDate ? 'Вручено — условие чек-листа выполнено' : 'Нет даты вручения предупреждения' }}
-            </p>
-
-            <h3>Суммы</h3>
-            <label>Исходящее сальдо с пенями <span class="sum-box"><app-money [value]="picked()?.balance_out ?? editing()?.balance_out ?? null" /></span></label>
-            <label>Исходящее сальдо пени <span class="sum-box"><app-money [value]="picked()?.mulct_total ?? editing()?.penalty ?? null" /></span></label>
-            <label [class.miss]="sendTried() && !(Number(tariff) > 0)">Нотариальный тариф
-              <span class="with-sign">
-                <input [(ngModel)]="tariff" name="tariff" placeholder="считает АИС, пока можно внести" />
-                <app-byn-sign />
-              </span>
-            </label>
-            <p class="aside-note">Рассчитывается в АИС и относится на должника. ПМ сумму начисления не меняет.</p>
-            <label class="total">Итого к взысканию <span class="sum-box"><app-money [value]="grand()" [blank]="false" /></span></label>
-
-            <h3>Нотариус</h3>
-            <label>Нотариальная контора
-              <input value="Справочник контор ещё не подключён" disabled />
-            </label>
-
-            <h3>Пакет документов</h3>
-            <ul class="pack">
-              <li><span>Заявление о совершении исполнительной надписи</span><em class="wait">из шаблона при направлении</em></li>
-              <li>
-                <span>Расчёт задолженности по ЛС {{ picked()?.client_account || editing()?.client_account || '' }}</span>
-                <em class="ok">из АИС</em>
-              </li>
-              <li>
-                <span>Копия предупреждения с отметкой о вручении</span>
-                <em [class.ok]="!!warningDate" [class.wait]="!warningDate">{{ warningDate ? 'дата есть' : 'нет даты' }}</em>
-              </li>
-              <li><span>Выписка о зарегистрированных лицах</span><em class="wait">ожидает загрузки на карточку</em></li>
-            </ul>
-
             <div class="actions">
-              <button type="button" class="primary" [disabled]="busy() || !canSend()" (click)="save(true)">Сохранить и открыть пакет</button>
-              <button type="submit" class="ghost" [disabled]="busy() || !canDraft()">Сохранить черновик</button>
+              <button type="submit" class="primary" [disabled]="busy() || !picked()">Сохранить и открыть пакет документов</button>
               <button type="button" class="ghost" (click)="closeDialog()">Отмена</button>
             </div>
           </form>
@@ -262,8 +251,22 @@ import { RegistryViewsComponent } from '../registry-views.component';
     </div>
   `,
   styles: `
+    :host.board {
+      display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+    }
+    .page.board {
+      display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; box-sizing: border-box;
+    }
+    .page.board > :not(.k-board) { flex: 0 0 auto; }
+    .page.board .k-board {
+      flex: 1; min-height: 0; min-width: 0;
+      overflow-x: auto; overflow-y: hidden; align-items: stretch;
+    }
+    .page.board .k-cards { padding-top: 8px; }
     :host.case-open { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
     .page.case { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px 16px; }
+    :host.case-open:has(app-claim-checklist.file-open) { flex: 1 0 auto; height: auto; min-height: 100%; overflow: visible; }
+    .page.case:has(app-claim-checklist.file-open) { flex: none; height: auto; min-height: auto; overflow: visible; }
     .filters { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
     .searchbar { flex: 1; }
     .searchbar input {
@@ -276,14 +279,32 @@ import { RegistryViewsComponent } from '../registry-views.component';
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: #f7f9fb; }
     .account-no { color: var(--erip-link); }
-    .k-board { display: flex; gap: 14px; overflow: auto; align-items: flex-start; padding-bottom: 12px; }
-    .k-col { width: 268px; flex: 0 0 268px; }
-    .k-col h3 {
-      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-      margin: 0 0 8px; padding: 0 2px 6px; border-bottom: 3px solid #cbd5e1;
-      font-size: 13px; font-weight: 600; color: #243140;
+    .pack-link { display: block; color: var(--erip-link); text-decoration: none; }
+    .pack-link + .pack-link { margin-top: 4px; }
+    .k-board {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+      min-height: 0;
     }
-    .k-col h3 b { font-weight: 600; color: #8b95a1; }
+    .k-col {
+      width: 268px; flex: 0 0 268px; min-height: 0; align-self: stretch;
+      display: flex; flex-direction: column;
+    }
+    .k-cards {
+      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+      overflow-x: hidden; overflow-y: auto; padding-bottom: 12px;
+    }
+    .k-card.kanban-source { opacity: .35; }
+    .k-col h3 {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      flex: 0 0 auto; box-sizing: border-box; height: 44px; margin: 0; padding: 0 2px 6px;
+      border-bottom: 3px solid #cbd5e1; font-size: 13px; font-weight: 600; line-height: 1.25;
+      color: #243140; background: var(--erip-bg);
+    }
+    .k-col h3 span {
+      flex: 1 1 auto; min-width: 0; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .k-col h3 b { flex: 0 0 auto; font-weight: 600; color: #8b95a1; line-height: 1.25; }
     .modules { display: flex; gap: 8px; margin: 0 0 12px; }
     .modules button {
       border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; font-weight: 600;
@@ -303,7 +324,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .k-card {
       position: relative; background: #fff; border: 1px solid #e6ebf0; border-left: 3px solid #cbd5e1;
-      border-radius: 8px; padding: 10px 12px 8px; margin-bottom: 8px; cursor: pointer;
+      border-radius: 8px; padding: 10px 12px 4px; margin-bottom: 8px; cursor: pointer;
       box-shadow: 0 1px 2px rgba(16, 42, 67, .06);
     }
     .k-card:hover { box-shadow: 0 2px 8px rgba(16, 42, 67, .12); }
@@ -381,10 +402,21 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .empty h2 { margin: 0 0 8px; color: var(--erip-primary-dark); font-size: 18px; }
     .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(20, 40, 55, .45); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
     .modal {
-      box-sizing: border-box; width: 720px; max-width: calc(100vw - 32px);
-      height: min(640px, calc(100vh - 48px)); overflow: auto;
+      box-sizing: border-box; width: min(1080px, calc(100vw - 32px)); max-width: calc(100vw - 32px);
+      height: auto; max-height: calc(100vh - 48px); overflow: auto;
       background: #fff; border-radius: 12px; padding: 20px 22px 16px; box-shadow: 0 16px 40px rgba(16, 42, 67, .25);
     }
+    .writ-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px; }
+    .modal .writ-form label {
+      display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 1 1 170px;
+      margin: 0; grid-template-columns: none; font-size: 12px; color: var(--erip-muted);
+    }
+    .modal .writ-form .wide { flex: 1 1 100%; position: relative; }
+    .modal .writ-form input { width: 100%; box-sizing: border-box; color: #1f2933; font-size: 14px; }
+    .writ-form .picks { left: 0; }
+    .writ-sheet { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 16px; margin: 14px 0 0; }
+    .writ-sheet dt { color: var(--erip-muted); font-size: 12px; }
+    .writ-sheet dd { margin: 4px 0 0; font-weight: 600; }
     .modal h2 { margin: 0 0 6px; font-size: 20px; color: #1f2933; }
     .modal h3 { margin: 14px 0 8px; font-size: 12px; letter-spacing: .04em; color: var(--erip-muted); }
     .modal label { display: grid; grid-template-columns: 220px 1fr; gap: 8px; align-items: center; margin: 6px 0; font-size: 14px; }
@@ -407,7 +439,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
     }
     .picks p { margin: 4px; color: var(--erip-muted); font-size: 13px; }
     .picks button, .chosen { font-size: 13px; }
-    .picks button { text-align: left; border: 1px solid var(--erip-border); background: #fff; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+    .picks button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; border: 1px solid var(--erip-border); background: #fff; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+    .picks button small { color: var(--erip-muted); font-size: 12px; }
     .picks button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .check { margin: 0 0 0 220px; font-size: 13px; color: var(--erip-danger); }
     .check.ok { color: var(--erip-success); }
@@ -426,6 +459,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
       .modal label { grid-template-columns: 1fr; }
       .picks { left: 0; }
       .check, .aside-note { margin-left: 0; }
+      .writ-sheet { grid-template-columns: 1fr 1fr; }
       .toolbar { flex-wrap: wrap; }
     }
   `,
@@ -486,7 +520,7 @@ export class ClaimsBoardComponent implements OnInit {
   private cardDragged = false;
   protected readonly events = signal<CalendarEvent[]>([]);
   protected readonly error = signal('');
-  protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('list');
+  protected readonly mode = signal<'list' | 'kanban' | 'calendar' | 'charts'>('kanban');
   @ViewChild(RegistryFilterComponent) private registryFilter?: RegistryFilterComponent;
   protected filter: RegistryFilterQuery = { q: '', groups: [], ratings: [], stage: '', period: '' };
   protected readonly chartQuery = signal<Record<string, string | number>>({});
@@ -498,13 +532,19 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly dialog = signal(false);
   protected readonly found = signal<AccountRow[]>([]);
   protected readonly picked = signal<AccountRow | null>(null);
-  protected readonly editing = signal<ClaimCase | null>(null);
   protected readonly busy = signal(false);
-  protected readonly sendTried = signal(false);
   protected readonly query = new FormControl('', { nonNullable: true });
   protected readonly Number = Number;
-  protected warningDate = '';
-  protected tariff = '';
+  protected readonly writ = signal<WritDraft | null>(null);
+  protected readonly writError = signal('');
+  protected writFrom = '';
+  protected writTo = '';
+  protected writWarning = '';
+  protected writAct = '';
+  protected writDays = 7;
+  protected office = '';
+  protected readonly officeOpen = signal(false);
+  protected readonly offices = signal<NotaryOffice[]>([]);
 
   ngOnInit(): void {
     this.trackCase();
@@ -515,6 +555,10 @@ export class ClaimsBoardComponent implements OnInit {
     const module = this.route.snapshot.queryParamMap.get('module');
     if (module === 'court' || module === 'notary') this.module.set(module);
     this.query.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe((value) => this.lookup(value));
+    this.api.notaryOffices().subscribe({
+      next: (page) => this.offices.set(page.results),
+      error: () => this.offices.set([]),
+    });
     const account = this.route.snapshot.queryParamMap.get('account');
     if (account) {
       this.api.openClaim(Number(account)).subscribe({
@@ -566,38 +610,18 @@ export class ClaimsBoardComponent implements OnInit {
     return this.selected().has(id);
   }
 
-  protected startCard(event: DragEvent, card: AccountRow): void {
-    if (!this.canMove()) {
-      event.preventDefault();
-      return;
-    }
-    this.cardDragged = true;
-    const ids = this.selected().has(card.id) ? [...this.selected()] : [card.id];
-    event.dataTransfer?.setData('text/plain', ids.join(','));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    event.stopPropagation();
-  }
-
-  protected allowDrop(event: DragEvent, stage: string): void {
-    if (!this.canMove()) return;
-    event.preventDefault();
-    this.dropStage.set(stage);
-  }
-
-  protected clearDrop(stage: string): void {
-    if (this.dropStage() === stage) this.dropStage.set(null);
-  }
-
-  protected dropOnLane(event: DragEvent, lane: { stages: string[]; entry: string }): void {
-    event.preventDefault();
-    this.dropStage.set(null);
-    if (!this.canMove()) return;
-    const raw = event.dataTransfer?.getData('text/plain') || '';
-    const ids = raw.split(',').map((part) => Number(part)).filter((id) => id > 0);
+  protected onKanbanDrop(event: { id: string; stage: string }): void {
+    const id = Number(event.id);
+    if (!id || !this.canMove()) return;
+    const lane = this.shownLanes().find((item) => item.entry === event.stage);
+    if (!lane) return;
     const known = this.board().flatMap((column) => column.cards);
-    const moving = ids.filter((id) => {
-      const card = known.find((item) => item.id === id);
-      return !!card && !lane.stages.includes(card.claim_stage || 'queue');
+    const card = known.find((item) => item.id === id);
+    if (card && lane.stages.includes(card.claim_stage || 'queue')) return;
+    const ids = this.selected().has(id) ? [...this.selected()] : [id];
+    const moving = ids.filter((item) => {
+      const row = known.find((candidate) => candidate.id === item);
+      return !!row && !lane.stages.includes(row.claim_stage || 'queue');
     });
     if (moving.length) this.moveIds(moving, lane.entry);
   }
@@ -691,7 +715,24 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected claimOf(row: AccountRow): ClaimCase | undefined {
-    return this.cards().find((card) => card.account === row.id);
+    return this.datedClaims(row)[0];
+  }
+
+  protected datedClaims(row: AccountRow): ClaimCase[] {
+    return this.claimsOf(row).filter((claim) => claim.debt_from && claim.debt_to);
+  }
+
+  protected claimsOf(row: AccountRow): ClaimCase[] {
+    return this.cards()
+      .filter((card) => card.account === row.id)
+      .sort((left, right) => (left.debt_from || '').localeCompare(right.debt_from || ''));
+  }
+
+  protected packageLabel(claim: ClaimCase): string {
+    if (claim.debt_from && claim.debt_to) {
+      return `${this.dotDate(claim.debt_from)}–${this.dotDate(claim.debt_to)} · ${claim.stage_label}`;
+    }
+    return `без периода · ${claim.stage_label}`;
   }
 
   protected stageLabel(id: string): string {
@@ -730,30 +771,33 @@ export class ClaimsBoardComponent implements OnInit {
       this.openDebtor(row);
       return;
     }
-    const card = this.cards().find((item) => item.account === event.account_id);
-    if (card) {
+    const dated = this.cards()
+      .filter((item) => item.account === event.account_id && item.debt_from && item.debt_to)
+      .sort((left, right) => (left.debt_from || '').localeCompare(right.debt_from || ''));
+    if (dated.length) {
       this.mode.set('list');
-      this.router.navigate(['/claims', card.id]);
+      this.router.navigate(['/claims', dated[0].id]);
       return;
     }
-    this.router.navigate(['/accounts', event.account_id]);
+    this.missingWrit();
   }
 
   protected openDebtor(row: AccountRow): void {
     const claim = this.claimOf(row);
-    if (claim) {
-      this.mode.set('list');
-      setTimeout(() => this.router.navigate(['/claims', claim.id]));
+    if (!claim) {
+      this.missingWrit();
       return;
     }
-    this.openAssigned({
-      account: row.id,
-      client_account: row.client_account,
-      short_fio: row.short_fio,
-      debt_group: row.effective_group,
-      account_address: row.account_address,
-      funnel_stage: row.funnel_stage,
-    });
+    this.mode.set('list');
+    setTimeout(() => this.router.navigate(['/claims', claim.id]));
+  }
+
+  private missingWrit(): void {
+    this.snack.open(
+      'Исполнительная надпись ещё не заведена. Создайте её кнопкой «Добавить исполнительную надпись» и укажите период.',
+      'OK',
+      { duration: 6000 },
+    );
   }
 
   protected openAssigned(row: AssignedAccount): void {
@@ -771,32 +815,22 @@ export class ClaimsBoardComponent implements OnInit {
     });
   }
 
-  protected early(row: AccountRow): boolean {
-    const group = this.groupOf(row);
-    return group != null && group < 3;
-  }
-
   protected groupOf(row: AccountRow | null): number | null {
     if (!row) return null;
     return row.effective_group ?? row.debt_group;
   }
 
-  protected already(): ClaimCase | undefined {
-    const id = this.picked()?.id;
-    if (!id || this.editing()) return undefined;
-    return this.cards().find((card) => card.account === id);
-  }
-
-  protected periodText(): string {
-    const row = this.picked();
-    if (!row?.debt_started_on) return 'Дата возникновения в выгрузке не указана';
-    const started = this.dotDate(row.debt_started_on);
-    const months = row.months_debt ? `, ${row.months_debt} мес.` : '';
-    return `с ${started}${months}`;
-  }
-
   protected letter(label: string): string {
     return (label || '—').slice(0, 1);
+  }
+
+  protected short(text: string | null | undefined): string {
+    return briefText(text || '');
+  }
+
+  protected scenarioLine(card: AccountRow): string {
+    const text = this.short(card.scenario_brief);
+    return text === '—' ? 'Сценарий не назначен' : text;
   }
 
   protected street(address: string): string {
@@ -833,27 +867,17 @@ export class ClaimsBoardComponent implements OnInit {
     return palette[hash];
   }
 
-  protected grand(): number {
-    const debt = Number(this.picked()?.balance_out || this.editing()?.balance_out || 0);
-    const penalty = Number(this.picked()?.mulct_total || this.editing()?.penalty || 0);
-    const tariff = Number(this.tariff || 0);
-    return debt + penalty + tariff;
-  }
-
-  protected canDraft(): boolean {
-    return !!this.picked() && !this.tooEarly();
-  }
-
-  protected canSend(): boolean {
-    return this.canDraft() && !!this.warningDate && Number(this.tariff) > 0;
-  }
-
   protected openCreate(): void {
-    this.editing.set(null);
     this.picked.set(null);
-    this.warningDate = '';
-    this.tariff = '';
-    this.sendTried.set(false);
+    this.writ.set(null);
+    this.writError.set('');
+    this.writFrom = '';
+    this.writTo = '';
+    this.writWarning = '';
+    this.writAct = '';
+    this.writDays = 7;
+    this.office = '';
+    this.officeOpen.set(false);
     this.query.setValue('');
     this.found.set([]);
     this.pickerOpen.set(false);
@@ -868,7 +892,82 @@ export class ClaimsBoardComponent implements OnInit {
   protected choose(row: AccountRow): void {
     this.picked.set(row);
     this.pickerOpen.set(false);
-    if (!this.warningDate && row.warning_handed_on) this.warningDate = row.warning_handed_on;
+    this.writError.set('');
+    this.loadWrit(row.id, true);
+  }
+
+  protected refreshWritWindow(): void {
+    const row = this.picked();
+    if (!row) return;
+    this.loadWrit(row.id, false);
+  }
+
+  protected saveWrit(): void {
+    const row = this.picked();
+    if (!row || this.busy()) return;
+    this.busy.set(true);
+    this.writError.set('');
+    this.api.createWrit(row.id, {
+      debt_from: this.writFrom,
+      debt_to: this.writTo,
+      warning_delivered_on: this.writWarning,
+      non_delivery_act_on: this.writAct,
+      repayment_days: this.writDays,
+      notary_office: this.office.trim(),
+    }).subscribe({
+      next: (created) => {
+        this.busy.set(false);
+        this.dialog.set(false);
+        this.reload();
+        this.router.navigate(['/claims', created.id], { queryParams: { tab: 'pack', writ: null }, queryParamsHandling: 'merge' });
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.writError.set(errorMessage(err));
+      },
+    });
+  }
+
+  private loadWrit(id: number, fill: boolean): void {
+    const params = fill ? undefined : {
+      debt_from: this.writFrom,
+      debt_to: this.writTo,
+      warning_delivered_on: this.writWarning,
+      non_delivery_act_on: this.writAct,
+    };
+    this.api.writDraft(id, params).subscribe({
+      next: (draft) => {
+        this.writ.set(draft);
+        if (!fill) return;
+        this.writFrom = draft.eligible_from || '';
+        this.writTo = draft.eligible_to || '';
+        this.writWarning = draft.warning_delivered_on || '';
+        this.writAct = draft.non_delivery_act_on || '';
+        this.writDays = draft.repayment_days || 7;
+      },
+      error: (err) => this.writError.set(errorMessage(err)),
+    });
+  }
+
+  protected officeHits(): NotaryOffice[] {
+    const query = this.office.trim().toLowerCase();
+    const rows = this.offices();
+    const matched = query
+      ? rows.filter((row) => `${row.name} ${row.district} ${row.address}`.toLowerCase().includes(query))
+      : rows;
+    return matched.slice(0, 12);
+  }
+
+  protected chooseOffice(row: NotaryOffice): void {
+    this.office = row.name;
+    this.officeOpen.set(false);
+  }
+
+  protected closePickers(event: Event): void {
+    event.stopPropagation();
+    const target = event.target as HTMLElement | null;
+    this.pickerOpen.set(false);
+    if (!target?.closest('.office-picker')) this.officeOpen.set(false);
   }
 
   protected closeDialog(): void {
@@ -876,74 +975,18 @@ export class ClaimsBoardComponent implements OnInit {
     this.router.navigate([], { queryParams: { writ: null }, queryParamsHandling: 'merge' });
   }
 
-  protected save(send: boolean): void {
-    const row = this.picked();
-    if (!row || this.tooEarly()) return;
-    if (send) this.sendTried.set(true);
-    if (send && !this.canSend()) return;
-    const existing = this.already();
-    this.busy.set(true);
-    const opened = existing
-      ? this.api.claim(existing.id)
-      : this.editing()
-        ? this.api.claim(this.editing()!.id)
-        : this.api.openClaim(row.id);
-    opened.subscribe({
-      next: (claim) => this.patchAndMaybeSend(claim, send),
-      error: (err) => this.fail(err),
-    });
-  }
-
-  private tooEarly(): boolean {
-    const group = this.groupOf(this.picked());
-    return group != null && group < 3;
-  }
-
-  private patchAndMaybeSend(claim: ClaimCase, send: boolean): void {
-    this.api.patchClaim(claim.id, {
-      warning_delivered_on: this.warningDate || null,
-      notary_tariff: this.tariff || null,
-    }).subscribe({
-      next: (saved) => {
-        if (!send) {
-          this.busy.set(false);
-          this.finish(saved, 'Черновик сохранён');
-          return;
-        }
-        this.busy.set(false);
-        this.dialog.set(false);
-        this.mode.set('list');
-        this.snack.open('Дата и тариф сохранены. Соберите пакет на карточке: в кабинет БНП он не уходит.', 'OK', { duration: 4000 });
-        this.router.navigate(['/claims', saved.id]);
-        this.reload();
-      },
-      error: (err) => this.fail(err),
-    });
-  }
-
-  private finish(row: ClaimCase, text: string): void {
-    this.dialog.set(false);
-    this.snack.open(text, 'OK', { duration: 2500 });
-    this.reload();
-    this.router.navigate(['/claims', row.id], { queryParams: { writ: null }, queryParamsHandling: 'merge' });
-  }
-
-  private fail(err: unknown): void {
-    this.busy.set(false);
-    this.snack.open(errorMessage(err), 'OK');
-  }
-
   private openFromRoute(): void {
     const id = Number(this.route.firstChild?.snapshot.paramMap.get('id') || this.router.url.match(/\/claims\/(\d+)/)?.[1]);
     if (!id) return;
     this.api.claim(id).subscribe({
       next: (row) => {
-        this.editing.set(row);
-        this.warningDate = row.warning_delivered_on || '';
-        this.tariff = row.notary_tariff || '';
+        this.office = row.notary_office || '';
         this.dialog.set(true);
         this.api.account(row.account).subscribe({
-          next: (account) => this.picked.set(account),
+          next: (account) => {
+            this.picked.set(account);
+            this.loadWrit(account.id, true);
+          },
           error: (err) => this.snack.open(errorMessage(err), 'OK'),
         });
       },

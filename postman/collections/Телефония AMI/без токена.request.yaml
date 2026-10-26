@@ -1,0 +1,25 @@
+$kind: http-request
+method: POST
+url: '{{base_url}}/gw/v1/voice/dial'
+order: 9000
+headers:
+  - key: X-Internal-Token
+    value: wrong
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "phone": "+375291112233",
+      "text": "Долг"
+    }
+examples: './.resources/без токена.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('401', function () {
+          pm.response.to.have.status(401);
+          pm.expect(pm.response.json().error.code).to.eql('unauthorized');
+      });

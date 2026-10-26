@@ -16,6 +16,8 @@ import { RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { MeasureDetail, MeasureItemRow } from '../../core/models';
+import { GridResizeDirective } from '../grid-resize.directive';
+import { MeasureTasksComponent } from './measure-tasks.component';
 
 const CALL_RESULTS = [
   { value: 'answered', label: 'Дозвон' },
@@ -35,7 +37,8 @@ const DELIVERY_METHODS = [
   standalone: true,
   imports: [
     DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MatInputModule,
-    MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatIconModule, MatTooltipModule,
+    MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatIconModule, MatTooltipModule, MeasureTasksComponent,
+    GridResizeDirective,
   ],
   template: `
     <div class="page" [class]="'page kind-' + (measure()?.kind || '')">
@@ -69,7 +72,7 @@ const DELIVERY_METHODS = [
 
           <mat-card class="fact progress-card"><mat-card-content>
             <dl>
-              <dt>Лицевых счетов</dt><dd>{{ m.items.length }}</dd>
+              <dt>Лицевых счетов</dt><dd>{{ m.campaign_total ?? m.items.length }}</dd>
               <dt>Завершено</dt><dd>{{ done() }} из {{ m.items.length }}</dd>
               @if (m.needs_approval) {
                 <dt>Согласование</dt>
@@ -96,30 +99,12 @@ const DELIVERY_METHODS = [
           </mat-card-content></mat-card>
         </div>
 
-        @if (auth.canWrite()) {
+        @if (auth.canWrite() || (m.tasks || []).length) {
           <mat-card class="action">
             <mat-card-content>
               <h3>Задания</h3>
-              <p class="muted">Внутри мероприятия можно завести задания и пункты чек-листа.</p>
-              @for (task of m.tasks || []; track task.id) {
-                <div class="task">
-                  <mat-checkbox [checked]="task.status === 'done'" (change)="toggleTask(task.id, $event.checked)">{{ task.title }}</mat-checkbox>
-                  @if (task.due_on) { <span class="muted"> до {{ task.due_on }}</span> }
-                  @if (task.assignee_name) { <span class="muted"> · {{ task.assignee_name }}</span> }
-                  @for (check of task.checks; track check.id) {
-                    <div class="check"><mat-checkbox [checked]="check.done" (change)="toggleCheck(check.id, $event.checked)">{{ check.title }}</mat-checkbox></div>
-                  }
-                  <div class="filters">
-                    <mat-form-field class="wide"><mat-label>Новый пункт чек-листа</mat-label><input matInput [(ngModel)]="checkDraft[task.id]" /></mat-form-field>
-                    <button mat-stroked-button type="button" [disabled]="busy()" (click)="addCheck(task.id)">Добавить пункт</button>
-                  </div>
-                </div>
-              }
-              <div class="filters">
-                <mat-form-field class="wide"><mat-label>Новое задание</mat-label><input matInput [(ngModel)]="taskTitle" /></mat-form-field>
-                <mat-form-field><mat-label>Срок</mat-label><input matInput type="date" [(ngModel)]="taskDue" /></mat-form-field>
-                <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="addTask()">Добавить задание</button>
-              </div>
+              <p class="muted">Задание — отдельная работа: название, срок и статус «Открыто» или «Выполнено».</p>
+              <app-measure-tasks [measureId]="m.id" [tasks]="m.tasks || []" [canWrite]="auth.canWrite()" (changed)="reload()" />
             </mat-card-content>
           </mat-card>
         }
@@ -188,18 +173,6 @@ const DELIVERY_METHODS = [
           </mat-card-content></mat-card>
         }
 
-        @if (m.kind === 'notice' && openItems().length) {
-          <mat-card class="action tone-notice"><mat-card-content>
-            <h3>Отправка уведомлений</h3>
-            <p class="muted">
-              Каналы на заглушках: ошибка доставки вернётся в строку лицевого счёта, прочтение не подтверждается.
-            </p>
-            <button mat-flat-button color="primary" [disabled]="busy() || !selected().size" (click)="send()">
-              Отправить отмеченным ({{ selected().size }})
-            </button>
-          </mat-card-content></mat-card>
-        }
-
         @if (m.kind === 'warning' && openItems().length) {
           <mat-card class="action tone-warn"><mat-card-content>
             <h3>Вручение предупреждения</h3>
@@ -239,31 +212,38 @@ const DELIVERY_METHODS = [
 
         <section class="surface group items">
           <div class="group-head">
-            <span>Лицевые счета партии</span>
-            <span class="muted">({{ m.items.length }})</span>
+            <span>Лицевые счета мероприятия</span>
+            <span class="muted">({{ m.campaign_total ?? m.items.length }})</span>
           </div>
+          <p class="muted pad">Правила мероприятия — в блоке выше. Запуск отмеченных строк — кнопка «Провести» в реестре. Сценарий идёт по расписанию и этой кнопкой не стартует.</p>
+          @if (m.manual === false) {
+            <p class="muted pad">Сценарий заводит отдельную запись на каждый лицевой счёт. Ниже все счета этого шага и шаблона.</p>
+          }
+          @if ((m.campaign_total ?? m.items.length) > m.items.length) {
+            <p class="muted pad">Показаны первые {{ m.items.length }} из {{ m.campaign_total }}.</p>
+          }
           @if (!m.items.length) {
-            <p class="muted pad">В этой партии нет лицевых счетов вашего контура.</p>
+            <p class="muted pad">В вашем контуре нет лицевых счетов этого мероприятия.</p>
           } @else {
-            <div class="list-pane">
-            <table>
+            <div class="list-pane campaign">
+            <table appGridResize="measure-items">
               <thead>
                 <tr>
                   @if (selectable()) {
-                    <th class="tick">
+                    <th class="tick" data-col="tick">
                       <mat-checkbox [checked]="allPicked()" [indeterminate]="somePicked()" (change)="toggleAll()" />
                     </th>
                   }
-                  <th>Должник</th>
-                  <th>Статус</th>
+                  <th data-col="debtor">Должник</th>
+                  <th data-col="status">Статус</th>
                   @switch (m.kind) {
-                    @case ('call') { <th>Телефон</th><th>Результат</th> }
-                    @case ('notice') { <th>Адресат</th><th>Доставка</th> }
-                    @case ('warning') { <th>Вручение</th><th>Отправление</th> }
-                    @case ('disconnect') { <th>Приостановлено</th><th>Возобновлено</th> }
-                    @default { <th>Отметка</th><th>Примечание</th> }
+                    @case ('call') { <th data-col="phone">Телефон</th><th data-col="result">Результат</th> }
+                    @case ('notice') { <th data-col="address">Адресат</th><th data-col="delivery">Доставка</th> }
+                    @case ('warning') { <th data-col="served">Вручение</th><th data-col="post">Отправление</th> }
+                    @case ('disconnect') { <th data-col="stopped">Приостановлено</th><th data-col="resumed">Возобновлено</th> }
+                    @default { <th data-col="mark">Отметка</th><th data-col="note">Примечание</th> }
                   }
-                  <th></th>
+                  <th data-col="open"></th>
                 </tr>
               </thead>
               <tbody>
@@ -273,7 +253,7 @@ const DELIVERY_METHODS = [
                       <td class="tick">
                         <mat-checkbox
                           [checked]="selected().has(item.id)"
-                          [disabled]="!isOpen(item)"
+                          [disabled]="!isOpen(item) || item.measure !== m.id"
                           (change)="pick(item)" />
                       </td>
                     }
@@ -297,7 +277,21 @@ const DELIVERY_METHODS = [
                             <div class="muted">Исходящий {{ item.caller_id }}</div>
                           }
                           @if (item.duration_sec !== null) {
-                            <div class="muted">{{ item.duration_sec }} с, прослушано {{ item.listen_percent ?? 0 }}%</div>
+                            <div class="muted">
+                              {{ item.duration_sec }} с
+                              @if (item.listen_percent !== null) {
+                                <span>, прослушано {{ item.listen_percent }}%</span>
+                              }
+                            </div>
+                          }
+                          @if (item.recording_ref) {
+                            <div class="muted">
+                              @if (recordingLink(item.recording_ref)) {
+                                <a [href]="item.recording_ref" target="_blank" rel="noopener">Запись разговора</a>
+                              } @else {
+                                Запись {{ item.recording_ref }}
+                              }
+                            </div>
                           }
                           @if (item.provider_message_id) {
                             <div class="muted">{{ item.provider_message_id }}</div>
@@ -306,7 +300,15 @@ const DELIVERY_METHODS = [
                       }
                       @case ('notice') {
                         <td>{{ item.recipient || '—' }}</td>
-                        <td>{{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm') : '—' }}</td>
+                        <td>
+                          {{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm') : '—' }}
+                          @if (item.external_call === false) {
+                            <div>{{ m.channel === 'sms' ? 'Сообщение не отправлялось' : 'Письмо не отправлялось' }}</div>
+                          }
+                          @if (item.provider_message_id) {
+                            <div class="muted">{{ item.provider_message_id }}</div>
+                          }
+                        </td>
                       }
                       @case ('warning') {
                         <td>
@@ -397,9 +399,9 @@ const DELIVERY_METHODS = [
           <section class="surface group">
             <div class="group-head"><span>Журнал переходов</span></div>
             <div class="list-pane">
-            <table>
+            <table appGridResize="measure-events">
               <thead>
-                <tr><th>Когда</th><th>Кто</th><th>Переход</th><th>Основание</th></tr>
+                <tr><th data-col="when">Когда</th><th data-col="who">Кто</th><th data-col="move">Переход</th><th data-col="reason">Основание</th></tr>
               </thead>
               <tbody>
                 @for (event of m.events; track event.id) {
@@ -467,6 +469,7 @@ const DELIVERY_METHODS = [
     .tick { width: 40px; }
     .row-actions { width: 56px; text-align: right; }
     .row-form td { background: #f7f9fb; }
+    .campaign { max-height: 360px; overflow: auto; }
   `,
 })
 export class MeasureDetailComponent {
@@ -498,9 +501,6 @@ export class MeasureDetailComponent {
   protected rowDuration: number | null = null;
   protected rowListen: number | null = null;
   protected rowReason = '';
-  protected taskTitle = '';
-  protected taskDue = '';
-  protected checkDraft: Record<number, string> = {};
 
   protected readonly openItems = computed(() => (this.measure()?.items ?? []).filter((item) => this.isOpen(item)));
   protected readonly done = computed(
@@ -511,7 +511,7 @@ export class MeasureDetailComponent {
     return total ? Math.round((this.done() / total) * 100) : 0;
   });
   protected readonly selectable = computed(
-    () => ['notice', 'warning'].includes(this.measure()?.kind ?? '') && this.openItems().length > 0,
+    () => this.measure()?.kind === 'warning' && this.openItems().length > 0,
   );
   protected readonly allPicked = computed(() => {
     const open = this.openItems();
@@ -550,6 +550,10 @@ export class MeasureDetailComponent {
       this.rowId.set(null);
       this.load(id);
     }, { allowSignalWrites: true });
+  }
+
+  protected recordingLink(value: string): boolean {
+    return value.startsWith('https://') || value.startsWith('http://');
   }
 
   protected isOpen(item: MeasureItemRow): boolean {
@@ -617,11 +621,7 @@ export class MeasureDetailComponent {
     } else {
       body['status'] = this.rowStatus;
     }
-    this.run(this.api.recordMeasureItem(this.measureId(), body), 'Результат сохранён', () => this.rowId.set(null));
-  }
-
-  protected send(): void {
-    this.run(this.api.sendNotices(this.measureId(), [...this.selected()]), 'Уведомления поставлены в отправку');
+    this.run(this.api.recordMeasureItem(item.measure || this.measureId(), body), 'Результат сохранён', () => this.rowId.set(null));
   }
 
   protected deliver(): void {
@@ -663,35 +663,8 @@ export class MeasureDetailComponent {
     this.run(this.api.cancelMeasure(this.measureId(), this.cancelReason.trim()), 'Задание отменено');
   }
 
-  protected addTask(): void {
-    const title = this.taskTitle.trim();
-    if (!title) {
-      this.snack.open('Укажите задание', 'OK');
-      return;
-    }
-    this.run(this.api.addMeasureTask(this.measureId(), title, this.taskDue), 'Задание добавлено', () => {
-      this.taskTitle = '';
-      this.taskDue = '';
-    });
-  }
-
-  protected toggleTask(id: number, done: boolean): void {
-    this.run(this.api.setMeasureTaskStatus(this.measureId(), id, done ? 'done' : 'open'), 'Задание обновлено');
-  }
-
-  protected addCheck(taskId: number): void {
-    const title = (this.checkDraft[taskId] || '').trim();
-    if (!title) {
-      this.snack.open('Укажите пункт чек-листа', 'OK');
-      return;
-    }
-    this.run(this.api.addTaskCheck(this.measureId(), taskId, title), 'Пункт добавлен', () => {
-      this.checkDraft[taskId] = '';
-    });
-  }
-
-  protected toggleCheck(id: number, done: boolean): void {
-    this.run(this.api.setTaskCheck(this.measureId(), id, done), 'Чек-лист обновлён');
+  protected reload(): void {
+    this.load(this.measureId());
   }
 
   private approved(measure: MeasureDetail): boolean {

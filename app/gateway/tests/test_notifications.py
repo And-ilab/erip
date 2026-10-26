@@ -59,7 +59,12 @@ def test_accept_and_deliver(client, backend):
     callback = backend.by_path("/delivery-status/")[0]
     assert callback.headers["X-Internal-Token"] == "test-internal"
     assert callback.headers["X-Request-ID"] == "rid-42"
-    assert json.loads(callback.content) == {"status": "delivered", "error": "", "rendered_text": log["text"]}
+    body = json.loads(callback.content)
+    assert body["status"] == "delivered"
+    assert body["error"] == ""
+    assert body["rendered_text"] == log["text"]
+    assert body["external_call"] is False
+    assert body["provider_message_id"].startswith("email-")
 
 
 def test_adapter_failure_reports_error_with_same_request_id(client, backend):

@@ -63,15 +63,64 @@ def dial_due_calls(at: datetime | None = None) -> dict:
         if not _campaign_open(measure, moment):
             continue
         in_window += 1
-        start, end = call_window(measure.source_scenario, moment.date()) if measure.source_scenario_id else (
-            measure.time_from, measure.time_to,
-        )
-        if measure.time_from != start or measure.time_to != end:
-            measure.time_from = start
-            measure.time_to = end
-            measure.save(update_fields=["time_from", "time_to", "updated_at"])
+        start = _sync_window(measure, moment)
         dialed += _dial_measure(measure, moment, start)
     return {"dialed": dialed, "open_parties": open_parties, "in_window": in_window}
+
+
+def conduct_selected(measures, user) -> dict:
+    """Провести отмеченные в реестре ручные партии. Сценарий сюда не берётся."""
+    from apps.debts.models import MeasureItem
+    from apps.debts.services.measures import MeasureLaunchError, queue_notices
+
+    dialed = 0
+    sent = 0
+    skipped = []
+    open_items = [MeasureItem.Status.ASSIGNED, MeasureItem.Status.RUNNING]
+    for measure in measures:
+        if measure.source_scenario_id:
+            skipped.append({"id": measure.pk, "reason": "Идёт по сценарию, отдельно не запускается"})
+            continue
+        if measure.kind == Measure.Kind.CALL:
+            try:
+                dialed += conduct_call_measure(measure)["dialed"]
+            except MeasureLaunchError as exc:
+                skipped.append({"id": measure.pk, "reason": _error_text(exc)})
+            continue
+        if measure.kind == Measure.Kind.NOTICE:
+            items = list(measure.items.filter(status__in=open_items))
+            try:
+                sent += queue_notices(measure, items, user)
+            except MeasureLaunchError as exc:
+                skipped.append({"id": measure.pk, "reason": _error_text(exc)})
+            continue
+        skipped.append({
+            "id": measure.pk,
+            "reason": "Этот вид отмечается на карточке: вручение, отключение или взыскание",
+        })
+    return {"dialed": dialed, "sent": sent, "skipped": skipped}
+
+
+def _error_text(exc) -> str:
+    detail = getattr(exc, "detail", exc)
+    if isinstance(detail, dict):
+        return "; ".join(str(value) for value in detail.values())
+    return str(detail)
+
+
+def conduct_call_measure(measure: Measure, at: datetime | None = None) -> dict:
+    """Провести одну открытую партию. Вне её окна строки не пишутся."""
+    from apps.debts.services.measures import MeasureLaunchError
+
+    moment = _local(at)
+    if measure.kind != Measure.Kind.CALL:
+        raise MeasureLaunchError({"kind": "Проведение доступно для автообзвона"})
+    if measure.status not in OPEN_PARTY:
+        raise MeasureLaunchError({"status": "Партия уже закрыта"})
+    if not _campaign_open(measure, moment):
+        raise MeasureLaunchError({"window": _window_reason(measure, moment)})
+    start = _sync_window(measure, moment)
+    return {"dialed": _dial_measure(measure, moment, start)}
 
 
 def _local(at: datetime | None) -> datetime:
@@ -94,6 +143,30 @@ def _campaign_open(measure: Measure, moment: datetime) -> bool:
         return False
     clock = moment.time().replace(microsecond=0)
     return start <= clock <= end
+
+
+def _sync_window(measure: Measure, moment: datetime) -> time:
+    start, end = call_window(measure.source_scenario, moment.date()) if measure.source_scenario_id else (
+        measure.time_from, measure.time_to,
+    )
+    if measure.time_from != start or measure.time_to != end:
+        measure.time_from = start
+        measure.time_to = end
+        measure.save(update_fields=["time_from", "time_to", "updated_at"])
+    return start
+
+
+def _window_reason(measure: Measure, moment: datetime) -> str:
+    scenario = measure.source_scenario
+    if scenario is not None and moment.day < (scenario.call_from_day or START_DAY):
+        day = scenario.call_from_day or START_DAY
+        return f"Обзвон этой партии начинается с {day}-го числа"
+    start, end = call_window(scenario, moment.date()) if scenario is not None else (
+        measure.time_from, measure.time_to,
+    )
+    if start is None or end is None:
+        return "У партии не задано окно обзвона"
+    return f"Сейчас вне окна {start:%H:%M}–{end:%H:%M}"
 
 
 def _dial_measure(measure: Measure, moment: datetime, window_start: time) -> int:
@@ -139,6 +212,7 @@ def _dial_measure(measure: Measure, moment: datetime, window_start: time) -> int
             external_call=False if outcome.get("external_call") is False else outcome.get("external_call"),
             provider_message_id=str(outcome.get("provider_message_id") or ""),
             caller_id=str(outcome.get("caller_id") or caller),
+            recording_ref=str(outcome.get("recording_ref") or ""),
             acted_at=moment,
         )
         count += 1
@@ -172,10 +246,20 @@ def _call_step(measure: Measure) -> dict:
 
 
 def _attempt_due(item: MeasureItem, rule: dict, moment: datetime) -> bool:
+    measure = item.measure
+    if measure.stopped or measure.finished_on:
+        return False
     if item.status not in OPEN_ITEM:
         return False
-    if item.call_result == MeasureItem.CallResult.ANSWERED:
+    if measure.source_scenario_id:
+        if _heard_today(item, moment):
+            return False
+        if rule.get("once"):
+            return item.acted_at is None and not item.call_result
+    elif item.call_result == MeasureItem.CallResult.ANSWERED:
         return False
+    elif rule.get("once"):
+        return item.acted_at is None and not item.call_result
     if rule.get("once"):
         return item.acted_at is None and not item.call_result
     try:
@@ -188,6 +272,12 @@ def _attempt_due(item: MeasureItem, rule: dict, moment: datetime) -> bool:
         return True
     last = timezone.localtime(item.acted_at).date()
     return (moment.date() - last).days >= every
+
+
+def _heard_today(item: MeasureItem, moment: datetime) -> bool:
+    if item.listen_percent is None or item.listen_percent < 70 or item.acted_at is None:
+        return False
+    return timezone.localtime(item.acted_at).date() == moment.date()
 
 
 def _next_caller(organization_id: int) -> str:

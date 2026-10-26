@@ -1,6 +1,6 @@
 import csv
 
-from django.db.models import Count, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
+from django.db.models import CharField, Count, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -18,6 +18,7 @@ from apps.core.permissions import RolePermission
 from apps.users.scoping import AccessScope, ScopedQuerysetMixin
 
 from .filters import AccountFilter, AccountOrderingFilter, ContractFilter, MeasureFilter
+from .services.registration_flags import registration_count
 from .models import (
     Account,
     AccountService,
@@ -25,6 +26,7 @@ from .models import (
     Contact,
     DebtWorkItem,
     Measure,
+    MeasureItem,
     Payment,
     RefreshRequest,
     Registration,
@@ -34,7 +36,7 @@ from .models import (
     StatusHistory,
     Territory,
 )
-from .repositories import AccountRepository
+from .repositories import AccountRepository, supplier_annotations
 from .services.charts import DebtCharts
 from .serializers import (
     AccountDetailSerializer,
@@ -53,41 +55,31 @@ from .serializers import (
     StatusHistorySerializer,
 )
 from .services.column_layout import column_layout, save_column_layout
+from .services.funnel import FUNNEL_STAGES, attach_badges, stored_codes
 from .services.contacts import choose_phone
 from .services.registry import GROUP_LIMIT, REGISTRY_STATUSES, annotate_registry, build_matrix
 from .services.territory import TerritoryIndex, TerritoryMap
 
-FUNNEL_STAGES = [
-    ("new", "Новый должник"),
-    ("prevention", "Автообзвон/уведомления"),
-    ("warning", "Предупреждение вручено"),
-    ("disconnect", "Отключение услуг"),
-    ("enforcement", "Исполнительная надпись / иск"),
-    ("court", "ОПИ"),
-    ("closed", "Не должник"),
-]
 ACCOUNT_COLUMNS = [
     "schema_label", "account_id", "client_account", "short_fio", "provider_short_name", "account_address",
     "payer_identifier", "payer_unp", "unified_account", "rating_label", "funnel_stage",
     "debt_started_on", "debt_total", "mulct_total", "obligation_total", "effective_group", "scenario_brief",
     "assigned_name", "ownership_type_name", "acc_category_full", "months_debt", "subj_count", "registered_count",
-    "services_debt_count", "contract_number", "contract_date", "service_provider",
-    "initial_principal", "initial_penalty", "period_balances", "repayment_due_on", "last_payment_date",
 ]
 CONTRACT_PERSON_COLUMNS = [
     "payer", "payer_identifier", "payer_unp", "rating_label", "funnel_stage", "ls_count",
     "principal", "penalty", "obligation", "effective_group", "assigned_name", "ownership_type_name",
     "housing_object", "months_debt", "subj_count", "registered_count", "services_debt_count", "earliest",
     "contract_number", "contract_date", "service_provider", "initial_principal", "initial_penalty",
-    "period_balances", "repayment_due_on", "last_payment_date", "category",
+    "repayment_due_on", "last_payment_date", "category",
 ]
 CONTRACT_SERVICE_COLUMNS = [
-    "payer", "payer_identifier", "payer_unp", "account_number", "rating_label", "funnel_stage",
-    "service_name", "service_list_id", "start_date", "shot_name", "billing_provider", "schema_label",
-    "balance_out", "balance_mulct_out", "obligation_total", "initial_principal", "initial_penalty",
-    "period_balances", "debt_started_on", "repayment_due_on", "last_payment_date", "effective_group",
-    "scenario_brief", "assigned_name", "ownership_type_name", "housing_object", "debt_period",
-    "subj_count", "registered_count", "category_name",
+    "account_number", "address", "service_list_id", "start_date", "agreement_number",
+    "service_name", "effective_group", "rating_label", "funnel_stage", "scenario_brief",
+    "debt_started_on", "balance_out", "balance_mulct_out", "obligation_total",
+    "initial_principal", "initial_penalty", "repayment_due_on", "last_payment_date",
+    "payer", "idn_unp", "billing_provider", "shot_name", "category_name", "assigned_name",
+    "ownership_type_name", "housing_object", "debt_period", "subj_count", "registered_count",
 ]
 
 
@@ -121,6 +113,45 @@ def _remember_columns(pref, request, allowed: list[str]) -> tuple[list[str], lis
     if request.method == "PUT":
         return save_column_layout(pref, request.data.get("columns", []), allowed, request.data.get("order"))
     return column_layout(pref.columns, allowed)
+
+
+# Порядок «Услуги» — как в замечании к карточке, затем остальные колонки файла.
+# Месяцы, поставщик и группа — поля ПМ, по умолчанию скрыты.
+CARD_SERVICE_COLUMNS = [
+    "service_list_id", "service_id", "service_name", "provider_id", "shot_name",
+    "start_date", "stop_date", "tarrif", "spent_fact", "calc_sum", "calc_result_sum",
+    "calc_priv_sum", "mulct_sum", "recalc_sum", "netting_sum",
+    "balance_in", "balance_mulct_in", "balance_mulct_out", "balance_out",
+    "subs_pay", "calc_date", "mulct_recalc_sum", "overdue_debt", "debt_period",
+    "share_service_summ", "share_mulct_summ",
+    "report_group_id", "netting_mulct_sum", "ais_account_id", "calculation_id",
+    "sort_code", "service_name_report", "full_name",
+    "months_debt", "supplier", "debt_group",
+]
+CARD_SERVICE_HIDDEN = frozenset({"months_debt", "supplier", "debt_group"})
+CARD_REGISTRATION_COLUMNS = [
+    "payer", "registered", "beneficiary", "fam", "im", "ot", "check_in_date", "check_out_date",
+    "date_registration", "passport_out", "move_reason", "reg_type_name", "relation", "family",
+    "birthday", "death", "sex", "doc", "doc_num", "doc_date", "doc_organ", "doc_basis", "doc_code",
+    "personal_num", "citizenship", "nationality", "address", "work", "position", "tab_number", "salary",
+    "account_id", "person_id", "registration_id", "legal", "unp", "parent_id", "parent_name",
+    "social_note", "marital", "rent", "social_category", "unemployed", "left_country",
+    "bank_code", "bank_name", "bank_account", "payer_reg_id", "payer_name", "payer_share", "payer_type",
+    "tenant_free", "doc1", "share1", "doc2", "share2", "doc3", "share3", "heritage",
+    "heritage_accept", "heritage_open", "heritage_close", "phone", "email", "joint_owner",
+    "cnt_benefit", "cnt_rent", "cnt_minor", "cnt_temp", "cnt_unreg", "cnt_absent",
+    "cnt_distant", "cnt_close", "cnt_people", "cnt_payers", "cnt_pets",
+]
+CARD_PAYMENT_COLUMNS = [
+    "ais_account_id", "client_account", "payer_reg_name", "account_address",
+    "client_account_file", "client_name", "payer_address_file",
+    "account_provider_id", "provider_short_name", "provider_id", "supplier_name",
+    "service_id", "service_name", "receipt_id", "pay_date",
+    "pay_service_summ", "pay_mulct_summ", "pay_total", "commission_summ",
+    "share_service_sum", "share_mulct_sum", "unshared_sum", "payment_type_display",
+    "otdel", "package_id", "pp_num", "bank_name", "bank_date", "notes",
+    "package_status", "source_receipt_id", "refund_sum", "share_status", "execution_id",
+]
 
 
 def _supplier_ids(user):
@@ -202,17 +233,18 @@ def _group_rows(qs, field, user):
     return packed
 
 
-def _service_board_prefetch(user):
-    """Услуги и периоды текущей страницы грида или канбана. Поставщик видит только свои."""
+def _service_board_prefetch(user, *, with_periods: bool = True):
+    """Услуги текущей страницы. Периоды нужны гриду, карточка канбана их не рисует."""
     from django.db.models import Prefetch
 
-    services = AccountService.objects.order_by("service_name", "id")
+    services = AccountService.objects.order_by("service_name", "id").defer("raw")
     providers = _supplier_ids(user)
     if providers is not None:
         services = services.filter(provider_id__in=providers or [-1])
-    services = services.prefetch_related(
-        Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period")),
-    )
+    if with_periods:
+        services = services.prefetch_related(
+            Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
+        )
     return Prefetch("services", queryset=services)
 
 
@@ -244,11 +276,34 @@ def _supplier_measure_filter(user):
 
 
 def _own_measures(user, account):
-    qs = Measure.objects.filter(accounts=account).prefetch_related("services", "tasks", "items")
+    """Мероприятия одного ЛС. Без подзапросов по всей схеме: должник уже известен."""
+    qs = Measure.objects.filter(accounts=account).select_related("assignee", "created_by")
     supplier_filter = _supplier_measure_filter(user)
     if supplier_filter is not None:
-        qs = qs.filter(supplier_filter)
-    return annotate_registry(qs.distinct(), _visible_accounts(user)).order_by("-created_at", "-id")
+        qs = qs.filter(supplier_filter).distinct()
+    org_accounts = Q()
+    org_items = Q()
+    if not getattr(user, "is_superadmin", False) and getattr(user, "organization_id", None):
+        org_accounts = Q(accounts__organization_id=user.organization_id)
+        org_items = Q(items__account__organization_id=user.organization_id)
+    return qs.annotate(
+        accounts_count=Count("accounts", filter=org_accounts or None, distinct=True),
+        items_total=Count("items", filter=org_items or None, distinct=True),
+        items_done=Count(
+            "items",
+            filter=(org_items & Q(items__status=Measure.Status.DONE)) if org_items else Q(items__status=Measure.Status.DONE),
+            distinct=True,
+        ),
+        debtor_name=Value(account.short_fio or "", output_field=CharField()),
+        debtor_account=Value(account.client_account or "", output_field=CharField()),
+        debtor_id=Value(account.id, output_field=IntegerField()),
+        debtor_rating=Value(account.rating or "", output_field=CharField()),
+        debtor_rating_repeat=Value(account.rating_repeat or 0, output_field=IntegerField()),
+        debtor_debt_group=Value(account.debt_group, output_field=IntegerField(null=True)),
+        debtor_debt_group_manual=Value(account.debt_group_manual, output_field=IntegerField(null=True)),
+    ).prefetch_related(
+        Prefetch("items", queryset=MeasureItem.objects.filter(account=account).defer("raw")),
+    ).order_by("-created_at", "-id")
 
 
 def _page_offset(raw) -> int:
@@ -284,33 +339,16 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         qs = super().get_queryset().select_related("organization")
         if self.action in {"list", "export", "kanban", "calendar"}:
             qs = AccountRepository(qs).registry()
-        if self.action in {"list", "export", "kanban"}:
+        if self.action in {"list", "export"}:
             qs = qs.prefetch_related(_service_board_prefetch(self.request.user))
+        elif self.action == "kanban":
+            qs = qs.prefetch_related(_service_board_prefetch(self.request.user, with_periods=False))
         providers = _supplier_ids(self.request.user)
         # Суммы по услугам нужны строке списка. На карте и в группировке они
         # добавляют GROUP BY по лицевому счёту, и один населённый пункт
         # распадается на пузырь «1» для каждого счёта.
         if providers is not None and self.action in {"list", "export", "kanban", "retrieve"}:
-            allowed = providers or [-1]
-            service_filter = Q(services__provider_id__in=allowed)
-            debt_filter = service_filter & (
-                Q(services__balance_out__gt=0) | Q(services__balance_mulct_out__gt=0) | Q(services__overdue_debt__gt=0)
-            )
-            qs = qs.annotate(
-                supplier_principal=Sum("services__balance_out", filter=service_filter),
-                supplier_penalty=Sum("services__balance_mulct_out", filter=service_filter),
-                supplier_services=Count("services", filter=service_filter, distinct=True),
-                supplier_balance_in=Sum("services__balance_in", filter=service_filter),
-                supplier_calc=Sum("services__calc_sum", filter=service_filter),
-                supplier_paid=Sum("services__share_service_summ", filter=service_filter),
-                supplier_subsidy=Sum("services__calc_result_sum", filter=service_filter),
-                supplier_group=Max(
-                    Coalesce("services__debt_group_manual", "services__debt_group"),
-                    filter=debt_filter,
-                ),
-                supplier_months=Max("services__debt_period", filter=debt_filter),
-                supplier_started=Min("services__debt_started_on", filter=debt_filter),
-            )
+            qs = qs.annotate(**supplier_annotations(list(providers)))
         if "bucket" in self.request.query_params:
             from apps.debts.services.group_buckets import restrict_account_bucket
 
@@ -347,7 +385,12 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
         from django.db.models import Q
 
-        qs = _services_for(request.user, self.get_object())
+        qs = _services_for(request.user, self.get_object()).select_related(
+            "account__organization", "account__assigned_to", "account__debtor_category",
+            "account__scenario_run__scenario",
+        ).defer("raw").prefetch_related(
+            Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
+        )
         if request.query_params.get("with_debt") == "1":
             qs = qs.filter(
                 Q(balance_out__gt=Decimal("0")) | Q(balance_mulct_out__gt=Decimal("0")) | Q(overdue_debt__gt=0)
@@ -357,7 +400,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=True)
     def payments(self, request, pk=None):
         account = self.get_object()
-        qs = account.payments.all()
+        qs = account.payments.select_related("account")
         if getattr(request.user, "contour", "") == "supplier":
             providers = AccessScope(request.user).provider_ids()
             if providers:
@@ -366,7 +409,8 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True)
     def registrations(self, request, pk=None):
-        return self._nested("registrations", RegistrationSerializer)
+        account = self.get_object()
+        return self._nested("", RegistrationSerializer, account.registrations.select_related("account"))
 
     @action(detail=True)
     def contacts(self, request, pk=None):
@@ -375,14 +419,14 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     @action(detail=True, url_path="balance-history")
     def balance_history(self, request, pk=None):
         account = self.get_object()
-        qs = account.balance_history.select_related("service")
+        qs = account.balance_history.select_related("service").defer("raw", "service__raw")
         service_ids = _services_for(request.user, account).values_list("pk", flat=True)
         return self._nested("", BalanceHistorySerializer, qs.filter(service_id__in=service_ids))
 
     @action(detail=True, url_path="status-history")
     def status_history(self, request, pk=None):
         account = self.get_object()
-        qs = account.status_history.select_related("service", "author")
+        qs = account.status_history.select_related("service", "author").defer("raw", "service__raw")
         providers = _supplier_ids(request.user)
         if providers is not None:
             qs = qs.filter(Q(service__isnull=True) | Q(service__provider_id__in=providers or [-1]))
@@ -426,7 +470,55 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 Q(work_item__isnull=True) | Q(work_item__service__isnull=True)
                 | Q(work_item__service__provider_id__in=providers or [-1])
             )
-        return self._nested("", AttachmentSerializer, qs)
+        page = self.paginate_queryset(qs)
+        rows = list(AttachmentSerializer(
+            page if page is not None else qs, many=True, context=self.get_serializer_context(),
+        ).data)
+        from .models import ClaimPackageDocument
+
+        documents = ClaimPackageDocument.objects.filter(package__case__account=account).select_related("package__case")
+        for doc in documents:
+            rows.append({
+                "id": f"package-{doc.pk}",
+                "account": account.pk,
+                "work_item": None,
+                "doc_type": doc.doc_type,
+                "original_name": doc.file_name,
+                "uploaded_by": None,
+                "created_at": doc.created_at.isoformat() if doc.created_at else None,
+                "package": True,
+                "claim_id": doc.package.case_id,
+                "doc_id": doc.pk,
+            })
+        if page is not None:
+            return self.get_paginated_response(rows)
+        return Response(rows)
+
+    @action(detail=True, methods=["get", "post"], url_path="writ-draft")
+    def writ_draft(self, request, pk=None):
+        from apps.debts.services.claims import case_payload
+        from apps.debts.services.writ_draft import create_writ, writ_preview
+
+        account = self.get_object()
+        if request.method == "GET":
+            keys = ("debt_from", "debt_to", "warning_delivered_on", "non_delivery_act_on")
+            payload = {key: request.query_params.get(key, "") for key in keys} if any(
+                key in request.query_params for key in keys
+            ) else None
+            return Response(writ_preview(account, payload))
+        case = create_writ(account, request.user, request.data)
+        return Response(case_payload(case), status=status.HTTP_201_CREATED)
+
+    @action(detail=True)
+    def scenario(self, request, pk=None):
+        from apps.debts.services.scenario_board import scenario_outline
+
+        account = self.get_object()
+        account = Account.objects.prefetch_related(
+            "measures__tasks__checks", "measures__tasks__assignee",
+            "measures__items__call_attempts",
+        ).get(pk=account.pk)
+        return Response(scenario_outline(account))
 
     @action(detail=True, url_path="dial-number")
     def dial_number(self, request, pk=None):
@@ -545,23 +637,47 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 stage_qs = base.filter(claim_case__isnull=True)
             elif scope == "claims":
                 stage_qs = base.filter(claim_case__stage=code)
-            elif code != "new":
-                stage_qs = base.filter(funnel_stage=code)
             else:
-                stage_qs = base.filter(funnel_stage__in=["", "new"])
+                stage_qs = base.filter(funnel_stage__in=stored_codes(code))
             total = stage_qs.count()
-            cards = AccountListSerializer(stage_qs[start:start + page_size], many=True).data
+            cards = AccountListSerializer(
+                stage_qs[start:start + page_size],
+                many=True,
+                context={**self.get_serializer_context(), "with_periods": False},
+            ).data
             if scope == "claims":
                 case_ids = {}
                 if cards:
                     case_ids = dict(
-                        ClaimCase.objects.filter(account_id__in=[row["id"] for row in cards]).values_list("account_id", "id")
+                        ClaimCase.objects.filter(account_id__in=[row["id"] for row in cards])
+                        .order_by("id")
+                        .values_list("account_id", "id")
                     )
                 for row in cards:
                     row["claim_id"] = case_ids.get(row["id"])
                     row["claim_stage"] = code
             columns.append({"stage": code, "title": title, "total": total, "cards": cards})
+        if scope != "claims":
+            attach_badges([card for column in columns for card in column["cards"]])
         return Response(columns)
+
+    @action(detail=True, methods=["get", "post"])
+    def activities(self, request, pk=None):
+        from .services.activities import activity_board, perform_activity
+
+        account = self.get_object()
+        if request.method == "GET":
+            return Response(activity_board(account))
+        try:
+            activity_id = int(request.data.get("id") or 0)
+        except (TypeError, ValueError):
+            raise ValidationError({"id": "Укажите пункт активности"}) from None
+        board = perform_activity(
+            account, request.user, activity_id,
+            str(request.data.get("note") or ""),
+            request.FILES.get("file"),
+        )
+        return Response(board)
 
     @action(detail=False)
     def grouped(self, request):
@@ -624,10 +740,93 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=False)
     def calendar(self, request):
+        from .models import CalendarNote
         from .services.calendar import account_calendar, resolve_span
 
         start, end = resolve_span(request.query_params)
-        return Response(account_calendar(self.filter_queryset(self.get_queryset()), start, end))
+        events = account_calendar(self.filter_queryset(self.get_queryset()), start, end)
+        org_id = getattr(request.user, "organization_id", None)
+        if org_id:
+            for note in CalendarNote.objects.filter(organization_id=org_id, day__gte=start, day__lt=end):
+                events.append({
+                    "date": note.day.isoformat(),
+                    "due": note.day.isoformat(),
+                    "kind": "Заметка",
+                    "title": note.text,
+                    "urgency": "planned",
+                    "note_id": note.pk,
+                })
+        return Response(events)
+
+    @action(detail=False, methods=["post"], url_path="calendar-notes")
+    def calendar_notes(self, request):
+        from .models import CalendarNote
+        from .services.calendar import _parse
+
+        text = str(request.data.get("text") or "").strip()
+        if not text:
+            raise ValidationError({"text": "Введите текст заметки"})
+        if not getattr(request.user, "organization_id", None):
+            raise ValidationError({"organization": "Заметка пишется в схему пользователя"})
+        day = _parse(str(request.data.get("day") or ""), "day")
+        note = CalendarNote.objects.create(
+            organization_id=request.user.organization_id, author=request.user, day=day, text=text[:500],
+        )
+        return Response({"id": note.pk, "day": note.day.isoformat(), "text": note.text}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="start-scenario")
+    def start_scenario(self, request):
+        from .services.scenario_flow import start_accounts
+
+        count = start_accounts(self._chosen_accounts(request), request.user)
+        return Response({"started": count})
+
+    @action(detail=False, methods=["post"], url_path="change-scenario")
+    def change_scenario(self, request):
+        from apps.nsi.models import ScenarioDefinition
+
+        from .services.measures import MeasureLaunchError
+        from .services.scenario_flow import replace_accounts
+
+        scenario = ScenarioDefinition.objects.filter(pk=request.data.get("scenario_id"), status=ScenarioDefinition.Status.ACTIVE).first()
+        if scenario is None:
+            raise ValidationError({"scenario_id": "Выберите сценарий из справочника"})
+        try:
+            count = replace_accounts(self._chosen_accounts(request), scenario, request.user)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response({"changed": count})
+
+    @action(detail=False, methods=["post"], url_path="assign-legal")
+    def assign_legal(self, request):
+        from apps.users.models import User
+
+        from .services.measures import MeasureLaunchError
+        from .services.scenario_flow import assign_legal as pin_legal
+
+        person = User.objects.filter(pk=request.data.get("user_id"), is_active=True).first()
+        if person is None:
+            raise ValidationError({"user_id": "Выберите специалиста ЮС"})
+        try:
+            count = pin_legal(self._chosen_accounts(request), person, request.user)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response({"assigned": count})
+
+    @action(detail=True, methods=["post"], url_path="stop-measure")
+    def stop_measure(self, request, pk=None):
+        from .services.measures import MeasureLaunchError
+        from .services.scenario_flow import stop_measure as close_step
+
+        account = self.get_object()
+        measure = account.measures.filter(pk=request.data.get("measure_id")).first()
+        if measure is None:
+            raise ValidationError({"measure_id": "Мероприятие не найдено"})
+        try:
+            close_step(account, measure, request.user)
+        except MeasureLaunchError as exc:
+            raise ValidationError(exc.detail) from exc
+        return Response({"finished_on": measure.finished_on.isoformat() if measure.finished_on else None})
 
     @action(detail=False)
     def export(self, request):
@@ -645,10 +844,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             "Суммарный долг по всем услугам ЛС",
             "Группа задолженности", "Сценарий", "Этап воронки взыскания",
             "Закреплённый специалист", "Тип собственности", "Тип объекта жилфонда", "Кол-во месяцев долга",
-            "Кол-во проживающих", "Кол-во зарегистрированных", "Количество услуг с задолженностью",
-            "Номер договора", "Дата договора", "Поставщик услуги",
-            "Первоначальная сумма задолженности", "Первоначальная сумма пени",
-            "Остатки задолженности и пени по периодам", "Срок погашения по договору", "Дата последней оплаты",
+            "Кол-во проживающих", "Кол-во зарегистрированных",
         ]
         writer.writerow(headers)
         stage_titles = dict(FUNNEL_STAGES)
@@ -665,15 +861,6 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
                 account.months_debt if account.months_debt is not None else "",
                 account.subj_count if account.subj_count is not None else "",
                 packed.get("registered_count") if packed.get("registered_count") is not None else "",
-                packed.get("services_debt_count") or 0,
-                _line_join(packed.get("service_lines"), "service_list_id"),
-                _line_join(packed.get("service_lines"), "start_date"),
-                _line_join(packed.get("service_lines"), "shot_name"),
-                _line_join(packed.get("service_lines"), "initial_principal"),
-                _line_join(packed.get("service_lines"), "initial_penalty"),
-                _period_join(packed.get("service_lines")),
-                _line_join(packed.get("service_lines"), "repayment_due_on"),
-                _line_join(packed.get("service_lines"), "last_payment_date"),
             ])
         return response
 
@@ -685,6 +872,53 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         )
         chosen, order = _remember_columns(pref, request, allowed)
         return Response({"columns": chosen, "available": allowed, "order": order})
+
+    @action(detail=False, methods=["get", "put"], url_path="card-columns")
+    def card_columns(self, request):
+        """Столбцы вкладок «Услуги» и «Оплата». Набор хранится у пользователя, не в браузере."""
+        from .services.column_layout import explicit_layout
+
+        board = request.query_params.get("board") or request.data.get("board") or "services"
+        if board == "services":
+            allowed = list(CARD_SERVICE_COLUMNS)
+            hidden = CARD_SERVICE_HIDDEN
+            target = "card_services"
+        elif board == "payments":
+            allowed = list(CARD_PAYMENT_COLUMNS)
+            hidden = frozenset()
+            target = "card_payments"
+        elif board == "registration":
+            allowed = list(CARD_REGISTRATION_COLUMNS)
+            hidden = frozenset()
+            target = "card_registration"
+        else:
+            raise ValidationError({"board": "services, payments или registration"})
+        pref, _created = RegistryPreference.objects.get_or_create(
+            user=request.user, target=target, defaults={"columns": explicit_layout(allowed, hidden)},
+        )
+        chosen, order = _remember_columns(pref, request, allowed)
+        return Response({"columns": chosen, "available": allowed, "order": order, "board": board})
+
+    @action(detail=False, methods=["post"], url_path="extra-measures")
+    def extra_measures(self, request):
+        from .services.extra_measures import ExtraMeasureError, add_extra
+
+        try:
+            measure = add_extra(request.user, request.data)
+        except ExtraMeasureError as exc:
+            raise ValidationError(exc.detail) from exc
+        record_action(
+            request, AuditLog.Action.CREATE, measure,
+            after={"kind": measure.kind, "accounts": measure.accounts.count(), "extra": True},
+        )
+        return Response({"id": measure.id, "name": measure.template_name}, status=status.HTTP_201_CREATED)
+
+    def _chosen_accounts(self, request):
+        base = self.get_queryset()
+        if request.data.get("all_matching"):
+            return list(AccountFilter(request.data.get("filters") or {}, queryset=base).qs)
+        ids = request.data.get("account_ids") or []
+        return list(base.filter(pk__in=ids))
 
 
 class _ChildViewSet(ScopedQuerysetMixin, viewsets.ReadOnlyModelViewSet):
@@ -761,16 +995,12 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     queryset = AccountService.objects.select_related(
         "account", "account__debtor_category", "account__organization", "account__assigned_to",
         "account__scenario_run__scenario",
-    ).annotate(
-        registered_count=Coalesce(Subquery(
-            Registration.objects.filter(account_id=OuterRef("account_id"))
-            .order_by()
-            .values("account_id")
-            .annotate(total=Count("id"))
-            .values("total"),
-            output_field=IntegerField(),
-        ), 0),
-    ).prefetch_related("debt_periods")
+    ).defer("raw", "account__raw").annotate(
+        registered_count=registration_count("account_id", "active"),
+        resident_count=registration_count("account_id", "resident"),
+    ).prefetch_related(
+        Prefetch("debt_periods", queryset=ServiceDebtPeriod.objects.order_by("period").defer("raw")),
+    )
     serializer_class = AccountServiceSerializer
     permission_classes = [RolePermission]
     scope_organization_field = "organization"
@@ -778,12 +1008,19 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
     scope_supplier_field = "provider_id"
     filterset_class = ContractFilter
     search_fields = [
-        "service_name", "shot_name", "account__short_fio", "account__client_account",
-        "account__payer_identifier", "account__payer_unp",
+        "service_name", "shot_name", "agreement_number", "account__short_fio", "account__client_account",
+        "account__account_address", "account__payer_identifier", "account__payer_unp",
     ]
     ordering_fields = ["debt_group", "balance_out", "debt_started_on", "service_name"]
     audit_view = True
     audit_list = True
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        from apps.users.access import can_open_contracts
+
+        if not can_open_contracts(request.user):
+            raise PermissionDenied("Реестр договоров этой роли недоступен")
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -797,8 +1034,19 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
             )
         return qs
 
+    def list(self, request, *args, **kwargs):
+        queryset = self._visible()
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def _owed(self, qs):
+        return qs.filter(Q(balance_out__gt=0) | Q(balance_mulct_out__gt=0) | Q(overdue_debt__gt=0))
+
     def _visible(self):
-        return self.filter_queryset(self.get_queryset())
+        return self._owed(self.filter_queryset(self.get_queryset()))
 
     @action(detail=False, methods=["get", "put"], url_path="columns")
     def columns(self, request):
@@ -954,6 +1202,24 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
             }
             for row in rows
         ])
+
+    @action(detail=True, methods=["post"], url_path="extra-measure")
+    def extra_measure(self, request, pk=None):
+        from .services.extra_measures import ExtraMeasureError, add_extra
+
+        service = self.get_object()
+        payload = dict(request.data)
+        payload["account_ids"] = [service.account_id]
+        payload["service_id"] = service.id
+        try:
+            measure = add_extra(request.user, payload)
+        except ExtraMeasureError as exc:
+            raise ValidationError(exc.detail) from exc
+        record_action(
+            request, AuditLog.Action.CREATE, measure,
+            after={"kind": measure.kind, "service": service.id, "extra": True},
+        )
+        return Response({"id": measure.id, "name": measure.template_name}, status=status.HTTP_201_CREATED)
 
     @action(detail=True)
     def dossier(self, request, pk=None):
@@ -1137,7 +1403,7 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     def get_serializer_class(self):
         if self.action in {
             "retrieve", "create", "confirm", "accept", "cancel", "approve", "reject", "deliver", "send",
-            "result", "move", "tasks", "task_status", "task_checks",
+            "result", "move", "tasks", "task_status", "task_checks", "dial",
         }:
             return MeasureDetailSerializer
         return MeasureSerializer
@@ -1155,8 +1421,34 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         supplier_filter = _supplier_measure_filter(self.request.user)
         if supplier_filter is not None:
             matched = matched.filter(supplier_filter)
+        # Имя должника и счётчики не считаются на всём реестре: их добавляет
+        # _decorate только к строкам страницы. Иначе поиск и count() гоняют
+        # восемь подзапросов по каждой партии.
+        return Measure.objects.filter(pk__in=matched.values("id")).select_related("assignee", "created_by")
+
+    def _decorate(self, ids):
+        if not ids:
+            return []
+        visible = _visible_accounts(self.request.user)
         search = self.request.query_params.get("search") or ""
-        return annotate_registry(Measure.objects.filter(pk__in=matched.values("id")), visible, search)
+        found = {
+            item.pk: item
+            for item in annotate_registry(
+                Measure.objects.filter(pk__in=ids).select_related("assignee", "created_by"),
+                visible,
+                search,
+            )
+        }
+        return [found[pk] for pk in ids if pk in found]
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else list(queryset)
+        serializer = self.get_serializer(self._decorate([row.pk for row in rows]), many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     def _record_registry(self, request, count: int, view: str) -> None:
         params = {}
@@ -1191,7 +1483,8 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             count = chunk.count()
             if not count:
                 continue
-            rows = self.get_serializer(chunk[start:start + GROUP_LIMIT], many=True).data
+            ids = list(chunk.values_list("pk", flat=True)[start:start + GROUP_LIMIT])
+            rows = self.get_serializer(self._decorate(ids), many=True).data
             total += count
             groups.append({
                 "status": code, "label": labels[code], "total": count, "shown": len(rows),
@@ -1329,6 +1622,55 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         )
         return self._act(request, measure, runner)
 
+    @action(detail=False, methods=["post"])
+    def conduct(self, request):
+        """Провести отмеченные в реестре мероприятий ручные партии."""
+        from apps.users.models import User
+
+        from .services.autocall import conduct_selected
+
+        if request.user.role not in {User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN, User.Role.SPECIALIST}:
+            raise PermissionDenied("Мероприятие проводит специалист, локальный администратор или суперадминистратор")
+        if request.user.contour == User.Contour.SUPPLIER:
+            raise PermissionDenied("Обзвон и рассылку проводит специалист начисляющей организации")
+        raw = request.data.get("ids") or []
+        try:
+            ids = [int(item) for item in raw]
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"ids": "Укажите мероприятия"}) from exc
+        measures = list(self.get_queryset().filter(pk__in=ids).select_related("source_scenario", "organization"))
+        result = conduct_selected(measures, request.user)
+        skipped = {row["id"] for row in result["skipped"]}
+        for measure in measures:
+            if measure.pk in skipped:
+                continue
+            record_action(request, AuditLog.Action.UPDATE, measure, after={"conduct": True})
+        return Response(result)
+
+    @action(detail=True, methods=["post"])
+    def dial(self, request, pk=None):
+        """Провести одну открытую партию обзвона. Кнопка в интерфейсе стоит в реестре."""
+        from apps.users.models import User
+
+        if request.user.role not in {User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN, User.Role.SPECIALIST}:
+            raise PermissionDenied("Обзвон проводит специалист, локальный администратор или суперадминистратор")
+        if request.user.contour == User.Contour.SUPPLIER:
+            raise PermissionDenied("Обзвон проводит специалист начисляющей организации")
+        measure = self.get_object()
+        outcome: dict = {}
+
+        def runner():
+            from .services.autocall import conduct_call_measure
+
+            outcome.update(conduct_call_measure(measure))
+
+        response = self._act(request, measure, runner)
+        response.data["dialed"] = outcome.get("dialed", 0)
+        record_action(
+            request, AuditLog.Action.UPDATE, measure, after={"dialed": outcome.get("dialed", 0)},
+        )
+        return response
+
     @action(detail=True, methods=["post"], url_path="result")
     def result(self, request, pk=None):
         measure = self.get_object()
@@ -1368,6 +1710,31 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
         record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "send"})
         return self._act(request, measure, runner)
+
+    @action(detail=True, methods=["post"])
+    def hold(self, request, pk=None):
+        from .services.extra_measures import ExtraMeasureError, hold_measure
+
+        if getattr(request.user, "contour", "") == "supplier":
+            raise PermissionDenied("Поставщик мероприятие не приостанавливает")
+        measure = self.get_object()
+        try:
+            hold_measure(measure, request.user, request.data.get("until"), request.data.get("reason") or "")
+        except ExtraMeasureError as exc:
+            raise ValidationError(exc.detail) from exc
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "hold"})
+        return Response({"status": measure.status, "pause_until": measure.pause_until, "pause_reason": measure.pause_reason})
+
+    @action(detail=True, methods=["post"])
+    def release(self, request, pk=None):
+        from .services.extra_measures import release_measure
+
+        if getattr(request.user, "contour", "") == "supplier":
+            raise PermissionDenied("Поставщик мероприятие не возобновляет")
+        measure = self.get_object()
+        release_measure(measure, request.user)
+        record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "release"})
+        return Response({"status": measure.status})
 
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):

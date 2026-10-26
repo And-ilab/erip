@@ -86,10 +86,10 @@ class NotificationDispatcher:
             "channel": notification.channel,
             "user_name": name,
             "recipient": address,
-            "subject": template.subject if template else "",
+            "subject": _email_subject(notification, template),
             "template_body": template.body if template else notification.body,
             "context": context,
-            "meta": {"fail": simulate_failure},
+            "meta": _email_meta(notification, simulate_failure),
         }
 
     def dispatch(self, notification: Notification) -> Notification:
@@ -115,7 +115,31 @@ class NotificationDispatcher:
         return async_to_sync(self.client.preview)(payload)
 
 
-def apply_delivery_status(notification: Notification, status: str, *, error: str = "", text: str = "") -> Notification:
+def _email_subject(notification: Notification, template: MessageTemplate | None) -> str:
+    subject = template.subject if template and template.subject else ""
+    if notification.channel == Channel.EMAIL and not subject and notification.organization_id:
+        subject = notification.organization.mail_subject
+    return subject
+
+
+def _email_meta(notification: Notification, simulate_failure: bool) -> dict:
+    meta: dict = {"fail": simulate_failure}
+    if notification.channel != Channel.EMAIL or not notification.organization_id:
+        return meta
+    org = notification.organization
+    if org.mail_from:
+        meta["mail_from"] = org.mail_from
+    if org.mail_from_name:
+        meta["mail_from_name"] = org.mail_from_name
+    if org.mail_signature:
+        meta["signature"] = org.mail_signature
+    return meta
+
+
+def apply_delivery_status(
+    notification: Notification, status: str, *, error: str = "", text: str = "",
+    provider_message_id: str = "", external_call: bool | None = None,
+) -> Notification:
     """Callback шлюза: итог доставки."""
     if status == "delivered":
         notification.status = Notification.Status.SENT
@@ -129,6 +153,9 @@ def apply_delivery_status(notification: Notification, status: str, *, error: str
     notification.save(update_fields=["status", "sent_at", "error", "rendered_text", "updated_at"])
     from apps.debts.services.measures import sync_notice_status
 
-    sync_notice_status(notification.pk, notification.status == Notification.Status.SENT, notification.error)
+    sync_notice_status(
+        notification.pk, notification.status == Notification.Status.SENT, notification.error,
+        provider_message_id=provider_message_id, external_call=external_call,
+    )
     logger.info("Статус оповещения %s: %s", notification.pk, notification.status)
     return notification

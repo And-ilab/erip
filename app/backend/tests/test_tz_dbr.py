@@ -77,7 +77,7 @@ def test_supplier_card_shows_his_service_group(api, org_a, account_a):
     water_card = api(water_user).get(f"/api/v1/accounts/{account_a.id}/").json()
     assert water_card["effective_group"] == 1
     assert water_card["scenario_name"] == "Превентивный обзвон и уведомления"
-    assert water_card["funnel_stage"] == "prevention"
+    assert water_card["funnel_stage"] == "enforcement"
     assert water_card["rating_label"] == "A"
     assert water_card["debt_started_on"] == "2026-09-26"
     assert Decimal(str(water_card["balance_out"])).quantize(Decimal("0.01")) == Decimal("21.84")
@@ -116,7 +116,7 @@ def test_supplier_summary_hides_foreign_service_and_balance(api, org_a, account_
     assert "Чужое" not in titles
 
 
-def test_supplier_portfolio_counts_his_measures_and_claims(api, specialist_a, org_a, account_a):
+def test_supplier_portfolio_counts_his_measures_and_claims(api, admin_a, org_a, account_a):
     supplier, water = _supplier(org_a, account_a)
     gas = account_a.services.exclude(pk=water.pk).get()
     gas.shot_name = "Газ"
@@ -146,7 +146,7 @@ def test_supplier_portfolio_counts_his_measures_and_claims(api, specialist_a, or
     assert "Исковое заявление" not in claim_labels
     assert claim_labels == {item["label"] for item in own["suppliers"][0]["claims"]}
 
-    both = api(specialist_a).get("/api/v1/contracts/summary/").json()
+    both = api(admin_a).get("/api/v1/contracts/summary/").json()
     names = {row["name"] for row in both["suppliers"]}
     assert {"Водоканал", "Газ"} <= names
     gas_row = next(row for row in both["suppliers"] if row["name"] == "Газ")
@@ -155,7 +155,7 @@ def test_supplier_portfolio_counts_his_measures_and_claims(api, specialist_a, or
     assert "Исполнительная надпись" not in {item["label"] for item in gas_row["claims"]}
 
 
-def test_dossier_shows_periods_contacts_and_journal(api, specialist_a, org_a, account_a, ready):
+def test_dossier_shows_periods_contacts_and_journal(api, admin_a, specialist_a, org_a, account_a, ready):
     account_a.operational_date = date(2026, 9, 1)
     account_a.payer_identifier = "IN-DBR"
     account_a.save(update_fields=["operational_date", "payer_identifier"])
@@ -176,7 +176,7 @@ def test_dossier_shows_periods_contacts_and_journal(api, specialist_a, org_a, ac
         format="json",
     )
     assert created.status_code == 201
-    dossier = api(specialist_a).get(f"/api/v1/contracts/{service.id}/dossier/").json()
+    dossier = api(admin_a).get(f"/api/v1/contracts/{service.id}/dossier/").json()
     assert dossier["periods"]
     assert dossier["people"][0]["social_category"] == "Пенсионер"
     assert dossier["people"][0]["unfit_for_work"] is True
@@ -254,10 +254,10 @@ def test_disconnect_confirmation_and_mobile_hours(api, admin_a, specialist_a, ac
     assert daytime.value == "+375172220000"
 
 
-def test_contract_kanban_and_saved_shape(api, specialist_a, account_a):
-    columns = api(specialist_a).get("/api/v1/contracts/kanban/").json()
+def test_contract_kanban_and_saved_shape(api, admin_a, account_a):
+    columns = api(admin_a).get("/api/v1/contracts/kanban/").json()
     assert {column["stage"] for column in columns}
-    grouped = api(specialist_a).get("/api/v1/contracts/grouped/", {"group_by": "debt_group"}).json()
+    grouped = api(admin_a).get("/api/v1/contracts/grouped/", {"group_by": "debt_group"}).json()
     assert isinstance(grouped, list)
 
 
@@ -348,7 +348,7 @@ def test_category_recalculates_scenario_immediately(api, specialist_a, org_a, ac
     assert other.services.get().scenario_name == "Сценарий пенсионера"
 
 
-def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
+def test_kanban_is_one_card_per_debtor(api, org_a, admin_a, account_a):
     account_a.payer_identifier = "IN-DBR"
     account_a.funnel_stage = "warning"
     account_a.debt_group = 2
@@ -363,16 +363,16 @@ def test_kanban_is_one_card_per_debtor(api, org_a, specialist_a, account_a):
         organization=org_a, account=account_a, service_list_id=8, service_id=18,
         service_name="Свет", balance_out=Decimal("20"),
     )
-    columns = api(specialist_a).get("/api/v1/contracts/kanban/").json()
-    warning = next(column for column in columns if column["stage"] == "warning")
-    assert warning["total"] == 1
-    assert warning["cards"][0]["ls_count"] == 1
-    assert warning["cards"][0]["payer_identifier"] == "IN-DBR"
-    assert warning["cards"][0]["debt_group"] == 5
-    assert warning["cards"][0]["service_name"] == "Газ"
-    assert warning["cards"][0]["service_count"] == 2
-    assert "penalty" in warning["cards"][0]
-    assert "due_on" in warning["cards"][0]
+    columns = api(admin_a).get("/api/v1/contracts/kanban/").json()
+    notice = next(column for column in columns if column["stage"] == "notice")
+    assert notice["total"] == 1
+    assert notice["cards"][0]["ls_count"] == 1
+    assert notice["cards"][0]["payer_identifier"] == "IN-DBR"
+    assert notice["cards"][0]["debt_group"] == 5
+    assert notice["cards"][0]["service_name"] == "Газ"
+    assert notice["cards"][0]["service_count"] == 2
+    assert "penalty" in notice["cards"][0]
+    assert "due_on" in notice["cards"][0]
 
 
 def test_account_board_lists_contract_fields(api, specialist_a, account_a):
@@ -392,7 +392,7 @@ def test_account_board_lists_contract_fields(api, specialist_a, account_a):
     assert Decimal(row["penalty"]) == Decimal("5")
 
 
-def test_group_bucket_opens_the_same_accounts(api, specialist_a, account_a):
+def test_group_bucket_opens_the_same_accounts(api, admin_a, specialist_a, account_a):
     account_a.debt_group = 3
     account_a.assigned_to = specialist_a
     account_a.save(update_fields=["debt_group", "assigned_to"])
@@ -413,10 +413,10 @@ def test_group_bucket_opens_the_same_accounts(api, specialist_a, account_a):
     service = account_a.services.get()
     service.debt_group = 2
     service.save(update_fields=["debt_group"])
-    persons = api(specialist_a).get("/api/v1/contracts/persons/", {"group_by": "debt_group", "bucket": "2"}).json()
+    persons = api(admin_a).get("/api/v1/contracts/persons/", {"group_by": "debt_group", "bucket": "2"}).json()
     assert persons["count"] == 1
     assert persons["results"][0]["sample_id"] == service.id
-    assert api(specialist_a).get(
+    assert api(admin_a).get(
         "/api/v1/contracts/persons/", {"group_by": "debt_group", "bucket": "6"},
     ).json()["count"] == 0
 
@@ -428,15 +428,15 @@ def test_supplier_kanban_follows_his_service_group(api, org_a, account_a):
     water.debt_group = 1
     water.save(update_fields=["debt_group"])
     columns = api(supplier).get("/api/v1/contracts/kanban/").json()
-    prevention = next(column for column in columns if column["stage"] == "prevention")
-    enforcement = next(column for column in columns if column["stage"] == "enforcement")
-    assert any(account_a.id in card["account_ids"] for card in prevention["cards"])
-    assert all(account_a.id not in card["account_ids"] for card in enforcement["cards"])
-    assert prevention["cards"][0]["service_lines"]
+    call = next(column for column in columns if column["stage"] == "call")
+    prep = next(column for column in columns if column["stage"] == "prep")
+    assert any(account_a.id in card["account_ids"] for card in call["cards"])
+    assert all(account_a.id not in card["account_ids"] for card in prep["cards"])
+    assert call["cards"][0]["service_lines"]
 
 
-def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, specialist_a, observer_a, account_a):
-    columns = api(specialist_a).get("/api/v1/contracts/kanban/").json()
+def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, admin_a, specialist_a, observer_a, account_a):
+    columns = api(admin_a).get("/api/v1/contracts/kanban/").json()
     card = next(item for column in columns for item in column["cards"] if account_a.id in item["account_ids"])
     denied_move = api(specialist_a).post(
         "/api/v1/contracts/stage/",
@@ -444,9 +444,16 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
         format="json",
     )
     assert denied_move.status_code == 403
-    specialist_a.can_approve = True
-    specialist_a.save(update_fields=["can_approve"])
-    moved = api(specialist_a).post(
+    from apps.debts.models import Measure, MeasureItem
+    from django.utils import timezone
+
+    warning = Measure.objects.create(organization=org_a, kind=Measure.Kind.WARNING, status=Measure.Status.DONE)
+    warning.accounts.add(account_a)
+    MeasureItem.objects.create(
+        organization=org_a, measure=warning, account=account_a,
+        status=MeasureItem.Status.DONE, delivered_on=timezone.localdate(),
+    )
+    moved = api(admin_a).post(
         "/api/v1/contracts/stage/",
         {"account_ids": card["account_ids"], "funnel_stage": "disconnect", "funnel_reason": "Проверка переноса этапа"},
         format="json",
@@ -455,7 +462,7 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
     account_a.refresh_from_db()
     assert account_a.funnel_stage == "disconnect"
     assert account_a.funnel_locked is True
-    board = api(specialist_a).get("/api/v1/contracts/kanban/").json()
+    board = api(admin_a).get("/api/v1/contracts/kanban/").json()
     disconnect = next(column for column in board if column["stage"] == "disconnect")
     assert any(account_a.id in item["account_ids"] for item in disconnect["cards"])
     assert api(observer_a).post(
@@ -464,7 +471,7 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
         format="json",
     ).status_code == 403
     foreign = make_account(org_b, 777)
-    denied = api(specialist_a).post(
+    denied = api(admin_a).post(
         "/api/v1/contracts/stage/",
         {"account_ids": [account_a.id, foreign.id], "funnel_stage": "court", "funnel_reason": "Проверка переноса этапа"},
         format="json",
@@ -480,12 +487,12 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, special
     ).status_code == 403
 
 
-def test_contract_calendar_creates_an_event_on_the_chosen_day(api, specialist_a, observer_a, account_a):
-    created = api(specialist_a).post("/api/v1/contracts/events/", {
+def test_contract_calendar_creates_an_event_on_the_chosen_day(api, admin_a, observer_a, account_a):
+    created = api(admin_a).post("/api/v1/contracts/events/", {
         "kind": "scenario", "scenario_name": "Мягкий", "started_on": "2026-11-02", "due_on": "2026-11-02",
     }, format="json")
     assert created.status_code == 201
-    rows = api(specialist_a).get("/api/v1/contracts/calendar/", {"date_from": "2026-11-02", "date_to": "2026-11-02"}).json()
+    rows = api(admin_a).get("/api/v1/contracts/calendar/", {"date_from": "2026-11-02", "date_to": "2026-11-02"}).json()
     assert any(row.get("measure_id") == created.json()["id"] for row in rows)
     denied = api(observer_a).post("/api/v1/contracts/events/", {
         "kind": "scenario", "scenario_name": "Мягкий", "started_on": "2026-11-02", "due_on": "2026-11-02",
@@ -596,11 +603,11 @@ def test_account_kanban_exposes_card_marks(api, specialist_a, account_a):
     columns = api(specialist_a).get("/api/v1/accounts/kanban/").json()
     titles = [column["title"] for column in columns]
     assert titles[:6] == [
-        "Новый должник", "Автообзвон/уведомления", "Предупреждение вручено",
-        "Отключение услуг", "Исполнительная надпись / иск", "ОПИ",
+        "Новый должник", "Автообзвон", "Уведомление/Предупреждение",
+        "Отключение услуг", "Подготовка пакета на исполнительную надпись", "Направлено нотариусу",
     ]
-    warning = next(column for column in columns if column["stage"] == "warning")
-    card = warning["cards"][0]
+    notice = next(column for column in columns if column["stage"] == "notice")
+    card = notice["cards"][0]
     assert card["short_fio"] == "Соловьёва Марина Дмитриевна"
     assert card["warning_handed_on"] == "2026-07-05"
     assert card["rating_label"] == "A"
@@ -808,17 +815,17 @@ def test_writ_checks_stay_unique_on_repeat_open(api, specialist_a, account_a):
     assert account_a.writ_checks.count() == 4
 
 
-def test_contract_schema_label_is_billing_organization(api, specialist_a, org_a, account_a):
-    row = api(specialist_a).get("/api/v1/contracts/").json()["results"][0]
+def test_contract_schema_label_is_billing_organization(api, admin_a, org_a, account_a):
+    row = api(admin_a).get("/api/v1/contracts/").json()["results"][0]
     assert row["schema_label"] == "Организация A"
     assert row["billing_provider"] == account_a.provider_short_name
 
 
-def test_contract_billing_filter_accepts_name_or_code(api, specialist_a, org_a, account_a):
+def test_contract_billing_filter_accepts_name_or_code(api, admin_a, org_a, account_a):
     account_a.provider_short_name = "Тест ЖЭС"
     account_a.schema_name = "schema_a"
     account_a.save(update_fields=["provider_short_name", "schema_name"])
-    client = api(specialist_a)
+    client = api(admin_a)
     by_name = client.get("/api/v1/contracts/", {"billing_provider": "Тест ЖЭС"})
     by_code = client.get("/api/v1/contracts/", {"billing_provider": str(account_a.provider_id)})
     by_schema = client.get("/api/v1/contracts/", {"billing_provider": "schema_a"})
@@ -840,9 +847,9 @@ def test_blank_payer_keys_stay_separate_and_bad_ids_are_400(api, admin_a, specia
         organization=org_a, account=other, service_list_id=10, service_id=20,
         service_name="Свет", balance_out=Decimal("5"),
     )
-    persons = api(specialist_a).get("/api/v1/contracts/persons/").json()
+    persons = api(admin_a).get("/api/v1/contracts/persons/").json()
     assert persons["count"] == 2
-    bad_page = api(specialist_a).get("/api/v1/contracts/kanban/", {"page_size": "abc"})
+    bad_page = api(admin_a).get("/api/v1/contracts/kanban/", {"page_size": "abc"})
     assert bad_page.status_code == 400
     service = account_a.services.get()
     bad_ids = api(admin_a).post(

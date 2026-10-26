@@ -35,7 +35,10 @@ def claims_population(queryset: QuerySet) -> QuerySet:
     matched = queryset.model.objects.filter(
         Q(pk=OuterRef("pk")),
         Q(claim_case__isnull=False)
-        | Q(funnel_stage__in=["enforcement", "court"])
+        | Q(funnel_stage__in=[
+            "enforcement", "court", "prep", "notary", "writ_done", "refused",
+            "lawsuit", "judgment", "opi", "opi_measures", "impossible", "writeoff",
+        ])
         | Q(measures__kind="collection")
         | shown_group,
     )
@@ -105,6 +108,8 @@ MONEY_FIELDS = {"notary_tariff", "state_duty"}
 def update_case(case: ClaimCase, data: dict, user) -> ClaimCase:
     previous_warning = case.warning_delivered_on
     previous_tariff = case.notary_tariff
+    if "notary_office" in data:
+        data["notary_office"] = str(data.get("notary_office") or "").strip()[:250]
     if data.get("application_withdrawn"):
         data["notary_tariff"] = Decimal("0")
     kind = data.get("lawsuit_kind")
@@ -173,6 +178,11 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "", *, checklist_
     from apps.debts.services.claim_measures import sync_claim_measure
 
     sync_claim_measure(case)
+    from apps.debts.services.funnel import claim_to_account_stage, set_stage
+
+    mapped = claim_to_account_stage(stage)
+    if mapped:
+        set_stage(case.account, mapped, user, reason or "Переход дела", check=False)
     if case.account.assigned_to_id and stage == ClaimCase.Stage.WRITEOFF:
         _notify(case, case.account.assigned_to_id, "Сформирован акт о списании. В АИС уйдёт уведомление, когда появится файл статусов.")
     return case
@@ -305,8 +315,15 @@ def decide_writeoff(case: ClaimCase, user, decision: str, reason: str = "") -> C
     return move_case(case, ClaimCase.Stage.WRITEOFF, user, "Согласовали все участники маршрута")
 
 
+def _cached(instance, name, fallback):
+    cache = getattr(instance, "_prefetched_objects_cache", {})
+    if name in cache:
+        return cache[name]
+    return fallback
+
+
 def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
-    acts = [{"id": act.pk, "title": act.title} for act in case.acts.all()]
+    acts = [{"id": act.pk, "title": act.title} for act in _cached(case, "acts", case.acts.all())]
     approvals = [
         {
             "id": item.pk,
@@ -315,7 +332,7 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
             "decision": item.decision,
             "reason": item.reason,
         }
-        for item in case.approvals.select_related("approver")
+        for item in _cached(case, "approvals", case.approvals.select_related("approver"))
     ]
     account = case.account
     penalty = sum(
@@ -338,6 +355,13 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         "stage": case.stage,
         "stage_label": case.get_stage_display(),
         "warning_delivered_on": _date(case.warning_delivered_on),
+        "debt_from": _date(case.debt_from),
+        "debt_to": _date(case.debt_to),
+        "non_delivery_act_on": _date(case.non_delivery_act_on),
+        "repayment_days": case.repayment_days,
+        "writ_principal": _money(case.writ_principal),
+        "writ_penalty": _money(case.writ_penalty),
+        "notary_office": case.notary_office,
         "notary_tariff": _money(case.notary_tariff),
         "application_withdrawn": case.application_withdrawn,
         "submission_id": case.submission_id,
@@ -371,7 +395,7 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
                 "name": item.original_name,
                 "role": _file_role(item.doc_type, item.original_name),
             }
-            for item in account.attachments.all()[:30]
+            for item in list(_cached(account, "attachments", account.attachments.all()))[:30]
         ],
         "acts": acts,
         "acts_count": len(acts),
@@ -385,7 +409,7 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
                 "actor": event.actor.display_name if event.actor_id else "",
                 "at": event.created_at.isoformat(),
             }
-            for event in case.events.select_related("actor")[:20]
+            for event in list(_cached(case, "events", case.events.select_related("actor")))[:20]
         ],
     }
     if with_choices:
@@ -424,9 +448,10 @@ def blockers(case: ClaimCase) -> list[str]:
         missing.append("Нет даты вручения предупреждения")
     if case.application_withdrawn or case.notary_tariff is None or case.notary_tariff <= 0:
         missing.append("Нет нотариального тарифа")
-    if case.acts.count() < 1:
+    act_count = len(case.acts.all())
+    if act_count < 1:
         missing.append("Нет акта ОПИ для статуса «Невозможность взыскания»")
-    if case.acts.count() < 3:
+    if act_count < 3:
         missing.append("Для списания нужно три акта ОПИ")
     if not case.tariff_received or not case.ais_debt_cleared:
         missing.append("Статус «Взыскано» ждёт выгрузку АИС: погашены долг, пеня и тариф")

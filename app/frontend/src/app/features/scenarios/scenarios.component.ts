@@ -9,7 +9,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, WritChecklistItem, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { DialSettings, MessageTemplate } from '../../core/models';
+import { DebtorCategory, DialSettings, MessageTemplate, categoryGroups } from '../../core/models';
+import { GridResizeDirective } from '../grid-resize.directive';
 const ACTIONS = [
   { id: 'call', label: 'Автообзвон' },
   { id: 'manual_call', label: 'Ручной звонок' },
@@ -38,311 +39,394 @@ function defaultWritChecklist(): WritChecklistItem[] {
   standalone: true,
   imports: [
     FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule,
+    MatCheckboxModule, MatSnackBarModule, GridResizeDirective,
   ],
   template: `
     <div>
-      <header class="head">
-        <div>
-          <h2>Сценарии и шаблоны</h2>
-          <p>Последовательность мероприятий. Тексты сообщений и печатные формы — на соседних вкладках. Уже запущенный счёт остаётся на своей версии сценария.</p>
-          @if (current()) {
-            <mat-form-field class="name"><mat-label>Название сценария</mat-label><input matInput [(ngModel)]="name" /></mat-form-field>
+      @if (current()) {
+        <nav class="subtabs" aria-label="Части сценария">
+          <button type="button" [class.on]="sheet() === 'scenario'" (click)="openScenario()">Сценарий</button>
+          @for (step of steps; track $index) {
+            <button type="button" [class.on]="sheet() === $index" (click)="openStep($index)">{{ stepTabLabel($index) }}</button>
+          }
+          @if (callStepIndex() < 0) {
+            <button type="button" [class.on]="sheet() === 'dial'" (click)="sheet.set('dial')">Автообзвон</button>
+          }
+        </nav>
+      }
+
+      @if (sheet() === 'scenario' || !current()) {
+        <p class="lead">Список сценариев и порядок шагов. Условия меры — на её подвкладке. Уже запущенный счёт остаётся на своей версии.</p>
+        <div class="picker" id="scenario">
+          @for (row of scenarios(); track row.id) {
+            <button type="button" [class.on]="current()?.id === row.id" (click)="select(row)">
+              {{ row.name }}
+              <small>{{ row.organization ? 'схема' : 'центр' }} · v{{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</small>
+            </button>
           }
         </div>
-        <div class="actions">
-          @if (canEdit()) {
-            <button mat-stroked-button (click)="create()">+ Черновик</button>
-          }
-          <button mat-flat-button color="primary" (click)="save()">Сохранить</button>
-          <mat-checkbox [(ngModel)]="applyRunning">Перевести уже запущенные счета</mat-checkbox>
-          <button mat-stroked-button (click)="publish()">Опубликовать</button>
-          <button mat-stroked-button (click)="copy()">Копировать в схему</button>
-        </div>
-      </header>
-      <div class="picker list-pane" id="scenario">
-        @for (row of scenarios(); track row.id) {
-          <button type="button" [class.on]="current()?.id === row.id" (click)="select(row)">
-            {{ row.name }}
-            <small>{{ row.organization ? 'схема' : 'центр' }} · v{{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</small>
-          </button>
+        @if (!scenarios().length) {
+          <p class="muted">Сценариев нет.</p>
         }
-      </div>
-      @if (current(); as row) {
-        <div class="layout">
-          <section class="table-wrap">
-            <div class="list-pane">
-            <table>
-              <thead><tr><th>№</th><th>Мера</th><th>Дней</th><th>Режим</th></tr></thead>
-              <tbody>
-                @for (step of steps; track $index) {
-                  <tr [class.on]="picked() === $index" (click)="picked.set($index)">
-                    <td>{{ step.order }}</td>
-                    <td>{{ actionLabel(step.action) }}</td>
-                    <td>{{ step.wait_days || 0 }}</td>
-                    <td><span class="mode" [class.hand]="!isAuto(step.action)">{{ isAuto(step.action) ? 'Авто' : 'Вручную' }}</span></td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+
+        @if (current(); as row) {
+          <section class="card">
+            <mat-form-field class="name"><mat-label>Название сценария</mat-label><input matInput [(ngModel)]="name" /></mat-form-field>
+            <div class="toolbar">
+              @if (canEdit()) {
+                <button mat-stroked-button type="button" (click)="create()">+ Черновик</button>
+              }
+              <button mat-flat-button color="primary" type="button" (click)="save()">Сохранить</button>
+              <button mat-stroked-button type="button" (click)="publish()">Опубликовать</button>
+              <button mat-stroked-button type="button" (click)="copy()">Копировать в схему</button>
+              <mat-checkbox [(ngModel)]="applyRunning">Перевести уже запущенные счета</mat-checkbox>
             </div>
-            <button mat-stroked-button (click)="addStep()">+ Шаг</button>
+            <p class="meta">{{ row.organization ? 'Схема' : 'Центр' }} · версия {{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</p>
           </section>
-          @if (steps[picked()]; as step) {
-            <section class="pane">
-              <h3>Шаг {{ step.order }}. {{ actionLabel(step.action) }}</h3>
-              <h4>Условия запуска</h4>
-              <div class="line">
-                <mat-form-field><mat-label>Предшествующее мероприятие</mat-label>
-                  <mat-select [(ngModel)]="step.previous_action">
-                    <mat-option value="">Любое</mat-option>
-                    @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field><mat-label>Через сколько дней</mat-label><input matInput type="number" [(ngModel)]="step.wait_days" /></mat-form-field>
-              </div>
-              <div class="line">
-                <mat-form-field><mat-label>Применимо к группам</mat-label>
-                  <mat-select [(ngModel)]="step.groups" multiple>
-                    @for (group of groups; track group) { <mat-option [value]="group">Группа {{ group }}</mat-option> }
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field><mat-label>Группа от</mat-label><input matInput type="number" [(ngModel)]="step.branch_group" /></mat-form-field>
-              </div>
-              <div class="line">
-                <mat-form-field><mat-label>Категория должника</mat-label>
-                  <mat-select [(ngModel)]="step.debtor_category">
-                    <mat-option [value]="null">Любая</mat-option>
-                    @for (category of categories(); track category.id) { <mat-option [value]="category.id">{{ category.name }}</mat-option> }
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field><mat-label>Тип организации</mat-label>
-                  <mat-select [(ngModel)]="step.org_kind">
-                    <mat-option value="any">Любая</mat-option>
-                    <mat-option value="billing">Начисляющая</mat-option>
-                    <mat-option value="supplier">Поставщик</mat-option>
-                  </mat-select>
-                </mat-form-field>
-              </div>
-              <div class="line">
-                <mat-form-field><mat-label>Лицо</mat-label>
-                  <mat-select [(ngModel)]="step.party">
-                    <mat-option value="any">Любое</mat-option>
-                    <mat-option value="person">Физическое</mat-option>
-                    <mat-option value="legal">Юридическое</mat-option>
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field><mat-label>Статус предыдущего</mat-label>
-                  <mat-select [(ngModel)]="step.require_status">
-                    <mat-option value="">Не важен</mat-option>
-                    <mat-option value="done">Завершено</mat-option>
-                  </mat-select>
-                </mat-form-field>
-              </div>
-              <mat-checkbox [(ngModel)]="step.require_phone">Есть телефон +375</mat-checkbox>
-              <mat-checkbox [(ngModel)]="step.exclude_if_paid">Исключить, если оплата поступила</mat-checkbox>
-              <h4>Действие</h4>
-              <div class="line">
-                <mat-form-field><mat-label>Мера</mat-label>
-                  <mat-select [ngModel]="step.action" (ngModelChange)="onAction(step, $event)">
-                    @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field><mat-label>Шаблон сообщения</mat-label>
-                  <mat-select [ngModel]="templateValue(step)" (ngModelChange)="setTemplate(step, $event)">
-                    <mat-option value="">Не выбран</mat-option>
-                    @for (item of messageTemplates(); track item.id) {
-                      <mat-option [value]="'' + item.id">{{ item.name }} · {{ item.channel_display }}</mat-option>
+
+          <section class="card">
+            <div class="card-head">
+              <h3>Шаги</h3>
+              <button mat-stroked-button type="button" (click)="addStep()">+ Шаг</button>
+            </div>
+            @if (steps.length) {
+              <div class="list-pane">
+                <table appGridResize="scenario-steps">
+                  <thead><tr><th data-col="order">№</th><th data-col="action">Мера</th><th data-col="days">Дней</th><th data-col="mode">Режим</th><th data-col="open"></th></tr></thead>
+                  <tbody>
+                    @for (step of steps; track $index) {
+                      <tr (click)="openStep($index)">
+                        <td>{{ step.order }}</td>
+                        <td>{{ actionLabel(step.action) }}</td>
+                        <td>{{ step.wait_days || 0 }}</td>
+                        <td><span class="mode" [class.hand]="!isAuto(step.action)">{{ isAuto(step.action) ? 'Авто' : 'Вручную' }}</span></td>
+                        <td class="go">Настроить</td>
+                      </tr>
                     }
-                    @if (orphanTemplate(step); as name) {
-                      <mat-option [value]="'name:' + name">{{ name }}</mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
+                  </tbody>
+                </table>
               </div>
-              @if (step.action === 'call') {
-                <h4>Частота по группам</h4>
-                <p class="muted">Группы 1–2: один успешный дозвон в день. Группы 4 и старше — один раз. Группа 3 звонит реже: число дней берётся из этого шага.</p>
-                <mat-form-field><mat-label>Группа 3, раз в дней</mat-label>
-                  <input matInput type="number" min="1" [ngModel]="group3Days(step)" (ngModelChange)="setGroup3Days(step, $event)" />
-                </mat-form-field>
+            } @else {
+              <p class="muted">Шагов пока нет.</p>
+            }
+            <p class="hint">Строка открывает подвкладку шага.</p>
+          </section>
+
+          @if (warnings().length) {
+            @for (text of warnings(); track text) { <p class="banner">{{ text }}</p> }
+          }
+
+          <section class="card">
+            <h3>Счёт</h3>
+            <div class="toolbar">
+              <mat-form-field><mat-label>ID лицевого счёта</mat-label><input matInput type="number" [(ngModel)]="accountId" /></mat-form-field>
+              <mat-form-field class="grow"><mat-label>Причина паузы</mat-label><input matInput [(ngModel)]="pauseReason" /></mat-form-field>
+              <button mat-stroked-button type="button" (click)="assign(false)">Назначить текущую версию</button>
+              <button mat-stroked-button type="button" (click)="assign(true)">Поставить на паузу</button>
+            </div>
+            @if (runNote()) { <p class="meta">{{ runNote() }}</p> }
+            @if (pauses().length) {
+              <h4>Паузы по счёту</h4>
+              @for (item of pauses(); track item.at) {
+                <p class="rev">{{ item.paused ? 'Пауза' : 'В работе' }} · {{ item.actor }} · {{ item.reason }}</p>
               }
-              <mat-checkbox [(ngModel)]="step.approval">Нужно согласование</mat-checkbox>
-              <mat-checkbox [(ngModel)]="step.auto_complete">Считать выполненным при успешной отправке</mat-checkbox>
-              @if (step.action === 'messenger') {
-                <p class="banner">Мессенджер в сценарии есть, сообщение не отправляется.</p>
+            }
+          </section>
+
+          @if (row.revisions?.length) {
+            <section class="card">
+              <h3>Версии</h3>
+              <p class="muted">Откат публикует выбранные шаги новым номером. Запущенные счета остаются на своей версии, пока не отмечен перевод.</p>
+              @for (rev of row.revisions; track rev.version) {
+                <div class="rev">
+                  <span>v{{ rev.version }} {{ rev.author }}</span>
+                  <button mat-stroked-button type="button" (click)="restore(rev.version)" [disabled]="rev.version === row.version">Откатить как новую версию</button>
+                </div>
               }
-              @if (step.action === 'writ') {
-                <h4>Чек-лист исполнительной надписи</h4>
-                <p class="muted">Название, порядок и критерий приёмки. Обязательный этап блокирует направление нотариусу. Пропуск — только с записанной причиной. Дату вручения, срок оплаты, пакет и тариф убрать нельзя.</p>
-                @for (item of step.checklist || []; track item.code; let index = $index) {
-                  <div class="check">
-                    <div class="line">
-                      <span class="ord">{{ item.order }}</span>
-                      <mat-form-field class="grow"><mat-label>Название</mat-label><input matInput [(ngModel)]="item.name" /></mat-form-field>
-                      <button mat-button type="button" (click)="moveCheck(step, index, -1)" [disabled]="index === 0">Выше</button>
-                      <button mat-button type="button" (click)="moveCheck(step, index, 1)" [disabled]="index === (step.checklist || []).length - 1">Ниже</button>
-                      @if (!item.locked) {
-                        <button mat-button type="button" (click)="removeCheck(step, index)">Убрать</button>
-                      }
-                    </div>
-                    <mat-form-field class="wide"><mat-label>Критерий приёмки</mat-label><textarea matInput rows="2" [(ngModel)]="item.criteria"></textarea></mat-form-field>
-                    <mat-checkbox [(ngModel)]="item.mandatory" [disabled]="!!item.locked">Обязательный этап</mat-checkbox>
-                    @if (!item.mandatory) {
-                      <p class="muted">Этот этап можно перескочить. При направлении нотариусу специалист записывает причину.</p>
-                    }
-                  </div>
-                }
-                @if (!hasDisconnect(step)) {
-                  <button mat-stroked-button type="button" (click)="addDisconnect(step)">+ Этап «Отключение услуг»</button>
-                }
-              }
-              <h4>Переход</h4>
-              <mat-checkbox [(ngModel)]="step.blocks_next">Обязателен для перехода</mat-checkbox>
-              <mat-checkbox [(ngModel)]="step.terminal">Конечный шаг</mat-checkbox>
-              <p class="muted">Следующий шаг — строка ниже в таблице. Два шага с одним номером и тупик без конца сценарий не сохранит.</p>
-              <button mat-button (click)="removeStep(picked())">Убрать шаг</button>
             </section>
           }
-        </div>
-        @if (warnings().length) {
-          @for (text of warnings(); track text) { <p class="banner">{{ text }}</p> }
+
+          @if (canEdit()) {
+            <section class="card">
+              <h3>Сроки схемы</h3>
+              <p class="muted">Пустое число дней после предупреждения берёт общее значение ({{ centralWarning }}). Ожидание шага перекрывает срок, записанный в сценарии. У каждой схемы свои числа.</p>
+              <div class="grid">
+                <mat-form-field><mat-label>Дней после предупреждения</mat-label><input matInput type="number" [(ngModel)]="warningWait" /></mat-form-field>
+                @for (item of waitActions; track item.id) {
+                  <mat-form-field><mat-label>{{ item.label }}</mat-label><input matInput type="number" [(ngModel)]="stepWaits[item.id]" /></mat-form-field>
+                }
+              </div>
+              <button mat-stroked-button type="button" (click)="saveTimeline()">Сохранить сроки схемы</button>
+            </section>
+          }
+        } @else if (canEdit()) {
+          <button mat-stroked-button type="button" (click)="create()">+ Черновик</button>
         }
-        <div class="assign">
-          <mat-form-field><mat-label>ID лицевого счёта</mat-label><input matInput type="number" [(ngModel)]="accountId" /></mat-form-field>
-          <mat-form-field class="grow"><mat-label>Причина паузы</mat-label><input matInput [(ngModel)]="pauseReason" /></mat-form-field>
-          <button mat-stroked-button (click)="assign(false)">Назначить текущую версию</button>
-          <button mat-stroked-button (click)="assign(true)">Поставить на паузу</button>
-        </div>
-        @if (runNote()) { <p>{{ runNote() }}</p> }
-        @if (pauses().length) {
-          <section class="history">
-            <h3>Паузы по счёту</h3>
-            @for (item of pauses(); track item.at) {
-              <div class="rev"><span>{{ item.paused ? 'Пауза' : 'В работе' }} · {{ item.actor }} · {{ item.reason }}</span></div>
-            }
-          </section>
-        }
-        @if (current()?.revisions?.length) {
-          <section class="history">
-            <h3>Версии сценария</h3>
-            <p class="muted">Откат публикует выбранные шаги новым номером. Запущенные счета остаются на своей версии, пока не отмечен перевод.</p>
-            @for (rev of current()?.revisions; track rev.version) {
-              <div class="rev">
-                <span>v{{ rev.version }} {{ rev.author }}</span>
-                <button mat-stroked-button (click)="restore(rev.version)" [disabled]="rev.version === current()?.version">Откатить как новую версию</button>
+      }
+
+      @if (activeStep(); as step) {
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>Шаг {{ step.order }}. {{ actionLabel(step.action) }}</h3>
+              <p class="hint">Условия этой меры. Порядок шагов меняется на подвкладке «Сценарий».</p>
+            </div>
+            <button mat-stroked-button type="button" (click)="openScenario()">К сценарию</button>
+          </div>
+
+          <h4>Условия запуска</h4>
+          <div class="grid">
+            <mat-form-field><mat-label>Предшествующее мероприятие</mat-label>
+              <mat-select [(ngModel)]="step.previous_action">
+                <mat-option value="">Любое</mat-option>
+                @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field><mat-label>Через сколько дней</mat-label><input matInput type="number" [(ngModel)]="step.wait_days" /></mat-form-field>
+            <mat-form-field><mat-label>Применимо к группам</mat-label>
+              <mat-select [(ngModel)]="step.groups" multiple>
+                @for (group of groups; track group) { <mat-option [value]="group">Группа {{ group }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field><mat-label>Группа от</mat-label><input matInput type="number" [(ngModel)]="step.branch_group" /></mat-form-field>
+            <mat-form-field><mat-label>Категория должника</mat-label>
+              <mat-select [(ngModel)]="step.debtor_category" panelClass="debtor-category-panel">
+                <mat-option [value]="null">Любая</mat-option>
+                @for (group of categoryGroups(categories()); track group.section) {
+                  @if (group.section) {
+                    <mat-optgroup [label]="group.section">
+                      @for (category of group.items; track category.id) { <mat-option [value]="category.id">{{ category.name }}</mat-option> }
+                    </mat-optgroup>
+                  } @else {
+                    @for (category of group.items; track category.id) { <mat-option [value]="category.id">{{ category.name }}</mat-option> }
+                  }
+                }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field><mat-label>Тип организации</mat-label>
+              <mat-select [(ngModel)]="step.org_kind">
+                <mat-option value="any">Любая</mat-option>
+                <mat-option value="billing">Начисляющая</mat-option>
+                <mat-option value="supplier">Поставщик</mat-option>
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field><mat-label>Лицо</mat-label>
+              <mat-select [(ngModel)]="step.party">
+                <mat-option value="any">Любое</mat-option>
+                <mat-option value="person">Физическое</mat-option>
+                <mat-option value="legal">Юридическое</mat-option>
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field><mat-label>Статус предыдущего</mat-label>
+              <mat-select [(ngModel)]="step.require_status">
+                <mat-option value="">Не важен</mat-option>
+                <mat-option value="done">Завершено</mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+          <div class="checks">
+            <mat-checkbox [(ngModel)]="step.require_phone">Есть телефон +375</mat-checkbox>
+            <mat-checkbox [(ngModel)]="step.exclude_if_paid">Исключить, если оплата поступила</mat-checkbox>
+          </div>
+
+          <h4>Действие</h4>
+          <div class="grid">
+            <mat-form-field><mat-label>Мера</mat-label>
+              <mat-select [ngModel]="step.action" (ngModelChange)="onAction(step, $event)">
+                @for (action of actions; track action.id) { <mat-option [value]="action.id">{{ action.label }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field><mat-label>Шаблон сообщения</mat-label>
+              <mat-select [ngModel]="templateValue(step)" (ngModelChange)="setTemplate(step, $event)">
+                <mat-option value="">Не выбран</mat-option>
+                @for (item of messageTemplates(); track item.id) {
+                  <mat-option [value]="'' + item.id">{{ item.name }} · {{ item.channel_display }}</mat-option>
+                }
+                @if (orphanTemplate(step); as name) {
+                  <mat-option [value]="'name:' + name">{{ name }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          </div>
+          @if (step.action === 'call') {
+            <h4>Частота по группам</h4>
+            <p class="muted">Группы 1–2: один успешный дозвон в день. Группы 4 и старше — один раз. Группа 3 звонит реже: число дней берётся из этого шага.</p>
+            <mat-form-field class="name"><mat-label>Группа 3, раз в дней</mat-label>
+              <input matInput type="number" min="1" [ngModel]="group3Days(step)" (ngModelChange)="setGroup3Days(step, $event)" />
+            </mat-form-field>
+          }
+          <div class="checks">
+            <mat-checkbox [(ngModel)]="step.approval">Нужно согласование</mat-checkbox>
+            <mat-checkbox [(ngModel)]="step.auto_complete">Считать выполненным при успешной отправке</mat-checkbox>
+          </div>
+          @if (step.action === 'messenger') {
+            <p class="banner">Мессенджер в сценарии есть, сообщение не отправляется.</p>
+          }
+          @if (step.action === 'writ') {
+            <h4>Чек-лист исполнительной надписи</h4>
+            <p class="muted">Название, порядок и критерий приёмки. Обязательный этап блокирует направление нотариусу. Пропуск — только с записанной причиной. Дату вручения, срок оплаты, пакет и тариф убрать нельзя.</p>
+            @for (item of step.checklist || []; track item.code; let index = $index) {
+              <div class="check">
+                <div class="line">
+                  <span class="ord">{{ item.order }}</span>
+                  <mat-form-field class="grow"><mat-label>Название</mat-label><input matInput [(ngModel)]="item.name" /></mat-form-field>
+                  <button mat-button type="button" (click)="moveCheck(step, index, -1)" [disabled]="index === 0">Выше</button>
+                  <button mat-button type="button" (click)="moveCheck(step, index, 1)" [disabled]="index === (step.checklist || []).length - 1">Ниже</button>
+                  @if (!item.locked) {
+                    <button mat-button type="button" (click)="removeCheck(step, index)">Убрать</button>
+                  }
+                </div>
+                <mat-form-field class="wide"><mat-label>Критерий приёмки</mat-label><textarea matInput rows="2" [(ngModel)]="item.criteria"></textarea></mat-form-field>
+                <mat-checkbox [(ngModel)]="item.mandatory" [disabled]="!!item.locked">Обязательный этап</mat-checkbox>
+                @if (!item.mandatory) {
+                  <p class="muted">Этот этап можно перескочить. При направлении нотариусу специалист записывает причину.</p>
+                }
               </div>
             }
+            @if (!hasDisconnect(step)) {
+              <button mat-stroked-button type="button" (click)="addDisconnect(step)">+ Этап «Отключение услуг»</button>
+            }
+          }
+
+          <h4>Переход</h4>
+          <div class="checks">
+            <mat-checkbox [(ngModel)]="step.blocks_next">Обязателен для перехода</mat-checkbox>
+            <mat-checkbox [(ngModel)]="step.terminal">Конечный шаг</mat-checkbox>
+          </div>
+          <p class="muted">Следующий шаг — следующая строка таблицы на подвкладке «Сценарий». Два шага с одним номером и тупик без конца сценарий не сохранит.</p>
+          <div class="toolbar foot">
+            <button mat-flat-button color="primary" type="button" (click)="save()">Сохранить</button>
+            <button mat-button type="button" (click)="removeStep(activeIndex())">Убрать шаг</button>
+          </div>
+        </section>
+      }
+
+      @if (sheet() !== 'scenario' && warnings().length) {
+        @for (text of warnings(); track text) { <p class="banner">{{ text }}</p> }
+      }
+
+      @if (showDial()) {
+        @if (sheet() === 'dial') {
+          <p class="lead">В этом сценарии нет шага «Автообзвон». Номера схемы и окно задаются здесь.</p>
+        }
+        @if (canEdit()) {
+          <section class="card">
+            <h3>Номера схемы</h3>
+            <div class="checks">
+              <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
+            </div>
+            <mat-form-field class="wide"><mat-label>Исходящие номера, по одному в строке</mat-label>
+              <textarea matInput rows="3" [(ngModel)]="outgoingNumbers"></textarea>
+            </mat-form-field>
+            <p class="muted">Ротация уходит в адаптер. Пока адаптер — заглушка, номер пишется в журнал партии, набор не выполняется.</p>
+            <div class="checks">
+              <mat-checkbox [checked]="false" disabled>Запись разговора</mat-checkbox>
+              <mat-checkbox [checked]="false" disabled>Перевод на оператора</mat-checkbox>
+            </div>
+            <p class="muted">Запись и перевод выключены, пока Asterisk их не отдаёт.</p>
+            <button mat-stroked-button type="button" (click)="saveCalling()">Сохранить обзвон схемы</button>
+          </section>
+        }
+        @if (auth.isSuperadmin()) {
+          <section class="card">
+            <h3>Общее правило номера</h3>
+            <div class="grid">
+              <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="dialDay" /></mat-form-field>
+            </div>
+            <div class="days">
+              @for (day of weekDays; track day.id) {
+                <mat-checkbox [checked]="dialWeekdays.includes(day.id)" (change)="toggleDialDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
+              }
+            </div>
+            <button mat-stroked-button type="button" (click)="saveGlobalDial()">Сохранить общее правило</button>
+          </section>
+        }
+        @if (current()) {
+          <section class="card">
+            <h3>Окно обзвона</h3>
+            <p class="muted">Будни — вечер, выходные — своё окно. Старт не раньше 27-го числа. Пустое число мобильного и пустые дни берут общее правило номера. Окно записывается вместе со сценарием.</p>
+            <div class="grid">
+              <mat-form-field><mat-label>ЮЛ в этом сценарии</mat-label>
+                <mat-select [(ngModel)]="scenarioCall">
+                  <mat-option value="inherit">Как в схеме</mat-option>
+                  <mat-option value="yes">Звонить</mat-option>
+                  <mat-option value="no">Не звонить</mat-option>
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="scenarioDialDay" /></mat-form-field>
+              <mat-form-field><mat-label>Старт с числа</mat-label><input matInput type="number" min="27" max="31" [(ngModel)]="callFromDay" /></mat-form-field>
+              <mat-form-field><mat-label>Будни с</mat-label><input matInput type="time" [(ngModel)]="weekdayFrom" /></mat-form-field>
+              <mat-form-field><mat-label>Будни по</mat-label><input matInput type="time" [(ngModel)]="weekdayTo" /></mat-form-field>
+              <mat-form-field><mat-label>Выходные с</mat-label><input matInput type="time" [(ngModel)]="weekendFrom" /></mat-form-field>
+              <mat-form-field><mat-label>Выходные по</mat-label><input matInput type="time" [(ngModel)]="weekendTo" /></mat-form-field>
+            </div>
+            <p class="hint">Дни сценария: в какие дни недели брать только мобильный.</p>
+            <div class="days">
+              @for (day of weekDays; track day.id) {
+                <mat-checkbox [checked]="scenarioWeekdays.includes(day.id)" (change)="toggleScenarioDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
+              }
+            </div>
+            <button mat-flat-button color="primary" type="button" (click)="save()">Сохранить</button>
           </section>
         }
       }
 
-      <section class="forms">
-        <h3>Обзвон</h3>
-        @if (canEdit()) {
-          <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
-          <mat-form-field class="wide"><mat-label>Исходящие номера, по одному в строке</mat-label>
-            <textarea matInput rows="3" [(ngModel)]="outgoingNumbers"></textarea>
-          </mat-form-field>
-          <p class="muted">Ротация уходит в адаптер. Пока адаптер — заглушка, номер пишется в журнал партии, набор не выполняется.</p>
-          <mat-checkbox [checked]="false" disabled>Запись разговора</mat-checkbox>
-          <mat-checkbox [checked]="false" disabled>Перевод на оператора</mat-checkbox>
-          <p class="muted">Запись и перевод выключены, пока Asterisk их не отдаёт.</p>
-          <button mat-stroked-button (click)="saveCalling()">Сохранить обзвон схемы</button>
-          <h3>Сроки схемы</h3>
-          <p class="muted">Пустое число дней после предупреждения берёт общее значение ({{ centralWarning }}). Ожидание шага перекрывает срок, записанный в сценарии. У каждой схемы свои числа.</p>
-          <div class="line">
-            <mat-form-field><mat-label>Дней после предупреждения</mat-label><input matInput type="number" [(ngModel)]="warningWait" /></mat-form-field>
+      @if (showMail() && canEdit()) {
+        <section class="card">
+          <h3>Почта схемы</h3>
+          <p class="muted">Отправитель, тема и подпись писем этой схемы. Если у шаблона тема заполнена, в письмо идёт она. Прочтение не отмечается. Пока шлюз в режиме заглушки, письмо во внешнюю почту не уходит.</p>
+          <div class="grid">
+            <mat-form-field><mat-label>E-mail отправителя</mat-label><input matInput [(ngModel)]="mailFrom" maxlength="254" /></mat-form-field>
+            <mat-form-field><mat-label>Имя отправителя</mat-label><input matInput [(ngModel)]="mailFromName" maxlength="250" /></mat-form-field>
+            <mat-form-field class="wide"><mat-label>Тема, если у шаблона её нет</mat-label><input matInput [(ngModel)]="mailSubject" maxlength="250" /></mat-form-field>
+            <mat-form-field class="wide"><mat-label>Подпись</mat-label><textarea matInput rows="2" [(ngModel)]="mailSignature" maxlength="500"></textarea></mat-form-field>
           </div>
-          <div class="line">
-            @for (item of waitActions; track item.id) {
-              <mat-form-field><mat-label>{{ item.label }}</mat-label><input matInput type="number" [(ngModel)]="stepWaits[item.id]" /></mat-form-field>
-            }
-          </div>
-          <button mat-stroked-button (click)="saveTimeline()">Сохранить сроки схемы</button>
-        }
-        @if (auth.isSuperadmin()) {
-          <h4>Общее правило номера</h4>
-          <div class="line">
-            <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="dialDay" /></mat-form-field>
-          </div>
-          <div class="line">
-            @for (day of weekDays; track day.id) {
-              <mat-checkbox [checked]="dialWeekdays.includes(day.id)" (change)="toggleDialDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
-            }
-          </div>
-          <button mat-stroked-button (click)="saveGlobalDial()">Сохранить общее правило</button>
-        }
-        @if (current()) {
-          <div class="line">
-            <mat-form-field><mat-label>ЮЛ в этом сценарии</mat-label>
-              <mat-select [(ngModel)]="scenarioCall">
-                <mat-option value="inherit">Как в схеме</mat-option>
-                <mat-option value="yes">Звонить</mat-option>
-                <mat-option value="no">Не звонить</mat-option>
-              </mat-select>
-            </mat-form-field>
-            <mat-form-field><mat-label>Мобильный с числа</mat-label><input matInput type="number" [(ngModel)]="scenarioDialDay" /></mat-form-field>
-          </div>
-          <h4>Окно обзвона сценария</h4>
-          <p class="muted">Будни — вечер, выходные — своё окно. Старт не раньше 27-го числа. Пустое число мобильного и пустые дни берут общее правило номера.</p>
-          <div class="line">
-            <mat-form-field><mat-label>Старт с числа</mat-label><input matInput type="number" min="27" max="31" [(ngModel)]="callFromDay" /></mat-form-field>
-            <mat-form-field><mat-label>Будни с</mat-label><input matInput type="time" [(ngModel)]="weekdayFrom" /></mat-form-field>
-            <mat-form-field><mat-label>Будни по</mat-label><input matInput type="time" [(ngModel)]="weekdayTo" /></mat-form-field>
-            <mat-form-field><mat-label>Выходные с</mat-label><input matInput type="time" [(ngModel)]="weekendFrom" /></mat-form-field>
-            <mat-form-field><mat-label>Выходные по</mat-label><input matInput type="time" [(ngModel)]="weekendTo" /></mat-form-field>
-          </div>
-          <p class="muted">Дни сценария: отметьте, в какие дни недели брать только мобильный.</p>
-          <div class="line">
-            @for (day of weekDays; track day.id) {
-              <mat-checkbox [checked]="scenarioWeekdays.includes(day.id)" (change)="toggleScenarioDay(day.id, $event.checked)">{{ day.label }}</mat-checkbox>
-            }
-          </div>
-        }
-      </section>
-
+          <button mat-stroked-button type="button" (click)="saveMail()">Сохранить почту схемы</button>
+        </section>
+      }
     </div>
   `,
   styles: `
-    .back a, .jumps a { color: var(--erip-link); }
-    .jumps { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 0; }
-    .head, .actions, .line, .assign { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .head { justify-content: space-between; }
-    h2, h3, h4 { margin: 0; color: var(--erip-primary-dark); }
-    h4 { margin-top: 8px; font-size: 13px; color: var(--erip-muted); text-transform: uppercase; letter-spacing: .04em; }
-    .head p, .muted { color: var(--erip-muted); margin: 4px 0 0; }
-    .picker { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
-    .picker button { border: 1px solid var(--erip-border); background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; }
+    .lead { margin: 0 0 12px; max-width: 72ch; color: var(--erip-muted); }
+    .subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+    .subtabs button {
+      border: 1px solid var(--erip-border); background: #fff; color: var(--erip-muted);
+      border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .subtabs button.on { background: var(--erip-primary); border-color: var(--erip-primary); color: #fff; }
+    .card {
+      background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 16px; margin: 0 0 12px;
+    }
+    .card-head, .toolbar, .line, .rev { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .card-head { justify-content: space-between; margin-bottom: 8px; }
+    .toolbar.foot { margin-top: 8px; }
+    h3, h4 { margin: 0; color: var(--erip-primary-dark); }
+    h4 { margin: 16px 0 8px; font-size: 12px; color: var(--erip-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .card-head + h4 { margin-top: 4px; }
+    .hint, .muted, .meta { color: var(--erip-muted); margin: 4px 0 0; }
+    .hint { font-size: 13px; }
+    .picker { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+    .picker button { border: 1px solid var(--erip-border); background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; font: inherit; }
     .picker button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .picker small { display: block; color: var(--erip-muted); }
-    .layout { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; }
-    .table-wrap, .pane, .forms { background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    .name { width: min(420px, 100%); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+    .grid mat-form-field, .wide, .grow { width: 100%; }
+    .grow { flex: 1 1 180px; }
+    .checks, .days { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 8px; }
+    .checks { flex-direction: column; align-items: flex-start; }
+    table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--erip-border); font-size: 13px; }
-    th { color: var(--erip-muted); }
-    tr { cursor: pointer; }
-    tr.on { background: var(--erip-primary-soft); }
+    th { color: var(--erip-muted); font-weight: 600; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: #f4f7f8; }
+    .go { text-align: right; color: var(--erip-link); font-weight: 600; white-space: nowrap; }
     .mode { background: var(--erip-success-soft); color: var(--erip-success); border-radius: 999px; padding: 2px 8px; }
     .mode.hand { background: var(--erip-warn-kind-soft); color: var(--erip-warn-kind); }
-    .pane { display: flex; flex-direction: column; gap: 8px; }
-    .check { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .check { border: 1px solid var(--erip-border); border-radius: 8px; padding: 8px; margin: 0 0 8px; }
     .ord { font-weight: 700; color: var(--erip-primary-dark); min-width: 1.5rem; }
-    .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; }
-    .assign, .forms, .history { margin-top: 16px; }
-    .history, .rev { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .history { flex-direction: column; align-items: stretch; }
-    .forms { display: flex; flex-direction: column; gap: 8px; }
-    .wide, .grow { width: 100%; flex: 1; }
-    pre { white-space: pre-wrap; background: var(--erip-bg); padding: 12px; border-radius: 8px; }
-    .tokens { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-    .tokens button { border: 1px solid var(--erip-border); background: #fff; border-radius: 999px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 12px; }
-    .sheet { max-width: 520px; background: #fff; border: 1px solid var(--erip-border); padding: 16px; }
-    .block { border: 1px dashed var(--erip-border); padding: 8px; margin-bottom: 8px; }
-    .block header { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; color: var(--erip-muted); }
-    .block header button { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; }
-    .block input, .block textarea { width: 100%; box-sizing: border-box; border: 0; font: inherit; background: transparent; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
   `,
 })
 export class ScenariosComponent implements OnInit {
@@ -360,12 +444,14 @@ export class ScenariosComponent implements OnInit {
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly current = signal<ScenarioRow | null>(null);
   protected readonly picked = signal(0);
+  protected readonly sheet = signal<'scenario' | 'dial' | number>('scenario');
   protected readonly print = signal<PrintFormRow | null>(null);
   protected readonly warnings = signal<string[]>([]);
   protected readonly runNote = signal('');
   protected readonly rendered = signal('');
   protected readonly pauses = signal<{ paused: boolean; reason: string; at: string; actor: string }[]>([]);
-  protected readonly categories = signal<{ id: number; name: string }[]>([]);
+  protected readonly categories = signal<DebtorCategory[]>([]);
+  protected readonly categoryGroups = categoryGroups;
   protected readonly printDocs = signal<{ id: number; account: number; version: number }[]>([]);
   protected readonly printBatch = signal('');
   protected readonly messageTemplates = signal<MessageTemplate[]>([]);
@@ -391,6 +477,10 @@ export class ScenariosComponent implements OnInit {
   protected applyRunning = false;
   protected orgCallLegal = false;
   protected outgoingNumbers = '';
+  protected mailFrom = '';
+  protected mailFromName = '';
+  protected mailSubject = '';
+  protected mailSignature = '';
   protected callFromDay = 27;
   protected weekdayFrom = '18:00';
   protected weekdayTo = '21:00';
@@ -430,6 +520,15 @@ export class ScenariosComponent implements OnInit {
         next: (row) => {
           this.orgCallLegal = row.call_legal;
           this.outgoingNumbers = (row.outgoing_numbers || []).join('\n');
+        },
+        error: () => undefined,
+      });
+      this.api.scenarioMail().subscribe({
+        next: (row) => {
+          this.mailFrom = row.mail_from;
+          this.mailFromName = row.mail_from_name;
+          this.mailSubject = row.mail_subject;
+          this.mailSignature = row.mail_signature;
         },
         error: () => undefined,
       });
@@ -598,7 +697,79 @@ export class ScenariosComponent implements OnInit {
     return id === 'call' || id === 'sms' || id === 'email' || id === 'messenger';
   }
 
+  protected openScenario(): void {
+    this.sheet.set('scenario');
+  }
+
+  protected openStep(index: number): void {
+    this.picked.set(index);
+    this.sheet.set(index);
+  }
+
+  protected activeIndex(): number {
+    const sheet = this.sheet();
+    return typeof sheet === 'number' ? sheet : -1;
+  }
+
+  protected activeStep(): ScenarioStep | null {
+    const index = this.activeIndex();
+    return index >= 0 ? this.steps[index] ?? null : null;
+  }
+
+  protected callStepIndex(): number {
+    return this.steps.findIndex((step) => step.action === 'call');
+  }
+
+  protected stepTabLabel(index: number): string {
+    const step = this.steps[index];
+    if (!step) return '';
+    const short = this.actionLabel(step.action).replace(/ \(.*\)$/, '');
+    const count = this.steps.filter((item) => item.action === step.action).length;
+    return count > 1 ? `${step.order}. ${short}` : short;
+  }
+
+  protected showDial(): boolean {
+    const sheet = this.sheet();
+    if (sheet === 'dial') return true;
+    const call = this.callStepIndex();
+    return call >= 0 && sheet === call;
+  }
+
+  protected showMail(): boolean {
+    return this.activeStep()?.action === 'email';
+  }
+
+  private sameScenario = false;
+  private pendingSheet: 'scenario' | 'dial' | number = 'scenario';
+
+  private keepSheet(): void {
+    const sheet = this.pendingSheet;
+    if (this.sameScenario && typeof sheet === 'number' && sheet < this.steps.length) {
+      this.picked.set(sheet);
+      return;
+    }
+    if (this.sameScenario && sheet === 'dial') {
+      const call = this.callStepIndex();
+      if (call < 0) {
+        this.picked.set(0);
+        return;
+      }
+      this.sheet.set(call);
+      this.picked.set(call);
+      return;
+    }
+    if (this.sameScenario && sheet === 'scenario') {
+      this.picked.set(0);
+      return;
+    }
+    this.sheet.set('scenario');
+    this.picked.set(0);
+  }
+
+
   protected select(row: ScenarioRow): void {
+    this.sameScenario = this.current()?.id === row.id;
+    this.pendingSheet = this.sheet();
     this.current.set(row);
     this.name = row.name;
     this.steps = row.steps.map((step) => ({
@@ -620,7 +791,7 @@ export class ScenariosComponent implements OnInit {
     this.weekdayTo = this.hhmm(row.weekday_to, '21:00');
     this.weekendFrom = this.hhmm(row.weekend_from, '10:00');
     this.weekendTo = this.hhmm(row.weekend_to, '22:00');
-    this.picked.set(0);
+    this.keepSheet();
     this.warnings.set([]);
     this.runNote.set('');
   }
@@ -642,12 +813,13 @@ export class ScenariosComponent implements OnInit {
     this.steps = [...this.steps.map((step) => ({ ...step, terminal: false })), {
       order, action: 'writ', wait_days: 0, terminal: true, checklist: defaultWritChecklist(),
     }];
-    this.picked.set(this.steps.length - 1);
+    this.openStep(this.steps.length - 1);
   }
 
   protected removeStep(index: number): void {
     this.steps = this.steps.filter((_, item) => item !== index);
-    this.picked.set(Math.max(0, Math.min(index, this.steps.length - 1)));
+    this.picked.set(0);
+    this.sheet.set('scenario');
   }
 
   protected save(): void {
@@ -846,6 +1018,24 @@ export class ScenariosComponent implements OnInit {
       weekend_from: this.weekendFrom || '10:00',
       weekend_to: this.weekendTo || '22:00',
     };
+  }
+
+  protected saveMail(): void {
+    this.api.saveScenarioMail({
+      mail_from: this.mailFrom.trim(),
+      mail_from_name: this.mailFromName.trim(),
+      mail_subject: this.mailSubject.trim(),
+      mail_signature: this.mailSignature.trim(),
+    }).subscribe({
+      next: (row) => {
+        this.mailFrom = row.mail_from;
+        this.mailFromName = row.mail_from_name;
+        this.mailSubject = row.mail_subject;
+        this.mailSignature = row.mail_signature;
+        this.snack.open('Почта схемы сохранена', 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   protected saveCalling(): void {

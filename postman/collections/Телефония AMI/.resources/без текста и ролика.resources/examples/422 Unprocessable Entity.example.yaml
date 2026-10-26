@@ -1,0 +1,24 @@
+$kind: http-example
+name: '422 Unprocessable Entity'
+request:
+  method: POST
+  url: '{{base_url}}/gw/v1/voice/dial'
+response:
+  statusCode: 422
+  statusText: Unprocessable Entity
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "error": {
+          "code": "validation_error",
+          "message": "Ошибка валидации",
+          "details": [
+            {"loc": ["body"], "msg": "Value error, Нужен текст для TTS или ролик", "type": "value_error"}
+          ],
+          "request_id": "req"
+        }
+      }

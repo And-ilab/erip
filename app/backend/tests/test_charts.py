@@ -52,11 +52,11 @@ def test_charts_follow_stage_group_and_history(api, specialist_a, org_a, org_b, 
     assert Decimal(body["principal"]) == Decimal("62000")
     assert Decimal(body["penalty"]) == Decimal("10400")
     by_stage = {row["code"]: row for row in body["stages"]}
-    assert by_stage["warning"]["cases"] == 1
-    assert Decimal(by_stage["warning"]["principal"]) == Decimal("50000")
-    assert Decimal(by_stage["warning"]["penalty"]) == Decimal("10000")
+    assert by_stage["notice"]["cases"] == 1
+    assert Decimal(by_stage["notice"]["principal"]) == Decimal("50000")
+    assert Decimal(by_stage["notice"]["penalty"]) == Decimal("10000")
     assert by_stage["new"]["cases"] == 1
-    assert by_stage["court"]["cases"] == 0
+    assert by_stage["opi"]["cases"] == 0
     groups = {row["group"]: row for row in body["groups"]}
     assert groups[4]["cases"] == 1
     assert groups[4]["title"] == "Группа 4 · 6–12 месяцев"

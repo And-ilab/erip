@@ -18,11 +18,12 @@ def _chain(account):
     return names
 
 
-def test_minsk_city_hangs_on_minsk_oblast(org_a):
+def test_minsk_city_sits_beside_minsk_oblast(org_a):
     account = make_account(org_a, 1, house_address="г. Минск, ул. Тестовая, д. 1, кв. 2")
     TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))
     account.refresh_from_db()
-    assert _chain(account) == ["Беларусь", "Минская область", "Минск", "ул. Тестовая", "д. 1"]
+    assert _chain(account) == ["Беларусь", "Минск", "ул. Тестовая", "д. 1"]
+    assert account.territory.parent.parent.parent.kind == "country"
 
 
 def test_fanipol_keeps_its_district(org_a):
@@ -45,7 +46,7 @@ def test_minsk_district_and_microdistrict_sit_under_the_city(org_a):
     TerritoryIndex().assign_queryset(Account.objects.filter(pk=account.pk))
     account.refresh_from_db()
     assert _chain(account) == [
-        "Беларусь", "Минская область", "Минск", "Московский район", "ул. Корженевского", "д. 10",
+        "Беларусь", "Минск", "Московский район", "ул. Корженевского", "д. 10",
     ]
 
 
@@ -99,7 +100,7 @@ def test_map_places_accounts_that_are_not_linked_yet(api, specialist_a, org_a):
     body = api(specialist_a).get("/api/v1/accounts/map/")
     assert body.status_code == 200
     payload = body.json()
-    assert payload["children"][0]["name"] == "Минская область"
+    assert payload["children"][0]["name"] == "Минск"
     assert payload["children"][0]["accounts"] == 1
     assert Account.objects.get(account_id=41).territory_id is not None
 
@@ -111,15 +112,15 @@ def test_map_counts_subtree_inside_the_contour(api, specialist_a, org_a, org_b):
     TerritoryIndex().assign_queryset(Account.objects.all())
 
     root = api(specialist_a).get("/api/v1/accounts/map/").json()
-    assert [child["name"] for child in root["children"]] == ["Минская область"]
+    assert [child["name"] for child in root["children"]] == ["Минск"]
     assert root["children"][0]["accounts"] == 2
     assert root["children"][0]["groups"]["1"] == 1
     assert root["children"][0]["groups"]["6"] == 1
     assert root["children"][0]["dominant_group"] == 6
 
-    oblast_id = root["children"][0]["id"]
-    cities = api(specialist_a).get(f"/api/v1/accounts/map/?parent={oblast_id}").json()
-    assert [child["name"] for child in cities["children"]] == ["Минск"]
+    city_id = root["children"][0]["id"]
+    streets = api(specialist_a).get(f"/api/v1/accounts/map/?parent={city_id}").json()
+    assert [child["name"] for child in streets["children"]] == ["ул. Тестовая"]
 
     house = Account.objects.get(account_id=11).territory
     listed = api(specialist_a).get(f"/api/v1/accounts/?territory={house.id}").json()
@@ -140,7 +141,7 @@ def test_supplier_map_keeps_one_bubble_per_place(api, org_a):
     supplier.service_organizations.add(house)
     TerritoryIndex().assign_queryset(Account.objects.filter(organization=org_a))
     body = api(supplier).get("/api/v1/accounts/map/").json()
-    assert [child["name"] for child in body["children"]] == ["Минская область"]
+    assert [child["name"] for child in body["children"]] == ["Минск"]
     assert body["children"][0]["accounts"] == 2
 
 
@@ -157,6 +158,51 @@ def test_manual_group_is_the_bubble_group(api, specialist_a, org_a):
 def test_address_without_a_place_is_not_a_path():
     assert AddressPath().steps("   ") == []
     assert AddressPath().steps("---") == []
+
+
+def test_minsk_named_with_the_oblast_stays_a_separate_city():
+    steps = AddressPath().steps("Минская обл., г. Минск, ул. Ленина, д. 1")
+    assert [name for _kind, name, _key in steps] == ["Беларусь", "Минск", "ул. Ленина", "д. 1"]
+
+
+def test_minsk_and_fanipol_are_siblings_on_the_country(api, specialist_a, org_a):
+    make_account(org_a, 81, house_address="г. Минск, ул. Тестовая, д. 1")
+    make_account(org_a, 82, house_address="Минская обл., г. Фаниполь, ул. Ленина, д. 3")
+    TerritoryIndex().assign_queryset(Account.objects.all())
+    root = api(specialist_a).get("/api/v1/accounts/map/").json()
+    assert [child["name"] for child in root["children"]] == ["Минск", "Минская область"]
+    oblast = next(child for child in root["children"] if child["name"] == "Минская область")
+    cities = api(specialist_a).get(f"/api/v1/accounts/map/?parent={oblast['id']}").json()
+    assert [child["name"] for child in cities["children"]] == ["Фаниполь"]
+
+
+def test_minsk_already_under_the_oblast_moves_up(api, specialist_a, org_a):
+    from apps.debts.models import TerritoryLink
+
+    country = Territory.objects.create(kind="country", name="Беларусь", name_key="беларусь")
+    oblast = Territory.objects.create(
+        parent=country, kind="oblast", name="Минская область", name_key="минская область",
+    )
+    city = Territory.objects.create(
+        parent=oblast, kind="settlement", name="Минск", name_key="минск", latitude="53.900600", longitude="27.559000",
+    )
+    street = Territory.objects.create(parent=city, kind="street", name="ул. Тестовая", name_key="ул. тестовая")
+    house = Territory.objects.create(parent=street, kind="house", name="д. 1", name_key="д. 1")
+    parent = None
+    for node in (country, oblast, city, street, house):
+        TerritoryIndex._link(node, parent)
+        parent = node
+    account = make_account(org_a, 83, house_address="г. Минск, ул. Тестовая, д. 1", territory=house)
+    root = api(specialist_a).get("/api/v1/accounts/map/").json()
+    assert [child["name"] for child in root["children"]] == ["Минск"]
+    city.refresh_from_db()
+    assert city.parent_id == country.id
+    ancestors = set(
+        TerritoryLink.objects.filter(descendant=house).values_list("ancestor__name", flat=True)
+    )
+    assert ancestors == {"Беларусь", "Минск", "ул. Тестовая", "д. 1"}
+    account.refresh_from_db()
+    assert account.territory_id == house.id
 
 
 def test_dzerzhinsk_hangs_on_minsk_oblast_without_a_district():
