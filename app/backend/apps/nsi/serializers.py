@@ -100,8 +100,28 @@ class ScenarioDefinitionSerializer(serializers.ModelSerializer):
         ]
 
 
+_CYR_MAP = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z",
+    "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
+    "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch",
+    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
+
+
+def _slug_code(raw_code: str, name: str) -> str:
+    import re
+    import uuid
+
+    source = (raw_code or name or "template").strip().lower()
+    translit = "".join(_CYR_MAP.get(ch, ch) for ch in source)
+    slug = re.sub(r"[^a-z0-9_-]+", "-", translit).strip("-_")[:80]
+    return slug or f"tpl-{uuid.uuid4().hex[:6]}"
+
+
 class PrintFormSerializer(serializers.ModelSerializer):
     revisions = serializers.SerializerMethodField()
+    code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    body = serializers.CharField(required=False, allow_blank=True, default="")
 
     class Meta:
         model = PrintForm
@@ -111,8 +131,31 @@ class PrintFormSerializer(serializers.ModelSerializer):
             "version", "is_active", "revisions",
         ]
         read_only_fields = ["is_active", "version", "organization", "revisions"]
+        validators = []
 
     def validate(self, attrs):
+        if self.instance is None or "code" in attrs:
+            raw_code = attrs.get("code", getattr(self.instance, "code", ""))
+            name = attrs.get("name", getattr(self.instance, "name", ""))
+            base_code = _slug_code(str(raw_code or ""), str(name or ""))
+            request = self.context.get("request")
+            if self.instance is not None:
+                org = self.instance.organization
+            elif request and getattr(request, "user", None):
+                org = None if (request.user.is_superadmin and not request.user.organization_id) else request.user.organization
+            else:
+                org = None
+            addressee = attrs.get("addressee", getattr(self.instance, "addressee", "debtor")) or "debtor"
+            candidate = base_code
+            seq = 2
+            qs = PrintForm.objects.filter(organization=org, addressee=addressee)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            while qs.filter(code=candidate).exists():
+                candidate = f"{base_code[:90]}-{seq}"
+                seq += 1
+            attrs["code"] = candidate
+
         blank = attrs.get("blank", serializers.empty)
         if blank is not serializers.empty and blank:
             from .services.official_blanks import known
@@ -139,7 +182,7 @@ class PrintFormSerializer(serializers.ModelSerializer):
 
         probe = _Probe()
         apply_blocks(probe, cleaned)
-        attrs["body"] = probe.body
+        attrs["body"] = probe.body or attrs.get("body") or ""
         attrs["logo_text"] = probe.logo_text
         attrs["requisites"] = probe.requisites
         attrs["signatory"] = probe.signatory

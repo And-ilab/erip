@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import re
+
 BLOCK_KEYS = ("logo", "requisites", "body", "signatory", "table")
-ALIGNS = {"left", "center", "right"}
+ALIGNS = {"left", "center", "right", "justify"}
+FONTS = {
+    "Times New Roman",
+    "Arial",
+    "Calibri",
+    "Georgia",
+    "Verdana",
+    "Tahoma",
+    "Courier New",
+    "DejaVu Serif",
+    "DejaVu Sans",
+}
 LABELS = (
     ("должник", "fio"),
     ("заявитель", "organization"),
@@ -47,15 +60,18 @@ def blocks_of(form) -> list[dict]:
 def clean_blocks(raw) -> list[dict]:
     if not isinstance(raw, list) or not raw:
         raise ValueError("Макет — список блоков")
-    if len(raw) > 12:
-        raise ValueError("В макете не больше 12 блоков")
+    if len(raw) > 30:
+        raise ValueError("В макете не больше 30 блоков")
     cleaned = []
+    seen_keys: set[str] = set()
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError("Блок макета — объект")
-        key = str(item.get("key") or f"block-{index + 1}")[:30]
-        if key not in BLOCK_KEYS and not key.startswith("block-"):
-            key = f"block-{index + 1}"
+        raw_key = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("key") or ""))[:30]
+        key = raw_key or f"block-{index + 1}"
+        if key in seen_keys:
+            key = f"{key[:24]}-{index + 1}"
+        seen_keys.add(key)
         text = str(item.get("text") or "")
         if len(text) > 20000:
             raise ValueError("Текст блока длиннее 20000 символов")
@@ -63,11 +79,14 @@ def clean_blocks(raw) -> list[dict]:
             size = int(item.get("font_size") or 12)
         except (TypeError, ValueError) as exc:
             raise ValueError("Размер шрифта — число") from exc
-        if size < 8 or size > 24:
-            raise ValueError("Размер шрифта от 8 до 24")
+        if size < 8 or size > 36:
+            raise ValueError("Размер шрифта от 8 до 36")
         align = str(item.get("align") or "left")
         if align not in ALIGNS:
-            raise ValueError("Выравнивание: слева, по центру или справа")
+            raise ValueError("Выравнивание: слева, по центру, справа или по ширине")
+        font_family = str(item.get("font_family") or "Times New Roman").strip()
+        if font_family not in FONTS:
+            font_family = "Times New Roman"
         columns = _columns(item.get("columns") or [])
         rows = _rows(item.get("rows") or [], len(columns))
         cleaned.append({
@@ -78,29 +97,33 @@ def clean_blocks(raw) -> list[dict]:
             "bold": bool(item.get("bold")),
             "italic": bool(item.get("italic")),
             "font_size": size,
+            "font_family": font_family,
             "text": text,
             "columns": columns,
             "rows": rows,
-            "x": _span(item.get("x"), 4, 0, 70),
-            "y": _span(item.get("y"), 12 + index * 96, 0, 1600),
-            "w": _span(item.get("w"), 92, 24, 100),
+            "x": _span(item.get("x"), 4, 0, 75),
+            "y": _span(item.get("y"), 12 + index * 96, 0, 3200),
+            "w": _span(item.get("w"), 92, 20, 100),
         })
-    if not any(block["key"] == "body" for block in cleaned):
-        raise ValueError("В макете нужен блок текста")
     return cleaned
 
 
 def apply_blocks(form, blocks: list[dict]) -> None:
     form.blocks = blocks
+    has_body = False
     for block in blocks:
         if block["key"] == "body":
             form.body = block["text"]
+            has_body = True
         elif block["key"] == "logo":
             form.logo_text = block["text"][:250]
         elif block["key"] == "requisites":
             form.requisites = block["text"]
         elif block["key"] == "signatory":
             form.signatory = block["text"][:250]
+    if not has_body:
+        texts = [block["text"] for block in blocks if block.get("enabled", True) and block.get("text")]
+        form.body = "\n\n".join(texts) if texts else (blocks[0]["text"] if blocks else "")
 
 
 def fill_blocks(blocks: list[dict], values: dict) -> list[dict]:
@@ -153,7 +176,10 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
     }
 
 
-def _block(key: str, title: str, text: str, size: int, enabled: bool, y: int = 12, align: str = "left", x: int = 4, w: int = 92) -> dict:
+def _block(
+    key: str, title: str, text: str, size: int, enabled: bool, y: int = 12,
+    align: str = "left", x: int = 4, w: int = 92, font_family: str = "Times New Roman",
+) -> dict:
     return {
         "key": key,
         "title": title,
@@ -162,6 +188,7 @@ def _block(key: str, title: str, text: str, size: int, enabled: bool, y: int = 1
         "bold": False,
         "italic": False,
         "font_size": size,
+        "font_family": font_family,
         "text": text,
         "columns": [],
         "rows": [],
@@ -191,27 +218,26 @@ def _columns(raw) -> list[dict]:
         elif isinstance(item, dict):
             title = str(item.get("title") or "")
             try:
-                width = int(item.get("width") or 20)
+                width = int(round(float(item.get("width") or 20)))
             except (TypeError, ValueError) as exc:
                 raise ValueError("Ширина колонки — число") from exc
         else:
             raise ValueError("Колонка таблицы — название и ширина")
-        if width < 8 or width > 80:
-            raise ValueError("Ширина колонки от 8 до 80")
-        columns.append({"title": title[:40], "width": width})
+        width = min(100, max(5, width))
+        columns.append({"title": title[:60], "width": width})
     return columns
 
 
 def _rows(raw, width: int) -> list[list[str]]:
     if not isinstance(raw, list):
         raise ValueError("Строки таблицы — список")
-    if len(raw) > 40:
-        raise ValueError("В таблице не больше 40 строк")
+    if len(raw) > 60:
+        raise ValueError("В таблице не больше 60 строк")
     rows = []
     for row in raw:
         if not isinstance(row, list):
             raise ValueError("Строка таблицы — список ячеек")
-        cells = [str(cell)[:80] for cell in row[:12]]
+        cells = [str(cell)[:500] for cell in row[:12]]
         if width and len(cells) > width:
             cells = cells[:width]
         rows.append(cells)

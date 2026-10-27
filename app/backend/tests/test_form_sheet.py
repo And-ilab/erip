@@ -1,6 +1,9 @@
 """Лист A4 печатной формы и сборка PDF."""
 
+import pytest
+
 from apps.debts.services.artifacts import render_layout_pdf
+from apps.nsi.services.form_layout import clean_blocks
 from apps.nsi.services.form_sheet import parse_text, render_form_html, serialize_nodes
 
 WARNING = (
@@ -92,3 +95,82 @@ def test_layout_pdf_falls_back_without_weasyprint(monkeypatch):
         },
     ])
     assert payload.startswith(b"%PDF")
+
+
+def test_word_like_formatting_and_table_column_widths_render_in_html():
+    cleaned = clean_blocks([
+        {
+            "key": "custom-head",
+            "title": "Шапка",
+            "enabled": True,
+            "align": "justify",
+            "bold": True,
+            "italic": True,
+            "font_size": 16,
+            "font_family": "Georgia",
+            "text": "Текст блока с выбранным шрифтом",
+            "columns": [
+                {"title": "Колонка 1", "width": 75},
+                {"title": "Колонка 2", "width": 25},
+            ],
+            "rows": [["Ячейка 1", "Ячейка 2"]],
+            "x": 4,
+            "y": 12,
+            "w": 60,
+        },
+    ])
+    assert cleaned[0]["font_family"] == "Georgia"
+    assert cleaned[0]["font_size"] == 16
+    assert cleaned[0]["bold"] is True
+    assert cleaned[0]["italic"] is True
+    assert cleaned[0]["align"] == "justify"
+    html = render_form_html(cleaned)
+    assert "Georgia" in html
+    assert "font-size:16pt" in html
+    assert "font-weight:700" in html
+    assert "font-style:italic" in html
+    assert "text-align:justify" in html
+    assert 'style="width:75.0%"' in html
+    assert 'style="width:25.0%"' in html
+
+
+@pytest.mark.django_db
+def test_custom_template_creation_and_blank_blocks(api, specialist_a):
+    blank_resp = api(specialist_a).get("/api/v1/nsi/print-forms/blank-data/", {"blank": "warning"})
+    assert blank_resp.status_code == 200
+    assert len(blank_resp.json()["blocks"]) >= 4
+
+    created = api(specialist_a).post(
+        "/api/v1/nsi/print-forms/",
+        {
+            "name": "Мой собственный шаблон ЖЭС",
+            "code": "",
+            "doc_kind": "warning",
+            "addressee": "debtor",
+            "blocks": [
+                {
+                    "key": "custom-1",
+                    "title": "Мой блок",
+                    "enabled": True,
+                    "align": "center",
+                    "bold": True,
+                    "italic": False,
+                    "font_size": 14,
+                    "font_family": "Arial",
+                    "text": "Уважаемый {fio}, долг {amount}",
+                    "columns": [{"title": "Услуга", "width": 60}, {"title": "Сумма", "width": 40}],
+                    "rows": [["{services}", "{amount}"]],
+                    "x": 4,
+                    "y": 12,
+                    "w": 92,
+                },
+            ],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    data = created.json()
+    assert data["code"].startswith("moy-sobstvennyy-shablon")
+    assert data["blocks"][0]["font_family"] == "Arial"
+    assert "Уважаемый {fio}" in data["body"]
+

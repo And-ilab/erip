@@ -117,13 +117,13 @@ def _render_layout_fpdf(blocks: list[dict], *, font_size: int = 12) -> bytes:
     pdf.add_font("Body", "I", str(italic))
     pdf.add_font("Body", "BI", str(both))
     pdf.add_page()
-    base = font_size if 8 <= font_size <= 24 else 12
-    align_of = {"left": "L", "center": "C", "right": "R"}
+    base = font_size if 8 <= font_size <= 36 else 12
+    align_of = {"left": "L", "center": "C", "right": "R", "justify": "J"}
     for block in blocks:
         if not block.get("enabled", True):
             continue
         size = int(block.get("font_size") or base)
-        if size < 8 or size > 24:
+        if size < 8 or size > 36:
             size = base
         style = ""
         if block.get("bold"):

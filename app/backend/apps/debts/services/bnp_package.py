@@ -197,12 +197,13 @@ def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     values = placeholder_values(case.account, tariff=tariff, warning_date=warning)
     blank = (form.blank or "").strip()
     ctx = None
-    if blank and known(blank):
+    if blank and known(blank) and not form.blocks:
         ctx = context_for_blank(
             blank, case.account, warning_date=warning, extras=_case_extras(case, tariff),
         )
         text = official_plaintext(blank, ctx)
     else:
+        blank = ""
         text = fill_account_text(form.body, case.account, tariff=tariff, warning_date=warning)
     blocks = fill_blocks(blocks_of(form), values)
     for block in blocks:
@@ -231,7 +232,7 @@ def update_document_layout(
     if document is None:
         raise ClaimBlocked("Документ не из этого пакета")
     blank = (blank or "").strip()
-    if blank and known(blank):
+    if blank and known(blank) and not blocks:
         warning = case.warning_delivered_on.isoformat() if case.warning_delivered_on else ""
         tariff = "" if case.notary_tariff is None else str(case.notary_tariff)
         ctx = context_for_blank(
