@@ -103,8 +103,8 @@ cd frontend; npm install; npm start
 ## Тесты и проверки
 
 ```bash
-cd app/backend && pytest --cov=apps        # 314 тестов
-cd app/gateway && pytest --cov=app         # 60 тестов
+cd app/backend && pytest --cov=apps        # 316 тестов
+cd app/gateway && pytest --cov=app         # 74 теста
 cd app && ruff check backend gateway scripts
 cd app/frontend && npx ng build
 python scripts/smoke_e2e.py --backend http://127.0.0.1:8000 --gateway http://127.0.0.1:8001 --user admin --password admin --internal-token dev
@@ -188,7 +188,7 @@ python scripts/smoke_e2e.py --backend http://127.0.0.1:8000 --gateway http://127
 
 ### Интеграции («Информация по интеграции»)
 
-- **ПРИС:** схемы запросов и ответов по регламенту (`PutClaimantSaveDataDebt`, `PutClaimantSaveDataDebtWOFE`, `PutClaimantSaveRepayDebt`, `GetClaimantInfoBy*`, `GetNSIData`). Авторизация `x-user_id` / `x-accesskey` → `x-token` + `x-timestamp`, кэш токена (память или Redis) на 30 минут; перед новым токеном шлюз вызывает `logout`. Пустой `p_proc_num` в запрос сведений не попадает. Ответ с `code` «1» и `processStatus` кроме 1000 и 1001 считается отказом. По умолчанию `GW_PRIS_MODE=stub`; `http` включает `HttpPrisClient` после доступа к тестовому контуру и канала itVPN. Карточка дела собирает пакет 3.11.02 из регистрации, дерева адреса, реквизитов организации и файлов; коды справочников без значения в ПРИС не подставляются. `GET /gw/v1/integrations/pris/nsi` и `GET /api/v1/claims/pris-dictionaries/` отдают справочники: в заглушке это сокращённый пример регламента (справочник 120), при `http` — ответ Минюста. Журнал обмена пишется в дело без тел файлов. Ход производства (остаток, статус, меры, начисления, погашения) сохраняется только при `http`. `python manage.py refresh_pris` из `app/backend` обновляет уже переданные дела.
+- **ПРИС:** схемы запросов и ответов по регламенту (`PutClaimantSaveDataDebt`, `PutClaimantSaveDataDebtWOFE`, `PutClaimantSaveRepayDebt`, `GetClaimantInfoBy*`, `GetNSIData`). Авторизация `x-user_id` / `x-accesskey` → `x-token` + `x-timestamp`, кэш токена (память или Redis) на 30 минут; перед новым токеном шлюз вызывает `logout`. Пустой `p_proc_num` в запрос сведений не попадает. Ответ с `code` «1» и `processStatus` кроме 1000 и 1001 считается отказом. `GW_PRIS_MODE=stub` (по умолчанию) пакет проверяет и не отправляет. `channel` — тестовый канал: тот же `HttpPrisClient` ходит во встроенный стенд шлюза, номер производства начинается с `CH-`, справочник 120 остаётся примером регламента, контур Минюста не вызывается. Логин и ключ стенда по умолчанию `channel` / `channel`. `http` вызывает контур Минюста по `GW_PRIS_BASE_URL` (в регламенте тестовый адрес `http://192.168.101.81:10116`; боевой адрес Минюст ещё не выдал) после itVPN, `GW_PRIS_USER_ID` и `GW_PRIS_ACCESS_KEY`. Карточка дела собирает пакет 3.11.02 из регистрации, дерева адреса, реквизитов организации и файлов; коды справочников без значения в ПРИС не подставляются. `GET /gw/v1/integrations/pris/status` показывает канал и Минюст не вызывает. `GET /gw/v1/integrations/pris/nsi` и `GET /api/v1/claims/pris-dictionaries/` отдают справочники: в `stub` и `channel` это сокращённый пример регламента (справочник 120), при `http` — ответ Минюста. Журнал обмена пишется в дело без тел файлов. Ход производства (остаток, статус, меры, начисления, погашения) сохраняется при `http` и при `channel`. В режиме `channel` на деле пишется `opi_mode=channel`. `python manage.py refresh_pris` из `app/backend` обновляет уже переданные дела.
 - **БНП:** манифест заявления (`BnpManifest`) с проверками:
   - `personType` и условно обязательные поля;
   - структура личного номера (14 символов) и УНП;
@@ -197,7 +197,7 @@ python scripts/smoke_e2e.py --backend http://127.0.0.1:8000 --gateway http://127
   - документ — `.pdf` не более 15 МБ; ЭЦП в пакете — отдельный файл `.pdf.sgn` или `.pdf.p7s` (`signatureName`).
 
   Справочники извлекаются из `Справочники БНП.docx` скриптом `scripts/extract_bnp_dictionaries.py`. Список нотариальных контор — снимок страницы https://belnotary.by/nayti-notariusa/notarialnye-kontory-i-notarialnye-byuro/, его обновляет `scripts/extract_notary_offices.py`. Рабочая карта кабинета, манифеста и услуг ЖКУ — `docs/tz/BNP_INTEGRATION.md`.
-- Проверочные эндпоинты: `/gw/v1/integrations/pris/echo`, `/pris/claimant-info`, `/pris/save-data-debt/validate`, `/bnp/validate`, `/bnp/dictionaries`.
+- Проверочные эндпоинты: `/gw/v1/integrations/pris/status`, `/pris/echo`, `/pris/claimant-info`, `/pris/save-data-debt/validate`, `/bnp/validate`, `/bnp/dictionaries`. `pris/status` Минюст не вызывает.
 
 ### Логи и ошибки
 
@@ -289,4 +289,4 @@ E:\erip-main\app\.venv\Scripts\python.exe manage.py seed_assigned_specialists
 - Отдельные процессы шлюза и адаптеров остаются на Python. Go в стек проекта не входит. Django от шлюза уже зависит только через HTTP-клиент.
 - Alembic для таблиц шлюза (сейчас `create_all` и добавление колонки `claimed_at` при старте) и брокер (RabbitMQ/Kafka) вместо `BackgroundTasks`, когда воркеров станет больше двух.
 - `COPY` из PostgreSQL, если пакетный `import_ais` на полной выгрузке всё ещё не укладывается в окно загрузки.
-- Включить `GW_VOICE_MODE=ami`, когда заказчик даст хост, логин, секрет, контекст и шаблон канала Asterisk. Клиент AMI уже в шлюзе. Включить `GW_EMAIL_MODE=smtp`, когда заказчик даст хост SMTP и адрес отправителя схемы. Клиент SMTP уже в шлюзе. Дальше включение `HttpPrisClient`.
+- Включить `GW_VOICE_MODE=ami`, когда заказчик даст хост, логин, секрет, контекст и шаблон канала Asterisk. Клиент AMI уже в шлюзе. Включить `GW_EMAIL_MODE=smtp`, когда заказчик даст хост SMTP и адрес отправителя схемы. Клиент SMTP уже в шлюзе. Прогон ПРИС без Минюста — `GW_PRIS_MODE=channel`. Контур Минюста — `GW_PRIS_MODE=http` после itVPN, `user_id` и ключа.

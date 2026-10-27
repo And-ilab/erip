@@ -1,4 +1,9 @@
-"""Интеграции ПРИС и БНП. ПРИС ходит в боевой контур только при GW_PRIS_MODE=http."""
+"""Интеграции ПРИС и БНП.
+
+GW_PRIS_MODE=stub проверяет пакет и ничего не отправляет.
+channel гоняет HttpPrisClient во встроенный стенд.
+http ходит в контур Минюста по GW_PRIS_BASE_URL.
+"""
 
 from functools import lru_cache
 
@@ -10,6 +15,7 @@ from ...decorators import api_response
 from ...integrations.bnp.client import BnpClient, StubBnpClient
 from ...integrations.bnp.dictionaries import load_dictionaries
 from ...integrations.bnp.schemas import BnpManifest
+from ...integrations.pris.channel import CHANNEL_BASE, channel_http, configure_channel
 from ...integrations.pris.client import (
     HttpPrisClient,
     InMemoryTokenCache,
@@ -36,16 +42,70 @@ def get_token_cache() -> TokenCache:
     return RedisTokenCache(settings.redis_url) if settings.redis_url else InMemoryTokenCache()
 
 
+def _channel_client(settings: Settings) -> HttpPrisClient:
+    user, key = settings.channel_credentials()
+    configure_channel(user, key)
+    tuned = settings.model_copy(update={
+        "pris_base_url": CHANNEL_BASE,
+        "pris_user_id": user,
+        "pris_access_key": key,
+    })
+    return HttpPrisClient(tuned, channel_http(), get_token_cache())
+
+
 @lru_cache
 def get_pris_client() -> PrisClient:
     settings: Settings = get_settings()
     if settings.pris_mode == "http":
         return HttpPrisClient(settings, HttpClient().client, get_token_cache())
+    if settings.pris_mode == "channel":
+        return _channel_client(settings)
+    if settings.pris_mode != "stub":
+        raise RuntimeError("GW_PRIS_MODE должен быть stub, channel или http")
     return StubPrisClient(settings, get_token_cache())
 
 
 def get_bnp_client() -> BnpClient:
     return StubBnpClient()
+
+
+@router.get("/pris/status", summary="ПРИС: какой канал включён, без вызова Минюста")
+@api_response
+async def pris_status(settings: Settings = Depends(get_settings)):
+    mode = settings.pris_mode
+    if mode == "channel":
+        return {
+            "mode": "channel",
+            "system": "АИС ПРИС",
+            "sends": True,
+            "ministry": False,
+            "detail": "Тестовый канал шлюза: HttpPrisClient ходит во встроенный стенд. Контур Минюста не вызывается.",
+        }
+    if mode == "http":
+        missing = []
+        if not settings.pris_user_id.strip():
+            missing.append("GW_PRIS_USER_ID")
+        if not settings.pris_access_key.strip():
+            missing.append("GW_PRIS_ACCESS_KEY")
+        detail = "Контур Минюста по GW_PRIS_BASE_URL. Канал itVPN приложение не поднимает."
+        if missing:
+            detail = "Режим http, не задано: " + ", ".join(missing)
+        return {
+            "mode": "http",
+            "system": "АИС ПРИС",
+            "sends": not missing,
+            "ministry": True,
+            "base_url": settings.pris_base_url,
+            "missing": missing,
+            "detail": detail,
+        }
+    return {
+        "mode": "stub",
+        "system": "АИС ПРИС",
+        "sends": False,
+        "ministry": False,
+        "detail": "Заглушка ПРИС: пакет проверяется и не отправляется.",
+    }
 
 
 @router.get("/pris/echo", summary="ПРИС: Echo (проверка доступности)")

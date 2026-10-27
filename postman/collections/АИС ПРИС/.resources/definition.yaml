@@ -1,0 +1,17 @@
+$kind: collection
+name: АИС ПРИС
+description: |-
+  Канал АИС ПРИС в шлюзе ПМ. Сервисы регламента 3.11.02–3.11.05.
+  Сначала выполните «состояние канала»: от него видно, заглушка это, тестовый канал или контур Минюста.
+  GW_PRIS_MODE=stub пакет проверяет и не отправляет.
+  GW_PRIS_MODE=channel гоняет HttpPrisClient во встроенный стенд. Номер производства начинается с CH-. В Минюст пакет не уходит.
+  GW_PRIS_MODE=http ходит на GW_PRIS_BASE_URL. Тестовый адрес регламента — http://192.168.101.81:10116, для него нужен itVPN. Боевой адрес Минюст ещё не выдал.
+variables:
+  - key: base_url
+    value: 'http://127.0.0.1:8001'
+    description: 'Шлюз напрямую. Через Docker — http://localhost:8080'
+  - key: internal_token
+    value: dev
+    description: 'GW_INTERNAL_TOKEN. Локально без Docker в README это dev'
+  - key: pris_mode
+    value: stub

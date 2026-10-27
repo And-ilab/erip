@@ -230,6 +230,101 @@ async def test_http_pris_logout_before_reauthorize():
     assert calls.count("/core/auth/authorizate") == 2
 
 
+def test_pris_status_reports_stub_without_calling_out(client):
+    data = client.get("/gw/v1/integrations/pris/status").json()["data"]
+    assert data["mode"] == "stub"
+    assert data["system"] == "АИС ПРИС"
+    assert data["sends"] is False
+    assert data["ministry"] is False
+
+
+def test_prod_refuses_pris_test_channel():
+    settings = Settings(environment="prod", internal_token="real-token-value", pris_mode="channel")
+    with pytest.raises(RuntimeError, match="channel"):
+        settings.assert_prod()
+    with pytest.raises(RuntimeError, match="GW_PRIS_MODE"):
+        Settings(pris_mode="vpn").assert_prod()
+
+
+def test_channel_mode_uses_http_client(monkeypatch):
+    from app.api.v1 import integrations
+
+    integrations.get_pris_client.cache_clear()
+    try:
+        monkeypatch.setattr(integrations, "get_settings", lambda: Settings(pris_mode="channel"))
+        client = integrations.get_pris_client()
+        assert isinstance(client, HttpPrisClient)
+        assert client.base_url == "http://pris-channel"
+        assert client.settings.pris_user_id == "channel"
+        assert client.settings.pris_access_key == "channel"
+    finally:
+        integrations.get_pris_client.cache_clear()
+
+
+async def test_pris_channel_round_trip_keeps_its_own_proceeding():
+    from app.integrations.pris.channel import channel_http, reset_channel
+    from app.integrations.pris.schemas import SaveRepayRequest
+
+    reset_channel()
+    settings = Settings(
+        pris_mode="channel", pris_base_url="http://pris-channel",
+        pris_user_id="channel", pris_access_key="channel",
+    )
+    client = HttpPrisClient(settings, channel_http())
+    echo = await client.echo()
+    assert "тестовый канал" in echo
+    saved = await client.put_save_data_debt(SaveDataDebtRequest.model_validate(SAVE_DATA))
+    assert saved.data[0]["processStatus"] == 1000
+    info = await client.get_by_num_debt(ByNumDebtRequest(p_cl_num="00020600034"))
+    proc = info[0].p_ispdoc[0]["proc_num"]
+    assert proc == "CH-601-00020600034"
+    assert proc != "60118000051"
+    again = await client.get_by_proc_num(ByProcNumRequest(p_proc_num=proc))
+    assert again[0].p_status[0]["status"] == "канал"
+    books = await client.get_nsi()
+    assert books[0]["type"] == "120"
+    assert books[0]["content"]["data"][1]["code"] == 801
+    repay = SaveRepayRequest.model_validate({"package": [{
+        "p_cl_num": "00020600034", "p_status": "2", "p_req_init": "205",
+        "req_arr": [{"p_price": "211.24", "p_curr_code": "933", "p_rest_sum": "200.00"}],
+        "repayment": [{"p_pay_date": "02.03.2026", "p_pay_num": "1", "p_pay_sum": "11.24"}],
+    }]})
+    accepted = await client.put_save_repay_debt(repay)
+    assert accepted.data[0]["processStatus"] == 1000
+    paid = await client.get_by_num_debt(ByNumDebtRequest(p_cl_num="00020600034"))
+    assert paid[0].p_repay[0]["p_pay_sum"] == "11.24"
+    assert paid[0].p_ost[0]["ost_sum"] == "200.00"
+    missing = SaveRepayRequest.model_validate({"package": [{
+        "p_cl_num": "нет-такого", "p_status": "1", "p_req_init": "205",
+        "repayment": [{"p_pay_date": "02.03.2026", "p_pay_num": "1", "p_pay_sum": "1.00"}],
+    }]})
+    with pytest.raises(PrisError, match="1004"):
+        await client.put_save_repay_debt(missing)
+
+
+async def test_pris_channel_rejects_unknown_user_and_logout():
+    from app.integrations.pris.channel import channel_http, reset_channel, state
+
+    reset_channel()
+    http = channel_http()
+    settings = Settings(
+        pris_base_url="http://pris-channel", pris_user_id="channel", pris_access_key="channel",
+    )
+    client = HttpPrisClient(settings, http)
+    await client.get_nsi()
+    assert state.tokens
+    await client.logout()
+    assert state.tokens == {}
+    await client.get_nsi()
+    assert state.tokens
+    stranger = HttpPrisClient(
+        Settings(pris_base_url="http://pris-channel", pris_user_id="other", pris_access_key="no"),
+        http,
+    )
+    with pytest.raises(PrisError, match="не найден"):
+        await stranger.get_nsi()
+
+
 async def test_http_pris_authorize_rejected():
     handler = lambda r: httpx.Response(200, json={"response": "Внимание! Пользователь не найден!"})  # noqa: E731
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:

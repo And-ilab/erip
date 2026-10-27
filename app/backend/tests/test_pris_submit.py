@@ -147,6 +147,40 @@ def test_http_refresh_moves_case_when_proceeding_appears(api, specialist_a, org_
         set_pris_transport(None)
 
 
+def test_channel_keeps_its_proceeding_off_the_regulation_sample(api, specialist_a, org_a):
+    transport = RecordingPrisTransport(mode="channel")
+    set_pris_transport(transport)
+    try:
+        case, pdf, signature = _ready_case(org_a)
+        response = api(specialist_a).post(
+            f"/api/v1/claims/{case.pk}/pris/submit/", _body(pdf.pk, signature.pk), format="json",
+        )
+        assert response.status_code == 200, response.content
+        case.refresh_from_db()
+        assert case.opi_mode == "channel"
+        assert case.opi_number == ""
+        assert case.stage == ClaimCase.Stage.WRIT_DONE
+        assert "Тестовый канал" in case.pris_process_message
+        submit_row = PrisExchange.objects.get(case=case, operation="submit")
+        assert submit_row.mode == "channel"
+        assert submit_row.response["note"] == "Ответ тестового канала шлюза."
+        assert "60118000051" not in str(submit_row.response)
+        refreshed = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/refresh/", {}, format="json")
+        assert refreshed.status_code == 200, refreshed.content
+        case.refresh_from_db()
+        assert case.opi_number == "CH-601-0001"
+        assert case.opi_status == "канал"
+        assert case.stage == ClaimCase.Stage.OPI
+        assert case.pris_inquiry["applied"] is True
+        assert "60118000051" not in str(case.pris_inquiry)
+        blocked = api(specialist_a).post(
+            f"/api/v1/claims/{case.pk}/pris/submit/", _body(pdf.pk, signature.pk), format="json",
+        )
+        assert blocked.status_code == 400
+    finally:
+        set_pris_transport(None)
+
+
 def test_repay_uses_payment_date_and_amount(api, specialist_a, org_a, pris_transport):
     case, _pdf, _signature = _ready_case(org_a)
     case.pris_cl_num = "schema_a-00007701"

@@ -1,0 +1,30 @@
+$kind: http-request
+method: GET
+url: '{{base_url}}/gw/v1/integrations/pris/echo'
+order: 2000
+headers:
+  - key: X-Internal-Token
+    value: '{{internal_token}}'
+examples: './.resources/echo.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const body = pm.response.json();
+      pm.test('200', function () {
+          pm.response.to.have.status(200);
+      });
+      pm.test('в ответе есть result', function () {
+          pm.expect(body.data.result).to.be.a('string').and.not.empty;
+      });
+      const mode = pm.collectionVariables.get('pris_mode');
+      if (mode === 'stub') {
+          pm.test('заглушка называет себя заглушкой', function () {
+              pm.expect(body.data.result).to.include('заглушка ПРИС');
+          });
+      }
+      if (mode === 'channel') {
+          pm.test('тестовый канал называет себя каналом', function () {
+              pm.expect(body.data.result).to.include('тестовый канал');
+          });
+      }
