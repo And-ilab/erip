@@ -10,7 +10,7 @@ import { MatTableModule } from '@angular/material/table';
 import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate } from '../../core/api.service';
+import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate, gateTarget } from '../../core/api.service';
 import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { ColumnDragDirective } from '../column-drag.directive';
 import { AnalyticsComponent } from '../analytics/analytics.component';
@@ -1250,9 +1250,9 @@ export class ContractsListComponent implements OnInit {
   protected openGate(): void {
     const blocked = this.gate();
     this.gate.set(null);
-    const id = blocked?.accountId;
-    if (!id) return;
-    this.router.navigate(['/accounts', id], { queryParams: { tab: blocked.tab || 'activities' } });
+    const target = blocked ? gateTarget(blocked) : null;
+    if (!target) return;
+    this.router.navigate(target.path, { queryParams: target.query });
   }
 
   protected togglePerson(row: ContractPerson): void {

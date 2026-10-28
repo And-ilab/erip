@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, input, output, signal } from '@angular/core';
+import { Component, effect, input, output, signal } from '@angular/core';
 
 import { ActivityNode } from '../../core/models';
 
@@ -55,12 +55,14 @@ import { ActivityNode } from '../../core/models';
     }
 
     <ng-template #line let-row let-depth="depth">
-      <tr [class.focus]="focusMeasure() && row.measure_id === focusMeasure()">
+      <tr [class.focus]="focusMeasure() && row.measure_id === focusMeasure()" [class.gap]="row.mandatory && row.status !== 'done'">
         <td class="cell-title" [style.padding-left.px]="12 + depth * 18">
           @if (row.children.length) {
-            <button type="button" class="twist" (click)="toggle(row.id)">{{ open().has(row.id) ? '▼' : '▶' }}</button>
+            <button type="button" class="twist" (click)="toggle(row.id)">{{ expanded(row) ? '▼' : '▶' }}</button>
           }
+          <span class="box" [class.on]="row.status === 'done'" [class.need]="row.mandatory && row.status !== 'done'"></span>
           {{ row.title }}
+          @if (row.mandatory && row.status !== 'done') { <span class="req" title="Обязательный пункт">*</span> }
           @if (row.note && row.status === 'done') { <span class="note">{{ row.note }}</span> }
         </td>
         <td class="cell-status"><span class="status" [class.work]="row.status === 'running'" [class.done]="row.status === 'done'">{{ row.status_label }}</span></td>
@@ -71,19 +73,21 @@ import { ActivityNode } from '../../core/models';
                 <input type="file" (change)="sendFile(row, $event)" />
               } @else {
                 <input [value]="draft()" (input)="draft.set($any($event.target).value)"
-                  [placeholder]="row.code === 'hand' ? 'Дата вручения, дд.мм.гггг' : (row.kind === 'call' ? 'Результат обзвона' : 'Значение')" />
+                  [placeholder]="hint(row)" />
                 <button type="button" class="go" (click)="send(row)">Выполнить</button>
               }
               <button type="button" class="go" (click)="editing.set(null)">Отмена</button>
             } @else {
               <button type="button" class="need" (click)="start(row)">Нужно действие</button>
             }
+          } @else if (row.kind === 'check') {
+            <span class="muted">По данным дела</span>
           } @else {
             —
           }
         </td>
       </tr>
-      @if (row.children.length && open().has(row.id)) {
+      @if (expanded(row)) {
         @for (child of row.children; track child.id) {
           <ng-container *ngTemplateOutlet="line; context: { $implicit: child, depth: depth + 1 }" />
         }
@@ -105,10 +109,17 @@ import { ActivityNode } from '../../core/models';
     table.acts th { font-size: 12px; text-transform: uppercase; color: #5c6b7a; background: #f7f9fb; }
     tr.focus td { background: #e7f4f1; }
     .twist { border: 0; background: transparent; cursor: pointer; width: 18px; }
+    .box {
+      display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px;
+      border: 1.5px solid #8aa0ad; border-radius: 3px; background: #fff;
+    }
+    .box.on { background: #1b7a3a; border-color: #1b7a3a; box-shadow: inset 0 0 0 2px #fff; }
+    .box.need, tr.gap .req { border-color: #c62828; color: #c62828; }
+    .req { margin-left: 4px; font-weight: 700; }
     .status { display: inline-block; min-width: 92px; text-align: center; border-radius: 12px; padding: 2px 8px; font-size: 12px; font-weight: 650; }
     .status.work { background: #fff4d6; color: #8a5a00; }
     .status.done { background: #e5f6ea; color: #1b7a3a; }
-    .need, .go { border: 0; background: transparent; color: #1d6f8a; cursor: pointer; font: inherit; }
+    button.need, button.go { border: 0; background: transparent; color: #1d6f8a; cursor: pointer; font: inherit; }
     .note { display: block; color: #6b7280; font-size: 12px; }
     input { font: inherit; margin-right: 6px; max-width: 150px; }
   `,
@@ -119,16 +130,54 @@ export class AccountActivitiesComponent {
   readonly loading = input(false);
   readonly canAct = input(false);
   readonly focusMeasure = input<number | null>(null);
+  readonly focusCode = input('');
   readonly act = output<{ id: number; note: string; file?: File }>();
-  protected readonly open = signal<Set<number>>(new Set());
+  protected readonly closed = signal<Set<number>>(new Set());
   protected readonly editing = signal<number | null>(null);
   protected readonly draft = signal('');
 
+  constructor() {
+    effect(() => {
+      const code = this.focusCode();
+      if (!code) return;
+      const nodes = [...this.current(), ...this.parallel().flatMap((block) => block.items)];
+      this.reveal(nodes, code, []);
+    });
+  }
+
+  protected expanded(row: ActivityNode): boolean {
+    return row.children.length > 0 && !this.closed().has(row.id);
+  }
+
+  private reveal(nodes: ActivityNode[], code: string, parents: number[]): boolean {
+    for (const node of nodes) {
+      if (node.code === code) {
+        const closed = new Set(this.closed());
+        parents.forEach((id) => closed.delete(id));
+        this.closed.set(closed);
+        if (node.needs_action) this.editing.set(node.id);
+        return true;
+      }
+      if (node.children.length && this.reveal(node.children, code, [...parents, node.id])) return true;
+    }
+    return false;
+  }
+
   protected toggle(id: number): void {
-    const next = new Set(this.open());
+    const next = new Set(this.closed());
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    this.open.set(next);
+    this.closed.set(next);
+  }
+
+  protected hint(row: ActivityNode): string {
+    if (row.code === 'hand') return 'Дата вручения, дд.мм.гггг';
+    if (row.code === 'opi_sent' || row.code === 'filed') return 'Дата, дд.мм.гггг';
+    if (row.code === 'opi_office') return 'Орган ОПИ';
+    if (row.code === 'opi_send') return 'Номер ИП | статус';
+    if (row.code === 'duty') return 'Сумма госпошлины';
+    if (row.kind === 'call') return 'Результат обзвона';
+    return 'Значение';
   }
 
   protected start(row: ActivityNode): void {
@@ -138,7 +187,7 @@ export class AccountActivitiesComponent {
     }
     this.editing.set(row.id);
     this.draft.set('');
-    if (row.children.length && !this.open().has(row.id)) this.toggle(row.id);
+    if (row.children.length && this.closed().has(row.id)) this.toggle(row.id);
   }
 
   protected send(row: ActivityNode): void {

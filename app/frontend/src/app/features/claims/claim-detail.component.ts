@@ -21,11 +21,15 @@ import {
   OpiOffice,
   PrisChannelStatus,
   PrisDictRow,
+  FunnelGateInfo,
   PrisExchangeRow,
   errorMessage,
+  funnelGate,
+  gateTarget,
 } from '../../core/api.service';
 import { AvcmxService, EdsCertificate } from '../../core/avcmx.service';
 import { WritRecord } from '../../core/models';
+import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
 import { ClaimChecklistComponent } from './claim-checklist.component';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
@@ -36,7 +40,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
   imports: [
     FormsModule, RouterLink, DatePipe, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatAutocompleteModule,
     MatCheckboxModule, MatSnackBarModule, MoneyComponent, BynSignComponent, ClaimChecklistComponent,
-    DateFieldComponent, HoldDraftDirective,
+    DateFieldComponent, HoldDraftDirective, FunnelGateDialogComponent,
   ],
   template: `
     <div class="case">
@@ -258,10 +262,24 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   <div class="total"><span>Итого к взысканию <app-byn-sign /></span><b><app-money [value]="opiTotal(row)" [blank]="false" /></b></div>
                 </div>
 
-                <div class="opi-card">
-                  <h4>1. Регистрация исполнительного производства (ТЗ 4.2.4.4, FR-CLM-07)</h4>
+                <div class="split">
+                  <ul class="checks">
+                    @for (slot of opiSlots; track slot.id) {
+                      <li [class.on]="opiSlot() === slot.id" [class.done]="opiDone(slot.id, row)" [class.need]="slot.required && !opiDone(slot.id, row)">
+                        <button type="button" class="check-row" (click)="opiSlot.set(slot.id)">
+                          <span class="box" [class.on]="opiDone(slot.id, row)"></span>
+                          <span class="title">{{ slot.title }}</span>
+                          <span class="state">{{ opiState(slot.id, row) }}</span>
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                  <div class="viewer">
+                <div class="opi-card" [hidden]="opiSlot() !== 'register'">
+                  <h4>Орган и дата направления (ТЗ 4.2.4.4, FR-CLM-07)</h4>
+                  <p class="hint">Без органа, даты направления и исполнительного документа статус «Направлено в ОПИ» не ставится. Если номер производства уже пришёл из АИС ПРИС, переход проходит по нему.</p>
                   <div class="fields">
-                    <mat-form-field class="wide"><mat-label>Орган ОПИ (справочник 120)</mat-label>
+                    <mat-form-field class="wide" [class.need]="!opiDepartment.trim()"><mat-label>Орган ОПИ (справочник 120) *</mat-label>
                       <input matInput [(ngModel)]="opiDepartment" [matAutocomplete]="autoOpiDept" placeholder="Код или наименование подразделения ОПИ" />
                       <mat-autocomplete #autoOpiDept="matAutocomplete" (optionSelected)="onPickOpiOffice($event.option.value)">
                         @for (item of filteredOpiOffices(); track item.code + item.name) {
@@ -269,8 +287,15 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <mat-form-field><mat-label>Номер производства</mat-label><input matInput [(ngModel)]="opiNumber" placeholder="Напр. 70126000123" /></mat-form-field>
-                    <mat-form-field><mat-label>Статус производства</mat-label>
+                    <app-date-field label="Дата направления в ОПИ" [required]="true" [value]="opiSentOn" (valueChange)="opiSentOn = $event" />
+                  </div>
+                </div>
+
+                <div class="opi-card" [hidden]="opiSlot() !== 'proceeding'">
+                  <h4>Номер и статус исполнительного производства</h4>
+                  <div class="fields">
+                    <mat-form-field [class.need]="!opiNumber.trim()"><mat-label>Номер производства *</mat-label><input matInput [(ngModel)]="opiNumber" placeholder="Напр. 70126000123" /></mat-form-field>
+                    <mat-form-field [class.need]="!opiStatus.trim()"><mat-label>Статус производства *</mat-label>
                       <input matInput [(ngModel)]="opiStatus" [matAutocomplete]="autoOpiStatus" />
                       <mat-autocomplete #autoOpiStatus="matAutocomplete">
                         @for (st of row.opi_statuses || defaultOpiStatuses; track st.id) {
@@ -278,28 +303,30 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <app-date-field label="Дата направления в ОПИ" [value]="opiSentOn" (valueChange)="opiSentOn = $event" />
                     <app-date-field label="Дата возбуждения ИП" [value]="opiStartedOn" (valueChange)="opiStartedOn = $event" />
                     <app-date-field label="Дата окончания ИП" [value]="opiEndedOn" (valueChange)="opiEndedOn = $event" />
                     <mat-form-field><mat-label>Судебный исполнитель</mat-label><input matInput [(ngModel)]="opiBailiff" /></mat-form-field>
                     <mat-form-field class="wide"><mat-label>Примечание по ходу ИП</mat-label><input matInput [(ngModel)]="opiNote" /></mat-form-field>
                   </div>
-                  @if (auth.canSkip()) {
-                    <mat-form-field class="wide"><mat-label>Причина перехода / пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
-                  }
-                  <div class="actions">
-                    <button mat-flat-button color="primary" type="button" (click)="saveOpiRecord()">Записать статус</button>
-                    @if (auth.canSkip()) {
-                      <button mat-stroked-button type="button" (click)="act('move', { stage: 'opi', reason: skipReason || 'Направлено в ОПИ' })">Направлено в ОПИ</button>
-                      <button mat-stroked-button type="button" (click)="act('move', { stage: 'opi_measures', reason: skipReason || 'Меры ОПИ приняты' })">Меры приняты</button>
-                    }
-                    <button mat-stroked-button type="button" (click)="act('ais-receipt')">Подтвердить погашение (АИС)</button>
-                    <button mat-stroked-button type="button" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
-                  </div>
                 </div>
 
-                <div class="opi-card">
-                  <h4>2. Принятые ОПИ меры принудительного исполнения</h4>
+                <div class="opi-card" [hidden]="opiSlot() !== 'document'">
+                  <h4>Исполнительный документ</h4>
+                  <p class="hint">Надпись или исполнительный лист кладётся в карточку и направляется в ОПИ. Пакет, уже принятый или проверенный ПРИС, этот пункт закрывает.</p>
+                  @if (hasEnforcement(row) && (row.opi_mode === 'pris' || row.opi_mode === 'channel' || row.opi_mode === 'stub')) {
+                    <p class="ready-line">Документ учтён в пакете ПРИС.</p>
+                  }
+                  @for (file of enforcementFiles(row); track file.id) {
+                    <p>{{ file.name }}</p>
+                  }
+                  <label class="file-pick" [class.need]="!hasEnforcement(row)">
+                    Исполнительный документ *
+                    <input type="file" accept="application/pdf,.pdf" (change)="uploadEnforcement($event)" />
+                  </label>
+                </div>
+
+                <div class="opi-card" [hidden]="opiSlot() !== 'measures'">
+                  <h4>Принятые ОПИ меры принудительного исполнения</h4>
                   @if ((row.opi_measures_taken || []).length) {
                     <table class="opi-table">
                       <thead>
@@ -335,16 +362,14 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   } @else {
                     <p class="hint">Принятые меры ОПИ пока не зафиксированы.</p>
                   }
+                  <div class="kind-list">
+                    @for (k of row.opi_measure_kinds || defaultMeasureKinds; track k.id) {
+                      <mat-checkbox [checked]="kindTaken(k.id)" (change)="pickMeasureKind(k)">{{ k.label }}</mat-checkbox>
+                    }
+                  </div>
                   <div class="fields top-gap">
-                    <mat-form-field><mat-label>Вид меры ОПИ</mat-label>
-                      <mat-select [(ngModel)]="newMeasureKind" (selectionChange)="onMeasureKindChange()">
-                        @for (k of row.opi_measure_kinds || defaultMeasureKinds; track k.id) {
-                          <mat-option [value]="k.id">{{ k.label }}</mat-option>
-                        }
-                      </mat-select>
-                    </mat-form-field>
-                    <mat-form-field><mat-label>Наименование меры</mat-label><input matInput [(ngModel)]="newMeasureTitle" /></mat-form-field>
-                    <app-date-field label="Дата постановления" [value]="newMeasureDate" (valueChange)="newMeasureDate = $event" />
+                    <mat-form-field [class.need]="!newMeasureTitle.trim()"><mat-label>Наименование меры *</mat-label><input matInput [(ngModel)]="newMeasureTitle" /></mat-form-field>
+                    <app-date-field label="Дата постановления" [required]="true" [value]="newMeasureDate" (valueChange)="newMeasureDate = $event" />
                     <mat-form-field><mat-label>№ постановления</mat-label><input matInput [(ngModel)]="newMeasureDocNum" /></mat-form-field>
                     <mat-form-field class="wide"><mat-label>Примечание к мере</mat-label><input matInput [(ngModel)]="newMeasureNote" /></mat-form-field>
                     <label class="file-pick">
@@ -358,8 +383,19 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </div>
                 </div>
 
-                <div class="opi-card">
-                  <h4>3. Акты ОПИ о невозможности взыскания (FR-CLM-08, допуск к списанию — 3 акта)</h4>
+                <div class="opi-card" [hidden]="opiSlot() !== 'fullness'">
+                  <h4>Полнота взыскания: долг, пеня и тариф</h4>
+                  <p class="hint">ПМ показывает суммы АИС и не меняет их. Статус «Взыскано» — после погашения основного долга, пени и нотариального тарифа.</p>
+                  <p [class.ready-line]="row.tariff_received && row.ais_debt_cleared" [class.need]="!(row.tariff_received && row.ais_debt_cleared)">
+                    {{ row.tariff_received && row.ais_debt_cleared ? 'Погашение долга, пени и тарифа подтверждено выгрузкой АИС.' : 'Выгрузка АИС о погашении ещё не пришла.' }}
+                  </p>
+                  <div class="actions">
+                    <button mat-stroked-button type="button" (click)="act('ais-receipt')">Подтвердить погашение (АИС)</button>
+                  </div>
+                </div>
+
+                <div class="opi-card" [hidden]="opiSlot() !== 'acts' && opiSlot() !== 'acts3'">
+                  <h4>Акты ОПИ о невозможности взыскания (FR-CLM-08)</h4>
                   <p class="hint">Приложено актов: <b>{{ row.acts_count }}</b> из 3 для списания.</p>
                   @if (row.acts.length) {
                     <table class="opi-table">
@@ -395,10 +431,10 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </table>
                   }
                   <div class="fields top-gap">
-                    <mat-form-field><mat-label>Акт о невозможности взыскания</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
-                    <mat-form-field><mat-label>Номер акта</mat-label><input matInput [(ngModel)]="actNumber" /></mat-form-field>
-                    <app-date-field label="Дата акта" [value]="actDate" (valueChange)="actDate = $event" />
-                    <mat-form-field class="wide"><mat-label>Основание возврата (ст. 52 Закона об ИП)</mat-label>
+                    <mat-form-field [class.need]="!actTitle.trim()"><mat-label>Акт о невозможности взыскания *</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
+                    <mat-form-field [class.need]="!actNumber.trim()"><mat-label>Номер акта *</mat-label><input matInput [(ngModel)]="actNumber" /></mat-form-field>
+                    <app-date-field label="Дата акта" [required]="true" [value]="actDate" (valueChange)="actDate = $event" />
+                    <mat-form-field class="wide" [class.need]="!actReason.trim()"><mat-label>Основание возврата (ст. 52 Закона об ИП) *</mat-label>
                       <input matInput [(ngModel)]="actReason" [matAutocomplete]="autoActReason" />
                       <mat-autocomplete #autoActReason="matAutocomplete">
                         @for (r of dict('204'); track r.code) {
@@ -406,8 +442,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <label class="file-pick">
-                      Скан акта / постановления ОПИ:
+                    <label class="file-pick" [class.need]="!actFile">
+                      Скан акта / постановления ОПИ *
                       <input type="file" (change)="onActFile($event)" />
                     </label>
                   </div>
@@ -420,6 +456,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </div>
                 </div>
 
+                <div [hidden]="opiSlot() !== 'pris'">
                 @if (row.pris?.inquiry?.applied) {
                   <div class="inquiry opi-card">
                     <h4>Сведения о ходе исполнительного производства из АИС ПРИС (3.11.04 / 3.11.05)</h4>
@@ -458,7 +495,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </div>
                   <p class="hint">Идентификатор задолженности: {{ row.pris?.cl_num || 'появится при передаче' }}</p>
                   <div class="fields">
-                    <mat-form-field><mat-label>ОПИ, справочник 120</mat-label>
+                    <mat-form-field [class.need]="!prisOpi.trim()"><mat-label>ОПИ, справочник 120 *</mat-label>
                       <input matInput [(ngModel)]="prisOpi" [matAutocomplete]="autoOpi" />
                       <mat-autocomplete #autoOpi="matAutocomplete">
                         @for (item of dict('120'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
@@ -470,22 +507,22 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         @for (item of dict('214'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <mat-form-field><mat-label>Вид документа, справочник 201</mat-label>
+                    <mat-form-field [class.need]="!prisDocCode.trim()"><mat-label>Вид документа, справочник 201 *</mat-label>
                       <input matInput [(ngModel)]="prisDocCode" [matAutocomplete]="autoDoc" />
                       <mat-autocomplete #autoDoc="matAutocomplete">
                         @for (item of dict('201'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <mat-form-field><mat-label>Номер документа</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
-                    <mat-form-field><mat-label>Дата документа</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
-                    <mat-form-field><mat-label>Орган, справочник 217</mat-label>
+                    <mat-form-field [class.need]="!prisDocNum.trim()"><mat-label>Номер документа *</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisDocDate.trim()"><mat-label>Дата документа *</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisOrgCode.trim()"><mat-label>Орган, справочник 217 *</mat-label>
                       <input matInput [(ngModel)]="prisOrgCode" [matAutocomplete]="autoOrg" />
                       <mat-autocomplete #autoOrg="matAutocomplete">
                         @for (item of organDict(); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <mat-form-field class="wide"><mat-label>Наименование органа</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
-                    <mat-form-field><mat-label>Дата вступления в силу</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+                    <mat-form-field class="wide" [class.need]="!prisOrg.trim()"><mat-label>Наименование органа *</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisDocDateIn.trim()"><mat-label>Дата вступления в силу *</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
                     <mat-form-field><mat-label>ОПФ должника-юрлица</mat-label><input matInput [(ngModel)]="prisDebtorOpf" /></mat-form-field>
                     <mat-form-field><mat-label>Страна должника, 306</mat-label>
                       <input matInput [(ngModel)]="prisDebtorCountry" [matAutocomplete]="autoDebtorCountry" />
@@ -530,23 +567,23 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                       </mat-select>
                     </mat-form-field>
                     <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF ключом AvPass</button>
-                    <mat-form-field><mat-label>ОПФ взыскателя</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
-                    <mat-form-field><mat-label>Страна адреса, справочник 306</mat-label>
+                    <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisCountry.trim()"><mat-label>Страна адреса, справочник 306 *</mat-label>
                       <input matInput [(ngModel)]="prisCountry" [matAutocomplete]="autoCountry" />
                       <mat-autocomplete #autoCountry="matAutocomplete">
                         @for (item of dict('306'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <mat-form-field class="wide"><mat-label>Полный адрес взыскателя</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
+                    <mat-form-field class="wide" [class.need]="!prisAddress.trim()"><mat-label>Полный адрес взыскателя *</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
                     <mat-form-field><mat-label>Область взыскателя</mat-label><input matInput [(ngModel)]="prisClaimRegion" /></mat-form-field>
                     <mat-form-field><mat-label>Район взыскателя</mat-label><input matInput [(ngModel)]="prisClaimArea" /></mat-form-field>
-                    <mat-form-field><mat-label>Тип населённого пункта, 309</mat-label>
+                    <mat-form-field [class.need]="!prisClaimNpType.trim()"><mat-label>Тип населённого пункта, 309 *</mat-label>
                       <input matInput [(ngModel)]="prisClaimNpType" [matAutocomplete]="autoClaimNp" />
                       <mat-autocomplete #autoClaimNp="matAutocomplete">
                         @for (item of dict('309'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <mat-form-field><mat-label>Населённый пункт</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisNp.trim()"><mat-label>Населённый пункт *</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
                     <mat-form-field><mat-label>Тип улицы, 308</mat-label>
                       <input matInput [(ngModel)]="prisClaimStreetType" [matAutocomplete]="autoClaimStreet" />
                       <mat-autocomplete #autoClaimStreet="matAutocomplete">
@@ -554,14 +591,14 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                       </mat-autocomplete>
                     </mat-form-field>
                     <mat-form-field><mat-label>Улица взыскателя</mat-label><input matInput [(ngModel)]="prisClaimStreet" /></mat-form-field>
-                    <mat-form-field><mat-label>Дом</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisHouse.trim()"><mat-label>Дом *</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
                     <mat-form-field><mat-label>Корпус</mat-label><input matInput [(ngModel)]="prisClaimCorp" /></mat-form-field>
                     <mat-form-field><mat-label>Квартира</mat-label><input matInput [(ngModel)]="prisClaimFlat" /></mat-form-field>
                     <mat-form-field><mat-label>Индекс</mat-label><input matInput [(ngModel)]="prisClaimIndex" /></mat-form-field>
                     <mat-form-field><mat-label>УНП получателя</mat-label><input matInput [(ngModel)]="prisBankUnp" /></mat-form-field>
-                    <mat-form-field><mat-label>SWIFT</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
-                    <mat-form-field><mat-label>Счёт</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
-                    <mat-form-field><mat-label>Тип счёта</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisBank.trim()"><mat-label>SWIFT *</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisAccount.trim()"><mat-label>Счёт *</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
+                    <mat-form-field [class.need]="!prisAccType.trim()"><mat-label>Тип счёта *</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
                     <mat-form-field><mat-label>Валюта, ОКРБ</mat-label><input matInput [(ngModel)]="prisCurr" /></mat-form-field>
                     <mat-form-field><mat-label>Код платежа в бюджет</mat-label><input matInput [(ngModel)]="prisBudget" /></mat-form-field>
                   </div>
@@ -582,6 +619,20 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </details>
                   }
                 </details>
+                </div>
+                @if (auth.canSkip()) {
+                  <mat-form-field class="wide"><mat-label>Причина перехода / пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
+                }
+                <div class="actions">
+                  <button mat-flat-button color="primary" type="button" (click)="saveOpiRecord()">Записать статус</button>
+                  @if (auth.canSkip()) {
+                    <button mat-stroked-button type="button" (click)="moveToOpi()">Направлено в ОПИ</button>
+                    <button mat-stroked-button type="button" (click)="moveToMeasures()">Меры приняты</button>
+                  }
+                  <button mat-stroked-button type="button" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
+                </div>
+                  </div>
+                </div>
               }
               @case ('writeoff') {
                 <p class="hint">Актов о невозможности: {{ row.acts_count }} из 3. Списание в АИС делает учётная система. Здесь согласуется комплект.</p>
@@ -625,6 +676,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
           </aside>
         </div>
       }
+      <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
     </div>
   `,
   styles: `
@@ -673,6 +725,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .banner { background: var(--erip-warning-soft); border-radius: 8px; padding: 8px 12px; margin: 0; }
     .banner.ok-banner { background: #e8f6ee; color: #166534; }
     .ready-line { color: #166534; font-size: 13px; font-weight: 600; margin: 4px 0; }
+    [hidden] { display: none !important; }
     .opi-card { border: 1px solid var(--erip-border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #fbfcfd; }
     .opi-card h4 { margin: 0; font-size: 14px; color: var(--erip-primary-dark); }
     .opi-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
@@ -682,6 +735,29 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .link-btn { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; font-size: 12px; padding: 0 4px; text-decoration: underline; }
     .link-btn.danger { color: var(--erip-danger); }
     .file-pick { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--erip-muted); }
+    .file-pick.need { color: #c62828; font-weight: 650; }
+    .split { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 12px; align-items: start; }
+    .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .checks li { border: 1px solid var(--erip-border); border-radius: 8px; background: #fff; padding: 6px 8px; }
+    .checks li.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .checks li.need { border-color: #c62828; }
+    .check-row {
+      display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; column-gap: 8px;
+      width: 100%; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; padding: 2px 0;
+    }
+    .box { width: 16px; height: 16px; border: 1.5px solid #8aa0ad; border-radius: 3px; background: #fff; }
+    .box.on { background: var(--erip-success); border-color: var(--erip-success); box-shadow: inset 0 0 0 2px #fff; }
+    .check-row .title { min-width: 0; font-size: 14px; line-height: 1.3; }
+    .check-row .state { font-size: 12px; color: var(--erip-muted); white-space: nowrap; }
+    .viewer { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .kind-list { display: flex; flex-direction: column; gap: 4px; }
+    .fields .need {
+      --mdc-outlined-text-field-outline-color: #c62828;
+      --mdc-outlined-text-field-hover-outline-color: #c62828;
+      --mdc-outlined-text-field-focus-outline-color: #c62828;
+      --mdc-outlined-text-field-label-text-color: #c62828;
+    }
+    @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
     .top-gap { margin-top: 6px; }
     .blockers { color: var(--erip-warning); margin: 0; padding-left: 18px; }
     .acts { margin: 0; padding-left: 18px; }
@@ -719,6 +795,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   ];
   protected readonly tab = signal<(typeof this.tabs)[number]['id']>('pack');
   protected readonly focusSlot = signal('');
+  protected readonly gate = signal<FunnelGateInfo | null>(null);
   protected readonly claim = signal<ClaimCase | null>(null);
   protected readonly packages = signal<WritRecord[]>([]);
   protected warningDate = '';
@@ -745,6 +822,17 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected opiBailiff = '';
   protected opiNote = '';
   protected readonly opiOffices = signal<OpiOffice[]>([]);
+  protected readonly opiSlots = [
+    { id: 'register', title: 'Орган и дата направления', required: true },
+    { id: 'proceeding', title: 'Номер и статус производства', required: true },
+    { id: 'document', title: 'Исполнительный документ', required: true },
+    { id: 'measures', title: 'Меры принудительного исполнения', required: true },
+    { id: 'fullness', title: 'Полнота: долг, пеня и тариф', required: false },
+    { id: 'acts', title: 'Акт о невозможности взыскания', required: true },
+    { id: 'acts3', title: 'Три акта для списания', required: true },
+    { id: 'pris', title: 'Обмен с АИС ПРИС', required: false },
+  ];
+  protected readonly opiSlot = signal('register');
   protected readonly prisStatus = signal<PrisChannelStatus | null>(null);
   protected newMeasureKind = 'asset_arrest';
   protected newMeasureTitle = 'Арест имущества';
@@ -834,6 +922,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       if (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'writeoff') {
         this.tab.set(tab);
       }
+      const slot = params.get('slot');
+      if (slot) this.applySlot(slot);
     });
     this.route.paramMap.subscribe((params) => this.load(Number(params.get('id'))));
     this.api.prisDictionaries().subscribe({
@@ -958,7 +1048,103 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   }
 
   protected saveOpiRecord(): void {
-    this.act('opi', {
+    this.act('opi', this.opiBody());
+  }
+
+  protected opiDone(id: string, row: ClaimCase): boolean {
+    if (id === 'register') return !!this.opiDepartment.trim() && !!this.opiSentOn;
+    if (id === 'proceeding') return !!this.opiNumber.trim() && !!this.opiStatus.trim();
+    if (id === 'document') return this.hasEnforcement(row);
+    if (id === 'measures') return this.measuresKnown(row);
+    if (id === 'fullness') return !!(row.tariff_received && row.ais_debt_cleared);
+    if (id === 'acts') return row.acts_count >= 1;
+    if (id === 'acts3') return row.acts_count >= 3;
+    if (id === 'pris') return row.opi_mode === 'pris' || row.opi_mode === 'channel';
+    return false;
+  }
+
+  protected opiState(id: string, row: ClaimCase): string {
+    if (id === 'acts' || id === 'acts3') return `${row.acts_count} из 3`;
+    return this.opiDone(id, row) ? 'есть' : 'нет';
+  }
+
+  protected hasEnforcement(row: ClaimCase): boolean {
+    if (row.opi_mode === 'pris' || row.opi_mode === 'channel' || row.opi_mode === 'stub') return true;
+    return this.enforcementFiles(row).length > 0;
+  }
+
+  protected enforcementFiles(row: ClaimCase): ClaimCase['files'] {
+    return (row.files || []).filter((file) => /исполнительн/i.test(`${file.doc_type} ${file.name}`));
+  }
+
+  protected measuresKnown(row: ClaimCase): boolean {
+    if ((row.opi_measures_taken || []).length) return true;
+    return (row.pris?.inquiry?.p_action || []).length > 0;
+  }
+
+  protected kindTaken(id: string): boolean {
+    return (this.claim()?.opi_measures_taken || []).some((item) => item.kind === id);
+  }
+
+  protected pickMeasureKind(kind: { id: string; label: string }): void {
+    this.newMeasureKind = kind.id;
+    this.newMeasureTitle = kind.label;
+  }
+
+  protected moveToOpi(): void {
+    const row = this.claim();
+    if (!row) return;
+    const integrated = (row.opi_mode === 'pris' || row.opi_mode === 'channel') && !!(row.opi_number || this.opiNumber).trim();
+    if (!integrated) {
+      const gaps: string[] = [];
+      if (!this.opiDepartment.trim()) gaps.push('орган ОПИ');
+      if (!this.opiSentOn) gaps.push('дату направления');
+      if (!this.hasEnforcement(row)) gaps.push('исполнительный документ');
+      if (gaps.length) {
+        this.opiSlot.set(gaps.some((item) => item.includes('документ')) ? 'document' : 'register');
+        this.snack.open(`Заполните: ${gaps.join(', ')}`, 'OK');
+        return;
+      }
+    } else {
+      this.act('move', { stage: 'opi', reason: this.skipReason || 'Направлено в ОПИ' });
+      return;
+    }
+    this.api.claimAction(row.id, 'opi', this.opiBody()).subscribe({
+      next: (saved) => {
+        this.apply(saved);
+        this.act('move', { stage: 'opi', reason: this.skipReason || 'Направлено в ОПИ' });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected moveToMeasures(): void {
+    const row = this.claim();
+    if (!row || !this.measuresKnown(row)) {
+      this.opiSlot.set('measures');
+      this.snack.open('Добавьте принятую меру ОПИ', 'OK');
+      return;
+    }
+    this.act('move', { stage: 'opi_measures', reason: this.skipReason || 'Меры ОПИ приняты' });
+  }
+
+  protected uploadEnforcement(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const row = this.claim();
+    if (!file || !row) return;
+    this.api.uploadFile(row.account, 'Исполнительный документ', file).subscribe({
+      next: () => {
+        input.value = '';
+        this.reloadClaim();
+        this.snack.open('Исполнительный документ приложен', 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private opiBody(): object {
+    return {
       number: this.opiNumber,
       status: this.opiStatus,
       department: this.opiDepartment,
@@ -967,6 +1153,15 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       ended_on: this.opiEndedOn || null,
       bailiff: this.opiBailiff,
       note: this.opiNote,
+    };
+  }
+
+  private reloadClaim(): void {
+    const id = this.claim()?.id;
+    if (!id) return;
+    this.api.claim(id).subscribe({
+      next: (next) => this.apply(next),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }
 
@@ -984,6 +1179,10 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected submitOpiMeasure(moveStage: boolean): void {
     const row = this.claim();
     if (!row) return;
+    if (!this.newMeasureTitle.trim() || !this.newMeasureDate) {
+      this.snack.open('Для меры нужны наименование и дата постановления', 'OK');
+      return;
+    }
     this.api.addOpiMeasure(
       row.id,
       {
@@ -1027,6 +1226,10 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected submitAct(): void {
     const row = this.claim();
     if (!row) return;
+    if (!this.actTitle.trim() || !this.actNumber.trim() || !this.actDate || !this.actReason.trim() || !this.actFile) {
+      this.snack.open('Для акта нужны наименование, номер, дата, основание и файл', 'OK');
+      return;
+    }
     this.api.uploadClaimAct(
       row.id,
       {
@@ -1440,8 +1643,42 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
         this.apply(next);
         this.snack.open(next.stage_label, 'OK', { duration: 2000 });
       },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      error: (err) => {
+        const blocked = funnelGate(err);
+        if (blocked) {
+          this.gate.set(blocked);
+          return;
+        }
+        this.snack.open(errorMessage(err), 'OK');
+      },
     });
+  }
+
+  private applySlot(slot: string): void {
+    this.focusSlot.set(slot);
+    const opi: Record<string, string> = {
+      opi_act: 'measures',
+      acts: 'acts',
+      enforcement_doc: 'document',
+      writ: 'document',
+    };
+    const picked = opi[slot];
+    if (picked) this.opiSlot.set(picked);
+  }
+
+  protected openGate(): void {
+    const blocked = this.gate();
+    this.gate.set(null);
+    if (!blocked) return;
+    const here = this.claim()?.id;
+    if (blocked.claimId && here && blocked.claimId === here && (blocked.tab === 'pack' || blocked.tab === 'notary' || blocked.tab === 'court' || blocked.tab === 'opi' || blocked.tab === 'writeoff')) {
+      if (blocked.focus) this.applySlot(blocked.focus);
+      this.setTab(blocked.tab as 'pack' | 'notary' | 'court' | 'opi' | 'writeoff');
+      return;
+    }
+    const target = gateTarget(blocked);
+    if (!target) return;
+    this.router.navigate(target.path, { queryParams: target.query });
   }
 
   private draft(): object {

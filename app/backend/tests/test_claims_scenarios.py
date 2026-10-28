@@ -107,7 +107,11 @@ def test_writeoff_needs_three_acts_and_every_approval(api, specialist_a, admin_a
     case_id = _ready(api, specialist_a, account_a)
     for index in range(3):
         added = api(specialist_a).post(
-            f"/api/v1/claims/{case_id}/acts/", {"title": f"Акт {index + 1}"}, format="json",
+            f"/api/v1/claims/{case_id}/acts/",
+            {
+                "title": f"Акт {index + 1}",
+                "file": SimpleUploadedFile(f"act-{index}.pdf", b"%PDF-1.4", content_type="application/pdf"),
+            },
         )
         assert added.status_code == 200, added.content
     early = api(specialist_a).post(f"/api/v1/claims/{case_id}/writeoff/", {"approver_ids": [admin_a.id]}, format="json")
@@ -142,7 +146,13 @@ def test_one_refusal_blocks_writeoff(api, specialist_a, admin_a, org_a):
     account = make_account(org_a, 4101, debt_group=3)
     case_id = _ready(api, specialist_a, account)
     for index in range(3):
-        api(specialist_a).post(f"/api/v1/claims/{case_id}/acts/", {"title": f"Акт {index}"}, format="json")
+        api(specialist_a).post(
+            f"/api/v1/claims/{case_id}/acts/",
+            {
+                "title": f"Акт {index}",
+                "file": SimpleUploadedFile(f"act-{index}.pdf", b"%PDF-1.4", content_type="application/pdf"),
+            },
+        )
     specialist_a.can_approve = True
     specialist_a.save(update_fields=["can_approve"])
     api(specialist_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "impossible"}, format="json")
@@ -777,4 +787,88 @@ def test_notary_follows_the_scenario_checklist(api, specialist_a, admin_a, accou
     early = api(specialist_a).post(f"/api/v1/claims/{fresh_id}/send-notary/", {}, format="json")
     assert early.status_code == 400
     assert "истёк" in early.content.decode().lower()
+
+
+def _activity(nodes, code):
+    for node in nodes:
+        if node["code"] == code:
+            return node
+        found = _activity(node["children"], code)
+        if found:
+            return found
+    return None
+
+
+@pytest.mark.django_db
+def test_opi_direction_needs_office_date_and_document(api, specialist_a, account_a):
+    case_id = _ready(api, specialist_a, account_a)
+    case = ClaimCase.objects.get(pk=case_id)
+    case.stage = ClaimCase.Stage.WRIT_DONE
+    case.save(update_fields=["stage"])
+    Attachment.objects.create(
+        organization=account_a.organization,
+        account=account_a,
+        doc_type="Исполнительный документ",
+        original_name="list.pdf",
+        file=SimpleUploadedFile("list.pdf", b"%PDF", content_type="application/pdf"),
+    )
+
+    blocked = api(specialist_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "opi"}, format="json")
+    assert blocked.status_code == 400
+    assert "орган" in blocked.content.decode().lower()
+
+    recorded = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/opi/",
+        {"department": "701 — ОПИ Заводского района", "sent_on": "2026-04-01", "number": "", "status": ""},
+        format="json",
+    )
+    assert recorded.status_code == 200, recorded.content
+    moved = api(specialist_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "opi"}, format="json")
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["stage"] == "opi"
+
+    account_a.refresh_from_db()
+    assert account_a.funnel_stage == "opi"
+    board = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/activities/").json()
+    office = _activity(board["current"], "opi_office")
+    sent = _activity(board["current"], "opi_sent")
+    document = _activity(board["current"], "opi_doc")
+    proceeding = _activity(board["current"], "opi_send")
+    assert office["status"] == "done"
+    assert sent["status"] == "done"
+    assert document["status"] == "done"
+    assert proceeding["status"] == "running"
+
+    no_measures = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/move/", {"stage": "opi_measures"}, format="json",
+    )
+    assert no_measures.status_code == 400
+    assert "мер" in no_measures.content.decode().lower()
+
+    measured = api(specialist_a).post(
+        f"/api/v1/claims/{case_id}/opi-measures/",
+        {
+            "kind": "asset_arrest",
+            "title": "Арест имущества",
+            "date": "2026-04-12",
+            "file": SimpleUploadedFile("arrest.pdf", b"%PDF", content_type="application/pdf"),
+            "move_stage": "1",
+        },
+    )
+    assert measured.status_code == 200, measured.content
+    assert measured.json()["stage"] == "opi_measures"
+
+    account_a.funnel_stage = "lawsuit"
+    account_a.save(update_fields=["funnel_stage"])
+    lawsuit = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/activities/").json()
+    filed = _activity(lawsuit["current"], "filed")
+    done = api(specialist_a).post(
+        f"/api/v1/accounts/{account_a.id}/activities/",
+        {"id": filed["id"], "note": "02.05.2026"},
+        format="json",
+    )
+    assert done.status_code == 200, done.content
+    case.refresh_from_db()
+    assert case.lawsuit_filed_on == date(2026, 5, 2)
+    assert _activity(done.json()["current"], "filed")["status"] == "done"
 

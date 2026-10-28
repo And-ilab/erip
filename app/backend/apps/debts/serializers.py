@@ -356,7 +356,9 @@ class AccountDetailSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"parallel_stage": "Ветвь выселения доступна для групп задолженности 4–6"})
             if instance.parallel_stage != requested:
                 from apps.debts.models import StatusHistory
+                from apps.debts.services.document_gate import parallel_gate
 
+                parallel_gate(instance, requested)
                 StatusHistory.objects.create(
                     organization=instance.organization, account=instance, kind=StatusHistory.Kind.FUNNEL,
                     old_value=instance.parallel_stage or "p0", new_value=requested or "p0",

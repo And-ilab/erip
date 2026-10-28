@@ -181,6 +181,10 @@ def move_status(measure: Measure, status: str, user) -> Measure:
         raise MeasureLaunchError({"status": "Неизвестный статус"})
     if measure.status == status:
         return measure
+    if status not in {Measure.Status.CANCELLED, Measure.Status.FAILED}:
+        from apps.debts.services.document_gate import measure_gate
+
+        measure_gate(measure)
     old = measure.status
     reason = "Перенос в канбане"
     item_status = _KANBAN_ITEM.get(status)

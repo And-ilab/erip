@@ -133,7 +133,10 @@ class FunnelGate(ValidationError):
     status_code = 400
     default_code = "funnel_gate"
 
-    def __init__(self, message: str, *, actions: list[str], tab: str, tab_label: str, account_id: int):
+    def __init__(
+        self, message: str, *, actions: list[str], tab: str, tab_label: str, account_id: int,
+        claim_id: int | None = None, measure_id: int | None = None, focus: str = "",
+    ):
         super().__init__(detail=message, code="funnel_gate")
         self.gate_message = message
         self.extra = {
@@ -141,6 +144,9 @@ class FunnelGate(ValidationError):
             "tab": tab,
             "tab_label": tab_label,
             "account_id": account_id,
+            "claim_id": claim_id,
+            "measure_id": measure_id,
+            "focus": focus or "",
         }
 
 
@@ -163,18 +169,11 @@ def warning_handed(account) -> bool:
 
 
 def assert_transition(account, stage: str) -> None:
-    if stage not in GATED or warning_handed(account):
-        return
-    from apps.debts.services.activities import ensure_stage
+    """Дата вручения и документы этапа. Пустой перечень документов переход не держит."""
+    from apps.debts.services.document_gate import stage_gate
 
-    ensure_stage(account, "notice")
-    raise FunnelGate(
-        "Нет даты вручения предупреждения. Карточка остаётся в своей колонке.",
-        actions=["Указать дату вручения предупреждения"],
-        tab="activities",
-        tab_label="Активности",
-        account_id=account.pk,
-    )
+    date_missing = stage in GATED and not warning_handed(account)
+    stage_gate(account, account.funnel_stage or "new", stage, date_missing=date_missing)
 
 
 def set_stage(account, stage: str, user=None, reason: str = "", *, lock: bool = False, check: bool = True) -> bool:

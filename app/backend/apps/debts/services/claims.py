@@ -161,6 +161,7 @@ def update_case(case: ClaimCase, data: dict, user) -> ClaimCase:
     from apps.debts.services.claim_measures import sync_claim_measure
 
     sync_claim_measure(case)
+    sync_case_checks(case)
     return case
 
 
@@ -191,6 +192,9 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "", *, checklist_
         return case
     skipping = stage_is_skip(case, stage)
     supplied = reason if checklist_reason is None else checklist_reason
+    from apps.debts.services.document_gate import claim_gate
+
+    claim_gate(case, stage, supplied or "")
     _guard(case, stage, reason, checklist_reason=supplied)
     kept = case.skip_reason if getattr(case, "_checklist_skip", False) else None
     old = case.stage
@@ -217,6 +221,7 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "", *, checklist_
         set_stage(case.account, mapped, user, reason or "Переход дела", check=False)
     if case.account.assigned_to_id and stage == ClaimCase.Stage.WRITEOFF:
         _notify(case, case.account.assigned_to_id, "Сформирован акт о списании. В АИС уйдёт уведомление, когда появится файл статусов.")
+    sync_case_checks(case)
     return case
 
 
@@ -336,6 +341,7 @@ def remove_act(case: ClaimCase, act_id: int, user) -> ClaimCase:
     title = act.title
     act.delete()
     _event(case, user, case.stage, case.stage, f"Удалён акт ОПИ: {title}")
+    sync_case_checks(case)
     return case
 
 
@@ -351,11 +357,14 @@ def record_opi(
     ended_on=None,
     bailiff: str | None = None,
     note: str | None = None,
+    manual: bool = True,
 ) -> ClaimCase:
     case.opi_number = (number or "").strip()[:50]
     case.opi_status = (status or "").strip()[:120]
-    case.opi_mode = "manual"
-    fields = ["opi_number", "opi_status", "opi_mode", "updated_at"]
+    fields = ["opi_number", "opi_status", "updated_at"]
+    if manual:
+        case.opi_mode = "manual"
+        fields.append("opi_mode")
     if department is not None:
         case.opi_department = str(department).strip()[:250]
         fields.append("opi_department")
@@ -387,7 +396,10 @@ def record_opi(
     case.save(update_fields=fields)
     summary = ", ".join(p for p in (case.opi_number and f"ИП {case.opi_number}", case.opi_status, case.opi_department) if p)
     _sync_opi_activity(case, "opi_send", summary or "Статус ОПИ внесён вручную")
-    _event(case, user, case.stage, case.stage, "Статус ОПИ внесён вручную, сервисы 3.11.01–3.11.05 не вызывались")
+    if manual:
+        _event(case, user, case.stage, case.stage, "Статус ОПИ внесён вручную, сервисы 3.11.01–3.11.05 не вызывались")
+    else:
+        _event(case, user, case.stage, case.stage, "Чек-лист ОПИ обновлён")
     return case
 
 
@@ -445,21 +457,20 @@ def remove_opi_measure(case: ClaimCase, measure_id: int, user) -> ClaimCase:
     case.opi_measures_taken = [item for item in rows if int(item.get("id") or 0) != int(measure_id)]
     case.save(update_fields=["opi_measures_taken", "updated_at"])
     _event(case, user, case.stage, case.stage, f"Удалена мера ОПИ: {target.get('title') or ''}")
+    sync_case_checks(case)
     return case
 
 
-def _sync_opi_activity(case: ClaimCase, code: str, note: str) -> None:
-    from apps.debts.models import StageActivity
-    from apps.debts.services.activities import ensure_stage
+def sync_case_checks(case: ClaimCase) -> None:
+    from apps.debts.services.activities import sync_stage_checks
 
-    stage_for_code = {"opi_send": "opi", "opi_act": "opi_measures", "acts": "impossible"}.get(code)
-    if not stage_for_code:
-        return
-    ensure_stage(case.account, stage_for_code)
-    StageActivity.objects.filter(account=case.account, stage=stage_for_code, code=code).update(
-        status=StageActivity.Status.DONE,
-        note=(note or "")[:500],
-    )
+    sync_stage_checks(case.account)
+
+
+def _sync_opi_activity(case: ClaimCase, code: str, note: str) -> None:
+    """Пункт активности и остальные пункты чек-листа сверяются с делом."""
+    del code, note
+    sync_case_checks(case)
 
 
 def apply_ais_receipt(case: ClaimCase, user) -> ClaimCase:
@@ -468,6 +479,7 @@ def apply_ais_receipt(case: ClaimCase, user) -> ClaimCase:
     case.ais_debt_cleared = True
     case.save(update_fields=["tariff_received", "ais_debt_cleared", "updated_at"])
     _event(case, user, case.stage, case.stage, "Имитация выгрузки АИС: тариф и погашение. Поле сальдо не изменено")
+    sync_case_checks(case)
     return case
 
 
@@ -709,6 +721,112 @@ def _date(value) -> str | None:
     return value.isoformat()
 
 
+def _opi_from_pris(case: ClaimCase) -> bool:
+    """Номер производства уже пришёл из АИС ПРИС: ручные поля направления не блокируют переход."""
+    return case.opi_mode in {"pris", "channel"} and bool((case.opi_number or "").strip())
+
+
+def _opi_measures_known(case: ClaimCase) -> bool:
+    if list(case.opi_measures_taken or []):
+        return True
+    return bool((case.pris_inquiry or {}).get("p_action"))
+
+
+def _enforcement_ready(case: ClaimCase) -> bool:
+    """Исполнительный документ уже в карточке или ушёл в пакете ПРИС."""
+    if case.opi_mode in {"pris", "channel", "stub"}:
+        return True
+    rows = Attachment.objects.filter(account_id=case.account_id).values_list("doc_type", "original_name")
+    return any("исполнительн" in f"{doc_type} {name}".lower() for doc_type, name in rows)
+
+
+def _split_proceeding(text: str) -> tuple[str, str]:
+    raw = (text or "").strip()
+    for sep in ("|", ";", "—"):
+        if sep in raw:
+            left, right = raw.split(sep, 1)
+            return left.strip()[:50], (right.strip() or "Возбуждено")[:120]
+    return raw[:50], "Возбуждено"
+
+
+def push_activity_value(case: ClaimCase, user, code: str, text: str) -> ClaimCase:
+    """Пункт чек-листа на карточке ЛС пишет то же поле, что вкладка дела."""
+    from decimal import InvalidOperation
+
+    from apps.debts.services.funnel import parse_handed_on
+
+    if code == "opi_office":
+        return record_opi(case, user, case.opi_number, case.opi_status, department=text, manual=False)
+    if code == "opi_sent":
+        parsed = parse_handed_on(text)
+        if parsed is None:
+            raise ClaimBlocked("Укажите дату направления в формате дд.мм.гггг")
+        return record_opi(case, user, case.opi_number, case.opi_status, sent_on=parsed, manual=False)
+    if code == "opi_send":
+        number, status = _split_proceeding(text)
+        if not number:
+            raise ClaimBlocked("Укажите номер производства")
+        return record_opi(case, user, number, status, manual=False)
+    if code == "filed":
+        parsed = parse_handed_on(text)
+        if parsed is None:
+            raise ClaimBlocked("Укажите дату подачи в формате дд.мм.гггг")
+        case.lawsuit_filed_on = parsed
+        case.save(update_fields=["lawsuit_filed_on", "updated_at"])
+        _event(case, user, case.stage, case.stage, f"Дата подачи иска: {parsed.strftime('%d.%m.%Y')}")
+        sync_case_checks(case)
+        return case
+    if code == "duty":
+        raw = (text or "").replace(" ", "").replace(",", ".")
+        try:
+            amount = Decimal(raw)
+        except InvalidOperation:
+            raise ClaimBlocked("Укажите сумму госпошлины") from None
+        if amount <= 0:
+            raise ClaimBlocked("Госпошлина больше нуля")
+        case.state_duty = amount
+        case.save(update_fields=["state_duty", "updated_at"])
+        _event(case, user, case.stage, case.stage, f"Госпошлина: {amount}")
+        sync_case_checks(case)
+        return case
+    return case
+
+
+def stage_marks(case: ClaimCase) -> list[tuple[str, str, bool, str]]:
+    """Какие пункты чек-листа закрыты данными дела. ТЗ 4.2.4.2–4.2.4.7."""
+    acts = case.acts.count()
+    measures = [item for item in (case.opi_measures_taken or []) if isinstance(item, dict)]
+    measures_known = bool(measures) or bool((case.pris_inquiry or {}).get("p_action"))
+    measures_note = f"Мер: {len(measures)}" if measures else ("Меры из АИС ПРИС" if measures_known else "")
+    sent = case.opi_sent_on.strftime("%d.%m.%Y") if case.opi_sent_on else ""
+    filed = case.lawsuit_filed_on.strftime("%d.%m.%Y") if case.lawsuit_filed_on else ""
+    number = (case.opi_number or "").strip()
+    status = (case.opi_status or "").strip()
+    paid = bool(case.tariff_received and case.ais_debt_cleared)
+    paid_note = "Долг, пеня и тариф погашены" if paid else ""
+    approved = case.writeoff_status == ClaimCase.WriteoffStatus.APPROVED
+    duty_met = case.state_duty is not None and case.state_duty > 0
+    doc = _enforcement_ready(case)
+    reg = (case.submission_id or "").strip()
+    proceeding = ", ".join(part for part in (number and f"ИП {number}", status) if part)
+    return [
+        ("notary", "send", bool(reg), reg),
+        ("notary", "send_reg", bool(reg), reg),
+        ("lawsuit", "duty", duty_met, str(case.state_duty or "") if duty_met else ""),
+        ("lawsuit", "filed", bool(case.lawsuit_filed_on), filed),
+        ("opi", "opi_office", bool((case.opi_department or "").strip()), case.opi_department or ""),
+        ("opi", "opi_sent", bool(case.opi_sent_on), sent),
+        ("opi", "opi_doc", doc, "Исполнительный документ в карточке" if doc else ""),
+        ("opi", "opi_send", bool(number and status), proceeding),
+        ("opi_measures", "opi_act", measures_known, measures_note),
+        ("opi_measures", "opi_full", paid, paid_note),
+        ("impossible", "acts", acts >= 1, f"Актов: {acts}" if acts else ""),
+        ("impossible", "acts_three", acts >= 3, f"{acts} из 3"),
+        ("writeoff", "route", approved, "Согласовали все" if approved else ""),
+        ("recovered", "paid", paid, paid_note),
+    ]
+
+
 def _guard(case: ClaimCase, stage: str, reason: str, checklist_reason: str | None = None) -> None:
     if stage == ClaimCase.Stage.NOTARY:
         _require_notary_fields(case, reason if checklist_reason is None else checklist_reason)
@@ -717,6 +835,18 @@ def _guard(case: ClaimCase, stage: str, reason: str, checklist_reason: str | Non
         require_formed_package(case)
     if stage == ClaimCase.Stage.LAWSUIT and case.stage != ClaimCase.Stage.REFUSED and not reason.strip():
         raise ClaimBlocked("Пропуск до иска записывается с причиной")
+    if stage == ClaimCase.Stage.OPI and not _opi_from_pris(case):
+        missing = []
+        if not (case.opi_department or "").strip():
+            missing.append("орган ОПИ")
+        if not case.opi_sent_on:
+            missing.append("дату направления в ОПИ")
+        if not _enforcement_ready(case):
+            missing.append("исполнительный документ")
+        if missing:
+            raise ClaimBlocked("Для статуса «Направлено в ОПИ» нужны: " + ", ".join(missing))
+    if stage == ClaimCase.Stage.OPI_MEASURES and not _opi_measures_known(case):
+        raise ClaimBlocked("Статус «Меры ОПИ приняты» требует хотя бы одну принятую меру")
     if stage == ClaimCase.Stage.IMPOSSIBLE and case.acts.count() < 1:
         raise ClaimBlocked("Статус «Невозможность взыскания» требует акт ОПИ")
     if stage == ClaimCase.Stage.WRITEOFF:

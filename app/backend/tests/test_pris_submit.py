@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from apps.debts.models import Attachment, ClaimCase, Payment, PrisExchange, Registration, Territory
 from apps.debts.services.eds import sample_detached_pkcs7
@@ -383,9 +384,9 @@ def test_opi_module_registry_measures_acts_and_autofill(api, specialist_a, admin
             "date": "2026-10-12",
             "doc_number": "П-44/2026",
             "note": "Арест автомобиля",
-            "move_stage": True,
+            "move_stage": "1",
+            "file": SimpleUploadedFile("arrest.pdf", b"%PDF-1.4", content_type="application/pdf"),
         },
-        format="json",
     )
     assert measured.status_code == 200, measured.content
     m_data = measured.json()

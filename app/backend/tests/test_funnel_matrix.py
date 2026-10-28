@@ -80,7 +80,11 @@ def test_gated_move_names_the_action_and_a_handed_date_opens_the_column(api, spe
     assert error["details"]["tab"] == "activities"
     assert error["details"]["tab_label"] == "Активности"
     assert error["details"]["account_id"] == account_a.id
-    assert error["details"]["actions"] == ["Указать дату вручения предупреждения"]
+    assert error["details"]["actions"] == [
+        "Указать дату вручения предупреждения",
+        "Приложить документ «Предупреждение (PDF, печать)»",
+    ]
+    assert error["details"]["focus"] == "hand"
     account_a.refresh_from_db()
     assert account_a.funnel_stage == "notice"
     board = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/activities/").json()
@@ -98,6 +102,13 @@ def test_gated_move_names_the_action_and_a_handed_date_opens_the_column(api, spe
         format="json",
     )
     assert done.status_code == 200, done.content
+    warning = _find_activity(board.get("current") or [], "pdf")
+    assert warning is not None
+    uploaded = api(specialist_a).post(
+        f"/api/v1/accounts/{account_a.id}/activities/",
+        {"id": warning["id"], "file": SimpleUploadedFile("warn.pdf", b"%PDF", content_type="application/pdf")},
+    )
+    assert uploaded.status_code == 200, uploaded.content
     moved = api(specialist_a).patch(
         f"/api/v1/accounts/{account_a.id}/", {"funnel_stage": "disconnect"}, format="json",
     )
@@ -166,6 +177,10 @@ def test_parallel_branch_does_not_move_the_main_stage(api, specialist_a, account
     account_a.debt_group = 4
     account_a.funnel_stage = "prep"
     account_a.save(update_fields=["debt_group", "funnel_stage"])
+    StageActivity.objects.create(
+        organization=account_a.organization, account=account_a, stage="p1", code="evict_notice",
+        title="Уведомление о возможном выселении", kind="upload", status="done",
+    )
     early = api(specialist_a).patch(
         f"/api/v1/accounts/{account_a.id}/", {"parallel_stage": "p1"}, format="json",
     )
@@ -199,3 +214,59 @@ def test_payment_to_zero_lands_on_recovered(org_a):
     PortfolioRefresher().refresh_account(fresh)
     fresh.refresh_from_db()
     assert fresh.funnel_stage == "new"
+
+
+def _by_code(nodes):
+    found = {}
+    for node in nodes:
+        found[node["code"]] = node
+        found.update(_by_code(node["children"]))
+    return found
+
+
+@pytest.mark.django_db
+def test_action_stages_carry_a_checklist(api, specialist_a, account_a):
+    expected = {
+        "notary": {
+            "send": ("Пакет направлен", True, "field"),
+            "send_reg": ("Регистрационный номер обращения", True, "check"),
+        },
+        "lawsuit": {
+            "suit": ("Исковое заявление", True, "upload"),
+            "duty": ("Госпошлина", True, "field"),
+            "filed": ("Дата подачи иска", True, "field"),
+        },
+        "judgment": {
+            "decision": ("Судебное решение", True, "upload"),
+            "sheet": ("Исполнительный лист", True, "upload"),
+        },
+        "opi": {
+            "opi_office": ("Орган ОПИ", True, "field"),
+            "opi_sent": ("Дата направления в ОПИ", True, "field"),
+            "opi_doc": ("Исполнительный документ", True, "upload"),
+            "opi_send": ("Номер и статус производства", True, "field"),
+        },
+        "opi_measures": {
+            "opi_act": ("Принятые меры ОПИ", True, "upload"),
+            "opi_full": ("Полнота: долг, пеня и тариф", False, "check"),
+        },
+        "impossible": {
+            "acts": ("Акт о невозможности взыскания", True, "upload"),
+            "acts_three": ("Три акта для списания", True, "check"),
+        },
+        "writeoff": {
+            "docs": ("Акт о списании", True, "upload"),
+            "route": ("Согласование списания", True, "check"),
+        },
+    }
+    for stage, items in expected.items():
+        account_a.funnel_stage = stage
+        account_a.save(update_fields=["funnel_stage"])
+        board = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/activities/").json()
+        assert board["stage"] == stage
+        found = _by_code(board["current"])
+        for code, (title, mandatory, kind) in items.items():
+            assert found[code]["title"] == title
+            assert found[code]["mandatory"] is mandatory
+            assert found[code]["kind"] == kind
+            assert found[code]["needs_action"] is (kind != "check")

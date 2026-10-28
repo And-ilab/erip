@@ -5,7 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { debounceTime, distinctUntilChanged, filter } from 'rxjs';
 
-import { ApiService, AssignedAccount, ClaimCase, Named, NotaryOffice, errorMessage } from '../../core/api.service';
+import { ApiService, AssignedAccount, ClaimCase, FunnelGateInfo, Named, NotaryOffice, errorMessage, funnelGate, gateTarget } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import { AccountRow, CalendarEvent, KanbanColumn, WritDraft } from '../../core/models';
@@ -16,6 +16,7 @@ import { briefText } from '../group-title';
 import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { KanbanDragDirective } from '../kanban-drag.directive';
+import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -28,7 +29,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
-    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective,
+    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, FunnelGateDialogComponent,
   ],
   template: `
     <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()" [class.board]="!caseOpen() && mode() === 'kanban'">
@@ -251,6 +252,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
           </form>
         </div>
       }
+      <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
     </div>
   `,
   styles: `
@@ -549,6 +551,7 @@ export class ClaimsBoardComponent implements OnInit {
   protected calendarMode: CalendarMode = 'month';
   protected readonly caseOpen = signal(false);
   protected readonly dialog = signal(false);
+  protected readonly gate = signal<FunnelGateInfo | null>(null);
   protected readonly found = signal<AccountRow[]>([]);
   protected readonly picked = signal<AccountRow | null>(null);
   protected readonly busy = signal(false);
@@ -716,8 +719,13 @@ export class ClaimsBoardComponent implements OnInit {
         this.api.claimAction(claimId, 'move', { stage, reason }).subscribe({
           next: () => step(),
           error: (err) => {
-            this.snack.open(errorMessage(err), 'OK');
             this.loadBoard();
+            const blocked = funnelGate(err);
+            if (blocked) {
+              this.gate.set(blocked.accountId ? blocked : { ...blocked, accountId: card.id });
+              return;
+            }
+            this.snack.open(errorMessage(err), 'OK');
           },
         });
       };
@@ -817,6 +825,15 @@ export class ClaimsBoardComponent implements OnInit {
     this.mode.set('list');
     const tab = this.defaultClaimTab();
     setTimeout(() => this.router.navigate(['/claims', claim.id], { queryParams: { tab } }));
+  }
+
+  protected openGate(): void {
+    const blocked = this.gate();
+    this.gate.set(null);
+    const target = blocked ? gateTarget(blocked) : null;
+    if (!target) return;
+    this.mode.set('list');
+    this.router.navigate(target.path, { queryParams: target.query });
   }
 
   private missingWrit(): void {

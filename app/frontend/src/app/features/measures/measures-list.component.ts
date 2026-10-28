@@ -9,7 +9,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Router, RouterLink } from '@angular/router';
-import { ApiService, errorMessage } from '../../core/api.service';
+import { ApiService, FunnelGateInfo, errorMessage, funnelGate, gateTarget } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { CalendarEvent, DisconnectCandidate, MeasureGroup, MeasureMatrix, MeasureRow } from '../../core/models';
 import { AnalyticsComponent } from '../analytics/analytics.component';
@@ -18,6 +18,7 @@ import { RegistryFilterComponent, RegistryChoice, RegistryFilterQuery } from '..
 import { GridResizeDirective } from '../grid-resize.directive';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { KanbanDragDirective } from '../kanban-drag.directive';
+import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
 import { RegistryViewsComponent } from '../registry-views.component';
 
 @Component({
@@ -27,7 +28,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     DatePipe, FormsModule, RouterLink, MatFormFieldModule, MatInputModule, MatButtonModule,
     MatIconModule, MatTooltipModule, MatCheckboxModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, KanbanDebtorComponent,
-    KanbanDragDirective, GridResizeDirective,
+    KanbanDragDirective, GridResizeDirective, FunnelGateDialogComponent,
   ],
   template: `
     <div class="page" [class.board]="view() === 'kanban'">
@@ -331,6 +332,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
         </section>
       }
       </div>
+      <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
     </div>
   `,
   styles: `
@@ -773,6 +775,8 @@ export class MeasuresListComponent implements OnInit {
     return total ? Math.round(((row.progress?.done ?? 0) / total) * 100) : 0;
   }
 
+  protected readonly gate = signal<FunnelGateInfo | null>(null);
+
   protected onKanbanDrop(event: { id: string; stage: string }): void {
     const id = Number(event.id);
     if (!id || !this.canMove()) return;
@@ -781,10 +785,23 @@ export class MeasuresListComponent implements OnInit {
     this.api.measureStatus(id, event.stage).subscribe({
       next: () => this.load(),
       error: (err) => {
-        this.snack.open(errorMessage(err), 'OK');
         this.load();
+        const blocked = funnelGate(err);
+        if (blocked) {
+          this.gate.set(blocked);
+          return;
+        }
+        this.snack.open(errorMessage(err), 'OK');
       },
     });
+  }
+
+  protected openGate(): void {
+    const blocked = this.gate();
+    this.gate.set(null);
+    const target = blocked ? gateTarget(blocked) : null;
+    if (!target) return;
+    this.router.navigate(target.path, { queryParams: target.query });
   }
 
   protected openCard(event: MouseEvent, row: MeasureRow): void {

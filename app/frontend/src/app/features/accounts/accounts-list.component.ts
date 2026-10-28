@@ -11,7 +11,7 @@ import { MatTableModule } from '@angular/material/table';
 import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 
-import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate } from '../../core/api.service';
+import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate, gateTarget } from '../../core/api.service';
 import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
 import { AuthService } from '../../core/auth.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
@@ -1510,9 +1510,9 @@ export class AccountsListComponent implements OnInit {
   protected openGate(): void {
     const blocked = this.gate();
     this.gate.set(null);
-    const id = blocked?.accountId;
-    if (!id) return;
-    this.router.navigate(['/accounts', id], { queryParams: { tab: blocked.tab || 'activities' } });
+    const target = blocked ? gateTarget(blocked) : null;
+    if (!target) return;
+    this.router.navigate(target.path, { queryParams: target.query });
   }
 
   protected openBadge(event: Event, card: AccountRow, measureId: number): void {

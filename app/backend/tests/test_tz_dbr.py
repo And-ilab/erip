@@ -447,7 +447,10 @@ def test_contract_kanban_moves_like_the_account_board(api, org_a, org_b, admin_a
     from apps.debts.models import Measure, MeasureItem
     from django.utils import timezone
 
+    from django.core.files.base import ContentFile
+
     warning = Measure.objects.create(organization=org_a, kind=Measure.Kind.WARNING, status=Measure.Status.DONE)
+    warning.artifact.save("warn.pdf", ContentFile(b"%PDF-1.4"), save=True)
     warning.accounts.add(account_a)
     MeasureItem.objects.create(
         organization=org_a, measure=warning, account=account_a,

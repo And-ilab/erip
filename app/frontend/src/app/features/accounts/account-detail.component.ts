@@ -15,7 +15,7 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize, forkJoin, Observable } from 'rxjs';
 
-import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate } from '../../core/api.service';
+import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate, gateTarget } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import {
@@ -104,6 +104,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
             [loading]="activitiesLoading()"
             [canAct]="canAct()"
             [focusMeasure]="focusMeasure()"
+            [focusCode]="focusActivity()"
             (act)="actOn($event)" />
         </mat-tab>
         <mat-tab label="Общие">
@@ -832,6 +833,7 @@ export class AccountDetailComponent implements OnInit {
   protected readonly activities = signal<ActivityBoard | null>(null);
   protected readonly activitiesLoading = signal(false);
   protected readonly focusMeasure = signal<number | null>(null);
+  protected readonly focusActivity = signal('');
   protected readonly serviceColumns = this.accountServiceColumns();
   protected readonly paymentColumns = ['pay_date', 'service_name', 'pay_service_summ', 'pay_mulct_summ', 'bank_name', 'payment_type_display'];
   protected readonly registrationColumns = ['full_name', 'debtor_role', 'birthday', 'relation_degree_name', 'reg_type_name', 'contacts'];
@@ -942,9 +944,11 @@ export class AccountDetailComponent implements OnInit {
         });
         const tab = this.route.snapshot.queryParamMap.get('tab');
         const measure = Number(this.route.snapshot.queryParamMap.get('measure') || '');
+        const activity = this.route.snapshot.queryParamMap.get('activity') || '';
         this.loadHeader(id);
         const named = this.tabIndexOf(tab);
         if (named === 0 && measure) this.focusMeasure.set(measure);
+        if (activity) this.focusActivity.set(activity);
         this.tabIndex.set(named);
         this.ensureTab(named);
       },
@@ -1185,12 +1189,17 @@ export class AccountDetailComponent implements OnInit {
     const blocked = this.gate();
     this.gate.set(null);
     if (!blocked) return;
+    const target = gateTarget(blocked);
+    if (!target) return;
     const here = this.account()?.id;
-    if (blocked.accountId && here && blocked.accountId !== here) {
-      this.router.navigate(['/accounts', blocked.accountId], { queryParams: { tab: blocked.tab } });
+    const stays = target.path[0] === '/accounts' && here && Number(target.path[1]) === here;
+    if (!stays) {
+      this.router.navigate(target.path, { queryParams: target.query });
       return;
     }
-    const index = this.tabIndexOf(blocked.tab);
+    if (target.query['activity']) this.focusActivity.set(target.query['activity']);
+    if (target.query['measure']) this.focusMeasure.set(Number(target.query['measure']));
+    const index = this.tabIndexOf(target.query['tab'] || 'activities');
     this.loadedParts.delete(`tab-${index}`);
     this.openTab(index);
   }
@@ -1210,7 +1219,14 @@ export class AccountDetailComponent implements OnInit {
         this.loadedParts.delete('tab-0');
         if (this.tabIndex() === 0) this.ensureTab(0);
       },
-      error: (e) => this.snack.open(errorMessage(e), 'OK'),
+      error: (e) => {
+        const blocked = funnelGate(e);
+        if (blocked) {
+          this.gate.set(blocked.accountId ? blocked : { ...blocked, accountId: account.id });
+          return;
+        }
+        this.snack.open(errorMessage(e), 'OK');
+      },
     });
   }
 

@@ -116,6 +116,16 @@ export interface FunnelGateInfo {
   tab: string;
   tabLabel: string;
   accountId: number | null;
+  claimId: number | null;
+  measureId: number | null;
+  focus: string;
+}
+
+const CLAIM_TABS = new Set(['pack', 'notary', 'court', 'opi', 'writeoff']);
+
+function positiveId(value: unknown): number | null {
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
 }
 
 export function funnelGate(error: unknown): FunnelGateInfo | null {
@@ -128,14 +138,33 @@ export function funnelGate(error: unknown): FunnelGateInfo | null {
   const actions = Array.isArray(row['actions'])
     ? row['actions'].filter((item): item is string => typeof item === 'string' && item.trim() !== '')
     : [];
-  const account = Number(row['account_id']);
   return {
     message: body.error.message,
     actions,
     tab: typeof row['tab'] === 'string' && row['tab'] ? row['tab'] : 'activities',
     tabLabel: typeof row['tab_label'] === 'string' && row['tab_label'] ? row['tab_label'] : 'Активности',
-    accountId: Number.isFinite(account) && account > 0 ? account : null,
+    accountId: positiveId(row['account_id']),
+    claimId: positiveId(row['claim_id']),
+    measureId: positiveId(row['measure_id']),
+    focus: typeof row['focus'] === 'string' ? row['focus'] : '',
   };
+}
+
+/** Куда ведёт кнопка окна: карточка дела, счёта или мероприятия. */
+export function gateTarget(gate: FunnelGateInfo): { path: (string | number)[]; query: Record<string, string> } | null {
+  if (gate.claimId && CLAIM_TABS.has(gate.tab)) {
+    const query: Record<string, string> = { tab: gate.tab };
+    if (gate.focus) query['slot'] = gate.focus;
+    return { path: ['/claims', gate.claimId], query };
+  }
+  if (gate.accountId) {
+    const query: Record<string, string> = { tab: gate.tab || 'activities' };
+    if (gate.focus && (gate.tab === 'activities' || !gate.tab)) query['activity'] = gate.focus;
+    if (gate.measureId) query['measure'] = String(gate.measureId);
+    return { path: ['/accounts', gate.accountId], query };
+  }
+  if (gate.measureId) return { path: ['/measures', gate.measureId], query: {} };
+  return null;
 }
 
 @Injectable({ providedIn: 'root' })
