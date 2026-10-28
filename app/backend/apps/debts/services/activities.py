@@ -151,7 +151,6 @@ def _tree(rows: list[StageActivity]) -> list[dict]:
     by_parent: dict[str, list[StageActivity]] = {}
     for row in rows:
         by_parent.setdefault(row.parent_code or "", []).append(row)
-    leaves_done = {}
 
     def status_of(row: StageActivity) -> str:
         children = by_parent.get(row.code, [])
@@ -235,11 +234,13 @@ def perform_activity(account, user, activity_id: int, note: str, upload) -> dict
     if row.kind == "upload":
         if upload is None:
             raise ValidationError({"file": "Приложите файл"})
-        Attachment.objects.create(
+        created_att = Attachment.objects.create(
             organization=account.organization, account=account, doc_type=row.title, file=upload,
             original_name=getattr(upload, "name", "") or "file", uploaded_by=user,
         )
         row.note = text or getattr(upload, "name", "")
+        if row.code in {"opi_act", "acts"}:
+            _sync_claim_from_activity(account, user, row.code, row.note, created_att)
     elif row.kind == "email":
         mode = getattr(settings, "GW_EMAIL_MODE", "stub")
         if mode == "stub":
@@ -257,6 +258,34 @@ def perform_activity(account, user, activity_id: int, note: str, upload) -> dict
         elif not text:
             raise ValidationError({"note": "Заполните поле"})
         row.note = text
+        if row.code == "opi_send":
+            _sync_claim_from_activity(account, user, row.code, row.note, None)
     row.status = "done"
     row.save(update_fields=["status", "note", "updated_at"])
     return activity_board(account)
+
+
+def _sync_claim_from_activity(account, user, code: str, note: str, attachment) -> None:
+    from apps.debts.models import ClaimCase
+
+    case = ClaimCase.objects.filter(account=account).order_by("-id").first()
+    if case is None:
+        return
+    if code == "opi_send":
+        from apps.debts.services.claims import record_opi
+
+        record_opi(case, user, case.opi_number or note[:50], case.opi_status or "Возбуждено", note=note)
+    elif code == "opi_act":
+        from apps.debts.services.claims import add_opi_measure
+
+        add_opi_measure(
+            case, user,
+            {"title": "Меры ОПИ", "note": note, "attachment_id": attachment.pk if attachment else None},
+        )
+    elif code == "acts":
+        from apps.debts.services.claims import add_act
+
+        add_act(
+            case, "Акт о невозможности взыскания", user,
+            reason=note, attachment_id=attachment.pk if attachment else None,
+        )

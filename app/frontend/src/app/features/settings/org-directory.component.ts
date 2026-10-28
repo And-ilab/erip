@@ -11,7 +11,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { Observable } from 'rxjs';
 
-import { ApiService, errorMessage } from '../../core/api.service';
+import { ApiService, OpiOffice, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DirectoryUser, OrganizationOption, Role, ServiceOrganizationOption } from '../../core/models';
 import { GridResizeDirective } from '../grid-resize.directive';
@@ -268,6 +268,56 @@ export class UserDraftDialog {
                 </label>
               }
             </details>
+            <details class="pris">
+              <summary>Справочник территориальных подразделений ОПИ ({{ opiList().length }})</summary>
+              <p class="muted">Используется при направлении исполнительных документов и формировании пакета 3.11.02 (справочник 120). Локальные записи деактивируются без физического удаления.</p>
+              <div class="pris-grid">
+                <label>Код (120)
+                  <input [(ngModel)]="newOpiCode" placeholder="Напр. 701" />
+                </label>
+                <label>Наименование ОПИ
+                  <input [(ngModel)]="newOpiName" placeholder="ОПИ района / города" />
+                </label>
+                <label>Регион / область
+                  <input [(ngModel)]="newOpiRegion" placeholder="г. Минск" />
+                </label>
+                <label>Адрес
+                  <input [(ngModel)]="newOpiAddress" placeholder="Адрес подразделения" />
+                </label>
+                <label>Телефоны
+                  <input [(ngModel)]="newOpiPhones" placeholder="+375 ..." />
+                </label>
+              </div>
+              <button mat-stroked-button type="button" (click)="addOpiOffice()">+ Добавить подразделение ОПИ</button>
+              <div class="list-pane" style="max-height: 220px; overflow: auto; margin-top: 8px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Код</th>
+                      <th>Наименование</th>
+                      <th>Регион</th>
+                      <th>Адрес / телефон</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of opiList(); track item.id) {
+                      <tr>
+                        <td><b>{{ item.code }}</b></td>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.region || '—' }}</td>
+                        <td>{{ item.address || '—' }}@if (item.phones) { · {{ item.phones }} }</td>
+                        <td class="actions">
+                          @if (item.organization != null || auth.isSuperadmin()) {
+                            <button mat-button type="button" (click)="deactivateOpiOffice(item)">Деактивировать</button>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </details>
           }
           <div class="toolbar">
             <button mat-stroked-button (click)="createUser()">+ Новый пользователь</button>
@@ -400,6 +450,12 @@ export class OrgDirectoryComponent implements OnInit {
   protected readonly users = signal<DirectoryUser[]>([]);
   protected readonly selectedId = signal<number | null>(null);
   protected readonly serviceModes = signal<{ id: number; name: string; launch: string }[]>([]);
+  protected readonly opiList = signal<OpiOffice[]>([]);
+  protected newOpiCode = '';
+  protected newOpiName = '';
+  protected newOpiRegion = '';
+  protected newOpiAddress = '';
+  protected newOpiPhones = '';
   protected readonly query = signal('');
   protected readonly tab = signal<'users' | 'rights'>('users');
   protected prisClaimant: Record<string, string> = {};
@@ -436,6 +492,51 @@ export class OrgDirectoryComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadOrgs();
+    this.loadOpiOffices();
+  }
+
+  private loadOpiOffices(): void {
+    this.api.opiOffices().subscribe({
+      next: (page) => this.opiList.set(page.results || []),
+      error: () => this.opiList.set([]),
+    });
+  }
+
+  protected addOpiOffice(): void {
+    const code = this.newOpiCode.trim();
+    const name = this.newOpiName.trim();
+    if (!code || !name) {
+      this.snack.open('Укажите код и наименование подразделения ОПИ', 'OK');
+      return;
+    }
+    this.api.saveOpiOffice({
+      code,
+      name,
+      region: this.newOpiRegion.trim(),
+      address: this.newOpiAddress.trim(),
+      phones: this.newOpiPhones.trim(),
+    }).subscribe({
+      next: () => {
+        this.newOpiCode = '';
+        this.newOpiName = '';
+        this.newOpiRegion = '';
+        this.newOpiAddress = '';
+        this.newOpiPhones = '';
+        this.loadOpiOffices();
+        this.snack.open('Подразделение ОПИ добавлено в справочник', 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected deactivateOpiOffice(item: OpiOffice): void {
+    this.api.deleteOpiOffice(item.id).subscribe({
+      next: () => {
+        this.loadOpiOffices();
+        this.snack.open('Подразделение ОПИ деактивировано', 'OK', { duration: 2000 });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   protected selected(): OrganizationOption | null {

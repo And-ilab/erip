@@ -20,6 +20,7 @@ from .models import (
     DebtorCategory,
     ExtraMeasureCatalog,
     NotaryOffice,
+    OpiOffice,
     PrintForm,
     ScenarioDefinition,
     ScenarioRule,
@@ -33,6 +34,7 @@ from .serializers import (
     DebtorCategorySerializer,
     ExtraMeasureCatalogSerializer,
     NotaryOfficeSerializer,
+    OpiOfficeSerializer,
     PrintFormSerializer,
     ScenarioDefinitionSerializer,
     ScenarioRuleSerializer,
@@ -661,6 +663,40 @@ class NotaryOfficeViewSet(NsiViewSet):
     filterset_fields = ["district"]
 
 
+class OpiOfficeViewSet(NsiViewSet):
+    """Справочник территориальных подразделений ОПИ (ТЗ 4.2.8.4). Ведётся локально на схемах, деактивируется."""
+
+    queryset = OpiOffice.objects.all()
+    serializer_class = OpiOfficeSerializer
+    search_fields = ["code", "name", "region", "address"]
+    filterset_fields = ["region", "is_active", "organization"]
+    write_roles = ("superadmin", "local_admin", "specialist", "legal")
+
+    def get_queryset(self):
+        qs = self.queryset
+        user = self.request.user
+        if not user.is_superadmin:
+            qs = qs.filter(Q(organization__isnull=True) | Q(organization=user.organization))
+        if getattr(self, "action", None) == "list" and "is_active" not in self.request.query_params:
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def perform_create(self, serializer):
+        organization = None if (self.request.user.is_superadmin and not self.request.user.organization_id) else self.request.user.organization
+        serializer.save(organization=organization)
+        record_action(self.request, AuditLog.Action.CREATE, serializer.instance)
+
+    def perform_update(self, serializer):
+        if serializer.instance.organization_id is None and not self.request.user.is_superadmin:
+            raise PermissionDenied("Центральную запись ОПИ меняет суперадминистратор")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if instance.organization_id is None and not self.request.user.is_superadmin:
+            raise PermissionDenied("Центральную запись ОПИ меняет суперадминистратор")
+        super().perform_destroy(instance)
+
+
 NSI_REGISTRY = {
     "debt-groups": DebtGroupScaleViewSet,
     "debtor-categories": DebtorCategoryViewSet,
@@ -672,5 +708,6 @@ NSI_REGISTRY = {
     "bnp-debt-types": nsi_viewset(BnpDebtType, BnpDebtTypeSerializer, ["code", "name"]),
     "bnp-doc-types": nsi_viewset(BnpDocType, BnpDocTypeSerializer, ["code", "name"]),
     "notary-offices": NotaryOfficeViewSet,
+    "opi-offices": OpiOfficeViewSet,
     "extra-measures": ExtraMeasureCatalogViewSet,
 }

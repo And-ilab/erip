@@ -18,6 +18,11 @@ import { ActivityNode } from '../../core/models';
           <p class="muted">Для этого этапа шаги ещё не созданы.</p>
         } @else {
           <table class="acts">
+            <colgroup>
+              <col class="col-title" />
+              <col class="col-status" />
+              <col class="col-action" />
+            </colgroup>
             <thead><tr><th>Название</th><th>Статус</th><th>Действие</th></tr></thead>
             <tbody>
               @for (row of current(); track row.id) {
@@ -33,6 +38,11 @@ import { ActivityNode } from '../../core/models';
           @for (block of parallel(); track block.stage) {
             <h4>{{ block.title }}</h4>
             <table class="acts">
+              <colgroup>
+                <col class="col-title" />
+                <col class="col-status" />
+                <col class="col-action" />
+              </colgroup>
               <tbody>
                 @for (row of block.items; track row.id) {
                   <ng-container *ngTemplateOutlet="line; context: { $implicit: row, depth: 0 }" />
@@ -46,15 +56,15 @@ import { ActivityNode } from '../../core/models';
 
     <ng-template #line let-row let-depth="depth">
       <tr [class.focus]="focusMeasure() && row.measure_id === focusMeasure()">
-        <td [style.padding-left.px]="12 + depth * 18">
+        <td class="cell-title" [style.padding-left.px]="12 + depth * 18">
           @if (row.children.length) {
             <button type="button" class="twist" (click)="toggle(row.id)">{{ open().has(row.id) ? '▼' : '▶' }}</button>
           }
           {{ row.title }}
           @if (row.note && row.status === 'done') { <span class="note">{{ row.note }}</span> }
         </td>
-        <td><span class="status" [class.work]="row.status === 'running'" [class.done]="row.status === 'done'">{{ row.status_label }}</span></td>
-        <td>
+        <td class="cell-status"><span class="status" [class.work]="row.status === 'running'" [class.done]="row.status === 'done'">{{ row.status_label }}</span></td>
+        <td class="cell-action">
           @if (row.needs_action && canAct()) {
             @if (editing() === row.id) {
               @if (row.kind === 'upload') {
@@ -84,8 +94,14 @@ import { ActivityNode } from '../../core/models';
     h3 { margin: 8px 0; font-size: 15px; }
     h4 { margin: 12px 0 6px; font-size: 13px; color: #5c6b7a; }
     .muted { color: #6b7280; }
-    table.acts { width: 100%; border-collapse: collapse; background: #fff; }
-    table.acts th, table.acts td { border-bottom: 1px solid #e6ebf0; padding: 8px 10px; text-align: left; vertical-align: middle; }
+    table.acts { width: 100%; table-layout: fixed; border-collapse: collapse; background: #fff; }
+    table.acts col.col-title { width: auto; }
+    table.acts col.col-status { width: 160px; }
+    table.acts col.col-action { width: 260px; }
+    table.acts th, table.acts td { border-bottom: 1px solid #e6ebf0; padding: 8px 10px; text-align: left; vertical-align: middle; box-sizing: border-box; }
+    table.acts th:nth-child(2), table.acts td.cell-status { width: 160px; text-align: center; }
+    table.acts th:nth-child(3), table.acts td.cell-action { width: 260px; text-align: left; }
+    table.acts td.cell-title { overflow-wrap: break-word; }
     table.acts th { font-size: 12px; text-transform: uppercase; color: #5c6b7a; background: #f7f9fb; }
     tr.focus td { background: #e7f4f1; }
     .twist { border: 0; background: transparent; cursor: pointer; width: 18px; }
@@ -94,7 +110,7 @@ import { ActivityNode } from '../../core/models';
     .status.done { background: #e5f6ea; color: #1b7a3a; }
     .need, .go { border: 0; background: transparent; color: #1d6f8a; cursor: pointer; font: inherit; }
     .note { display: block; color: #6b7280; font-size: 12px; }
-    input { font: inherit; margin-right: 6px; }
+    input { font: inherit; margin-right: 6px; max-width: 150px; }
   `,
 })
 export class AccountActivitiesComponent {

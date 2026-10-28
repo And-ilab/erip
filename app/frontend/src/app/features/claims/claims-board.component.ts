@@ -46,10 +46,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
           placeholder="Поиск по ФИО, номеру ЛС, адресу"
           (queryChange)="onFilter($event)" />
       </div>
-      <p class="hint">Нотариат — исполнительная надпись. Суд — если спор или нотариус отказал.</p>
+      <p class="hint">Нотариат — исполнительная надпись. Суд — если спор или нотариус отказал. ОПИ — принудительное исполнение и списание.</p>
       <nav class="modules">
         <button type="button" [class.on]="module() === 'notary'" (click)="setModule('notary')">1. Нотариат</button>
         <button type="button" [class.on]="module() === 'court'" (click)="setModule('court')">2. Суд</button>
+        <button type="button" [class.on]="module() === 'opi'" (click)="setModule('opi')">3. ОПИ</button>
       </nav>
       }
       @if (error() && !caseOpen()) { <p class="error">{{ error() }}</p> }
@@ -91,7 +92,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td>{{ stageLabel(row.funnel_stage) }}</td>
                       <td>
                         @for (claim of datedClaims(row); track claim.id) {
-                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: 'pack' }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
+                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: defaultClaimTab() }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
                         } @empty { не заведена }
                       </td>
                     </tr>
@@ -327,7 +328,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .k-col[data-lane="refused"] h3 { border-bottom-color: #c62828; }
     .k-col[data-lane="lawsuit"] h3 { border-bottom-color: #e0a106; }
     .k-col[data-lane="decision"] h3 { border-bottom-color: #8e2430; }
-    .k-col[data-lane="opi"] h3, .k-col[data-lane="finish"] h3 { border-bottom-color: #94a3b8; }
+    .k-col[data-lane="opi"] h3, .k-col[data-lane="opi_ready"] h3, .k-col[data-lane="opi_sent"] h3, .k-col[data-lane="opi_measures"] h3, .k-col[data-lane="finish"] h3, .k-col[data-lane="recovered"] h3, .k-col[data-lane="impossible"] h3, .k-col[data-lane="writeoff"] h3 { border-bottom-color: #94a3b8; }
     .court {
       margin-top: 6px; border: 1px solid var(--erip-border); background: #fff; border-radius: 999px;
       font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; color: var(--erip-primary);
@@ -481,7 +482,7 @@ export class ClaimsBoardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snack = inject(MatSnackBar);
 
-  protected readonly module = signal<'notary' | 'court'>('notary');
+  protected readonly module = signal<'notary' | 'court' | 'opi'>('notary');
   protected readonly notaryLanes = [
     { id: 'prep', label: 'Подготовка пакета', stages: ['queue', 'prep'], entry: 'prep' },
     { id: 'sent', label: 'Направлено нотариусу', stages: ['notary'], entry: 'notary' },
@@ -495,6 +496,14 @@ export class ClaimsBoardComponent implements OnInit {
     { id: 'decision', label: 'Судебное решение', stages: ['court'], entry: 'court' },
     { id: 'opi', label: 'Дальше: ОПИ', stages: ['opi', 'opi_measures'], entry: 'opi' },
     { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'], entry: 'recovered' },
+  ];
+  protected readonly opiLanes = [
+    { id: 'opi_ready', label: 'К направлению в ОПИ', stages: ['writ_done', 'court'], entry: 'opi' },
+    { id: 'opi_sent', label: 'Направлено в ОПИ', stages: ['opi'], entry: 'opi' },
+    { id: 'opi_measures', label: 'Меры ОПИ приняты', stages: ['opi_measures'], entry: 'opi_measures' },
+    { id: 'recovered', label: 'Взыскано', stages: ['recovered'], entry: 'recovered' },
+    { id: 'impossible', label: 'Невозможность взыскания', stages: ['impossible'], entry: 'impossible' },
+    { id: 'writeoff', label: 'Списание', stages: ['writeoff'], entry: 'writeoff' },
   ];
   protected readonly caseStages = [
     { id: 'queue', label: 'К взысканию' },
@@ -563,7 +572,7 @@ export class ClaimsBoardComponent implements OnInit {
       if (params.get('writ') === '1') this.openFromRoute();
     });
     const module = this.route.snapshot.queryParamMap.get('module');
-    if (module === 'court' || module === 'notary') this.module.set(module);
+    if (module === 'court' || module === 'notary' || module === 'opi') this.module.set(module);
     this.query.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe((value) => this.lookup(value));
     this.api.notaryOffices().subscribe({
       next: (page) => this.offices.set(page.results),
@@ -584,13 +593,20 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected shownLanes(): { id: string; label: string; stages: string[]; entry: string }[] {
+    if (this.module() === 'opi') return this.opiLanes;
     return this.module() === 'court' ? this.courtLanes : this.notaryLanes;
   }
 
-  protected setModule(module: 'notary' | 'court'): void {
+  protected setModule(module: 'notary' | 'court' | 'opi'): void {
     this.module.set(module);
     this.router.navigate([], { relativeTo: this.route, queryParams: { module }, queryParamsHandling: 'merge' });
     this.refreshView();
+  }
+
+  protected defaultClaimTab(): string {
+    if (this.module() === 'opi') return 'opi';
+    if (this.module() === 'court') return 'court';
+    return 'pack';
   }
 
   protected courtFrom(card: AccountRow): string {
@@ -799,7 +815,8 @@ export class ClaimsBoardComponent implements OnInit {
       return;
     }
     this.mode.set('list');
-    setTimeout(() => this.router.navigate(['/claims', claim.id]));
+    const tab = this.defaultClaimTab();
+    setTimeout(() => this.router.navigate(['/claims', claim.id], { queryParams: { tab } }));
   }
 
   private missingWrit(): void {

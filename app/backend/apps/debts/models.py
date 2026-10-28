@@ -930,8 +930,15 @@ class ClaimCase(AisRecord):
     lawsuit_note = models.CharField("Примечание к иску", max_length=500, blank=True)
     court_status = models.CharField("Статус суда", max_length=20, choices=CourtStatus.choices, blank=True)
     opi_number = models.CharField("Номер производства ОПИ", max_length=50, blank=True)
-    opi_status = models.CharField("Статус ОПИ", max_length=40, blank=True)
+    opi_status = models.CharField("Статус ОПИ", max_length=120, blank=True)
     opi_mode = models.CharField("Канал ОПИ", max_length=20, blank=True)
+    opi_department = models.CharField("Орган ОПИ", max_length=250, blank=True)
+    opi_sent_on = models.DateField("Дата направления в ОПИ", null=True, blank=True)
+    opi_started_on = models.DateField("Дата возбуждения ИП", null=True, blank=True)
+    opi_ended_on = models.DateField("Дата окончания ИП", null=True, blank=True)
+    opi_bailiff = models.CharField("Судебный исполнитель", max_length=250, blank=True)
+    opi_note = models.CharField("Примечание по ОПИ", max_length=500, blank=True)
+    opi_measures_taken = models.JSONField("Принятые меры ОПИ", default=list, blank=True)
     pris_cl_num = models.CharField("Идентификатор задолженности в ПРИС", max_length=80, blank=True)
     pris_response_id = models.CharField("Идентификатор запроса ПРИС", max_length=64, blank=True)
     pris_process_status = models.CharField("Код обработки ПРИС", max_length=10, blank=True)
@@ -1025,6 +1032,13 @@ class ClaimAct(AisRecord):
 
     case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="acts", verbose_name="Дело")
     title = models.CharField("Наименование", max_length=250)
+    act_number = models.CharField("Номер акта", max_length=80, blank=True)
+    act_date = models.DateField("Дата акта", null=True, blank=True)
+    reason = models.CharField("Основание невозможности взыскания", max_length=500, blank=True)
+    attachment = models.ForeignKey(
+        Attachment, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="claim_acts", verbose_name="Файл акта",
+    )
 
     class Meta:
         ordering = ["id"]

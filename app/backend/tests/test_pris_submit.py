@@ -319,3 +319,109 @@ def test_local_admin_saves_claimant_on_organization(api, admin_a, org_a, special
     assert "unknown" not in org_a.pris_claimant
     loaded = api(admin_a).get(f"/api/v1/organizations/{org_a.pk}/pris-claimant/")
     assert loaded.json()["claimant"]["opf"] == "1300"
+
+
+def test_opi_module_registry_measures_acts_and_autofill(api, specialist_a, admin_a, org_a, pris_transport):
+    case, pdf, signature = _ready_case(org_a)
+
+    # 1. Справочник ОПИ (ТЗ 4.2.8.4)
+    offices = api(specialist_a).get("/api/v1/nsi/opi-offices/")
+    assert offices.status_code == 200, offices.content
+    assert any(row["code"] == "701" for row in offices.json()["results"])
+
+    created_office = api(admin_a).post(
+        "/api/v1/nsi/opi-offices/",
+        {"code": "799", "name": "ОПИ тестового района", "region": "г. Минск"},
+        format="json",
+    )
+    assert created_office.status_code == 201, created_office.content
+    office_id = created_office.json()["id"]
+    deactivated = api(admin_a).delete(f"/api/v1/nsi/opi-offices/{office_id}/")
+    assert deactivated.status_code == 204
+    active_codes = {row["code"] for row in api(specialist_a).get("/api/v1/nsi/opi-offices/").json()["results"]}
+    assert "799" not in active_codes
+
+    # 2. Ручная регистрация ИП с реквизитами ОПИ (FR-CLM-07)
+    recorded = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/opi/",
+        {
+            "number": "70126000555",
+            "status": "Возбуждено",
+            "department": "701 — ОПИ Заводского района г. Минска",
+            "sent_on": "2026-10-01",
+            "started_on": "2026-10-05",
+            "bailiff": "Иванова А. С.",
+            "note": "Постановление о возбуждении ИП",
+        },
+        format="json",
+    )
+    assert recorded.status_code == 200, recorded.content
+    body = recorded.json()
+    assert body["opi_number"] == "70126000555"
+    assert body["opi_department"] == "701 — ОПИ Заводского района г. Минска"
+    assert body["opi_sent_on"] == "2026-10-01"
+    assert body["opi_started_on"] == "2026-10-05"
+    assert body["opi_bailiff"] == "Иванова А. С."
+    assert body["pris"]["request"]["opi"] == "701"
+
+    # 3. Автозаполнение реквизитов пакета ПРИС из карточки ЛС и дела
+    autofilled = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/autofill/", {}, format="json")
+    assert autofilled.status_code == 200, autofilled.content
+    req = autofilled.json()["pris"]["request"]
+    assert req["opi"] == "701"
+    assert req["req_init"] == "205"
+    assert req["doc_code"] == "15"
+    assert req["debtor_country"] == "112"
+    assert req["debtor_np"] == "Минск"
+
+    # 4. Принятые меры ОПИ и автоматический переход на этап «Меры ОПИ»
+    measured = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/opi-measures/",
+        {
+            "kind": "asset_arrest",
+            "title": "Арест имущества",
+            "date": "2026-10-12",
+            "doc_number": "П-44/2026",
+            "note": "Арест автомобиля",
+            "move_stage": True,
+        },
+        format="json",
+    )
+    assert measured.status_code == 200, measured.content
+    m_data = measured.json()
+    assert m_data["stage"] == ClaimCase.Stage.OPI_MEASURES
+    assert len(m_data["opi_measures_taken"]) == 1
+    measure_id = m_data["opi_measures_taken"][0]["id"]
+    assert m_data["opi_measures_taken"][0]["doc_number"] == "П-44/2026"
+
+    # 5. Выборка модуля claim_module=opi в претензионно-исковой работе
+    opi_board = api(specialist_a).get("/api/v1/accounts/", {"scope": "claims", "claim_module": "opi"})
+    assert opi_board.status_code == 200, opi_board.content
+    assert any(row["id"] == case.account_id for row in opi_board.json()["results"])
+
+    removed_m = api(specialist_a).delete(f"/api/v1/claims/{case.pk}/opi-measures/{measure_id}/")
+    assert removed_m.status_code == 200
+    assert removed_m.json()["opi_measures_taken"] == []
+
+    # 6. Акты ОПИ о невозможности взыскания с номером, датой и основанием
+    act_resp = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/acts/",
+        {
+            "title": "Акт о невозможности взыскания",
+            "act_number": "АКТ-01",
+            "act_date": "2026-10-20",
+            "reason": "п. 4 ч. 1 ст. 52 Закона об ИП — отсутствие имущества",
+        },
+        format="json",
+    )
+    assert act_resp.status_code == 200, act_resp.content
+    acts = act_resp.json()["acts"]
+    assert len(acts) == 1
+    assert acts[0]["act_number"] == "АКТ-01"
+    assert acts[0]["act_date"] == "2026-10-20"
+    act_id = acts[0]["id"]
+
+    del_act = api(specialist_a).delete(f"/api/v1/claims/{case.pk}/acts/{act_id}/")
+    assert del_act.status_code == 200
+    assert del_act.json()["acts_count"] == 0
+

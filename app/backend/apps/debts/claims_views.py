@@ -34,6 +34,7 @@ from .services.bnp_package import (
 )
 from .services.claims import (
     add_act,
+    add_opi_measure,
     apply_ais_receipt,
     case_payload,
     claims_population,
@@ -42,18 +43,28 @@ from .services.claims import (
     notary_result,
     open_case,
     record_opi,
+    remove_act,
+    remove_opi_measure,
     send_to_notary,
     stage_is_skip,
     start_writeoff,
     update_case,
 )
 from .services.pris_nsi import load_pris_dictionaries
-from .services.pris_submit import refresh_pris, repay_pris, save_pris_draft, submit_pris
+from .services.pris_submit import (
+    autofill_pris_draft,
+    pris_channel_status,
+    refresh_pris,
+    repay_pris,
+    save_pris_draft,
+    submit_pris,
+)
 
 EDITABLE = (
     "warning_delivered_on", "notary_tariff", "notary_office", "application_withdrawn", "notary_note", "lawsuit_number", "lawsuit_kind",
     "lawsuit_filed_on", "state_duty", "defendant_name", "package_filed_on", "lawsuit_note", "court_status",
     "eviction_stage", "skip_reason",
+    "opi_department", "opi_sent_on", "opi_started_on", "opi_ended_on", "opi_bailiff", "opi_note",
 )
 
 
@@ -69,7 +80,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             .select_related("account__assigned_to")
             .defer("raw", "pris_request", "pris_inquiry", "account__raw")
             .prefetch_related(
-                "acts",
+                "acts__attachment",
                 "approvals__approver",
                 "events__actor",
                 Prefetch(
@@ -241,21 +252,67 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"])
     def acts(self, request, pk=None):
         case = self._case(pk)
-        add_act(case, str(request.data.get("title") or ""), request.user)
+        add_act(
+            case,
+            str(request.data.get("title") or ""),
+            request.user,
+            act_number=str(request.data.get("act_number") or ""),
+            act_date=request.data.get("act_date") or None,
+            reason=str(request.data.get("reason") or ""),
+            upload=request.FILES.get("file"),
+            attachment_id=request.data.get("attachment_id") or None,
+        )
         record_action(request, AuditLog.Action.UPDATE, case)
-        return Response(case_payload(case, with_choices=True))
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["delete"], url_path=r"acts/(?P<act_id>[0-9]+)")
+    def act_delete(self, request, pk=None, act_id=None):
+        case = remove_act(self._case(pk), int(act_id), request.user)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"removed_act": act_id})
+        return Response(case_payload(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"])
     def opi(self, request, pk=None):
         case = record_opi(
-            self._case(pk), request.user, str(request.data.get("number") or ""), str(request.data.get("status") or ""),
+            self._case(pk),
+            request.user,
+            str(request.data.get("number") or ""),
+            str(request.data.get("status") or ""),
+            department=request.data.get("department"),
+            sent_on=request.data.get("sent_on"),
+            started_on=request.data.get("started_on"),
+            ended_on=request.data.get("ended_on"),
+            bailiff=request.data.get("bailiff"),
+            note=request.data.get("note"),
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": "manual"})
-        return Response(case_payload(case, with_choices=True))
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="opi-measures")
+    def opi_measures(self, request, pk=None):
+        case = add_opi_measure(self._case(pk), request.user, request.data, upload=request.FILES.get("file"))
+        record_action(request, AuditLog.Action.UPDATE, case, after={"opi_measure": True})
+        return Response(case_payload(self._case(pk), with_choices=True))
+
+    @action(detail=True, methods=["delete"], url_path=r"opi-measures/(?P<measure_id>[0-9]+)")
+    def opi_measure_delete(self, request, pk=None, measure_id=None):
+        case = remove_opi_measure(self._case(pk), int(measure_id), request.user)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"removed_opi_measure": measure_id})
+        return Response(case_payload(self._case(pk), with_choices=True))
 
     @action(detail=False, methods=["get"], url_path="pris-dictionaries")
     def pris_dictionaries(self, request):
         return Response(load_pris_dictionaries())
+
+    @action(detail=False, methods=["get"], url_path="pris-status")
+    def pris_status(self, request):
+        return Response(pris_channel_status())
+
+    @action(detail=True, methods=["post"], url_path="pris/autofill")
+    def pris_autofill(self, request, pk=None):
+        case = autofill_pris_draft(self._case(pk))
+        record_action(request, AuditLog.Action.UPDATE, case, after={"pris": "autofill"})
+        return Response(case_payload(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="pris/draft")
     def pris_draft(self, request, pk=None):
@@ -330,7 +387,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     def _case(self, pk) -> ClaimCase:
         return get_object_or_404(
             self.get_queryset().select_related("account__assigned_to").prefetch_related(
-                "acts", "approvals__approver", "events__actor", "account__services", "account__attachments",
+                "acts__attachment", "approvals__approver", "events__actor", "account__services", "account__attachments",
                 "account__registrations", "package__documents",
             ),
             pk=pk,

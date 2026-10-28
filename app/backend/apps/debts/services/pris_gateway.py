@@ -13,7 +13,7 @@ from apps.debts.services.claims import ClaimBlocked
 
 logger = logging.getLogger(__name__)
 
-_transport: "PrisTransport | None" = None
+_transport: PrisTransport | None = None
 
 
 class PrisTransport:
@@ -55,6 +55,15 @@ class RecordingPrisTransport(PrisTransport):
 
     def get(self, path: str) -> dict:
         self.calls.append((path, {}))
+        if path.rstrip("/").endswith("/status"):
+            return {
+                "mode": self.mode,
+                "system": "АИС ПРИС",
+                "sends": self.mode in {"channel", "http"},
+                "ministry": self.mode == "http",
+                "tunnel": self.mode == "http",
+                "detail": f"Канал ПРИС: {self.mode}",
+            }
         if path.rstrip("/").endswith("/nsi"):
             return {
                 "mode": self.mode,

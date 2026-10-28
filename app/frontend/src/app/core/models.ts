@@ -759,6 +759,9 @@ export interface WritRecord {
   tariff: string | null;
   defendant_name: string;
   notary_office: string;
+  opi_number?: string;
+  opi_status?: string;
+  opi_department?: string;
   documents: { id: number; name: string }[];
 }
 

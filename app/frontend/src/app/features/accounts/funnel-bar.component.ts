@@ -2,36 +2,51 @@ import { Component, computed, input, output, signal } from '@angular/core';
 
 import { FUNNEL_CHAIN, FUNNEL_TERMINAL, FunnelStage, funnelId } from '../funnel-stages';
 
-/** Лента этапа как у сделки: текущий залит, слева пройденный, справа два следующих. */
+/** Лента этапа в стиле стрелок Odoo: все статусы в один ряд, текущий залит, слева пройденный, справа следующие. */
 @Component({
   selector: 'app-funnel-bar',
   standalone: true,
   template: `
     <div class="ribbon-wrap">
+      @if (showParallel()) {
+        <div class="parallel" role="list" aria-label="Ветвь выселения">
+          <div class="strip">
+            <button type="button" class="step" [class.now]="!parallel()" [disabled]="!canChange()"
+              title="Ветвь не начата" (click)="parallelChange.emit('')">не начата</button>
+            <button type="button" class="step" [class.done]="parallel() === 'p2'" [class.now]="parallel() === 'p1'"
+              [disabled]="!canChange()" title="Уведомление о возможном выселении/отчуждении"
+              (click)="parallelChange.emit('p1')">Уведомление о выселении</button>
+            <button type="button" class="step" [class.now]="parallel() === 'p2'" [disabled]="!canChange()"
+              title="Выселение/принудительная продажа" (click)="parallelChange.emit('p2')">Выселение / продажа</button>
+          </div>
+        </div>
+      }
       <div class="ribbon" role="list" aria-label="Этап взыскания">
-        @if (hiddenBefore().length) {
-          <button type="button" class="arrow" title="Предыдущие этапы" [disabled]="!canChange()"
-            (click)="menu.set(menu() === 'before' ? '' : 'before')">‹</button>
-        }
-        @for (stage of window(); track stage.id) {
-          <button type="button" class="step" role="listitem"
-            [class.done]="rank(stage) < currentRank() && !terminal()"
-            [class.now]="stage.id === current() && !terminal()"
-            [class.ahead]="rank(stage) > currentRank() || terminal()"
-            [disabled]="!canChange()"
-            [title]="stage.title"
-            (click)="pick(stage.id)">
-            <span class="mark">{{ stage.mark }}</span> {{ stage.short }}
+        <div class="strip">
+          @if (hiddenBefore().length) {
+            <button type="button" class="arrow" title="Предыдущие этапы" [disabled]="!canChange()"
+              (click)="menu.set(menu() === 'before' ? '' : 'before')">‹</button>
+          }
+          @for (stage of window(); track stage.id) {
+            <button type="button" class="step" role="listitem"
+              [class.done]="rank(stage) < currentRank() && !terminal()"
+              [class.now]="stage.id === current() && !terminal()"
+              [class.ahead]="rank(stage) > currentRank() || terminal()"
+              [disabled]="!canChange()"
+              [title]="stage.title"
+              (click)="pick(stage.id)">
+              <span class="mark">{{ stage.mark }}</span> {{ stage.short }}
+            </button>
+          }
+          @if (hiddenAfter().length) {
+            <button type="button" class="arrow" title="Следующие этапы" [disabled]="!canChange()"
+              (click)="menu.set(menu() === 'after' ? '' : 'after')">›</button>
+          }
+          <button type="button" class="terminal" [class.now]="terminal()" [disabled]="!canChange()"
+            [title]="terminalTitle()" (click)="menu.set(menu() === 'terminal' ? '' : 'terminal')">
+            {{ terminalLabel() }}
           </button>
-        }
-        @if (hiddenAfter().length) {
-          <button type="button" class="arrow" title="Следующие этапы" [disabled]="!canChange()"
-            (click)="menu.set(menu() === 'after' ? '' : 'after')">›</button>
-        }
-        <button type="button" class="terminal" [class.now]="terminal()" [disabled]="!canChange()"
-          [title]="terminalTitle()" (click)="menu.set(menu() === 'terminal' ? '' : 'terminal')">
-          {{ terminalLabel() }}
-        </button>
+        </div>
         @if (menu(); as which) {
           <div class="menu" (click)="$event.stopPropagation()">
             @for (stage of menuStages(); track stage.id) {
@@ -40,32 +55,40 @@ import { FUNNEL_CHAIN, FUNNEL_TERMINAL, FunnelStage, funnelId } from '../funnel-
           </div>
         }
       </div>
-      @if (showParallel()) {
-        <div class="parallel" role="list" aria-label="Ветвь выселения">
-          <button type="button" class="step" [class.now]="!parallel()" [disabled]="!canChange()"
-            title="Ветвь не начата" (click)="parallelChange.emit('')">не начата</button>
-          <button type="button" class="step" [class.done]="parallel() === 'p2'" [class.now]="parallel() === 'p1'"
-            [disabled]="!canChange()" title="Уведомление о возможном выселении/отчуждении"
-            (click)="parallelChange.emit('p1')">Уведомление о выселении</button>
-          <button type="button" class="step" [class.now]="parallel() === 'p2'" [disabled]="!canChange()"
-            title="Выселение/принудительная продажа" (click)="parallelChange.emit('p2')">Выселение / продажа</button>
-        </div>
-      }
     </div>
   `,
   styles: `
     :host { display: block; min-width: 0; }
-    .ribbon-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 0; }
-    .ribbon, .parallel { display: flex; align-items: stretch; position: relative; min-width: 0; }
-    .step, .arrow, .terminal {
-      border: 1px solid #d5dee6; background: #f4f7f8; color: #5c6b7a; font: inherit; font-size: 12px;
-      line-height: 1.2; padding: 6px 10px; cursor: pointer; white-space: nowrap;
+    .ribbon-wrap {
+      display: flex; flex-direction: row; align-items: center; justify-content: flex-end;
+      gap: 8px; flex-wrap: nowrap; min-width: 0;
     }
-    .step:first-child, .arrow:first-child { border-radius: 4px 0 0 4px; }
-    .terminal { border-radius: 0 4px 4px 0; margin-left: 8px; border-radius: 4px; }
-    .step + .step, .arrow + .step, .step + .arrow { margin-left: -1px; }
+    .ribbon, .parallel { display: inline-flex; align-items: stretch; position: relative; min-width: 0; flex: 0 0 auto; }
+    .strip {
+      display: inline-flex; align-items: stretch;
+      background: #cbd5e1; padding: 1px; border-radius: 5px;
+    }
+    .step, .arrow, .terminal {
+      position: relative; border: 0; background: #f4f7f8; color: #5c6b7a;
+      font: inherit; font-size: 12px; line-height: 1.2;
+      padding: 6px 13px 6px 17px; margin-left: -8px;
+      cursor: pointer; white-space: nowrap;
+      clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%);
+      transition: background-color .15s ease, color .15s ease;
+    }
+    .strip > button:first-child {
+      margin-left: 0; padding-left: 10px; border-radius: 4px 0 0 4px;
+      clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+    }
+    .strip > button:last-child {
+      padding-right: 10px; border-radius: 0 4px 4px 0;
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 10px 50%);
+    }
+    .arrow { padding-left: 14px; padding-right: 11px; font-weight: 700; }
+    .strip > .arrow:first-child { padding-left: 8px; padding-right: 11px; }
     .step.done { background: #e7eef2; color: #1d4f63; }
-    .step.now, .terminal.now { background: #1d4f63; color: #fff; border-color: #1d4f63; font-weight: 650; }
+    .step.now, .terminal.now { background: #1d4f63; color: #fff; font-weight: 650; }
+    .strip > button:not(:disabled):not(.now):hover { background: #dce6ec; color: #1d4f63; }
     .step:disabled, .arrow:disabled, .terminal:disabled { cursor: default; }
     .mark { font-weight: 700; margin-right: 4px; }
     .menu {
@@ -78,8 +101,6 @@ import { FUNNEL_CHAIN, FUNNEL_TERMINAL, FunnelStage, funnelId } from '../funnel-
       padding: 6px 8px; font: inherit; font-size: 13px; border-radius: 4px; cursor: pointer;
     }
     .menu button:hover { background: #f3f6f8; }
-    .parallel { margin-top: 2px; }
-    .parallel .step:last-child { border-radius: 0 4px 4px 0; }
   `,
 })
 export class FunnelBarComponent {

@@ -52,7 +52,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
 
         <section class="surface head debtor">
           <div class="stage-line">
-            <h2>Лицевой счет {{ a.client_account }}</h2>
+            <h2 title="Лицевой счет">{{ a.client_account }}</h2>
             <div class="title-tools">
               @if (a.uniq_attr_name) { <span class="pill" title="Тип уникальности ЛС">{{ a.uniq_attr_name }}</span> }
               @if (a.rating_label) { <span class="rating-badge r{{ a.rating_label[0] }}" title="Рейтинг">{{ a.rating_label }}</span> }
@@ -521,6 +521,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
                     <span>{{ writTitle(row) }}</span>
                   </button>
                   <a class="writ-pack-go" [routerLink]="['/claims', row.id]" [queryParams]="{ tab: 'pack' }">Перейти в пакет</a>
+                  <a class="writ-pack-go" [routerLink]="['/claims', row.id]" [queryParams]="{ tab: 'opi' }">ОПИ</a>
                 </div>
                 @if (writOpen(row.id)) {
                   <div class="writ-pack-body">
@@ -531,6 +532,9 @@ import { FunnelBarComponent } from './funnel-bar.component';
                     <span>долг {{ row.principal || '—' }}, пеня {{ row.penalty || '—' }}</span>
                     <span>тариф {{ row.tariff || 'не передано из АИС' }}</span>
                     <span>{{ row.stage_label }}</span>
+                    @if (row.opi_number || row.opi_status) {
+                      <span>ОПИ: {{ row.opi_number || 'без номера' }} · {{ row.opi_status || 'статус не указан' }}</span>
+                    }
                     <span>{{ row.notary_office }}</span>
                     <span>вручение {{ row.warning_delivered_on || '—' }}, акт {{ row.non_delivery_act_on || '—' }}</span>
                     <span>погашение {{ row.repayment_days }} календарных дн.</span>
@@ -691,13 +695,10 @@ import { FunnelBarComponent } from './funnel-bar.component';
     .sep { opacity: .6; }
     .spacer { flex: 1; }
     .head { padding: 20px 24px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 16px; }
-    .stage-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
-    .stage-line h2 { margin: 0; font-size: 26px; font-weight: 700; color: #1a2332; }
-    .title-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .stage-line app-funnel-bar { margin-left: auto; }
-    @media (max-width: 1100px) {
-      .stage-line app-funnel-bar { margin-left: 0; flex: 1 0 100%; }
-    }
+    .stage-line { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px 12px; min-width: 0; overflow-x: auto; }
+    .stage-line h2 { margin: 0; font-size: 26px; font-weight: 700; color: #1a2332; white-space: nowrap; flex: 0 0 auto; }
+    .title-tools { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; flex: 0 0 auto; }
+    .stage-line app-funnel-bar { margin-left: auto; flex: 0 0 auto; }
     .debtor-top { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 12px 40px; align-items: start; }
     .who h2 { margin: 0 0 6px; font-size: 26px; font-weight: 700; color: #1a2332; }
     .identity { margin: 0 0 14px; color: var(--erip-muted); font-size: 13px; }

@@ -355,6 +355,29 @@ class NotaryOffice(TimeStampedModel, SoftDeleteModel):
         return self.name
 
 
+class OpiOffice(TimeStampedModel, SoftDeleteModel):
+    """Территориальное подразделение ОПИ (ТЗ 4.2.8.4). Пустая организация — центральная запись (справочник 120)."""
+
+    organization = models.ForeignKey(
+        "users.Organization", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="opi_offices", verbose_name="Схема",
+    )
+    code = models.CharField("Код ОПИ (справочник 120)", max_length=20)
+    name = models.CharField("Наименование подразделения ОПИ", max_length=250)
+    region = models.CharField("Область / регион", max_length=100, blank=True)
+    address = models.CharField("Адрес", max_length=250, blank=True)
+    phones = models.CharField("Телефоны", max_length=200, blank=True)
+    email = models.CharField("E-mail", max_length=120, blank=True)
+
+    class Meta:
+        ordering = ["code", "name"]
+        verbose_name = "Подразделение ОПИ"
+        verbose_name_plural = "Справочник ОПИ"
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name}" if self.code else self.name
+
+
 class BnpDocType(TimeStampedModel, SoftDeleteModel):
     """Тип документа БНП (docTypeId)."""
 

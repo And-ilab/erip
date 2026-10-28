@@ -56,6 +56,95 @@ def pris_card(case: ClaimCase) -> dict:
     }
 
 
+def pris_channel_status() -> dict:
+    try:
+        data = get_pris_transport().get("/gw/v1/integrations/pris/status")
+        if isinstance(data, dict) and data.get("mode"):
+            return data
+    except Exception:
+        pass
+    return {
+        "mode": "stub",
+        "system": "АИС ПРИС",
+        "sends": False,
+        "ministry": False,
+        "tunnel": False,
+        "detail": "Заглушка ПРИС: пакет проверяется и не отправляется.",
+    }
+
+
+def autofill_pris_draft(case: ClaimCase) -> ClaimCase:
+    """Подставляет реквизиты из карточки дела, ЛС и справочника ОПИ, не затирая уже заполненные поля."""
+    from django.utils import timezone
+
+    request = dict(case.pris_request or {})
+    person = _registration(case)
+    place = _place(case.account)
+    today_dot = timezone.localdate().strftime("%d.%m.%Y")
+
+    def fill(key: str, val: str) -> None:
+        if not _text(request.get(key)) and _text(val):
+            request[key] = _text(val)
+
+    fill("req_init", "205")
+    if case.stage in {ClaimCase.Stage.LAWSUIT, ClaimCase.Stage.COURT} or _text(case.lawsuit_number):
+        fill("doc_code", "1")
+        fill("doc_num", case.lawsuit_number or f"ИС-{case.account.client_account}")
+        fill("doc_date", _pris_date(case.lawsuit_filed_on) or today_dot)
+        fill("doc_org_code", "1")
+        fill("doc_org", "Суд общей юрисдикции")
+        fill("doc_date_in", _pris_date(case.lawsuit_filed_on) or today_dot)
+    else:
+        fill("doc_code", "15")
+        fill("doc_num", case.submission_id or f"ИН-{case.account.client_account}")
+        fill("doc_date", _pris_date(case.warning_delivered_on) or today_dot)
+        fill("doc_org_code", "6")
+        fill("doc_org", case.notary_office or "Нотариальная контора")
+        fill("doc_date_in", _pris_date(case.warning_delivered_on) or today_dot)
+
+    if _text(case.opi_department) and not _text(request.get("opi")):
+        m = re.match(r"^(\d{2,6})\b", case.opi_department.strip())
+        if m:
+            fill("opi", m.group(1))
+        else:
+            try:
+                from apps.nsi.models import OpiOffice
+
+                found = OpiOffice.objects.filter(name__iexact=case.opi_department.strip(), is_active=True).first()
+                if found:
+                    fill("opi", found.code)
+            except Exception:
+                pass
+
+    country = _country(person.citizenship_name) if person else "112"
+    fill("debtor_country", country or "112")
+    fill("debtor_np_type", "1")
+    fill("debtor_street_type", "1")
+    fill("debtor_region", place.get("oblast", ""))
+    fill("debtor_area", place.get("district", ""))
+    fill("debtor_np", place.get("settlement", ""))
+    fill("debtor_street", place.get("street", ""))
+    fill("debtor_house", place.get("house", ""))
+    fill("debtor_flat", case.account.flat_number)
+    full_adr = (person.registration_address if person else "") or case.account.account_address
+    fill("debtor_full_adr", full_adr)
+
+    case.pris_request = request
+    fields = ["pris_request", "updated_at"]
+    if _text(request.get("opi")) and not _text(case.opi_department):
+        try:
+            from apps.nsi.models import OpiOffice
+
+            off = OpiOffice.objects.filter(code=_text(request.get("opi")), is_active=True).first()
+            if off:
+                case.opi_department = f"{off.code} — {off.name}"[:250]
+                fields.append("opi_department")
+        except Exception:
+            pass
+    case.save(update_fields=fields)
+    return case
+
+
 def save_pris_draft(case: ClaimCase, data: dict) -> ClaimCase:
     request = dict(case.pris_request or {})
     for key in REQUEST_KEYS:
@@ -101,11 +190,27 @@ def submit_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
         case.pris_process_message = "Пакет прошёл проверку регламента. В АИС ПРИС не отправлен: канал-заглушка."
         note = case.pris_process_message
     case.pris_cl_num = _cl_num(case)
-    case.save(update_fields=[
-        "opi_mode", "pris_cl_num", "pris_response_id", "pris_process_status", "pris_process_message", "updated_at",
-    ])
-    from apps.debts.services.claims import _event
+    from django.utils import timezone
 
+    if not case.opi_sent_on:
+        case.opi_sent_on = timezone.localdate()
+    opi_code = _text((case.pris_request or {}).get("opi"))
+    if opi_code and not _text(case.opi_department):
+        try:
+            from apps.nsi.models import OpiOffice
+
+            off = OpiOffice.objects.filter(code=opi_code, is_active=True).first()
+            if off:
+                case.opi_department = f"{off.code} — {off.name}"[:250]
+        except Exception:
+            pass
+    case.save(update_fields=[
+        "opi_mode", "opi_sent_on", "opi_department", "pris_cl_num",
+        "pris_response_id", "pris_process_status", "pris_process_message", "updated_at",
+    ])
+    from apps.debts.services.claims import _event, _sync_opi_activity
+
+    _sync_opi_activity(case, "opi_send", note)
     _event(case, user, case.stage, case.stage, note)
     return case
 
@@ -148,6 +253,12 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
     actions = info.get("p_action") or []
     if actions and case.stage == ClaimCase.Stage.OPI:
         case = move_case(case, ClaimCase.Stage.OPI_MEASURES, user, f"{source}: мер {len(actions)}, статус {status}")
+    from apps.debts.services.claims import _sync_opi_activity
+
+    if proc:
+        _sync_opi_activity(case, "opi_send", f"ИП {proc}, статус {status}")
+    if actions:
+        _sync_opi_activity(case, "opi_act", f"Мер ОПИ: {len(actions)}")
     return case
 
 

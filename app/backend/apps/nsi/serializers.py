@@ -9,6 +9,7 @@ from .models import (
     DebtorCategory,
     ExtraMeasureCatalog,
     NotaryOffice,
+    OpiOffice,
     PrintForm,
     ScenarioDefinition,
     ScenarioRule,
@@ -244,6 +245,13 @@ class NotaryOfficeSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotaryOffice
         fields = ["code", "name", "district", "address", "phones", "is_active"]
+
+
+class OpiOfficeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OpiOffice
+        fields = ["id", "organization", "code", "name", "region", "address", "phones", "email", "is_active"]
+        read_only_fields = ["organization", "is_active"]
 
 
 class BnpDocTypeSerializer(serializers.ModelSerializer):

@@ -48,6 +48,29 @@ def claims_population(queryset: QuerySet) -> QuerySet:
 NOTARY_STAGES = ("prep", "notary", "writ_done", "refused")
 COURT_STAGES = ("lawsuit", "court")
 SHARED_STAGES = ("opi", "opi_measures", "recovered", "impossible", "writeoff")
+OPI_MODULE_STAGES = ("writ_done", "court", *SHARED_STAGES)
+
+OPI_MEASURE_KINDS = (
+    ("asset_arrest", "Арест имущества"),
+    ("account_seizure", "Арест и списание денежных средств со счетов (АИС ИДО)"),
+    ("wage_deduction", "Обращение взыскания на заработную плату и приравненные доходы"),
+    ("travel_ban", "Временное ограничение права должника на выезд из Республики Беларусь"),
+    ("drive_ban", "Временное ограничение права должника на управление механическими ТС"),
+    ("reg_ban", "Запрет на совершение регистрационных действий в отношении имущества"),
+    ("search", "Розыск должника / имущества должника"),
+    ("inventory", "Опись и изъятие имущества"),
+)
+
+OPI_STATUS_CHOICES = (
+    ("Возбуждено", "Возбуждено"),
+    ("На исполнении", "На исполнении"),
+    ("Меры приняты", "Меры приняты"),
+    ("Частично исполнено", "Частично исполнено"),
+    ("Приостановлено", "Приостановлено"),
+    ("Окончено (взыскано)", "Окончено (взыскано)"),
+    ("Возвращено (акт о невозможности взыскания)", "Возвращено (акт о невозможности взыскания)"),
+    ("Прекращено", "Прекращено"),
+)
 
 
 def claims_on_module(queryset: QuerySet, module: str) -> QuerySet:
@@ -55,7 +78,15 @@ def claims_on_module(queryset: QuerySet, module: str) -> QuerySet:
 
     ОПИ и итог есть и у надписи, и у иска, но карточка остаётся на той ветке,
     которая до них дошла. Вход в иск или решение суда уводит дело из нотариата.
+    Модуль «opi» показывает все дела, готовые к передаче в ОПИ или проходящие через ОПИ.
     """
+    if module == "opi":
+        return queryset.filter(
+            Q(claim_case__stage__in=OPI_MODULE_STAGES)
+            | Q(funnel_stage__in=[
+                "writ_done", "judgment", "court", "opi", "opi_measures", "recovered", "impossible", "writeoff",
+            ]),
+        ).distinct()
     if module not in {"notary", "court"}:
         return queryset
     court_path = ClaimEvent.objects.filter(
@@ -101,6 +132,7 @@ def open_case(account, user) -> ClaimCase:
 
 DATE_FIELDS = {
     "warning_delivered_on", "lawsuit_filed_on", "package_filed_on",
+    "opi_sent_on", "opi_started_on", "opi_ended_on",
 }
 MONEY_FIELDS = {"notary_tariff", "state_duty"}
 
@@ -242,19 +274,192 @@ def _refusal_file(case: ClaimCase, attachment_id) -> str:
     return ""
 
 
-def add_act(case: ClaimCase, title: str, user) -> ClaimAct:
-    act = ClaimAct.objects.create(organization=case.organization, case=case, title=title.strip() or "Акт ОПИ")
-    _event(case, user, case.stage, case.stage, f"Акт ОПИ: {act.title}")
+def add_act(
+    case: ClaimCase,
+    title: str,
+    user,
+    *,
+    act_number: str = "",
+    act_date=None,
+    reason: str = "",
+    upload=None,
+    attachment_id=None,
+) -> ClaimAct:
+    parsed_date = _coerce("opi_sent_on", act_date) if act_date else None
+    attached = None
+    if upload is not None:
+        attached = Attachment.objects.create(
+            organization=case.organization,
+            account=case.account,
+            doc_type="Акт ОПИ о невозможности взыскания",
+            file=upload,
+            original_name=getattr(upload, "name", "") or "act_opi.pdf",
+            uploaded_by=user if getattr(user, "is_authenticated", False) else None,
+        )
+    elif attachment_id:
+        attached = Attachment.objects.filter(account_id=case.account_id, pk=int(attachment_id)).first()
+    act = ClaimAct.objects.create(
+        organization=case.organization,
+        case=case,
+        title=(title or "").strip()[:250] or "Акт ОПИ",
+        act_number=(act_number or "").strip()[:80],
+        act_date=parsed_date,
+        reason=(reason or "").strip()[:500],
+        attachment=attached,
+    )
+    work_note_parts = [p for p in (act.act_number and f"№ {act.act_number}", act.reason) if p]
+    item = DebtWorkItem.objects.create(
+        organization=case.organization,
+        account=case.account,
+        kind=DebtWorkItem.Kind.IMPOSSIBILITY,
+        title=act.title,
+        started_on=act.act_date or timezone.localdate(),
+        note="; ".join(work_note_parts)[:500] or "Акт ОПИ о невозможности взыскания",
+    )
+    if attached is not None and attached.work_item_id is None:
+        attached.work_item = item
+        attached.save(update_fields=["work_item", "updated_at"])
+    _sync_opi_activity(case, "acts", f"{act.title} ({case.acts.count()})")
+    detail = act.title
+    if act.act_number:
+        detail = f"{detail} № {act.act_number}"
+    _event(case, user, case.stage, case.stage, f"Акт ОПИ: {detail}")
     return act
 
 
-def record_opi(case: ClaimCase, user, number: str, status: str) -> ClaimCase:
-    case.opi_number = number
-    case.opi_status = status
+def remove_act(case: ClaimCase, act_id: int, user) -> ClaimCase:
+    if case.stage == ClaimCase.Stage.WRITEOFF or case.writeoff_status == ClaimCase.WriteoffStatus.APPROVED:
+        raise ClaimBlocked("После согласования списания акт ОПИ не удаляется")
+    act = case.acts.filter(pk=act_id).first()
+    if act is None:
+        raise ClaimBlocked("Акт ОПИ не найден")
+    title = act.title
+    act.delete()
+    _event(case, user, case.stage, case.stage, f"Удалён акт ОПИ: {title}")
+    return case
+
+
+def record_opi(
+    case: ClaimCase,
+    user,
+    number: str,
+    status: str,
+    *,
+    department: str | None = None,
+    sent_on=None,
+    started_on=None,
+    ended_on=None,
+    bailiff: str | None = None,
+    note: str | None = None,
+) -> ClaimCase:
+    case.opi_number = (number or "").strip()[:50]
+    case.opi_status = (status or "").strip()[:120]
     case.opi_mode = "manual"
-    case.save(update_fields=["opi_number", "opi_status", "opi_mode", "updated_at"])
+    fields = ["opi_number", "opi_status", "opi_mode", "updated_at"]
+    if department is not None:
+        case.opi_department = str(department).strip()[:250]
+        fields.append("opi_department")
+        m = __import__("re").match(r"^(\d{2,6})\b", case.opi_department)
+        if m:
+            req = dict(case.pris_request or {})
+            if not req.get("opi"):
+                req["opi"] = m.group(1)
+                case.pris_request = req
+                fields.append("pris_request")
+    if sent_on is not None:
+        case.opi_sent_on = _coerce("opi_sent_on", sent_on)
+        fields.append("opi_sent_on")
+    elif case.opi_number and not case.opi_sent_on:
+        case.opi_sent_on = timezone.localdate()
+        fields.append("opi_sent_on")
+    if started_on is not None:
+        case.opi_started_on = _coerce("opi_started_on", started_on)
+        fields.append("opi_started_on")
+    if ended_on is not None:
+        case.opi_ended_on = _coerce("opi_ended_on", ended_on)
+        fields.append("opi_ended_on")
+    if bailiff is not None:
+        case.opi_bailiff = str(bailiff).strip()[:250]
+        fields.append("opi_bailiff")
+    if note is not None:
+        case.opi_note = str(note).strip()[:500]
+        fields.append("opi_note")
+    case.save(update_fields=fields)
+    summary = ", ".join(p for p in (case.opi_number and f"ИП {case.opi_number}", case.opi_status, case.opi_department) if p)
+    _sync_opi_activity(case, "opi_send", summary or "Статус ОПИ внесён вручную")
     _event(case, user, case.stage, case.stage, "Статус ОПИ внесён вручную, сервисы 3.11.01–3.11.05 не вызывались")
     return case
+
+
+def add_opi_measure(case: ClaimCase, user, data: dict, upload=None) -> ClaimCase:
+    kind = str(data.get("kind") or "").strip()
+    kind_labels = dict(OPI_MEASURE_KINDS)
+    title = str(data.get("title") or "").strip() or kind_labels.get(kind, kind)
+    if not title:
+        raise ClaimBlocked("Укажите вид принятой меры ОПИ")
+    measure_date = _coerce("opi_sent_on", data.get("date")) or timezone.localdate()
+    doc_number = str(data.get("doc_number") or "").strip()[:80]
+    note = str(data.get("note") or "").strip()[:500]
+    attached = None
+    if upload is not None:
+        attached = Attachment.objects.create(
+            organization=case.organization,
+            account=case.account,
+            doc_type=f"Постановление ОПИ: {title}"[:100],
+            file=upload,
+            original_name=getattr(upload, "name", "") or "opi_measure.pdf",
+            uploaded_by=user if getattr(user, "is_authenticated", False) else None,
+        )
+    elif data.get("attachment_id"):
+        attached = Attachment.objects.filter(account_id=case.account_id, pk=int(data["attachment_id"])).first()
+    rows = list(case.opi_measures_taken or [])
+    next_id = max((int(item.get("id") or 0) for item in rows if isinstance(item, dict)), default=0) + 1
+    entry = {
+        "id": next_id,
+        "kind": kind or "custom",
+        "title": title[:250],
+        "date": measure_date.isoformat(),
+        "doc_number": doc_number,
+        "note": note,
+        "attachment_id": attached.pk if attached else None,
+        "attachment_name": attached.original_name if attached else "",
+    }
+    rows.append(entry)
+    case.opi_measures_taken = rows
+    case.save(update_fields=["opi_measures_taken", "updated_at"])
+    _sync_opi_activity(case, "opi_act", f"{title} ({measure_date.strftime('%d.%m.%Y')})")
+    _event(case, user, case.stage, case.stage, f"Мера ОПИ: {title}" + (f" (постановление № {doc_number})" if doc_number else ""))
+    if data.get("move_stage") and case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT, ClaimCase.Stage.OPI}:
+        if case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT}:
+            case = move_case(case, ClaimCase.Stage.OPI, user, "Направлено в ОПИ")
+        if case.stage == ClaimCase.Stage.OPI:
+            case = move_case(case, ClaimCase.Stage.OPI_MEASURES, user, f"Принята мера ОПИ: {title}")
+    return case
+
+
+def remove_opi_measure(case: ClaimCase, measure_id: int, user) -> ClaimCase:
+    rows = [item for item in (case.opi_measures_taken or []) if isinstance(item, dict)]
+    target = next((item for item in rows if int(item.get("id") or 0) == int(measure_id)), None)
+    if target is None:
+        raise ClaimBlocked("Мера ОПИ не найдена")
+    case.opi_measures_taken = [item for item in rows if int(item.get("id") or 0) != int(measure_id)]
+    case.save(update_fields=["opi_measures_taken", "updated_at"])
+    _event(case, user, case.stage, case.stage, f"Удалена мера ОПИ: {target.get('title') or ''}")
+    return case
+
+
+def _sync_opi_activity(case: ClaimCase, code: str, note: str) -> None:
+    from apps.debts.models import StageActivity
+    from apps.debts.services.activities import ensure_stage
+
+    stage_for_code = {"opi_send": "opi", "opi_act": "opi_measures", "acts": "impossible"}.get(code)
+    if not stage_for_code:
+        return
+    ensure_stage(case.account, stage_for_code)
+    StageActivity.objects.filter(account=case.account, stage=stage_for_code, code=code).update(
+        status=StageActivity.Status.DONE,
+        note=(note or "")[:500],
+    )
 
 
 def apply_ais_receipt(case: ClaimCase, user) -> ClaimCase:
@@ -323,7 +528,18 @@ def _cached(instance, name, fallback):
 
 
 def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
-    acts = [{"id": act.pk, "title": act.title} for act in _cached(case, "acts", case.acts.all())]
+    acts = [
+        {
+            "id": act.pk,
+            "title": act.title,
+            "act_number": act.act_number,
+            "act_date": _date(act.act_date),
+            "reason": act.reason,
+            "attachment_id": act.attachment_id,
+            "file_name": act.attachment.original_name if act.attachment_id and act.attachment else "",
+        }
+        for act in _cached(case, "acts", case.acts.select_related("attachment"))
+    ]
     approvals = [
         {
             "id": item.pk,
@@ -378,6 +594,13 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         "opi_number": case.opi_number,
         "opi_status": case.opi_status,
         "opi_mode": case.opi_mode,
+        "opi_department": case.opi_department,
+        "opi_sent_on": _date(case.opi_sent_on),
+        "opi_started_on": _date(case.opi_started_on),
+        "opi_ended_on": _date(case.opi_ended_on),
+        "opi_bailiff": case.opi_bailiff,
+        "opi_note": case.opi_note,
+        "opi_measures_taken": list(case.opi_measures_taken or []),
         "pris_cl_num": case.pris_cl_num,
         "pris_response_id": case.pris_response_id,
         "pris_process_status": case.pris_process_status,
@@ -421,6 +644,8 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
             )
         ]
         data["lawsuit_kinds"] = [{"id": code, "label": label} for code, label in ClaimCase.LawsuitKind.choices]
+        data["opi_measure_kinds"] = [{"id": code, "label": label} for code, label in OPI_MEASURE_KINDS]
+        data["opi_statuses"] = [{"id": code, "label": label} for code, label in OPI_STATUS_CHOICES]
         data["stages"] = [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices]
         from apps.debts.services.bnp_package import package_payload
 

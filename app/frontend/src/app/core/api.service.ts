@@ -555,6 +555,19 @@ export class ApiService {
     return this.http.get<Page<NotaryOffice>>(`${this.base}/nsi/notary-offices/`, { params: { page_size: 500 } });
   }
 
+  opiOffices(): Observable<Page<OpiOffice>> {
+    return this.http.get<Page<OpiOffice>>(`${this.base}/nsi/opi-offices/`, { params: { page_size: 500 } });
+  }
+
+  saveOpiOffice(body: Partial<OpiOffice>): Observable<OpiOffice> {
+    if (body.id) return this.http.patch<OpiOffice>(`${this.base}/nsi/opi-offices/${body.id}/`, body);
+    return this.http.post<OpiOffice>(`${this.base}/nsi/opi-offices/`, body);
+  }
+
+  deleteOpiOffice(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/nsi/opi-offices/${id}/`);
+  }
+
   categories(): Observable<Page<DebtorCategory>> {
     return this.http.get<Page<DebtorCategory>>(`${this.base}/nsi/debtor-categories/`, {
       params: toParams({ page_size: 100, is_active: true }),
@@ -653,8 +666,60 @@ export class ApiService {
     return this.http.post<ClaimCase>(`${this.base}/claims/${id}/${action}/`, body);
   }
 
+  uploadClaimAct(
+    id: number,
+    body: { title: string; act_number?: string; act_date?: string | null; reason?: string; attachment_id?: number | null },
+    file?: File | null,
+  ): Observable<ClaimCase> {
+    if (file) {
+      const data = new FormData();
+      data.append('title', body.title || 'Акт ОПИ');
+      if (body.act_number) data.append('act_number', body.act_number);
+      if (body.act_date) data.append('act_date', body.act_date);
+      if (body.reason) data.append('reason', body.reason);
+      data.append('file', file, file.name);
+      return this.http.post<ClaimCase>(`${this.base}/claims/${id}/acts/`, data);
+    }
+    return this.http.post<ClaimCase>(`${this.base}/claims/${id}/acts/`, body);
+  }
+
+  deleteClaimAct(id: number, actId: number): Observable<ClaimCase> {
+    return this.http.delete<ClaimCase>(`${this.base}/claims/${id}/acts/${actId}/`);
+  }
+
+  addOpiMeasure(
+    id: number,
+    body: { kind?: string; title?: string; date?: string | null; doc_number?: string; note?: string; attachment_id?: number | null; move_stage?: boolean },
+    file?: File | null,
+  ): Observable<ClaimCase> {
+    if (file) {
+      const data = new FormData();
+      if (body.kind) data.append('kind', body.kind);
+      if (body.title) data.append('title', body.title);
+      if (body.date) data.append('date', body.date);
+      if (body.doc_number) data.append('doc_number', body.doc_number);
+      if (body.note) data.append('note', body.note);
+      if (body.move_stage) data.append('move_stage', '1');
+      data.append('file', file, file.name);
+      return this.http.post<ClaimCase>(`${this.base}/claims/${id}/opi-measures/`, data);
+    }
+    return this.http.post<ClaimCase>(`${this.base}/claims/${id}/opi-measures/`, body);
+  }
+
+  deleteOpiMeasure(id: number, measureId: number): Observable<ClaimCase> {
+    return this.http.delete<ClaimCase>(`${this.base}/claims/${id}/opi-measures/${measureId}/`);
+  }
+
   prisDictionaries(): Observable<PrisDictionaries> {
     return this.http.get<PrisDictionaries>(`${this.base}/claims/pris-dictionaries/`);
+  }
+
+  prisStatus(): Observable<PrisChannelStatus> {
+    return this.http.get<PrisChannelStatus>(`${this.base}/claims/pris-status/`);
+  }
+
+  autofillPris(id: number): Observable<ClaimCase> {
+    return this.http.post<ClaimCase>(`${this.base}/claims/${id}/pris/autofill/`, {});
   }
 
   organizationPris(id: number): Observable<{ claimant: Record<string, string> }> {
@@ -912,6 +977,50 @@ export interface NotaryOffice {
   phones: string;
 }
 
+export interface OpiOffice {
+  id: number;
+  organization: number | null;
+  code: string;
+  name: string;
+  region: string;
+  address: string;
+  phones: string;
+  email: string;
+  is_active: boolean;
+}
+
+export interface PrisChannelStatus {
+  mode: string;
+  system: string;
+  sends: boolean;
+  ministry: boolean;
+  tunnel: boolean;
+  base_url?: string;
+  missing?: string[];
+  detail: string;
+}
+
+export interface OpiMeasureTaken {
+  id: number;
+  kind: string;
+  title: string;
+  date: string;
+  doc_number: string;
+  note: string;
+  attachment_id?: number | null;
+  attachment_name?: string;
+}
+
+export interface ClaimActRow {
+  id: number;
+  title: string;
+  act_number?: string;
+  act_date?: string | null;
+  reason?: string;
+  attachment_id?: number | null;
+  file_name?: string;
+}
+
 export interface AssignedAccount {
   account: number;
   client_account: string;
@@ -954,6 +1063,13 @@ export interface ClaimCase {
   opi_number: string;
   opi_status: string;
   opi_mode: string;
+  opi_department?: string;
+  opi_sent_on?: string | null;
+  opi_started_on?: string | null;
+  opi_ended_on?: string | null;
+  opi_bailiff?: string;
+  opi_note?: string;
+  opi_measures_taken?: OpiMeasureTaken[];
   pris_cl_num?: string;
   pris_response_id?: string;
   pris_process_status?: string;
@@ -966,7 +1082,7 @@ export interface ClaimCase {
   writeoff_status: string;
   writeoff_note: string;
   files: { id: number; doc_type: string; name: string; role: string }[];
-  acts: { id: number; title: string }[];
+  acts: ClaimActRow[];
   acts_count: number;
   approvals: { id: number; approver_id: number; approver_name: string; decision: string; reason: string }[];
   blockers: string[];
@@ -974,6 +1090,8 @@ export interface ClaimCase {
   events: { old_stage: string; new_stage: string; reason: string; actor: string; at: string }[];
   approver_choices?: { id: number; name: string; role: string }[];
   lawsuit_kinds?: Named[];
+  opi_measure_kinds?: Named[];
+  opi_statuses?: Named[];
   stages?: Named[];
   package?: ClaimPackage;
 }
