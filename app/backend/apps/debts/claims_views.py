@@ -41,6 +41,7 @@ from .services.claims import (
     decide_writeoff,
     move_case,
     notary_result,
+    align_claim_with_funnel,
     open_case,
     record_opi,
     remove_act,
@@ -101,6 +102,8 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
 
     def retrieve(self, request, pk=None):
         case = self._case(pk)
+        align_claim_with_funnel(case.account, request.user)
+        case.refresh_from_db()
         record_action(request, AuditLog.Action.VIEW, case)
         return Response(case_payload(case, with_choices=True))
 

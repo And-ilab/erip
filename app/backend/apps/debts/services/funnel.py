@@ -197,6 +197,9 @@ def set_stage(account, stage: str, user=None, reason: str = "", *, lock: bool = 
             organization=account.organization, account=account, kind=StatusHistory.Kind.FUNNEL,
             old_value=current, new_value=stage, reason=(reason or "")[:500], author=user,
         )
+        from apps.debts.services.claims import align_claim_with_funnel
+
+        align_claim_with_funnel(account, user)
     return True
 
 
@@ -220,6 +223,27 @@ def settle_paid(account, user=None) -> bool:
 
 def claim_to_account_stage(claim_stage: str) -> str:
     return CLAIM_STAGE.get(claim_stage or "", "")
+
+
+def claim_stage_of(raw: str | None) -> str:
+    """Этап дела, который означает тот же шаг, что колонка карточки лицевого счёта."""
+    code = normalize(raw)
+    for claim, account in CLAIM_STAGE.items():
+        if account == code:
+            return claim
+    return ""
+
+
+def claim_funnel_codes() -> list[str]:
+    """Коды карточки, которые уже стоят на ветке претензионно-исковой работы."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for account_stage in CLAIM_STAGE.values():
+        for code in stored_codes(account_stage):
+            if code not in seen:
+                seen.add(code)
+                found.append(code)
+    return found
 
 
 def open_badges(pairs: list[tuple[int, str]]) -> dict[int, list[dict]]:

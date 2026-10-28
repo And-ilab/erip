@@ -94,7 +94,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td>
                         @for (claim of datedClaims(row); track claim.id) {
                           <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: defaultClaimTab() }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
-                        } @empty { не заведена }
+                        } @empty {
+                          @if (isClaimFunnel(row.funnel_stage)) {
+                            <button type="button" class="pack-link" (click)="$event.stopPropagation(); openDebtor(row)">{{ stageLabel(row.funnel_stage) }}</button>
+                          } @else { не заведена }
+                        }
                       </td>
                     </tr>
                   }
@@ -292,7 +296,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: #f7f9fb; }
     .account-no { color: var(--erip-link); }
-    .pack-link { display: block; color: var(--erip-link); text-decoration: none; }
+    .pack-link { display: block; color: var(--erip-link); text-decoration: none; border: 0; background: transparent; font: inherit; padding: 0; text-align: left; cursor: pointer; }
     .pack-link + .pack-link { margin-top: 4px; }
     .k-board {
       display: flex; gap: 14px; align-items: stretch; overflow: visible;
@@ -816,15 +820,48 @@ export class ClaimsBoardComponent implements OnInit {
     this.missingWrit();
   }
 
+  protected isClaimFunnel(stage: string): boolean {
+    return [
+      'prep', 'enforcement', 'notary', 'writ_done', 'refused', 'lawsuit', 'judgment', 'court',
+      'opi', 'opi_measures', 'recovered', 'impossible', 'writeoff',
+    ].includes(stage || '');
+  }
+
   protected openDebtor(row: AccountRow): void {
+    const tab = this.tabForStage(row.claim_stage || row.funnel_stage, !row.claim_stage);
+    const go = (id: number): void => {
+      this.mode.set('list');
+      setTimeout(() => this.router.navigate(['/claims', id], { queryParams: { tab } }));
+    };
+    if (row.claim_id) {
+      go(row.claim_id);
+      return;
+    }
     const claim = this.claimOf(row);
-    if (!claim) {
+    if (claim) {
+      go(claim.id);
+      return;
+    }
+    if (!this.canAdd()) {
       this.missingWrit();
       return;
     }
-    this.mode.set('list');
-    const tab = this.defaultClaimTab();
-    setTimeout(() => this.router.navigate(['/claims', claim.id], { queryParams: { tab } }));
+    this.api.openClaim(row.id).subscribe({
+      next: (created) => go(created.id),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  private tabForStage(stage: string | undefined, fromFunnel = false): string {
+    if (fromFunnel && stage === 'court') return 'opi';
+    if (stage === 'opi' || stage === 'opi_measures' || stage === 'impossible' || stage === 'recovered') return 'opi';
+    if (stage === 'lawsuit' || stage === 'judgment' || stage === 'court') return 'court';
+    if (stage === 'writeoff') return 'writeoff';
+    if (stage === 'notary' || stage === 'refused') return 'notary';
+    if (stage === 'prep' || stage === 'enforcement' || stage === 'writ_done') return 'pack';
+    if (this.module() === 'opi') return 'opi';
+    if (this.module() === 'court') return 'court';
+    return 'pack';
   }
 
   protected openGate(): void {

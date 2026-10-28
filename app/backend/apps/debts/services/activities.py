@@ -241,6 +241,9 @@ def _section_open(tree: list[dict]) -> bool:
 
 
 def activity_board(account) -> dict:
+    from apps.debts.services.claims import align_claim_with_funnel
+
+    case = align_claim_with_funnel(account)
     current = ensure_board(account)
     sync_stage_checks(account)
     rows = list(StageActivity.objects.filter(account=account).order_by("sort", "id"))
@@ -264,6 +267,7 @@ def activity_board(account) -> dict:
     return {
         "stage": current,
         "stage_title": title_of(current),
+        "claim_id": case.pk if case is not None else None,
         "current": current_tree,
         "parallel": parallel,
         "parallel_labels": [{"id": code, "label": short} for code, _title, short, _mark in PARALLEL],

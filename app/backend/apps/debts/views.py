@@ -55,7 +55,7 @@ from .serializers import (
     StatusHistorySerializer,
 )
 from .services.column_layout import column_layout, save_column_layout
-from .services.funnel import FUNNEL_STAGES, attach_badges, stored_codes
+from .services.funnel import CLAIM_STAGE, FUNNEL_STAGES, attach_badges, claim_funnel_codes, stored_codes
 from .services.contacts import choose_phone
 from .services.registry import GROUP_LIMIT, REGISTRY_STATUSES, annotate_registry, build_matrix
 from .services.territory import TerritoryIndex, TerritoryMap
@@ -632,11 +632,16 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         else:
             stages = FUNNEL_STAGES
         columns = []
+        linked = claim_funnel_codes() if scope == "claims" else []
         for code, title in stages:
             if scope == "claims" and code == "queue":
-                stage_qs = base.filter(claim_case__isnull=True)
+                stage_qs = base.exclude(funnel_stage__in=linked).filter(claim_case__isnull=True)
             elif scope == "claims":
-                stage_qs = base.filter(claim_case__stage=code)
+                account_stage = CLAIM_STAGE.get(code, "")
+                stage_qs = base.filter(
+                    Q(funnel_stage__in=stored_codes(account_stage))
+                    | (Q(claim_case__stage=code) & ~Q(funnel_stage__in=linked))
+                ) if account_stage else base.none()
             else:
                 stage_qs = base.filter(funnel_stage__in=stored_codes(code))
             total = stage_qs.count()

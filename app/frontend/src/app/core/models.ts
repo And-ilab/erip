@@ -666,6 +666,7 @@ export interface ActivityNode {
 export interface ActivityBoard {
   stage: string;
   stage_title: string;
+  claim_id?: number | null;
   current: ActivityNode[];
   parallel: { stage: string; title: string; short: string; items: ActivityNode[] }[];
 }

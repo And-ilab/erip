@@ -102,11 +102,10 @@ import { FunnelBarComponent } from './funnel-bar.component';
             [current]="activities()?.current || []"
             [parallel]="activities()?.parallel || []"
             [loading]="activitiesLoading()"
-            [canAct]="canAct()"
+            [stage]="activities()?.stage || a.funnel_stage"
             [focusMeasure]="focusMeasure()"
             [focusCode]="focusActivity()"
-            (act)="actOn($event)"
-            (openMeasure)="openAssignedMeasure($event)" />
+            (openWork)="openActivityWork($event)" />
         </mat-tab>
         <mat-tab label="Общие">
             <div class="grid">
@@ -254,6 +253,9 @@ import { FunnelBarComponent } from './funnel-bar.component';
               </div>
             }
             <p class="muted">Сценарий {{ scenarioName() || 'не назначен' }}. Задание — отдельная работа: название, срок и статус. Мероприятия, которые специалист начал сам, лежат в группе «Инициировано вручную».</p>
+            <p class="muted">Этап карточки: {{ stageTitle(a.funnel_stage) }}.
+              <button type="button" class="text-btn" (click)="openClaimWork(a.funnel_stage)">Открыть эту работу</button>
+            </p>
             @for (step of scenarioSteps(); track step.order + step.action) {
               <details class="step" [open]="stepOpen(step)">
                 <summary class="step-summary">
@@ -267,8 +269,8 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   }
                 </summary>
                 @for (item of step.checklist; track item) {
-                  @if (step.measures.length) {
-                    <button type="button" class="check-line check-go" (click)="openAssignedMeasure(step.measures[0].id)">{{ item }}</button>
+                  @if (stepWork(step) || step.measures.length) {
+                    <button type="button" class="check-line check-go" (click)="openStepWork(step)">{{ item }}</button>
                   } @else {
                     <p class="check-line">{{ item }}</p>
                   }
@@ -974,16 +976,73 @@ export class AccountDetailComponent implements OnInit {
     this.ensureTab(index);
   }
 
-  protected openAssignedMeasure(id: number): void {
-    this.focusMeasure.set(id);
-    this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { tab: 'measures', measure: id },
-      queryParamsHandling: 'merge',
-      replaceUrl: true,
+  protected openActivityWork(event: { stage: string; measureId: number | null }): void {
+    if (this.claimTab(event.stage)) {
+      this.openClaimWork(event.stage);
+      return;
+    }
+    if (event.measureId) {
+      this.router.navigate(['/measures', event.measureId]);
+      return;
+    }
+    this.snack.open('Мероприятие ещё не назначено', 'OK');
+  }
+
+  protected openClaimWork(stage: string): void {
+    const account = this.account();
+    const tab = this.claimTab(stage);
+    if (!account || !tab) {
+      this.snack.open('Эта работа заполняется в карточке мероприятия', 'OK');
+      return;
+    }
+    const known = this.activities()?.claim_id;
+    const go = (id: number): void => {
+      this.router.navigate(['/claims', id], { queryParams: { tab } });
+    };
+    if (known) {
+      go(known);
+      return;
+    }
+    this.api.openClaim(account.id).subscribe({
+      next: (row) => go(row.id),
+      error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
-    this.openTab(3);
-    this.scrollMeasure(id);
+  }
+
+  protected openStepWork(step: ScenarioStep): void {
+    const stage = this.stepWork(step);
+    if (stage) {
+      this.openClaimWork(stage);
+      return;
+    }
+    const id = step.measures[0]?.id;
+    if (id) this.router.navigate(['/measures', id]);
+  }
+
+  protected stepWork(step: ScenarioStep): string {
+    if (step.action === 'writ' || step.action === 'collection') return 'prep';
+    if (step.action === 'opi') return 'opi';
+    if (step.action === 'lawsuit') return 'lawsuit';
+    return '';
+  }
+
+  private claimTab(stage: string): string | null {
+    const tabs: Record<string, string> = {
+      prep: 'pack',
+      enforcement: 'pack',
+      notary: 'notary',
+      writ_done: 'pack',
+      refused: 'notary',
+      lawsuit: 'court',
+      judgment: 'court',
+      opi: 'opi',
+      opi_measures: 'opi',
+      impossible: 'opi',
+      recovered: 'opi',
+      court: 'opi',
+      writeoff: 'writeoff',
+    };
+    return tabs[stage] ?? null;
   }
 
   private scrollMeasure(id: number): void {
@@ -1183,11 +1242,6 @@ export class AccountDetailComponent implements OnInit {
     return this.auth.canSkip() && this.auth.me()?.contour !== 'supplier';
   }
 
-  protected canAct(): boolean {
-    const role = this.auth.me()?.role ?? '';
-    return ['superadmin', 'local_admin', 'specialist', 'legal'].includes(role);
-  }
-
   protected changeStage(stage: string): void {
     const account = this.account();
     if (!account || !this.canChangeStage()) return;
@@ -1196,7 +1250,8 @@ export class AccountDetailComponent implements OnInit {
         this.applyAccount(saved);
         this.loadedParts.delete('tab-0');
         this.loadedParts.delete('tab-3');
-        if (this.tabIndex() === 0) this.ensureTab(0);
+        const index = this.tabIndex();
+        if (index === 0 || index === 3) this.ensureTab(index);
         this.snack.open('Этап изменён', 'OK', { duration: 2000 });
       },
       error: (e) => {
@@ -1252,15 +1307,6 @@ export class AccountDetailComponent implements OnInit {
         }
         this.snack.open(errorMessage(e), 'OK');
       },
-    });
-  }
-
-  protected actOn(event: { id: number; note: string; file?: File }): void {
-    const account = this.account();
-    if (!account) return;
-    this.api.actOnActivity(account.id, event.id, event.note, event.file).subscribe({
-      next: (board) => this.activities.set(board),
-      error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
   }
 

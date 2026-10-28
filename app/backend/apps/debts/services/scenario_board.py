@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from apps.debts.models import AccountScenarioRun, Measure
+from apps.debts.services.funnel import claim_stage_of, title_of
 from apps.debts.services.tasks import task_row
 from apps.nsi.services.scenario_engine import ACTION_KIND
 
@@ -32,18 +33,35 @@ def scenario_outline(account) -> dict:
     scenario = run.scenario if run is not None else None
     steps = _steps(scenario)
     measures = list(account.measures.all())
+    home = _claim_home(account.funnel_stage)
+    actions = {step["action"] for step in steps}
+    target = home if home in actions else ("writ" if home and "writ" in actions else "")
+    stage_label = title_of(account.funnel_stage) if target else ""
     used: set[int] = set()
     payload = []
     for index, step in enumerate(steps):
         action = step["action"]
-        matched = [
-            row for row in measures
-            if row.pk not in used and _same_step(row, action, step["order"])
-        ]
+        matched = []
+        for row in measures:
+            if row.pk in used:
+                continue
+            if _claim_row(row) and target:
+                if action == target:
+                    matched.append(row)
+                continue
+            if _same_step(row, action, step["order"]):
+                matched.append(row)
         for row in matched:
             used.add(row.pk)
-        payload.append({**step, "measures": [_measure(row) for row in matched], "index": index})
-    manual = [_measure(row) for row in measures if row.pk not in used]
+        payload.append({
+            **step,
+            "measures": [_measure(row, stage_label if _claim_row(row) else "") for row in matched],
+            "index": index,
+        })
+    manual = [
+        _measure(row, stage_label if _claim_row(row) else "")
+        for row in measures if row.pk not in used
+    ]
     return {
         "scenario_id": scenario.pk if scenario else None,
         "scenario_name": scenario.name if scenario else (account.scenario_name or ""),
@@ -84,6 +102,22 @@ def _title(action: str) -> str:
     return labels.get(action, action or "Шаг")
 
 
+def _claim_home(funnel: str) -> str:
+    """Шаг сценария, в котором лежит взыскание на текущем этапе карточки."""
+    claim = claim_stage_of(funnel)
+    if claim in {"opi", "opi_measures", "impossible", "writeoff", "recovered"}:
+        return "opi"
+    if claim in {"lawsuit", "court"}:
+        return "lawsuit"
+    if claim in {"prep", "notary", "writ_done", "refused"}:
+        return "writ"
+    return ""
+
+
+def _claim_row(measure: Measure) -> bool:
+    return measure.kind == Measure.Kind.COLLECTION and measure.source_action in {"claim", "writ"}
+
+
 def _same_step(measure: Measure, action: str, order) -> bool:
     expected = ACTION_KIND.get(action)
     kind_code = expected[0] if isinstance(expected, tuple) else action
@@ -94,7 +128,13 @@ def _same_step(measure: Measure, action: str, order) -> bool:
     return _KIND_TO_ACTION.get(measure.kind) == action or measure.kind == kind_code
 
 
-def _measure(measure: Measure) -> dict:
+def _measure(measure: Measure, stage_label: str = "") -> dict:
+    if stage_label:
+        kind_label = stage_label
+    elif measure.extra:
+        kind_label = measure.template_name or measure.get_kind_display()
+    else:
+        kind_label = measure.get_kind_display()
     return {
         "id": measure.pk,
         "kind": measure.kind,
@@ -111,7 +151,7 @@ def _measure(measure: Measure) -> dict:
         "pause_until": measure.pause_until.isoformat() if measure.pause_until else None,
         "pause_reason": measure.pause_reason,
         "catalog_name": measure.template_name if measure.extra else "",
-        "kind_label": (measure.template_name or measure.get_kind_display()) if measure.extra else measure.get_kind_display(),
+        "kind_label": kind_label,
         "tasks": [task_row(task) for task in measure.tasks.all()],
         "calls": _calls(measure),
     }

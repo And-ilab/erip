@@ -568,9 +568,13 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
     assert outsider.id not in cards
     by_stage = {column["stage"]: column["total"] for column in columns}
     assert [column["stage"] for column in columns][:2] == ["queue", "prep"]
-    assert by_stage["queue"] >= 3
-    assert by_stage["prep"] == 0
+    assert by_stage["queue"] >= 2
+    assert by_stage["prep"] >= 1
     queued = next(column for column in columns if column["stage"] == "queue")
+    prepared = next(column for column in columns if column["stage"] == "prep")
+    assert on_writ.id in {card["id"] for card in prepared["cards"]}
+    assert on_writ.id not in {card["id"] for card in queued["cards"]}
+    assert {on_measure.id, from_group.id} <= {card["id"] for card in queued["cards"]}
     assert all(card["claim_id"] is None and card["claim_stage"] == "queue" for card in queued["cards"])
 
     events = api(specialist_a).get("/api/v1/accounts/calendar/", {
@@ -581,6 +585,41 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
 
     charts = api(specialist_a).get("/api/v1/accounts/charts/", {"scope": "claims"}).json()
     assert charts["cases"] == 3
+
+
+@pytest.mark.django_db
+def test_account_stage_is_the_claim_and_measure_stage(api, specialist_a, org_a):
+    account = make_account(org_a, 4190, funnel_stage="opi", debt_group=3)
+    columns = api(specialist_a).get(
+        "/api/v1/accounts/kanban/", {"scope": "claims", "claim_module": "opi"},
+    ).json()
+    opi = next(column for column in columns if column["stage"] == "opi")
+    queue = next(column for column in columns if column["stage"] == "queue")
+    assert account.id in {card["id"] for card in opi["cards"]}
+    assert account.id not in {card["id"] for card in queue["cards"]}
+    assert ClaimCase.objects.filter(account=account).count() == 0
+
+    board = api(specialist_a).get(f"/api/v1/accounts/{account.id}/activities/").json()
+    assert board["stage"] == "opi"
+    case = ClaimCase.objects.get(account=account)
+    assert case.stage == "opi"
+    assert board["claim_id"] == case.id
+
+    case.stage = ClaimCase.Stage.PREP
+    case.save(update_fields=["stage"])
+    opened = api(specialist_a).get(f"/api/v1/claims/{case.id}/")
+    assert opened.status_code == 200, opened.content
+    assert opened.json()["stage"] == "opi"
+
+    from apps.debts.services.scenario_board import scenario_outline
+
+    party = Measure.objects.get(accounts=account, source_action="claim")
+    outline = scenario_outline(account)
+    opi_step = next(step for step in outline["steps"] if step["action"] == "opi")
+    writ_step = next(step for step in outline["steps"] if step["action"] == "writ")
+    assert party.id in {row["id"] for row in opi_step["measures"]}
+    assert all(row["id"] != party.id for row in writ_step["measures"])
+    assert opi_step["measures"][0]["kind_label"] == "Направлено в ОПИ"
 
 
 @pytest.mark.django_db

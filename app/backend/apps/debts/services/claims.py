@@ -110,18 +110,59 @@ class ClaimBlocked(ServiceError):
     default_code = "claim_blocked"
 
 
+def align_claim_with_funnel(account, user=None) -> ClaimCase | None:
+    """Дело и мероприятие взыскания повторяют этап карточки лицевого счёта.
+
+    Колонка карточки — источник. Если дело уже есть, его этап становится тем же.
+    Если карточка уже на исполнительной надписи, иске или ОПИ, дело открывается
+    сразу на этом этапе, а не остаётся в подготовке пакета.
+    """
+    from apps.debts.services.claim_measures import sync_claim_measure
+    from apps.debts.services.funnel import claim_stage_of
+
+    claim_stage = claim_stage_of(account.funnel_stage)
+    case = ClaimCase.objects.filter(account=account).order_by("id").first()
+    if not claim_stage:
+        if case is not None:
+            sync_claim_measure(case)
+        return case
+    if case is None:
+        if not _claim_ready(account):
+            return None
+        case = ClaimCase.objects.create(
+            account=account,
+            organization=account.organization,
+            defendant_name=account.short_fio,
+            stage=claim_stage,
+        )
+        _event(case, user, "", claim_stage, "Дело открыто по этапу карточки")
+    elif case.stage != claim_stage:
+        old = case.stage
+        case.stage = claim_stage
+        case.save(update_fields=["stage", "updated_at"])
+        _event(case, user, old, claim_stage, "Этап карточки лицевого счёта")
+    sync_claim_measure(case)
+    return case
+
+
 def open_case(account, user) -> ClaimCase:
-    existing = ClaimCase.objects.filter(account=account).first()
-    created = False
+    existing = ClaimCase.objects.filter(account=account).order_by("id").first()
     if existing is None:
         if not _claim_ready(account):
             raise ClaimBlocked("Исполнительная надпись и иск включаются с группы 3")
-        existing, created = ClaimCase.objects.get_or_create(
+        from apps.debts.services.funnel import claim_stage_of
+
+        stage = claim_stage_of(account.funnel_stage) or ClaimCase.Stage.PREP
+        existing = ClaimCase.objects.create(
             account=account,
-            defaults={"organization": account.organization, "defendant_name": account.short_fio},
+            organization=account.organization,
+            defendant_name=account.short_fio,
+            stage=stage,
         )
-        if created:
-            _event(existing, user, "", ClaimCase.Stage.PREP, "Дело открыто")
+        _event(existing, user, "", stage, "Дело открыто")
+    else:
+        align_claim_with_funnel(account, user)
+        existing.refresh_from_db()
     from apps.debts.services.claim_measures import sync_claim_measure
     from apps.debts.services.writ_flow import seed_task_checks
 

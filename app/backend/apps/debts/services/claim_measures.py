@@ -34,6 +34,14 @@ def sync_claim_measure(case: ClaimCase) -> Measure:
             .first()
         )
     if measure is None:
+        # Запуск шага «надпись» ещё не успел записать source_action, а этап карточки уже синхронизируется.
+        measure = (
+            Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION, source_action="")
+            .exclude(status__in=[Measure.Status.DONE, Measure.Status.CANCELLED])
+            .order_by("-id")
+            .first()
+        )
+    if measure is None:
         measure = Measure.objects.create(
             organization=account.organization,
             kind=Measure.Kind.COLLECTION,
