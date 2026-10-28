@@ -40,9 +40,9 @@ body {
 .letterhead p { text-align: right; text-indent: 0; }
 
 h1.doc-title {
-  font-size: 14pt;
+  font-size: 1.15em;
   font-weight: 700;
-  text-align: center;
+  text-align: inherit;
   margin: 4mm 0 5mm;
   letter-spacing: 0.03em;
 }
@@ -98,7 +98,7 @@ p.prose {
 }
 
 p.prose.indent {
-  text-align: justify;
+  text-align: inherit;
   text-indent: 10mm;
 }
 
@@ -122,6 +122,7 @@ table.grid {
   width: 100%;
   border-collapse: collapse;
   margin-top: 3mm;
+  table-layout: fixed;
   break-inside: avoid;
 }
 
@@ -130,8 +131,12 @@ table.grid td {
   border: 0.3mm solid #111;
   padding: 1.2mm 1.6mm;
   vertical-align: top;
-  text-align: left;
-  font-weight: 400;
+  text-align: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-style: inherit;
+  font-weight: inherit;
+  word-break: break-word;
 }
 
-table.grid th { font-weight: 700; background: #f4f4f4; }
+table.grid th { font-weight: 700; background: transparent; }

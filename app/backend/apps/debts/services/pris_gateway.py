@@ -1,4 +1,4 @@
-"""Вызов шлюза АИС ПРИС. Домен не знает, заглушка это или HTTP к 192.168.101.81."""
+"""Вызов шлюза АИС ПРИС. Домен читает mode ответа: stub, channel или http."""
 
 from __future__ import annotations
 
@@ -75,11 +75,14 @@ class RecordingPrisTransport(PrisTransport):
             number = ""
             if isinstance(payload, dict):
                 number = str(payload.get("p_proc_num") or "")
+            if not number:
+                number = "CH-601-0001" if self.mode == "channel" else "60118000051"
+            status = "канал" if self.mode == "channel" else "6"
             return {
                 "mode": self.mode,
                 "items": [{
-                    "p_ispdoc": [{"proc_num": number or "60118000051", "doc_num": "7"}],
-                    "p_status": [{"status": "6", "actual": "1"}],
+                    "p_ispdoc": [{"proc_num": number, "doc_num": "7"}],
+                    "p_status": [{"status": status, "actual": "1"}],
                     "p_ost": [{"req_sum": "211.24", "ost_sum": "200.00", "curr_code": "933"}],
                     "p_action": [{"measure": "арест"}] if self.with_actions else [],
                     "p_nachisl": [],

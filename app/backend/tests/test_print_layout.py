@@ -77,6 +77,29 @@ def test_image_scan_stays_empty_draft():
     assert draft["blocks"][0]["text"] == ""
 
 
+def test_calculation_and_reminder_pdfs_decompose_into_blocks_with_tables():
+    calc = recognize_bytes("calc.pdf", _sample("Расчёт задолженности r99117.pdf"))
+    assert calc["recognized"] is True
+    assert len(calc["blocks"]) >= 5
+    assert any(block.get("columns") for block in calc["blocks"])
+
+    rem = recognize_bytes("reminder.pdf", _sample("Напоминание о задолженности r99140.pdf"))
+    assert rem["recognized"] is True
+    assert any(block.get("columns") for block in rem["blocks"])
+    body = next(block["text"] for block in rem["blocks"] if block["key"] == "body")
+    assert "На 01.04.2026 за Вами" in body
+    assert "Пользователь УКСиК" not in body
+
+
+def test_docx_recognizes_paragraphs_and_tables():
+    docx_raw = _sample("Справочники БНП.docx")
+    draft = recognize_bytes("Справочники БНП.docx", docx_raw)
+    assert draft["recognized"] is True
+    assert len(draft["blocks"]) >= 1
+    assert any(block.get("columns") for block in draft["blocks"])
+
+
+
 @pytest.mark.django_db
 def test_one_stamp_signs_package_and_edit_clears_it(api, specialist_a, account_a):
     case_id = _ready(api, specialist_a, account_a)

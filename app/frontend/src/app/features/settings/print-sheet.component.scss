@@ -1,4 +1,4 @@
-// Лист A4. Парные правила печати — apps/nsi/services/form_sheet.css.
+// Лист A4. Строгий чёрно-белый стиль официального документа (парные правила — apps/nsi/services/form_sheet.css).
 :host {
   display: block;
   min-width: 0;
@@ -6,20 +6,21 @@
 }
 
 .desk {
-  background: #525659;
+  background: #e6e6e6;
   padding: 20px 16px 28px;
   overflow: auto;
   scrollbar-gutter: stable;
   max-height: var(--sheet-max-height, calc(100vh - 200px));
   min-height: var(--sheet-min-height, 360px);
   height: var(--sheet-height, auto);
-  border-radius: 2px;
+  border: 1px solid #d4d4d4;
+  border-radius: 4px;
 }
 
 .stage {
   position: relative;
   margin: 0 auto;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 12px 28px rgba(0, 0, 0, 0.38);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 6px 18px rgba(0, 0, 0, 0.14);
 }
 
 .clip {
@@ -40,211 +41,279 @@
   box-sizing: border-box;
   padding: 15mm 16mm 18mm;
   background: #fff;
-  color: #1a1a1a;
+  color: #000;
   font-family: "Times New Roman", Times, "Liberation Serif", serif;
   font-size: 12pt;
   line-height: 1.35;
 }
 
-.doc-block { margin: 0 0 2mm; }
+.doc-row {
+  margin: 0 0 2mm;
+}
 
 .doc-row.split {
   display: flex;
   align-items: flex-start;
-  gap: 6mm;
+  justify-content: space-between;
+  gap: 4mm;
+}
+
+.doc-block {
+  position: relative;
+  margin: 0 0 2mm;
+  padding: 1mm 1.5mm;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  transition: border-color 0.12s;
 }
 
 .doc-row.split .doc-block {
-  flex: 1 1 0;
   margin: 0;
   min-width: 0;
 }
 
-.doc-row.split .prose-text {
-  text-indent: 0;
-  text-align: inherit;
+.doc-block:hover {
+  border-color: #d0d0d0;
 }
 
 .doc-block.on {
-  outline: 0.3mm dashed rgba(29, 79, 99, 0.45);
-  outline-offset: 1mm;
+  border-color: #8c8c8c;
+}
+
+.doc-block.drag-over-top {
+  border-top: 2px solid #222;
+}
+
+.doc-block.drag-over-bottom {
+  border-bottom: 2px solid #222;
+}
+
+.doc-block.drag-over-side {
+  border-right: 2px solid #222;
 }
 
 .letterhead {
-  text-align: right;
-  border-bottom: 0.45mm solid #111;
+  border-bottom: 0.35mm solid #000;
   padding-bottom: 2mm;
-  margin-bottom: 5mm;
+  margin-bottom: 3.5mm;
 }
-
-.doc-title,
-.prose-text,
-.prose-inline,
-.field-label,
-.blank,
-.cell,
-.head-cell {
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-.doc-title {
-  display: block;
-  width: 100%;
-  font-size: 14pt;
-  font-weight: 700;
-  text-align: center;
-  margin: 4mm 0 5mm;
-  letter-spacing: 0.03em;
-}
-
-.doc-title:focus,
-.prose-text:focus,
-.prose-inline:focus,
-.field-label:focus,
-.blank:focus,
-.cell:focus,
-.head-cell:focus {
-  outline: none;
-  background: rgba(29, 79, 99, 0.06);
-}
-
-.frame,
-.panel {
-  border: 0.35mm solid #111;
-  padding: 3mm 4mm;
-  margin: 3mm 0;
-}
-
-.frame {
-  width: 68%;
-  margin-left: auto;
-  box-sizing: border-box;
-}
-
-.fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(74mm, 1fr));
-  gap: 3mm 6mm;
-  align-items: end;
-}
-
-.field {
-  display: grid;
-  grid-template-columns: minmax(28mm, max-content) minmax(16mm, 1fr);
-  column-gap: 3mm;
-  align-items: end;
-  min-width: 0;
-}
-
-.field.wide { grid-column: 1 / -1; }
-
-.field-label {
-  width: 100%;
-  line-height: 1.2;
-  text-align: left;
-}
-
-.blank {
-  display: block;
-  width: 100%;
-  border-bottom: 0.25mm solid #111;
-  min-height: 5.5mm;
-  text-align: left;
-}
-
-.blank::placeholder {
-  color: #8b949c;
-  font-style: italic;
-}
-
-.prose {
-  margin: 1.4mm 0;
-  text-align: inherit;
-}
-
-.prose-text {
-  display: block;
-  width: 100%;
-  resize: none;
-  overflow: hidden;
-  text-align: justify;
-  text-indent: 10mm;
-  line-height: 1.35;
-}
-
-.letterhead .prose-text,
-.sign .prose-text {
-  text-align: right;
-  text-indent: 0;
-}
-
-.sign .prose-text { text-align: left; }
-
-.prose.mixed {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 1.5mm;
-}
-
-.prose-inline {
-  text-indent: 0;
-  text-align: left;
-  min-width: 1ch;
-}
-
-.blank.inline {
-  display: inline-block;
-  width: 36mm;
-  min-height: 0;
-  padding: 0 1mm 0.2mm;
-  text-align: center;
-  vertical-align: baseline;
-}
-
-.gap { height: 3mm; }
 
 .sign {
-  width: 62%;
-  margin-left: auto;
-  margin-top: 12mm;
+  margin-top: 5mm;
 }
 
-.sign-caption {
-  font-size: 10pt;
-  margin-bottom: 2mm;
+.block-bar {
+  position: absolute;
+  top: -22px;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  background: #f5f5f5;
+  border: 1px solid #bdbdbd;
+  border-radius: 3px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  text-align: left;
+  color: #262626;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.doc-block:hover .block-bar,
+.doc-block.on .block-bar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.block-drag,
+.col-drag {
+  cursor: grab;
+  user-select: none;
+  padding: 0 2px;
+  color: #666;
+  font-weight: 700;
+  letter-spacing: -1px;
+}
+
+.block-drag:active,
+.col-drag:active {
+  cursor: grabbing;
+}
+
+.block-title-input {
+  width: 130px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 2px;
+  padding: 1px 4px;
+  font: inherit;
+  font-weight: 600;
+  color: #222;
+}
+
+.block-title-input:focus,
+.block-title-input:hover {
+  border-color: #999;
+  background: #fff;
+  outline: none;
+}
+
+.mini-btn {
+  border: 1px solid #c4c4c4;
+  background: #fff;
+  color: #222;
+  border-radius: 2px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.mini-btn:hover {
+  background: #e8e8e8;
+  border-color: #666;
+}
+
+.mini-btn.danger:hover {
+  background: #fbe9e9;
+  border-color: #a61b1b;
+  color: #a61b1b;
+}
+
+.block-editor {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: #000;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  text-align: inherit;
+  line-height: 1.35;
+  padding: 0.5mm 0;
+  margin: 0;
+  resize: vertical;
+}
+
+.block-editor:focus {
+  outline: none;
+}
+
+.block-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 4;
+}
+
+.block-resizer:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.table-wrap {
+  margin-top: 1.5mm;
 }
 
 table.grid {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 3mm;
   table-layout: fixed;
 }
 
 table.grid th,
 table.grid td {
-  border: 0.3mm solid #111;
-  padding: 1.1mm 1.4mm;
+  position: relative;
+  border: 0.3mm solid #000;
+  padding: 1mm 1.4mm;
   vertical-align: top;
-  text-align: left;
-  font-weight: 400;
+  text-align: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-style: inherit;
+  font-weight: inherit;
+  background: #fff;
+  color: #000;
 }
 
-table.grid th { background: #f4f4f4; }
+table.grid th {
+  font-weight: 700;
+}
+
+table.grid th.col-active,
+table.grid td.col-active {
+  background: #f7f7f7;
+}
+
+table.grid th.col-drop-target {
+  box-shadow: inset 2px 0 0 #000;
+  background: #efefef;
+}
+
+.th-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.col-drag {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+table.grid th:hover .col-drag,
+.doc-block.on table.grid th .col-drag {
+  opacity: 1;
+}
 
 .head-cell,
 .cell {
   width: 100%;
   min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #000;
+  font-family: inherit;
+  font-size: inherit;
+  font-style: inherit;
   font-weight: inherit;
+  text-align: inherit;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
 }
 
-.head-cell { font-weight: 700; }
+.head-cell {
+  font-weight: 700;
+}
+
+.head-cell:focus,
+.cell:focus {
+  outline: none;
+  background: #f2f2f2;
+}
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.col-resizer:hover {
+  background: #333;
+}

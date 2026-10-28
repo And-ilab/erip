@@ -61,6 +61,17 @@ LABEL_TOKENS = {
 
 _CSS = Path(__file__).with_name("form_sheet.css").read_text(encoding="utf-8")
 _FRAME_TOKENS = {"fio", "address"}
+_FONTS = {
+    "Times New Roman": '"Times New Roman", Times, "Liberation Serif", "DejaVu Serif", serif',
+    "Arial": 'Arial, "Helvetica Neue", "Liberation Sans", "DejaVu Sans", sans-serif',
+    "Calibri": 'Calibri, "Segoe UI", Arial, "Liberation Sans", "DejaVu Sans", sans-serif',
+    "Georgia": 'Georgia, "Times New Roman", "Liberation Serif", "DejaVu Serif", serif',
+    "Verdana": 'Verdana, Geneva, "DejaVu Sans", sans-serif',
+    "Tahoma": 'Tahoma, Geneva, "DejaVu Sans", sans-serif',
+    "Courier New": '"Courier New", Courier, "Liberation Mono", "DejaVu Sans Mono", monospace',
+    "DejaVu Serif": '"DejaVu Serif", "Liberation Serif", "Times New Roman", serif',
+    "DejaVu Sans": '"DejaVu Sans", "Liberation Sans", Arial, sans-serif',
+}
 
 
 def parse_text(text: str, *, title: bool = False) -> list[dict]:
@@ -197,19 +208,27 @@ def _field_html(item: dict) -> str:
 
 
 def _table_html(columns: list, rows: list) -> str:
-    if not columns or not rows:
+    valid_cols = [col for col in (columns or []) if isinstance(col, dict)]
+    if not valid_cols:
         return ""
-    heads = "".join(f"<th>{escape(str(col.get('title') or ''))}</th>" for col in columns if isinstance(col, dict))
-    if not heads:
-        return ""
+    widths = [max(_num(col.get("width"), 20), 5) for col in valid_cols]
+    total = sum(widths) or 1
+    cols_html = "".join(
+        f'<col style="width:{round(w / total * 100, 1)}%">'
+        for w in widths
+    )
+    heads = "".join(f"<th>{escape(str(col.get('title') or ''))}</th>" for col in valid_cols)
+    actual_rows = list(rows or [])
+    if not actual_rows:
+        actual_rows = [["" for _ in valid_cols]]
     body = []
-    width = len(columns)
-    for row in rows:
+    width = len(valid_cols)
+    for row in actual_rows:
         cells = list(row)[:width] if isinstance(row, list) else []
         cells += [""] * (width - len(cells))
         tds = "".join(f"<td>{_cell(str(cell))}</td>" for cell in cells)
         body.append(f"<tr>{tds}</tr>")
-    return f'<table class="grid"><thead><tr>{heads}</tr></thead><tbody>{"".join(body)}</tbody></table>'
+    return f'<table class="grid"><colgroup>{cols_html}</colgroup><thead><tr>{heads}</tr></thead><tbody>{"".join(body)}</tbody></table>'
 
 
 def _cell(value: str) -> str:
@@ -231,14 +250,20 @@ def _with_blanks(text: str) -> str:
 
 def _style(block: dict) -> str:
     size = _num(block.get("font_size"), 12)
-    if size < 8 or size > 24:
+    if size < 8 or size > 36:
         size = 12
     align = str(block.get("align") or "left")
-    if align not in {"left", "center", "right"}:
+    if align not in {"left", "center", "right", "justify"}:
         align = "left"
     weight = 700 if block.get("bold") else 400
     font_style = "italic" if block.get("italic") else "normal"
-    return f"font-size:{size}pt;text-align:{align};font-weight:{weight};font-style:{font_style}"
+    font_name = str(block.get("font_family") or "Times New Roman").strip()
+    font_css = _FONTS.get(font_name, _FONTS["Times New Roman"])
+    style = f"font-family:{font_css};font-size:{size}pt;text-align:{align};font-weight:{weight};font-style:{font_style}"
+    w = _num(block.get("w"), 92)
+    if 20 <= w < 90:
+        style += f";width:{w}%"
+    return style
 
 
 def _is_title(line: str) -> bool:

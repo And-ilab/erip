@@ -226,18 +226,25 @@ export class KanbanDragDirective implements OnDestroy {
     return null;
   }
 
-  private nudgeScroll(x: number, y: number): void {
-    const board = this.host.nativeElement.closest('.k-board');
-    if (board instanceof HTMLElement) {
-      const rect = board.getBoundingClientRect();
-      if (x > rect.right - 36) board.scrollLeft += 18;
-      else if (x < rect.left + 36) board.scrollLeft -= 18;
+  private scroller(): HTMLElement | null {
+    let node: HTMLElement | null = this.host.nativeElement.closest('.k-board');
+    while (node) {
+      const style = getComputedStyle(node);
+      const scrolls = (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowX === 'auto' || style.overflowX === 'scroll');
+      if (scrolls && (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1)) return node;
+      node = node.parentElement;
     }
-    const cards = this.columnAt(x, y)?.querySelector(':scope > .k-cards');
-    if (!(cards instanceof HTMLElement)) return;
-    const rect = cards.getBoundingClientRect();
-    if (y > rect.bottom - 48) cards.scrollTop += 16;
-    else if (y < rect.top + 48) cards.scrollTop -= 16;
+    return null;
+  }
+
+  private nudgeScroll(x: number, y: number): void {
+    const box = this.scroller();
+    if (!(box instanceof HTMLElement)) return;
+    const rect = box.getBoundingClientRect();
+    if (x > rect.right - 36) box.scrollLeft += 18;
+    else if (x < rect.left + 36) box.scrollLeft -= 18;
+    if (y > rect.bottom - 48) box.scrollTop += 16;
+    else if (y < rect.top + 48) box.scrollTop -= 16;
   }
 
   private flyBack(): void {

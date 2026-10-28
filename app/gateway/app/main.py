@@ -26,6 +26,9 @@ async def lifespan(app: FastAPI):
     await service.resume_pending()
     await service.purge_old(get_settings().log_retention_days)
     yield
+    from .integrations.pris.channel import close_channel_client
+
+    await close_channel_client()
     await HttpClient().close()
     await db.dispose()
 

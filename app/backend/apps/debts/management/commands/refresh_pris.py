@@ -13,4 +13,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Обновлено дел: {result['refreshed']}. Не принято: {len(result['blocked'])}.")
         for row in result["blocked"]:
             self.stdout.write(f"Дело {row['id']}: {row['message']}")
-        self.stdout.write("При GW_PRIS_MODE=stub номер из примера регламента на дело не пишется.")
+        self.stdout.write(
+            "При GW_PRIS_MODE=stub номер из примера регламента на дело не пишется. "
+            "При channel пишется номер тестового канала. Контур Минюста вызывается при http."
+        )

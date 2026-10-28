@@ -1,0 +1,38 @@
+$kind: http-request
+method: GET
+url: '{{base_url}}/gw/v1/integrations/pris/status'
+order: 1000
+headers:
+  - key: X-Internal-Token
+    value: '{{internal_token}}'
+examples: './.resources/состояние канала.resources/examples'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const body = pm.response.json();
+      pm.test('200', function () {
+          pm.response.to.have.status(200);
+      });
+      pm.test('режим stub, channel или http', function () {
+          pm.expect(['stub', 'channel', 'http']).to.include(body.data.mode);
+          pm.expect(body.data.system).to.eql('АИС ПРИС');
+      });
+      pm.collectionVariables.set('pris_mode', body.data.mode);
+      if (body.data.mode === 'stub') {
+          pm.test('заглушка не отправляет пакет', function () {
+              pm.expect(body.data.sends).to.eql(false);
+              pm.expect(body.data.ministry).to.eql(false);
+          });
+      }
+      if (body.data.mode === 'channel') {
+          pm.test('тестовый канал не ходит в Минюст', function () {
+              pm.expect(body.data.sends).to.eql(true);
+              pm.expect(body.data.ministry).to.eql(false);
+          });
+      }
+      if (body.data.mode === 'http') {
+          pm.test('режим контура Минюста', function () {
+              pm.expect(body.data.ministry).to.eql(true);
+          });
+      }

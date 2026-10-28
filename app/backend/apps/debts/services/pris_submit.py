@@ -20,6 +20,7 @@ from apps.debts.services.pris_gateway import get_pris_transport
 _DATE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 _SEND_STAGES = {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT, ClaimCase.Stage.OPI}
 _ACCEPTED = {"1000", "1001"}
+_LIVE_MODES = {"http", "channel"}
 REQUEST_KEYS = (
     "opi", "req_init", "doc_code", "doc_num", "doc_date", "doc_org_code", "doc_org", "doc_date_in",
     "debtor_np_type", "debtor_street_type", "debtor_country", "debtor_opf", "debtor_region", "debtor_area", "debtor_np",
@@ -76,8 +77,8 @@ def save_pris_draft(case: ClaimCase, data: dict) -> ClaimCase:
 def submit_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
     if data:
         save_pris_draft(case, data)
-    if case.opi_mode == "pris" and case.pris_process_status in _ACCEPTED:
-        raise ClaimBlocked("Задолженность уже принята ПРИС. Обновите ход производства или передайте погашение.")
+    if case.opi_mode in {"pris", "channel"} and case.pris_process_status in _ACCEPTED:
+        raise ClaimBlocked("Задолженность уже принята. Обновите ход производства или передайте погашение.")
     problems = _problems(case)
     if problems:
         raise ClaimBlocked("Пакет ПРИС не собран: " + "; ".join(problems))
@@ -88,6 +89,13 @@ def submit_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
     if result.get("mode") == "http":
         case.opi_mode = "pris"
         note = f"ПРИС принял пакет, код {case.pris_process_status}. Номер производства появится после обновления."
+    elif result.get("mode") == "channel":
+        case.opi_mode = "channel"
+        case.pris_process_message = (
+            f"Тестовый канал шлюза принял пакет, код {case.pris_process_status}. "
+            "Номер производства этого канала появится после обновления."
+        )[:500]
+        note = case.pris_process_message
     else:
         case.opi_mode = "stub"
         case.pris_process_message = "Пакет прошёл проверку регламента. В АИС ПРИС не отправлен: канал-заглушка."
@@ -112,7 +120,7 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
     else:
         raise ClaimBlocked("Сначала передайте задолженность в ПРИС или запишите номер производства")
     result = _post_pris(case, user, "refresh", path, payload)
-    if result.get("mode") != "http":
+    if result.get("mode") not in _LIVE_MODES:
         from apps.debts.services.claims import _event
 
         _event(case, user, case.stage, case.stage, "Заглушка ПРИС: ход производства не записывался")
@@ -131,14 +139,15 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
         case.opi_number = proc[:50]
     if status:
         case.opi_status = status[:40]
-    case.opi_mode = "pris"
+    case.opi_mode = "pris" if result.get("mode") == "http" else "channel"
     case.pris_inquiry = _inquiry(info)
     case.save(update_fields=["opi_number", "opi_status", "opi_mode", "pris_inquiry", "updated_at"])
+    source = "ПРИС" if result.get("mode") == "http" else "Тестовый канал"
     if proc and case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT}:
-        case = move_case(case, ClaimCase.Stage.OPI, user, f"ПРИС: производство {proc}, статус {status}")
+        case = move_case(case, ClaimCase.Stage.OPI, user, f"{source}: производство {proc}, статус {status}")
     actions = info.get("p_action") or []
     if actions and case.stage == ClaimCase.Stage.OPI:
-        case = move_case(case, ClaimCase.Stage.OPI_MEASURES, user, f"ПРИС: мер {len(actions)}, статус {status}")
+        case = move_case(case, ClaimCase.Stage.OPI_MEASURES, user, f"{source}: мер {len(actions)}, статус {status}")
     return case
 
 
@@ -152,6 +161,12 @@ def repay_pris(case: ClaimCase, user) -> ClaimCase:
     _remember_acceptance(case, result)
     if result.get("mode") == "http":
         note = f"ПРИС принял погашение, код {case.pris_process_status}"
+    elif result.get("mode") == "channel":
+        case.opi_mode = "channel"
+        case.pris_process_message = (
+            f"Тестовый канал шлюза принял погашение, код {case.pris_process_status}."
+        )[:500]
+        note = case.pris_process_message
     else:
         case.pris_process_message = "Погашение прошло проверку регламента. В АИС ПРИС не отправлено: канал-заглушка."
         note = case.pris_process_message
@@ -195,10 +210,13 @@ def _post_pris(case: ClaimCase, user, operation: str, path: str, payload: dict) 
         _store_exchange(case, user, operation, path, payload, {"error": str(exc)[:500]})
         raise
     stored = result
-    if result.get("mode") != "http" and operation == "refresh":
-        stored = {"mode": result.get("mode") or "stub", "applied": False, "note": "Ход производства не записывался"}
-    elif result.get("mode") != "http" and operation in {"submit", "repay"}:
+    mode = result.get("mode")
+    if mode not in _LIVE_MODES and operation == "refresh":
+        stored = {"mode": mode or "stub", "applied": False, "note": "Ход производства не записывался"}
+    elif mode not in _LIVE_MODES and operation in {"submit", "repay"}:
         stored = {**result, "note": "В АИС ПРИС не отправлено: канал-заглушка"}
+    elif mode == "channel":
+        stored = {**result, "note": "Ответ тестового канала шлюза."}
     _store_exchange(case, user, operation, path, payload, stored)
     return result
 

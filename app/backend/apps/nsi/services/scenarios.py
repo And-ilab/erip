@@ -234,24 +234,56 @@ def layout_of(form: PrintForm) -> dict:
 
 def placeholder_values(account, tariff: str = "", warning_date: str = "") -> dict:
     """Подстановки печатной формы. Только поля, которые уже есть у лицевого счёта и его услуг."""
+    from datetime import date
     from decimal import Decimal
 
     service_rows = list(account.services.all())
     names = [row.service_name for row in service_rows if row.service_name][:8]
     penalty = sum((row.balance_mulct_out or Decimal("0")) for row in service_rows)
+    total = account.balance_out
+    principal = None if total is None else total - penalty
     last = account.payments.exclude(pay_date=None).order_by("-pay_date").values_list("pay_date", flat=True).first()
     started = account.debt_started_on
+    op_date = account.operational_date or date.today()
+    periods = list(account.debt_periods.order_by("period").values_list("period", flat=True))
+    period_from = periods[0].strftime("%d.%m.%Y") if periods else (started.strftime("%d.%m.%Y") if started else "—")
+    period_to = periods[-1].strftime("%d.%m.%Y") if periods else op_date.strftime("%d.%m.%Y")
+    profile = account.organization.pris_claimant or {}
     return {
         "fio": account.short_fio or "—",
         "account": account.client_account,
         "amount": "" if account.balance_out is None else str(account.balance_out),
+        "principal": "" if principal is None else str(principal),
+        "total": "" if total is None else str(total),
         "penalty": str(penalty),
         "address": account.account_address or "—",
         "services": ", ".join(names) or "—",
         "last_payment": last.isoformat() if last else "нет",
         "organization": account.organization.name,
+        "locality": str(profile.get("np") or ""),
+        "address_org": str(profile.get("full_adr") or ""),
+        "bik": str(profile.get("bank_code") or ""),
+        "bank_account": str(profile.get("acc_num") or ""),
+        "bank": "",
+        "date": op_date.strftime("%d.%m.%Y"),
+        "as_of": op_date.strftime("%d.%m.%Y"),
+        "due_date": account.warning_due.strftime("%d.%m.%Y") if account.warning_due else "—",
+        "doc_number": "",
+        "phone": "",
+        "hours": "",
+        "area": "" if account.acc_total_space is None else str(account.acc_total_space),
+        "rooms": "" if account.room_count is None else str(account.room_count),
+        "residents_count": "" if account.subj_count is None else str(account.subj_count),
+        "ownership": account.ownership_type_name or "—",
+        "duty_from": account.start_date.strftime("%d.%m.%Y") if account.start_date else "—",
+        "period_from": period_from,
+        "period_to": period_to,
         "due_days": str(warning_wait_for(account.organization)),
         "tariff": tariff or "—",
+        "duty": tariff or "—",
+        "filed_on": op_date.strftime("%d.%m.%Y"),
+        "note": "",
+        "representative": "",
         "debt_group": str(account.debt_group_manual or account.debt_group or "—"),
         "rating": account.rating or "—",
         "months_debt": "—" if account.months_debt is None else str(account.months_debt),
@@ -279,7 +311,7 @@ def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") ->
     from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext
 
     blank = (form.blank or "").strip()
-    if blank and known(blank):
+    if blank and known(blank) and not form.blocks:
         ctx = context_for_blank(blank, account, warning_date="")
         text = official_plaintext(blank, ctx)
         filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))

@@ -1,13 +1,14 @@
 :host { display: block; min-width: 0; max-width: 100%; }
 
 .desk {
-  background: #525659;
+  background: #e6e6e6;
   padding: 20px 16px 28px;
   overflow: auto;
   scrollbar-gutter: stable;
   max-height: var(--sheet-max-height, calc(100vh - 220px));
   min-height: var(--sheet-min-height, 360px);
   height: var(--sheet-height, auto);
+  border: 1px solid #d4d4d4;
 }
 
 .stage {
@@ -77,7 +78,7 @@ input.slot { max-width: 90mm; }
   min-width: 24mm;
   border-bottom: 0.3pt solid #000;
 }
-input.slot:focus { outline: none; background: rgba(29, 79, 99, 0.06); }
+input.slot:focus { outline: none; background: #f2f2f2; }
 
 table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; }
 th, td { border: 0.3pt solid #000; padding: 0.8mm 1.2mm; vertical-align: top; font-weight: 400; text-align: left; }

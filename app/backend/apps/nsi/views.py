@@ -394,38 +394,40 @@ class PrintFormViewSet(NsiViewSet):
     serializer_class = PrintFormSerializer
     search_fields = ["name", "code"]
     filterset_fields = ["is_active", "doc_kind"]
-    write_roles = ("superadmin", "local_admin", "specialist")
+    write_roles = ("superadmin", "local_admin", "specialist", "legal")
 
     def get_queryset(self):
         user = self.request.user
         qs = self.queryset.prefetch_related("revisions")
-        if user.is_superadmin:
-            return qs
-        return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
+        if not user.is_superadmin:
+            qs = qs.filter(Q(organization__isnull=True) | Q(organization=user.organization))
+        if getattr(self, "action", None) == "list" and "is_active" not in self.request.query_params:
+            qs = qs.filter(is_active=True)
+        return qs
 
     def perform_create(self, serializer):
-        if self.request.user.role == "specialist":
-            raise PermissionDenied("Макет настраивает администратор организации")
         from .services.scenarios import remember_print_version
 
-        organization = None if self.request.user.is_superadmin else self.request.user.organization
+        user = self.request.user
+        organization = user.organization if user.organization_id else None
         serializer.save(organization=organization)
         remember_print_version(serializer.instance, None)
         record_action(self.request, AuditLog.Action.CREATE, serializer.instance)
 
     def perform_update(self, serializer):
-        from .services.scenarios import remember_print_version
+        from .services.scenarios import layout_of, remember_print_version
 
-        if self.request.user.role == "specialist":
-            raise PermissionDenied("Макет настраивает администратор организации")
         if serializer.instance.organization_id is None and not self.request.user.is_superadmin:
             raise PermissionDenied("Центральный макет меняет суперадминистратор")
-        from .services.scenarios import layout_of
-
         previous = serializer.instance.body
         previous_layout = layout_of(serializer.instance)
         super().perform_update(serializer)
         remember_print_version(serializer.instance, previous, previous_layout)
+
+    def perform_destroy(self, instance):
+        if instance.organization_id is None and not self.request.user.is_superadmin:
+            raise PermissionDenied("Центральный макет меняет суперадминистратор")
+        super().perform_destroy(instance)
 
     @action(detail=True, methods=["post"])
     def render(self, request, pk=None):
@@ -521,8 +523,9 @@ class PrintFormViewSet(NsiViewSet):
         from .services.official_blanks import context_for_blank, known
         from .services.scenarios import placeholder_values
 
+        raw = request.data.get("blocks")
         blank = str(request.data.get("blank") or "")
-        if blank and known(blank):
+        if blank and known(blank) and not raw:
             account = _visible_account(request.user, request.data.get("account"))
             ctx = context_for_blank(
                 blank, account, overrides=request.data.get("values") or {},
@@ -532,18 +535,22 @@ class PrintFormViewSet(NsiViewSet):
             payload = render_layout_pdf([], blank=blank, context=ctx)
             return FileResponse(ContentFile(payload), as_attachment=False, filename="preview.pdf", content_type="application/pdf")
 
-        raw = request.data.get("blocks")
         try:
             blocks = clean_blocks(raw) if raw else [{
                 "key": "body", "title": "Текст", "enabled": True, "align": "left",
-                "bold": False, "italic": False, "font_size": 12,
+                "bold": False, "italic": False, "font_size": 12, "font_family": "Times New Roman",
                 "text": str(request.data.get("body") or ""), "columns": [], "rows": [],
             }]
         except ValueError as exc:
             raise ValidationError({"blocks": str(exc)}) from exc
         account = _visible_account(request.user, request.data.get("account"))
-        if account is not None:
-            blocks = fill_blocks(blocks, placeholder_values(account))
+        values = placeholder_values(account) if account is not None else {}
+        if isinstance(request.data.get("values"), dict):
+            for k, v in request.data["values"].items():
+                if v not in (None, ""):
+                    values[str(k)] = str(v)
+        if values:
+            blocks = fill_blocks(blocks, values)
         payload = render_layout_pdf(blocks)
         return FileResponse(ContentFile(payload), as_attachment=False, filename="preview.pdf", content_type="application/pdf")
 

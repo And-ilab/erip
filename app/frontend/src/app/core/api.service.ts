@@ -863,6 +863,10 @@ export class ApiService {
       : this.http.post<PrintFormRow>(`${this.base}/nsi/print-forms/`, row);
   }
 
+  deletePrintForm(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/nsi/print-forms/${id}/`);
+  }
+
   restorePrintForm(id: number, version: number): Observable<PrintFormRow> {
     return this.http.post<PrintFormRow>(`${this.base}/nsi/print-forms/${id}/restore/`, { version });
   }
@@ -1070,6 +1074,8 @@ export interface BnpDocument {
   generated: boolean;
   body: string;
   layout?: {
+    form?: number;
+    version?: number;
     blocks?: PrintFormBlock[];
     blank?: string;
     family?: string;
@@ -1187,10 +1193,11 @@ export interface PrintFormBlock {
   key: string;
   title: string;
   enabled: boolean;
-  align: 'left' | 'center' | 'right';
+  align: 'left' | 'center' | 'right' | 'justify';
   bold: boolean;
   italic: boolean;
   font_size: number;
+  font_family?: string;
   text: string;
   columns: { title: string; width: number }[];
   rows: string[][];
@@ -1258,6 +1265,7 @@ export interface BlankData {
   section_list: BlankSection[];
   sections: Record<string, boolean>;
   show_services: boolean;
+  blocks?: PrintFormBlock[];
 }
 
 export interface PrintFormRow {

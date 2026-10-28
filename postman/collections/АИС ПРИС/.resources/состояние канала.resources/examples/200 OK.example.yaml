@@ -1,0 +1,24 @@
+$kind: http-example
+name: '200 OK'
+request:
+  method: GET
+  url: '{{base_url}}/gw/v1/integrations/pris/status'
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "data": {
+          "mode": "stub",
+          "system": "АИС ПРИС",
+          "sends": false,
+          "ministry": false,
+          "detail": "Заглушка ПРИС: пакет проверяется и не отправляется."
+        },
+        "meta": {"request_id": "req", "duration_ms": 1}
+      }

@@ -300,7 +300,315 @@ def payload_of(ctx: dict) -> dict:
         "section_list": ctx.get("section_list") or [],
         "sections": ctx.get("sections") or {},
         "show_services": ctx["show_services"],
+        "blocks": blank_to_blocks(ctx["blank"], ctx),
     }
+
+
+def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
+    """Раскладывает образец бланка в редактируемые блоки конструктора."""
+    if not known(blank):
+        return []
+    copy = (ctx or {}).get("copy") or _copy(blank)
+    family = family_of(blank)
+    font = "Times New Roman"
+
+    def blk(
+        key: str, title: str, text: str, y: int, *,
+        align: str = "left", bold: bool = False, italic: bool = False,
+        size: int = 12, x: int = 4, w: int = 92,
+        columns: list[dict] | None = None, rows: list[list[str]] | None = None,
+    ) -> dict:
+        return {
+            "key": key,
+            "title": title,
+            "enabled": True,
+            "align": align,
+            "bold": bold,
+            "italic": italic,
+            "font_size": size,
+            "font_family": font,
+            "text": text,
+            "columns": columns or [],
+            "rows": rows or [],
+            "x": x,
+            "y": y,
+            "w": w,
+        }
+
+    if family == "warning":
+        return [
+            blk("logo", "Шапка", f"{copy.get('country', 'Республика Беларусь')}\n{{organization}}\n{{locality}}\n{{date}}, № {{doc_number}}", 12, align="center", bold=True, x=4, w=46),
+            blk("requisites", "Адресат", f"{copy.get('addressee_prefix', 'гр.')} {{fio}},\n{copy.get('living', 'проживающему по адресу')}\n{{address}}", 12, align="right", x=52, w=44),
+            blk("block-title", "Заголовок", copy.get("title", "ПРЕДУПРЕЖДЕНИЕ"), 90, align="center", bold=True, size=14),
+            blk(
+                "body", "Текст",
+                f"{copy.get('before_amount', '')} {{amount}} {copy.get('after_amount', '')} {{due_days}} {copy.get('after_days', '')} {{services}} {copy.get('law', '')}\n\n"
+                f"{copy.get('p2_before', '')} {{organization}} {copy.get('p2_after', '')}\n\n"
+                f"{copy.get('phone_label', 'По имеющимся вопросам обращайтесь по тел.')} {{phone}}",
+                150, align="justify",
+            ),
+            blk(
+                "signatory", "Подписи", copy.get("stamp", "Печать"), 340, size=11,
+                columns=[
+                    {"title": copy.get("handed", "Предупреждение вручил"), "width": 50},
+                    {"title": copy.get("received", "Предупреждение получил"), "width": 50},
+                ],
+                rows=[[copy.get("handed_sign", "Ф.И.О. (подпись)"), f"{copy.get('received_sign', '(подпись)')} {{fio}}"]],
+            ),
+        ]
+    if family == "notice":
+        svc = "" if blank == "notice-tko" else "{services} "
+        mid = f"{copy.get('mid_amount', '')} " if copy.get("mid_amount") else ""
+        p2 = f"\n\n{copy['p2']}" if copy.get("p2") else ""
+        return [
+            blk("requisites", "Адресат", "{fio}\n{address}", 12, align="right"),
+            blk("block-title", "Заголовок", copy.get("title", "УВЕДОМЛЕНИЕ"), 70, align="center", bold=True, size=14),
+            blk(
+                "body", "Текст",
+                f"{copy.get('before_amount', '')} {svc}{mid}{{amount}} {copy.get('after_amount', '')}{p2}\n\n"
+                f"{copy.get('contact_before', '')} {{organization}} {copy.get('contact_mid', '')} {{address_org}} "
+                f"{copy.get('hours_label', 'время работы')} {{hours}}, {copy.get('phone_label', 'телефон')} {{phone}}.",
+                120, align="justify",
+            ),
+            blk("logo", "Шапка", f"{copy.get('country', 'Республика Беларусь')}\n{{organization}}\n{{locality}}\n{{date}}, {copy.get('out_label', 'исх. №')} {{doc_number}}", 280),
+            blk("signatory", "Подписи", copy.get("stamp", "М.П."), 360),
+        ]
+    if family == "reminder":
+        return [
+            blk(
+                "logo", "Куда и кому",
+                f"{copy.get('issued', 'Дата, время выдачи:')} {{date}}\n"
+                f"{copy.get('where', 'Куда:')} {{address}}\n"
+                f"{copy.get('whom', 'Кому:')} {{fio}}\n"
+                f"{copy.get('account_label', 'Лицевой счет')} {{account}}   {copy.get('area_label', 'Общая площадь')} {{area}} {copy.get('area_unit', 'м.кв.')}   {copy.get('live_label', 'Проживает')} {{residents_count}} {copy.get('live_unit', 'чел.')}\n"
+                f"{copy.get('sender', 'Индекс предприятия связи и адрес отправителя:')} {{address_org}}",
+                12,
+            ),
+            blk(
+                "body", "Текст",
+                f"{copy.get('title', 'НАПОМИНАНИЕ')}\n\n"
+                f"{copy.get('on_date', 'На')} {{as_of}} {copy.get('debt_text', '')} {{months_debt}}",
+                100, align="center", bold=True,
+            ),
+            blk(
+                "table", "Долг и пени", copy.get("penalty_title", "Расчет пени"), 180, size=11,
+                columns=[
+                    {"title": copy.get("month", "Месяц год"), "width": 40},
+                    {"title": copy.get("debt", "Долг"), "width": 30},
+                    {"title": copy.get("mulct", "Пени"), "width": 30},
+                ],
+                rows=[["{debt_started}", "{principal}", "{penalty}"], [copy.get("grand", "ИТОГО"), "{principal}", "{penalty}"]],
+            ),
+            blk(
+                "signatory", "Адрес отправителя",
+                f"{copy.get('pay_before', 'Вам надлежит до')} {{due_date}} {copy.get('pay_after', '')}\n"
+                f"{copy.get('phone_label', 'тел.')} {{phone}}\n{{address_org}}",
+                300,
+            ),
+        ]
+    if family == "calculation":
+        return [
+            blk(
+                "logo", "Заголовок и шапка",
+                f"{copy.get('title_before', 'Расчёт задолженности по лицевому счету №')} {{account}} {copy.get('title_after', 'по состоянию на')} {{as_of}}\n"
+                f"{copy.get('country', 'Республика Беларусь')}\n{{organization}}\n{{locality}}",
+                12, align="center", bold=True, size=12,
+            ),
+            blk(
+                "requisites", "Реквизиты",
+                f"{copy.get('agent_label', '')} {copy.get('agent', 'ОАО «НКФО «ЕРИП»')}\n"
+                f"{copy.get('bank_label', 'Банк:')} {{bank}}   {copy.get('bik_label', 'БИК банка:')} {{bik}}   {copy.get('acc_label', 'Счет:')} {{bank_account}}\n"
+                f"{copy.get('unp_label', 'УНП бенефициара:')} {{unp}}   {copy.get('reg_label', 'РЕГ. №')} {{doc_number}}",
+                80, size=10,
+            ),
+            blk(
+                "block-payer", "Плательщик",
+                f"{copy.get('duty', 'Обязанность по внесению платы за жилищно-коммунальные услуги возникла с')} {{duty_from}}",
+                150, size=10,
+                columns=[
+                    {"title": copy.get("payer", "Плательщик ЖКУ"), "width": 30},
+                    {"title": copy.get("address", "Адрес"), "width": 30},
+                    {"title": copy.get("ownership", "Тип собственности"), "width": 20},
+                    {"title": copy.get("space", "Площадь / комнат"), "width": 20},
+                ],
+                rows=[["{fio}", "{address}", "{ownership}", "{area} / {rooms}"]],
+            ),
+            blk(
+                "table", "Таблица услуг",
+                "Всего к оплате: {amount} белорусских рублей (основной долг {principal}, пеня {penalty}).",
+                240, size=10,
+                columns=[
+                    {"title": copy.get("service", "Наименование услуги"), "width": 36},
+                    {"title": "Период", "width": 22},
+                    {"title": copy.get("col_debt", "Долг по услуге"), "width": 14},
+                    {"title": copy.get("col_mulct", "Долг по пени"), "width": 14},
+                    {"title": copy.get("col_all", "Всего с пеней"), "width": 14},
+                ],
+                rows=[
+                    ["{services}", "{debt_started}", "{principal}", "{penalty}", "{amount}"],
+                    [copy.get("row_total", "Итого"), "", "{principal}", "{penalty}", "{amount}"],
+                ],
+            ),
+            blk(
+                "block-people", "Зарегистрированные",
+                copy.get("people", "Сведения о совершеннолетних гражданах, зарегистрированных по месту жительства"),
+                340, size=10,
+                columns=[
+                    {"title": copy.get("person", "Фамилия, имя, отчество"), "width": 36},
+                    {"title": copy.get("registered", "Дата регистрации"), "width": 22},
+                    {"title": copy.get("birthday", "Дата рождения"), "width": 20},
+                    {"title": copy.get("relation", "Отношение"), "width": 22},
+                ],
+                rows=[["{fio}", "{duty_from}", "", "Плательщик"]],
+            ),
+            blk(
+                "body", "Оговорка",
+                f"{copy.get('after_hand', 'После вручения')} {{warning_date}} {copy.get('close', '')}",
+                430, align="justify", size=10,
+            ),
+            blk(
+                "signatory", "Подписи", "", 520, size=10,
+                columns=[
+                    {"title": "Руководитель", "width": 50},
+                    {"title": "Главный бухгалтер", "width": 50},
+                ],
+                rows=[["(должность) (подпись) (И.О.Фамилия)", "(должность) (подпись) (И.О.Фамилия)"]],
+            ),
+        ]
+    if family == "case":
+        mode = copy.get("mode") or "claim"
+        if mode == "proxy":
+            return [
+                blk(
+                    "logo", "Шапка организации",
+                    f"{copy.get('country', 'Республика Беларусь')}\n{{organization}}\n{{locality}}\n{{date}}, № {{doc_number}}",
+                    12, align="center", bold=True, x=4, w=46,
+                ),
+                blk("block-title", "Заголовок", "ДОВЕРЕННОСТЬ", 90, align="center", bold=True, size=14),
+                blk(
+                    "body", "Текст доверенности",
+                    "{organization}, УНП {unp}, в лице руководителя, действующего на основании Устава (Положения), "
+                    "настоящей доверенностью уполномочивает представителя {representative} представлять интересы "
+                    "организации в нотариальных конторах и нотариальных бюро Республики Беларусь по вопросам "
+                    "обращения за совершением исполнительных надписей о взыскании задолженности по плате за "
+                    "жилищно-коммунальные услуги и пени, подписывать заявления о совершении исполнительных "
+                    "надписей и расчёты суммы задолженности.",
+                    140, align="justify",
+                ),
+                blk(
+                    "requisites", "Сведения по лицевому счёту",
+                    f"{copy.get('person_label', 'Должник')}: {{fio}}\n"
+                    f"{copy.get('account_label', 'Лицевой счёт')}: {{account}}\n"
+                    f"{copy.get('address_label', 'Адрес')}: {{address}}\n"
+                    "Период задолженности: с {period_from} по {period_to}\n"
+                    "Задолженность: {amount} бел. руб., в том числе пеня {penalty} бел. руб.",
+                    260,
+                ),
+                blk(
+                    "signatory", "Подпись",
+                    "Руководитель _______________________ {organization}\nМ.П.",
+                    380,
+                ),
+            ]
+        if mode == "writ":
+            return [
+                blk(
+                    "logo", "Шапка организации",
+                    f"{copy.get('country', 'Республика Беларусь')}\n{{organization}}\n{{locality}}\nУНП {{unp}}\n{{date}}, исх. № {{doc_number}}",
+                    12, align="center", bold=True, x=4, w=46,
+                ),
+                blk(
+                    "requisites", "Адресат и стороны",
+                    "В нотариальную контору / нотариальное бюро\n"
+                    "Взыскатель: {organization}\n"
+                    "Должник: {fio}\n"
+                    "Идентификационный номер: {personal_id}\n"
+                    "Адрес: {address}\n"
+                    "Лицевой счёт № {account}",
+                    12, align="right", x=52, w=44,
+                ),
+                blk(
+                    "block-title", "Заголовок",
+                    "ЗАЯВЛЕНИЕ\nо совершении исполнительной надписи",
+                    96, align="center", bold=True, size=14,
+                ),
+                blk(
+                    "body", "Текст заявления",
+                    "Прошу совершить исполнительную надпись о взыскании с должника {fio}, проживающего по адресу: "
+                    "{address} (лицевой счёт № {account}), задолженности по плате за жилищно-коммунальные услуги "
+                    "({services}) за период с {period_from} по {period_to} и пени в связи с просрочкой внесения платы.\n\n"
+                    "Письменное предупреждение о необходимости погашения задолженности вручено должнику {warning_date} "
+                    "(срок для погашения — {due_days} дней). В установленный срок задолженность не погашена, судебного спора не имеется.",
+                    156, align="justify",
+                ),
+                blk(
+                    "table", "Расчёт требований", "", 270, size=11,
+                    columns=[
+                        {"title": "Наименование требования", "width": 46},
+                        {"title": "Период задолженности", "width": 30},
+                        {"title": "Сумма, бел. руб.", "width": 24},
+                    ],
+                    rows=[
+                        ["Основной долг ({services})", "{period_from} – {period_to}", "{principal}"],
+                        ["Пеня за просрочку платы", "{period_from} – {period_to}", "{penalty}"],
+                        ["Нотариальный тариф", "", "{tariff}"],
+                        ["ИТОГО", "", "{amount}"],
+                    ],
+                ),
+                blk(
+                    "signatory", "Подпись",
+                    f"{copy.get('sign_hint', 'Подпись уполномоченного')} _______________________ {{representative}}\nМ.П.",
+                    400,
+                ),
+            ]
+        claim_sub = copy.get("kind") or "На взыскание задолженности"
+        return [
+            blk(
+                "requisites", "В суд и стороны",
+                "В суд по месту нахождения жилого помещения\n"
+                "Истец: {organization}, УНП {unp}\n"
+                "Адрес истца: {address_org}\n"
+                f"{copy.get('person_label', 'ФИО ответчика')}: {{fio}}\n"
+                "Идентификационный номер: {personal_id}\n"
+                f"{copy.get('address_label', 'Адрес')}: {{address}}\n"
+                f"{copy.get('account_label', 'Лицевой счёт')}: {{account}}\n"
+                "Цена иска: {amount} бел. руб.   Госпошлина: {duty} бел. руб.",
+                12, align="right", x=40, w=56,
+            ),
+            blk(
+                "block-title", "Заголовок",
+                f"ИСКОВОЕ ЗАЯВЛЕНИЕ\n({claim_sub})",
+                100, align="center", bold=True, size=14,
+            ),
+            blk(
+                "body", "Текст иска",
+                "Ответчик {fio}, проживающий по адресу: {address} (лицевой счёт № {account}), имеет задолженность "
+                "по плате за жилищно-коммунальные услуги ({services}) за период с {period_from} по {period_to} "
+                "в общей сумме {amount} бел. руб., в том числе основной долг {principal} бел. руб. и пеня {penalty} бел. руб.\n\n"
+                "Предупреждение о необходимости погашения задолженности вручено {warning_date} (срок погашения — {due_days} дней). "
+                "В добровольном порядке задолженность не погашена.\n\n"
+                "На основании изложенного и руководствуясь жилищным и гражданским процессуальным законодательством Республики Беларусь, "
+                "прошу суд удовлетворить заявленные исковые требования и взыскать с ответчика задолженность и судебные расходы.",
+                160, align="justify",
+            ),
+            blk(
+                "table", "Суммы задолженности", "", 290, size=11,
+                columns=[
+                    {"title": copy.get("col_name", "Услуга"), "width": 44},
+                    {"title": "Период долга", "width": 26},
+                    {"title": copy.get("debt_label", "Долг по услугам"), "width": 15},
+                    {"title": copy.get("penalty_label", "Долг по пене"), "width": 15},
+                ],
+                rows=[["{services}", "{period_from} – {period_to}", "{principal}", "{penalty}"]],
+            ),
+            blk(
+                "signatory", "Подпись и дата",
+                f"{{date}}, исх. № {{doc_number}}\n{copy.get('note_label', 'Примечание')}: {{note}}\n\n"
+                f"{copy.get('sign_hint', 'Подпись уполномоченного')} _______________________ {{organization}}",
+                400,
+            ),
+        ]
+    return []
 
 
 def render_official_html(blank: str, ctx: dict) -> str:

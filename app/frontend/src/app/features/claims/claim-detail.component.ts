@@ -229,6 +229,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 @if (row.opi_mode === 'pris') {
                   <p class="banner">Пакет передан в АИС ПРИС. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
                 }
+                @if (row.opi_mode === 'channel') {
+                  <p class="banner">Пакет принят тестовым каналом шлюза. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
+                }
                 <div class="line">
                   <mat-form-field><mat-label>Номер производства</mat-label><input matInput [(ngModel)]="opiNumber" /></mat-form-field>
                   <mat-form-field><mat-label>Статус вручную</mat-label><input matInput [(ngModel)]="opiStatus" /></mat-form-field>
@@ -271,7 +274,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 }
                 <details>
                   <summary>Передача в ПРИС</summary>
-                  <p class="hint">Код выбирается из GetNSIData или вписывается. Пока канал-заглушка, справочник 120 содержит только пример регламента. Остальные номера придут из Минюста после GW_PRIS_MODE=http. Подпись — отсоединённый PKCS#7, файл .p7s или .sgn. Её ставит тот же ключ AvPass. Если PDF выбран «из пакета», в ПРИС уходит подпись с вкладки «Комплект».</p>
+                  <p class="hint">Код выбирается из GetNSIData или вписывается. В режимах stub и channel справочник 120 содержит только пример регламента. Полный набор Минюста приходит при GW_PRIS_MODE=http. Подпись — отсоединённый PKCS#7, файл .p7s или .sgn. Её ставит тот же ключ AvPass. Если PDF выбран «из пакета», в ПРИС уходит подпись с вкладки «Комплект».</p>
                   @if (row.pris?.problems?.length) {
                     <p class="need">{{ row.pris?.problems?.join('; ') }}</p>
                   }

@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import re
+
 BLOCK_KEYS = ("logo", "requisites", "body", "signatory", "table")
-ALIGNS = {"left", "center", "right"}
+ALIGNS = {"left", "center", "right", "justify"}
+FONTS = {
+    "Times New Roman",
+    "Arial",
+    "Calibri",
+    "Georgia",
+    "Verdana",
+    "Tahoma",
+    "Courier New",
+    "DejaVu Serif",
+    "DejaVu Sans",
+}
 LABELS = (
     ("должник", "fio"),
     ("заявитель", "organization"),
@@ -47,15 +60,18 @@ def blocks_of(form) -> list[dict]:
 def clean_blocks(raw) -> list[dict]:
     if not isinstance(raw, list) or not raw:
         raise ValueError("Макет — список блоков")
-    if len(raw) > 12:
-        raise ValueError("В макете не больше 12 блоков")
+    if len(raw) > 30:
+        raise ValueError("В макете не больше 30 блоков")
     cleaned = []
+    seen_keys: set[str] = set()
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError("Блок макета — объект")
-        key = str(item.get("key") or f"block-{index + 1}")[:30]
-        if key not in BLOCK_KEYS and not key.startswith("block-"):
-            key = f"block-{index + 1}"
+        raw_key = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("key") or ""))[:30]
+        key = raw_key or f"block-{index + 1}"
+        if key in seen_keys:
+            key = f"{key[:24]}-{index + 1}"
+        seen_keys.add(key)
         text = str(item.get("text") or "")
         if len(text) > 20000:
             raise ValueError("Текст блока длиннее 20000 символов")
@@ -63,11 +79,14 @@ def clean_blocks(raw) -> list[dict]:
             size = int(item.get("font_size") or 12)
         except (TypeError, ValueError) as exc:
             raise ValueError("Размер шрифта — число") from exc
-        if size < 8 or size > 24:
-            raise ValueError("Размер шрифта от 8 до 24")
+        if size < 8 or size > 36:
+            raise ValueError("Размер шрифта от 8 до 36")
         align = str(item.get("align") or "left")
         if align not in ALIGNS:
-            raise ValueError("Выравнивание: слева, по центру или справа")
+            raise ValueError("Выравнивание: слева, по центру, справа или по ширине")
+        font_family = str(item.get("font_family") or "Times New Roman").strip()
+        if font_family not in FONTS:
+            font_family = "Times New Roman"
         columns = _columns(item.get("columns") or [])
         rows = _rows(item.get("rows") or [], len(columns))
         cleaned.append({
@@ -78,29 +97,33 @@ def clean_blocks(raw) -> list[dict]:
             "bold": bool(item.get("bold")),
             "italic": bool(item.get("italic")),
             "font_size": size,
+            "font_family": font_family,
             "text": text,
             "columns": columns,
             "rows": rows,
-            "x": _span(item.get("x"), 4, 0, 70),
-            "y": _span(item.get("y"), 12 + index * 96, 0, 1600),
-            "w": _span(item.get("w"), 92, 24, 100),
+            "x": _span(item.get("x"), 4, 0, 75),
+            "y": _span(item.get("y"), 12 + index * 96, 0, 3200),
+            "w": _span(item.get("w"), 92, 20, 100),
         })
-    if not any(block["key"] == "body" for block in cleaned):
-        raise ValueError("В макете нужен блок текста")
     return cleaned
 
 
 def apply_blocks(form, blocks: list[dict]) -> None:
     form.blocks = blocks
+    has_body = False
     for block in blocks:
         if block["key"] == "body":
             form.body = block["text"]
+            has_body = True
         elif block["key"] == "logo":
             form.logo_text = block["text"][:250]
         elif block["key"] == "requisites":
             form.requisites = block["text"]
         elif block["key"] == "signatory":
             form.signatory = block["text"][:250]
+    if not has_body:
+        texts = [block["text"] for block in blocks if block.get("enabled", True) and block.get("text")]
+        form.body = "\n\n".join(texts) if texts else (blocks[0]["text"] if blocks else "")
 
 
 def fill_blocks(blocks: list[dict], values: dict) -> list[dict]:
@@ -126,12 +149,27 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
             "blocks": [_block("body", "Текст", "", 12, True)],
             "name": _title(name),
         }
+    if lower.endswith(".docx"):
+        docx_laid = _docx_blocks(raw)
+        if docx_laid:
+            return {
+                "recognized": True,
+                "note": "Документ Word разобран по абзацам и таблицам. Проверьте макет и сохраните.",
+                "blocks": docx_laid,
+                "name": _title(name),
+            }
+        return {
+            "recognized": False,
+            "note": "В документе не найден текст. Поправьте макет вручную и сохраните.",
+            "blocks": [_block("body", "Текст", "", 12, True)],
+            "name": _title(name),
+        }
     if lower.endswith(".pdf"):
         laid = _letter_blocks(raw)
         if laid:
             return {
                 "recognized": True,
-                "note": "Черновик повторяет бланк: шапка в две колонки, заголовок по центру, дальше обычные абзацы. Проверьте и сохраните.",
+                "note": "Черновик повторяет бланк: шапка, заголовок, абзацы и таблицы. Проверьте и сохраните.",
                 "blocks": laid,
                 "name": _title(name),
             }
@@ -141,7 +179,7 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
     if not text:
         return {
             "recognized": False,
-            "note": "В файле не найден текст. Поправьте макет вручную и сохраните.",
+            "note": "В файле не найден текстовый слой (скан-изображение). Поправьте макет вручную и сохраните.",
             "blocks": [_block("body", "Текст", "", 12, True)],
             "name": _title(name),
         }
@@ -153,7 +191,10 @@ def recognize_bytes(name: str, raw: bytes) -> dict:
     }
 
 
-def _block(key: str, title: str, text: str, size: int, enabled: bool, y: int = 12, align: str = "left", x: int = 4, w: int = 92) -> dict:
+def _block(
+    key: str, title: str, text: str, size: int, enabled: bool, y: int = 12,
+    align: str = "left", x: int = 4, w: int = 92, font_family: str = "Times New Roman",
+) -> dict:
     return {
         "key": key,
         "title": title,
@@ -162,6 +203,7 @@ def _block(key: str, title: str, text: str, size: int, enabled: bool, y: int = 1
         "bold": False,
         "italic": False,
         "font_size": size,
+        "font_family": font_family,
         "text": text,
         "columns": [],
         "rows": [],
@@ -191,27 +233,26 @@ def _columns(raw) -> list[dict]:
         elif isinstance(item, dict):
             title = str(item.get("title") or "")
             try:
-                width = int(item.get("width") or 20)
+                width = int(round(float(item.get("width") or 20)))
             except (TypeError, ValueError) as exc:
                 raise ValueError("Ширина колонки — число") from exc
         else:
             raise ValueError("Колонка таблицы — название и ширина")
-        if width < 8 or width > 80:
-            raise ValueError("Ширина колонки от 8 до 80")
-        columns.append({"title": title[:40], "width": width})
+        width = min(100, max(5, width))
+        columns.append({"title": title[:60], "width": width})
     return columns
 
 
 def _rows(raw, width: int) -> list[list[str]]:
     if not isinstance(raw, list):
         raise ValueError("Строки таблицы — список")
-    if len(raw) > 40:
-        raise ValueError("В таблице не больше 40 строк")
+    if len(raw) > 60:
+        raise ValueError("В таблице не больше 60 строк")
     rows = []
     for row in raw:
         if not isinstance(row, list):
             raise ValueError("Строка таблицы — список ячеек")
-        cells = [str(cell)[:80] for cell in row[:12]]
+        cells = [str(cell)[:500] for cell in row[:12]]
         if width and len(cells) > width:
             cells = cells[:width]
         rows.append(cells)
@@ -254,14 +295,36 @@ def _pdf_text(raw: bytes) -> str:
 
 
 def _letter_blocks(raw: bytes) -> list[dict] | None:
-    """Письмо АИС: шапка слева и справа, заголовок по центру, абзацы без лесенки."""
+    """Письмо АИС: шапка слева и справа, заголовок по центру, абзацы и таблицы без лесенки."""
     positioned = _positioned(raw)
     if not positioned:
         return None
     lines, width = positioned
+    joined_all = "\n".join(line["text"] for line in lines)
+    if "Расчёт задолженности по лицевому счету" in joined_all or "Расчет задолженности по лицевому счету" in joined_all:
+        from .official_blanks import blank_to_blocks
+
+        return blank_to_blocks("calculation")
     title_at = _title_index(lines, width)
     if title_at is None:
         return None
+    title_text = lines[title_at]["text"].strip().upper()
+    if title_text == "НАПОМИНАНИЕ":
+        head_lines = [_token_line(line["text"]) for line in lines[:title_at] if line["text"].strip()]
+        body = _body_text(lines[title_at], lines[title_at + 1:])
+        tbl = _block("table", "Долг и пени", "Расчет пени", 11, True, 180)
+        tbl["columns"] = [
+            {"title": "Месяц год", "width": 40},
+            {"title": "Долг", "width": 30},
+            {"title": "Пени", "width": 30},
+        ]
+        tbl["rows"] = [["{debt_started}", "{principal}", "{penalty}"], ["ИТОГО", "{principal}", "{penalty}"]]
+        blocks = []
+        if head_lines:
+            blocks.append(_block("block-1", "Шапка", "\n".join(head_lines), 12, True, 12, x=4, w=92))
+        blocks.append(_block("body", "Текст", body, 12, True, 96))
+        blocks.append(tbl)
+        return blocks
     left, right = _header_columns(lines[:title_at], width)
     body = _body_text(lines[title_at], lines[title_at + 1:])
     blocks = []
@@ -271,6 +334,73 @@ def _letter_blocks(raw: bytes) -> list[dict] | None:
         blocks.append(_block("block-2", "Адресат", "\n".join(_token_line(line) for line in right), 12, True, 12, align="right", x=52, w=44))
     blocks.append(_block("body", "Текст", body, 12, True, 80))
     return blocks
+
+
+def _docx_blocks(raw: bytes) -> list[dict] | None:
+    """Извлекает абзацы и таблицы из .docx в редактируемые блоки."""
+    try:
+        from io import BytesIO
+        from xml.etree import ElementTree as ET
+        import zipfile
+
+        with zipfile.ZipFile(BytesIO(raw)) as archive:
+            if "word/document.xml" not in archive.namelist():
+                return None
+            xml_bytes = archive.read("word/document.xml")
+        root = ET.fromstring(xml_bytes)
+    except Exception:
+        return None
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    body_el = root.find("w:body", ns)
+    if body_el is None:
+        return None
+    blocks: list[dict] = []
+    para_buf: list[str] = []
+    y = 12
+
+    def flush_paras():
+        nonlocal y, para_buf
+        if not para_buf:
+            return
+        key = "body" if not any(b["key"] == "body" for b in blocks) else f"block-{len(blocks) + 1}"
+        title = "Текст" if key == "body" else f"Абзац {len(blocks) + 1}"
+        blocks.append(_block(key, title, "\n".join(_token_line(p) for p in para_buf), 12, True, y))
+        y += 80
+        para_buf = []
+
+    for child in body_el:
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            texts = [t.text for t in child.findall(".//w:t", ns) if t.text]
+            line = " ".join("".join(texts).split())
+            if line:
+                para_buf.append(line)
+        elif tag == "tbl":
+            flush_paras()
+            tr_rows: list[list[str]] = []
+            for tr in child.findall(".//w:tr", ns):
+                row_cells: list[str] = []
+                for tc in tr.findall("./w:tc", ns):
+                    cell_texts = [t.text for t in tc.findall(".//w:t", ns) if t.text]
+                    row_cells.append(" ".join("".join(cell_texts).split())[:500])
+                if any(row_cells):
+                    tr_rows.append(row_cells[:12])
+            if tr_rows:
+                col_count = max(len(r) for r in tr_rows)
+                col_w = max(5, int(round(100 / max(col_count, 1))))
+                headers = tr_rows[0]
+                data_rows = tr_rows[1:] if len(tr_rows) > 1 else [["" for _ in range(col_count)]]
+                key = f"table-{len(blocks) + 1}" if any(b["key"] == "table" for b in blocks) else "table"
+                tbl_block = _block(key, f"Таблица {len(blocks) + 1}", "", 11, True, y)
+                tbl_block["columns"] = [
+                    {"title": (headers[i] if i < len(headers) and headers[i] else f"Столбец {i + 1}")[:60], "width": col_w}
+                    for i in range(col_count)
+                ]
+                tbl_block["rows"] = [r + [""] * (col_count - len(r)) for r in data_rows[:60]]
+                blocks.append(tbl_block)
+                y += 96
+    flush_paras()
+    return blocks[:30] if blocks else None
 
 
 def _positioned(raw: bytes):
@@ -329,25 +459,52 @@ def _group_lines(runs: list[dict]) -> list[dict]:
     lines = []
     for group in grouped:
         runs = sorted(group["runs"], key=lambda run: run["x"])
+        joined = _join_runs(runs)
+        if _is_print_footer(joined):
+            continue
         lines.append({
             "y": group["y"],
             "x": runs[0]["x"],
             "size": runs[0]["size"],
             "runs": runs,
-            "text": _join_runs(runs),
+            "text": joined,
         })
     return lines
+
+
+def _is_print_footer(text: str) -> bool:
+    stripped = (text or "").strip()
+    if stripped.startswith(("Обработано:", "Пользователь УКСиК", "Всего страниц:")):
+        return True
+    return "Пользователь УКСиК" in stripped and "Всего страниц:" in stripped
 
 
 def _join_runs(runs: list[dict]) -> str:
     parts: list[str] = []
     previous_end = None
     for run in runs:
-        if parts and previous_end is not None and run["x"] > previous_end + (run["size"] or 10) * 0.35:
-            parts.append(" ")
+        size = run["size"] or 10
+        if parts and previous_end is not None:
+            gap = run["x"] - previous_end
+            prev_text = parts[-1]
+            if gap > size * 0.35 or _boundary_needs_space(prev_text, run["text"], gap):
+                parts.append(" ")
         parts.append(run["text"])
-        previous_end = run["x"] + (run["size"] or 10) * 0.48 * len(run["text"])
+        previous_end = run["x"] + size * 0.48 * len(run["text"])
     return " ".join("".join(parts).split())
+
+
+def _boundary_needs_space(prev_text: str, next_text: str, _gap: float) -> bool:
+    if not prev_text or not next_text:
+        return False
+    left, right = prev_text[-1], next_text[0]
+    if left in ":,;" and right not in " .,;)":
+        return True
+    if (left.isalpha() and right.isdigit()) or (left.isdigit() and right.isalpha()):
+        return True
+    if left.islower() and right.isupper():
+        return True
+    return False
 
 
 def _title_index(lines: list[dict], width: float) -> int | None:
