@@ -658,6 +658,7 @@ export interface ActivityNode {
   status_label: string;
   measure_id: number | null;
   needs_action: boolean;
+  mandatory?: boolean;
   note: string;
   children: ActivityNode[];
 }

@@ -12,6 +12,7 @@ from apps.debts.models import Attachment, StageActivity
 from apps.debts.services.funnel import MAIN, MEASURE_STAGE, PARALLEL, normalize, parse_handed_on, short_of, title_of
 
 # code, parent, title, kind. kind группы не нажимается: статус складывается из детей.
+# kind «check» считает система по делу, кнопки «Нужно действие» у него нет.
 TEMPLATES = {
     "call": (
         ("dial", "", "Автообзвон", "call"),
@@ -37,35 +38,51 @@ TEMPLATES = {
         ("pack_fields", "pack", "Реквизиты пакета", "field"),
     ),
     "notary": (
-        ("send", "", "Направление нотариусу", "field"),
+        ("send_group", "", "Направление нотариусу", "group"),
+        ("send", "send_group", "Пакет направлен", "field"),
+        ("send_reg", "send_group", "Регистрационный номер обращения", "check"),
     ),
     "writ_done": (
-        ("writ", "", "Исполнительная надпись", "upload"),
+        ("writ", "", "Электронный исполнительный документ", "upload"),
     ),
     "refused": (
         ("refusal", "", "Отказ нотариуса", "upload"),
     ),
     "lawsuit": (
-        ("suit", "", "Исковое заявление", "upload"),
-        ("duty", "", "Госпошлина", "field"),
+        ("suit_group", "", "Иск", "group"),
+        ("suit", "suit_group", "Исковое заявление", "upload"),
+        ("duty", "suit_group", "Госпошлина", "field"),
+        ("filed", "suit_group", "Дата подачи иска", "field"),
     ),
     "judgment": (
-        ("decision", "", "Судебное решение", "upload"),
+        ("court_group", "", "Решение суда", "group"),
+        ("decision", "court_group", "Судебное решение", "upload"),
+        ("sheet", "court_group", "Исполнительный лист", "upload"),
     ),
     "opi": (
-        ("opi_send", "", "Направление в ОПИ", "field"),
+        ("opi_work", "", "Направление в ОПИ", "group"),
+        ("opi_office", "opi_work", "Орган ОПИ", "field"),
+        ("opi_sent", "opi_work", "Дата направления в ОПИ", "field"),
+        ("opi_doc", "opi_work", "Исполнительный документ", "upload"),
+        ("opi_send", "opi_work", "Номер и статус производства", "field"),
     ),
     "opi_measures": (
-        ("opi_act", "", "Меры ОПИ", "upload"),
+        ("opi_track", "", "Меры ОПИ", "group"),
+        ("opi_act", "opi_track", "Принятые меры ОПИ", "upload"),
+        ("opi_full", "opi_track", "Полнота: долг, пеня и тариф", "check"),
     ),
     "recovered": (
-        ("paid", "", "Погашение подтверждено", "field"),
+        ("paid", "", "Погашение долга, пени и тарифа", "check"),
     ),
     "impossible": (
-        ("acts", "", "Акты о невозможности взыскания", "upload"),
+        ("acts_group", "", "Невозможность взыскания", "group"),
+        ("acts", "acts_group", "Акт о невозможности взыскания", "upload"),
+        ("acts_three", "acts_group", "Три акта для списания", "check"),
     ),
     "writeoff": (
-        ("docs", "", "Документы на списание", "upload"),
+        ("write_group", "", "Списание", "group"),
+        ("docs", "write_group", "Акт о списании", "upload"),
+        ("route", "write_group", "Согласование списания", "check"),
     ),
     "p1": (
         ("evict_notice", "", "Уведомление о возможном выселении", "upload"),
@@ -75,6 +92,19 @@ TEMPLATES = {
     ),
 }
 LEAF = {"upload", "field", "email", "call"}
+# Эти пункты блокируют переход. На карточке ЛС незакрытый пункт помечен.
+MANDATORY = {
+    "hand", "pack_calc", "pack_claim", "pack_fields",
+    "send", "send_reg",
+    "suit", "duty", "filed",
+    "decision", "sheet",
+    "opi_office", "opi_sent", "opi_doc", "opi_send",
+    "opi_act",
+    "acts", "acts_three",
+    "docs", "route",
+}
+# Ручная отметка не снимается, пока дело само не подтвердит пункт.
+STICKY = {"send", "opi_doc"}
 STATUS_LABEL = {"running": "В работе", "done": "Завершено"}
 
 
@@ -90,21 +120,41 @@ def ensure_stage(account, stage: str) -> None:
 
 
 def _ensure(account, stage: str, measure_id=None) -> None:
-    existing = set(
-        StageActivity.objects.filter(account=account, stage=stage).values_list("code", flat=True),
-    )
+    rows = {row.code: row for row in StageActivity.objects.filter(account=account, stage=stage)}
     fresh = []
+    dirty = []
     for index, (code, parent, title, kind) in enumerate(_rows_for(stage)):
-        if code in existing:
+        row = rows.get(code)
+        if row is None:
+            fresh.append(StageActivity(
+                organization=account.organization, account=account, stage=stage, code=code,
+                parent_code=parent, title=title, kind=kind, sort=index, measure_id=measure_id,
+            ))
             continue
-        fresh.append(StageActivity(
-            organization=account.organization, account=account, stage=stage, code=code,
-            parent_code=parent, title=title, kind=kind, sort=index, measure_id=measure_id,
-        ))
+        changed = False
+        if row.parent_code != parent:
+            row.parent_code = parent
+            changed = True
+        if row.title != title:
+            row.title = title
+            changed = True
+        if row.kind != kind:
+            row.kind = kind
+            changed = True
+        if row.sort != index:
+            row.sort = index
+            changed = True
+        if measure_id and row.measure_id is None:
+            row.measure_id = measure_id
+            changed = True
+        if changed:
+            dirty.append(row)
     if fresh:
         StageActivity.objects.bulk_create(fresh)
-    if measure_id:
-        StageActivity.objects.filter(account=account, stage=stage, measure__isnull=True).update(measure_id=measure_id)
+    if dirty:
+        StageActivity.objects.bulk_update(
+            dirty, ["parent_code", "title", "kind", "sort", "measure"],
+        )
 
 
 def _open_measure_stages(account) -> dict[str, int]:
@@ -170,6 +220,7 @@ def _tree(rows: list[StageActivity]) -> list[dict]:
             "status_label": STATUS_LABEL.get(status, status),
             "measure_id": row.measure_id,
             "needs_action": row.kind in LEAF and row.status != "done",
+            "mandatory": row.code in MANDATORY,
             "note": row.note,
             "children": children,
         }
@@ -191,6 +242,7 @@ def _section_open(tree: list[dict]) -> bool:
 
 def activity_board(account) -> dict:
     current = ensure_board(account)
+    sync_stage_checks(account)
     rows = list(StageActivity.objects.filter(account=account).order_by("sort", "id"))
     grouped: dict[str, list[StageActivity]] = {}
     for row in rows:
@@ -252,17 +304,80 @@ def perform_activity(account, user, activity_id: int, note: str, upload) -> dict
             raise ValidationError({"note": "Укажите результат обзвона"})
         row.note = text
     else:
-        if row.code == "hand":
+        if row.code in {"hand", "opi_sent", "filed"}:
             if parse_handed_on(text) is None:
-                raise ValidationError({"note": "Укажите дату вручения в формате дд.мм.гггг"})
+                raise ValidationError({"note": "Укажите дату в формате дд.мм.гггг"})
+        elif row.code == "duty":
+            _duty_amount(text)
         elif not text:
             raise ValidationError({"note": "Заполните поле"})
+        _push_activity_value(account, user, row.code, text)
         row.note = text
-        if row.code == "opi_send":
-            _sync_claim_from_activity(account, user, row.code, row.note, None)
     row.status = "done"
     row.save(update_fields=["status", "note", "updated_at"])
     return activity_board(account)
+
+
+def _duty_amount(text: str):
+    from decimal import Decimal, InvalidOperation
+
+    raw = (text or "").replace(" ", "").replace(",", ".")
+    try:
+        amount = Decimal(raw)
+    except InvalidOperation:
+        raise ValidationError({"note": "Укажите сумму госпошлины"}) from None
+    if amount <= 0:
+        raise ValidationError({"note": "Госпошлина больше нуля"})
+    return amount
+
+
+def _push_activity_value(account, user, code: str, text: str) -> None:
+    """Поле чек-листа пишется в дело, если пункт к нему относится."""
+    if code not in {"opi_office", "opi_sent", "opi_send", "filed", "duty"}:
+        return
+    from apps.debts.models import ClaimCase
+    from apps.debts.services.claims import push_activity_value
+
+    case = ClaimCase.objects.filter(account=account).order_by("-updated_at", "-id").first()
+    if case is None:
+        raise ValidationError({"note": "Сначала откройте дело взыскания"})
+    push_activity_value(case, user, code, text)
+
+
+def sync_stage_checks(account) -> None:
+    """Закрывает и открывает пункты чек-листа по уже записанному делу."""
+    from apps.debts.models import ClaimCase
+
+    case = ClaimCase.objects.filter(account=account).order_by("-updated_at", "-id").first()
+    if case is None:
+        return
+    from apps.debts.services.claims import stage_marks
+
+    marks = {(stage, code): (met, note) for stage, code, met, note in stage_marks(case)}
+    rows = list(StageActivity.objects.filter(account=account))
+    dirty = []
+    for row in rows:
+        mark = marks.get((row.stage, row.code))
+        if mark is None:
+            continue
+        met, note = mark
+        note = (note or "")[:500]
+        if met:
+            if row.status == StageActivity.Status.DONE and row.note == note:
+                continue
+            row.status = StageActivity.Status.DONE
+            row.note = note
+            dirty.append(row)
+            continue
+        if row.status == StageActivity.Status.DONE and row.code in STICKY:
+            continue
+        if row.status == StageActivity.Status.RUNNING and not row.note:
+            continue
+        row.status = StageActivity.Status.RUNNING
+        row.note = ""
+        dirty.append(row)
+    if dirty:
+        StageActivity.objects.bulk_update(dirty, ["status", "note"])
 
 
 def _sync_claim_from_activity(account, user, code: str, note: str, attachment) -> None:
