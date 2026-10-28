@@ -1,4 +1,4 @@
-// Лист A4. Парные правила печати — apps/nsi/services/form_sheet.css.
+// Лист A4. Строгий чёрно-белый стиль официального документа (парные правила — apps/nsi/services/form_sheet.css).
 :host {
   display: block;
   min-width: 0;
@@ -6,20 +6,21 @@
 }
 
 .desk {
-  background: #525659;
+  background: #e6e6e6;
   padding: 20px 16px 28px;
   overflow: auto;
   scrollbar-gutter: stable;
   max-height: var(--sheet-max-height, calc(100vh - 200px));
   min-height: var(--sheet-min-height, 360px);
   height: var(--sheet-height, auto);
+  border: 1px solid #d4d4d4;
   border-radius: 4px;
 }
 
 .stage {
   position: relative;
   margin: 0 auto;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 12px 28px rgba(0, 0, 0, 0.38);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 6px 18px rgba(0, 0, 0, 0.14);
 }
 
 .clip {
@@ -40,14 +41,14 @@
   box-sizing: border-box;
   padding: 15mm 16mm 18mm;
   background: #fff;
-  color: #1a1a1a;
+  color: #000;
   font-family: "Times New Roman", Times, "Liberation Serif", serif;
   font-size: 12pt;
   line-height: 1.35;
 }
 
 .doc-row {
-  margin: 0 0 2.5mm;
+  margin: 0 0 2mm;
 }
 
 .doc-row.split {
@@ -59,12 +60,11 @@
 
 .doc-block {
   position: relative;
-  margin: 0 0 2.5mm;
-  padding: 1.5mm 2mm;
+  margin: 0 0 2mm;
+  padding: 1mm 1.5mm;
   border: 1px solid transparent;
-  border-radius: 4px;
   box-sizing: border-box;
-  transition: border-color 0.12s, background-color 0.12s;
+  transition: border-color 0.12s;
 }
 
 .doc-row.split .doc-block {
@@ -73,51 +73,53 @@
 }
 
 .doc-block:hover {
-  border-color: rgba(29, 79, 99, 0.28);
+  border-color: #d0d0d0;
 }
 
 .doc-block.on {
-  border-color: #1d4f63;
-  background: rgba(29, 79, 99, 0.025);
+  border-color: #8c8c8c;
 }
 
 .doc-block.drag-over-top {
-  border-top: 2.5px solid #1d4f63;
+  border-top: 2px solid #222;
 }
 
 .doc-block.drag-over-bottom {
-  border-bottom: 2.5px solid #1d4f63;
+  border-bottom: 2px solid #222;
 }
 
 .doc-block.drag-over-side {
-  border-right: 3px solid #1d4f63;
+  border-right: 2px solid #222;
 }
 
 .letterhead {
-  border-bottom: 0.45mm solid #111;
+  border-bottom: 0.35mm solid #000;
   padding-bottom: 2mm;
-  margin-bottom: 4mm;
+  margin-bottom: 3.5mm;
 }
 
 .sign {
-  margin-top: 6mm;
+  margin-top: 5mm;
 }
 
 .block-bar {
+  position: absolute;
+  top: -22px;
+  right: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 6px;
-  margin: -1.5mm -2mm 1.5mm;
-  background: #f0f5f7;
-  border-bottom: 1px solid #d5e1e6;
-  border-radius: 3px 3px 0 0;
+  padding: 1px 6px;
+  background: #f5f5f5;
+  border: 1px solid #bdbdbd;
+  border-radius: 3px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 11px;
   font-weight: 400;
   font-style: normal;
   text-align: left;
-  color: #334e5c;
+  color: #262626;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s;
@@ -133,8 +135,8 @@
 .col-drag {
   cursor: grab;
   user-select: none;
-  padding: 0 3px;
-  color: #526773;
+  padding: 0 2px;
+  color: #666;
   font-weight: 700;
   letter-spacing: -1px;
 }
@@ -145,80 +147,65 @@
 }
 
 .block-title-input {
-  flex: 1;
-  min-width: 80px;
+  width: 130px;
   border: 1px solid transparent;
   background: transparent;
-  border-radius: 3px;
+  border-radius: 2px;
   padding: 1px 4px;
   font: inherit;
   font-weight: 600;
-  color: #1d4f63;
+  color: #222;
 }
 
 .block-title-input:focus,
 .block-title-input:hover {
-  border-color: #b7cbd4;
+  border-color: #999;
   background: #fff;
   outline: none;
 }
 
-.block-meta {
-  font-size: 10px;
-  color: #637885;
-  white-space: nowrap;
-}
-
 .mini-btn {
-  border: 1px solid #c5d4dc;
+  border: 1px solid #c4c4c4;
   background: #fff;
-  color: #243b47;
-  border-radius: 4px;
-  padding: 1px 5px;
+  color: #222;
+  border-radius: 2px;
+  padding: 0 5px;
   font-size: 11px;
   line-height: 1.3;
   cursor: pointer;
 }
 
 .mini-btn:hover {
-  background: #e3eff4;
-  border-color: #1d4f63;
+  background: #e8e8e8;
+  border-color: #666;
 }
 
 .mini-btn.danger:hover {
-  background: #fdecec;
-  border-color: #c62828;
-  color: #c62828;
+  background: #fbe9e9;
+  border-color: #a61b1b;
+  color: #a61b1b;
 }
 
 .block-editor {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  border: 1px dashed transparent;
-  border-radius: 3px;
+  border: 0;
   background: transparent;
-  color: inherit;
+  color: #000;
   font-family: inherit;
   font-size: inherit;
   font-weight: inherit;
   font-style: inherit;
   text-align: inherit;
   line-height: 1.35;
-  padding: 1mm 1.5mm;
+  padding: 0.5mm 0;
   margin: 0;
   resize: vertical;
 }
 
-.doc-block:hover .block-editor,
-.doc-block.on .block-editor {
-  border-color: rgba(29, 79, 99, 0.25);
-}
-
 .block-editor:focus {
   outline: none;
-  border-color: #1d4f63;
-  background: rgba(29, 79, 99, 0.03);
 }
 
 .block-resizer {
@@ -226,17 +213,17 @@
   top: 0;
   right: -3px;
   bottom: 0;
-  width: 7px;
+  width: 6px;
   cursor: col-resize;
   z-index: 4;
 }
 
 .block-resizer:hover {
-  background: rgba(29, 79, 99, 0.35);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .table-wrap {
-  margin-top: 2mm;
+  margin-top: 1.5mm;
 }
 
 table.grid {
@@ -248,7 +235,7 @@ table.grid {
 table.grid th,
 table.grid td {
   position: relative;
-  border: 0.3mm solid #111;
+  border: 0.3mm solid #000;
   padding: 1mm 1.4mm;
   vertical-align: top;
   text-align: inherit;
@@ -256,21 +243,22 @@ table.grid td {
   font-size: inherit;
   font-style: inherit;
   font-weight: inherit;
+  background: #fff;
+  color: #000;
 }
 
 table.grid th {
-  background: #f4f4f4;
   font-weight: 700;
 }
 
 table.grid th.col-active,
 table.grid td.col-active {
-  background: rgba(29, 79, 99, 0.06);
+  background: #f7f7f7;
 }
 
 table.grid th.col-drop-target {
-  box-shadow: inset 3px 0 0 #1d4f63;
-  background: #e1eff5;
+  box-shadow: inset 2px 0 0 #000;
+  background: #efefef;
 }
 
 .th-inner {
@@ -279,13 +267,23 @@ table.grid th.col-drop-target {
   gap: 2px;
 }
 
+.col-drag {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+table.grid th:hover .col-drag,
+.doc-block.on table.grid th .col-drag {
+  opacity: 1;
+}
+
 .head-cell,
 .cell {
   width: 100%;
   min-width: 0;
   border: 0;
   background: transparent;
-  color: inherit;
+  color: #000;
   font-family: inherit;
   font-size: inherit;
   font-style: inherit;
@@ -303,32 +301,7 @@ table.grid th.col-drop-target {
 .head-cell:focus,
 .cell:focus {
   outline: none;
-  background: rgba(29, 79, 99, 0.08);
-}
-
-.col-del,
-.row-del {
-  border: 0;
-  background: transparent;
-  color: #8c9ba5;
-  font-size: 13px;
-  line-height: 1;
-  padding: 0 2px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s, color 0.12s;
-}
-
-table.grid th:hover .col-del,
-table.grid tr:hover .row-del,
-.doc-block.on .col-del,
-.doc-block.on .row-del {
-  opacity: 1;
-}
-
-.col-del:hover,
-.row-del:hover {
-  color: #c62828;
+  background: #f2f2f2;
 }
 
 .col-resizer {
@@ -342,100 +315,5 @@ table.grid tr:hover .row-del,
 }
 
 .col-resizer:hover {
-  background: #1d4f63;
-}
-
-.row-act-col {
-  width: 22px;
-}
-
-.row-act-head,
-.row-act-cell {
-  width: 22px;
-  padding: 1px !important;
-  text-align: center !important;
-  vertical-align: middle !important;
-  background: #f8fafb;
-}
-
-.add-col-inline {
-  border: 0;
-  background: transparent;
-  color: #1d4f63;
-  font-weight: 700;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 3px;
-}
-
-.add-col-inline:hover {
-  color: #0e3342;
-}
-
-.table-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  padding: 4px 6px;
-  background: #f5f8fa;
-  border: 1px solid #d8e3e8;
-  border-radius: 4px;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 11px;
-  font-weight: 400;
-  font-style: normal;
-  text-align: left;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s;
-}
-
-.doc-block:hover .table-bar,
-.doc-block.on .table-bar {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.table-bar button {
-  border: 1px solid #c5d4dc;
-  background: #fff;
-  color: #243b47;
-  border-radius: 4px;
-  padding: 2px 7px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.table-bar button:hover {
-  background: #e3eff4;
-  border-color: #1d4f63;
-}
-
-.table-bar button.danger-link {
-  margin-left: auto;
-  color: #b71c1c;
-  border-color: #e5b7b7;
-}
-
-.table-bar button.danger-link:hover {
-  background: #fdecec;
-}
-
-.col-w-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #39505d;
-  font-size: 11px;
-}
-
-.col-w-label input {
-  width: 48px;
-  padding: 1px 4px;
-  border: 1px solid #c5d4dc;
-  border-radius: 4px;
-  font-size: 11px;
+  background: #333;
 }

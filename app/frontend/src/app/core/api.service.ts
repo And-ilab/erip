@@ -1074,6 +1074,8 @@ export interface BnpDocument {
   generated: boolean;
   body: string;
   layout?: {
+    form?: number;
+    version?: number;
     blocks?: PrintFormBlock[];
     blank?: string;
     family?: string;

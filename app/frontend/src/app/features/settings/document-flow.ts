@@ -250,52 +250,97 @@ export function blankToBlocks(blank: string): SheetBlock[] {
       }, 6),
     ];
   }
-  const titles: Record<string, string> = {
-    writ: 'Исполнительная надпись',
-    proxy: 'Доверенность',
-    lawsuit: 'Исковое заявление (взыскание задолженности)',
-    eviction: 'Исковое заявление (выселение по ст. 80 ЖК)',
-    alienation: 'Исковое заявление (отчуждение по ст. 137 ЖК)',
+  if (blank === 'proxy') {
+    return [
+      mk({
+        key: 'logo', title: 'Шапка организации', align: 'center', bold: true, x: 4, y: 12, w: 46,
+        text: 'Республика Беларусь\n{organization}\n{locality}\n{date}, № {doc_number}',
+      }, 0),
+      mk({ key: 'block-title', title: 'Заголовок', align: 'center', bold: true, font_size: 14, y: 90, text: 'ДОВЕРЕННОСТЬ' }, 1),
+      mk({
+        key: 'body', title: 'Текст доверенности', align: 'justify', y: 140,
+        text: '{organization}, УНП {unp}, в лице руководителя, действующего на основании Устава (Положения), настоящей доверенностью уполномочивает представителя {representative} представлять интересы организации в нотариальных конторах и нотариальных бюро Республики Беларусь по вопросам обращения за совершением исполнительных надписей о взыскании задолженности по плате за жилищно-коммунальные услуги и пени, подписывать заявления о совершении исполнительных надписей и расчёты суммы задолженности.',
+      }, 2),
+      mk({
+        key: 'requisites', title: 'Сведения по лицевому счёту', y: 260,
+        text: 'Должник: {fio}\nЛицевой счёт: {account}\nАдрес: {address}\nПериод задолженности: с {period_from} по {period_to}\nЗадолженность: {amount} бел. руб., в том числе пеня {penalty} бел. руб.',
+      }, 3),
+      mk({
+        key: 'signatory', title: 'Подпись', y: 380,
+        text: 'Руководитель _______________________ {organization}\nМ.П.',
+      }, 4),
+    ];
+  }
+  if (blank === 'writ') {
+    return [
+      mk({
+        key: 'logo', title: 'Шапка организации', align: 'center', bold: true, x: 4, y: 12, w: 46,
+        text: 'Республика Беларусь\n{organization}\n{locality}\nУНП {unp}\n{date}, исх. № {doc_number}',
+      }, 0),
+      mk({
+        key: 'requisites', title: 'Адресат и стороны', align: 'right', x: 52, y: 12, w: 44,
+        text: 'В нотариальную контору / нотариальное бюро\nВзыскатель: {organization}\nДолжник: {fio}\nИдентификационный номер: {personal_id}\nАдрес: {address}\nЛицевой счёт № {account}',
+      }, 1),
+      mk({
+        key: 'block-title', title: 'Заголовок', align: 'center', bold: true, font_size: 14, y: 96,
+        text: 'ЗАЯВЛЕНИЕ\nо совершении исполнительной надписи',
+      }, 2),
+      mk({
+        key: 'body', title: 'Текст заявления', align: 'justify', y: 156,
+        text: 'Прошу совершить исполнительную надпись о взыскании с должника {fio}, проживающего по адресу: {address} (лицевой счёт № {account}), задолженности по плате за жилищно-коммунальные услуги ({services}) за период с {period_from} по {period_to} и пени в связи с просрочкой внесения платы.\n\nПисьменное предупреждение о необходимости погашения задолженности вручено должнику {warning_date} (срок для погашения — {due_days} дней). В установленный срок задолженность не погашена, судебного спора не имеется.',
+      }, 3),
+      mk({
+        key: 'table', title: 'Расчёт требований', font_size: 11, y: 270, text: '',
+        columns: [
+          { title: 'Наименование требования', width: 46 },
+          { title: 'Период задолженности', width: 30 },
+          { title: 'Сумма, бел. руб.', width: 24 },
+        ],
+        rows: [
+          ['Основной долг ({services})', '{period_from} – {period_to}', '{principal}'],
+          ['Пеня за просрочку платы', '{period_from} – {period_to}', '{penalty}'],
+          ['Нотариальный тариф', '', '{tariff}'],
+          ['ИТОГО', '', '{amount}'],
+        ],
+      }, 4),
+      mk({
+        key: 'signatory', title: 'Подпись', y: 400,
+        text: 'Подпись уполномоченного _______________________ {representative}\nМ.П.',
+      }, 5),
+    ];
+  }
+  const claimTitles: Record<string, string> = {
+    lawsuit: 'На взыскание задолженности',
+    eviction: 'На выселение в соответствии со ст. 80 ЖК',
+    alienation: 'Понуждение к отчуждению жилого помещения (ст. 137 ЖК)',
   };
   return [
     mk({
-      key: 'logo', title: 'Номер и лицевой счёт', align: 'center', bold: true, font_size: 14, y: 12,
-      text: titles[blank] || 'Документ',
-      columns: [{ title: 'Номер', width: 50 }, { title: 'Лицевой счёт', width: 50 }],
-      rows: [['{doc_number}', '{account}']],
+      key: 'requisites', title: 'В суд и стороны', align: 'right', x: 40, y: 12, w: 56,
+      text: 'В суд по месту нахождения жилого помещения\nИстец: {organization}, УНП {unp}\nАдрес истца: {address_org}\nФИО ответчика: {fio}\nИдентификационный номер: {personal_id}\nАдрес: {address}\nЛицевой счёт: {account}\nЦена иска: {amount} бел. руб.   Госпошлина: {duty} бел. руб.',
     }, 0),
     mk({
-      key: 'block-period', title: 'Период долга', y: 80, text: '',
-      columns: [{ title: 'Начало периода долга', width: 50 }, { title: 'Окончание периода долга', width: 50 }],
-      rows: [['{period_from}', '{period_to}']],
+      key: 'block-title', title: 'Заголовок', align: 'center', bold: true, font_size: 14, y: 100,
+      text: `ИСКОВОЕ ЗАЯВЛЕНИЕ\n(${claimTitles[blank] || 'На взыскание задолженности'})`,
     }, 1),
     mk({
-      key: 'body', title: 'Ответчик', y: 150,
-      text: blank === 'proxy'
-        ? 'Должник: {fio}\nАдрес: {address}\nДоверитель: {organization}\nПредставитель: {representative}\n\nДоверитель уполномочивает представителя действовать от имени организации по задолженности этого лицевого счёта, в том числе при обращении за исполнительной надписью.'
-        : 'ФИО ответчика: {fio}\nАдрес: {address}\nВзыскатель: {organization}\nИдентификационный номер: {personal_id}   УНП: {unp}',
+      key: 'body', title: 'Текст иска', align: 'justify', y: 160,
+      text: 'Ответчик {fio}, проживающий по адресу: {address} (лицевой счёт № {account}), имеет задолженность по плате за жилищно-коммунальные услуги ({services}) за период с {period_from} по {period_to} в общей сумме {amount} бел. руб., в том числе основной долг {principal} бел. руб. и пеня {penalty} бел. руб.\n\nПредупреждение о необходимости погашения задолженности вручено {warning_date} (срок погашения — {due_days} дней). В добровольном порядке задолженность не погашена.\n\nНа основании изложенного и руководствуясь жилищным и гражданским процессуальным законодательством Республики Беларусь, прошу суд удовлетворить заявленные исковые требования и взыскать с ответчика задолженность и судебные расходы.',
     }, 2),
     mk({
-      key: 'table', title: 'Услуги', font_size: 11, y: 230, text: 'Услуги',
-      columns: [{ title: 'Вкл', width: 14 }, { title: 'ID', width: 24 }, { title: 'Услуга', width: 62 }],
-      rows: [['✓', '1', '{services}']],
+      key: 'table', title: 'Суммы задолженности', font_size: 11, y: 290, text: '',
+      columns: [
+        { title: 'Услуга', width: 44 },
+        { title: 'Период долга', width: 26 },
+        { title: 'Долг по услугам', width: 15 },
+        { title: 'Долг по пене', width: 15 },
+      ],
+      rows: [['{services}', '{period_from} – {period_to}', '{principal}', '{penalty}']],
     }, 3),
     mk({
-      key: 'block-sums', title: 'Суммы', y: 310, text: '',
-      columns: [{ title: 'Долг по услугам', width: 50 }, { title: 'Долг по пене', width: 50 }],
-      rows: [['{amount}', '{penalty}']],
+      key: 'signatory', title: 'Подпись и дата', y: 400,
+      text: '{date}, исх. № {doc_number}\nПримечание: {note}\n\nПодпись уполномоченного _______________________ {organization}',
     }, 4),
-    mk({
-      key: 'requisites', title: 'Вид документа и даты', font_size: 11, y: 380, text: '',
-      columns: [
-        { title: 'Дата вручения предупреждения', width: 36 },
-        { title: 'Дней на погашение', width: 28 },
-        { title: blank === 'writ' ? 'Нотариальный тариф' : 'Госпошлина', width: 36 },
-      ],
-      rows: [['{warning_date}', '{due_days}', '{tariff}']],
-    }, 5),
-    mk({ key: 'block-note', title: 'Примечание', y: 450, text: 'Примечание: {note}' }, 6),
-    mk({ key: 'signatory', title: 'Подпись', y: 510, text: 'Подпись уполномоченного _______________________' }, 7),
   ];
 }
 

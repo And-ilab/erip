@@ -60,17 +60,7 @@ export interface ActiveInsertionTarget {
                         (focus)="selectBlock(block.key)"
                         placeholder="Название блока"
                         [attr.aria-label]="'Название блока'" />
-                      <span class="block-meta">{{ block.font_family || 'Times New Roman' }}, {{ block.font_size }} пт · {{ block.w }}%</span>
-                      <button type="button" class="mini-btn" title="Выше" (click)="moveBlockVertical(block, -1)">↑</button>
-                      <button type="button" class="mini-btn" title="Ниже" (click)="moveBlockVertical(block, 1)">↓</button>
                       <button type="button" class="mini-btn" title="В одну строку с соседним / на всю ширину" (click)="toggleSideBySide(block)">⇔</button>
-                      @if (!block.columns.length) {
-                        <button type="button" class="mini-btn" title="Добавить таблицу в блок" (click)="initTable(block)">+ Таблица</button>
-                      } @else {
-                        <button type="button" class="mini-btn" title="Добавить столбец" (click)="addColumn(block)">+ Столб.</button>
-                        <button type="button" class="mini-btn" title="Убрать столбец" (click)="removeLastColumn(block)">− Столб.</button>
-                        <button type="button" class="mini-btn" title="Добавить строку" (click)="addRow(block)">+ Стр.</button>
-                      }
                       @if (blocks.length > 1) {
                         <button type="button" class="mini-btn danger" title="Удалить блок" (click)="deleteBlock(block)">×</button>
                       }
@@ -82,7 +72,7 @@ export interface ActiveInsertionTarget {
                         [rows]="rowsOf(block.text)"
                         [(ngModel)]="block.text"
                         [ngModelOptions]="{ standalone: true }"
-                        [placeholder]="block.columns.length ? 'Текст или заголовок над таблицей (необязательно)...' : 'Введите текст блока или вставьте поля {fio}, {account}, {amount}...'"
+                        [placeholder]="block.columns.length ? '' : 'Введите текст...'"
                         (focus)="onTextFocus(block, $event)"
                         (click)="onTextCursor(block, $event)"
                         (keyup)="onTextCursor(block, $event)"
@@ -96,7 +86,6 @@ export interface ActiveInsertionTarget {
                             @for (col of block.columns; track $index) {
                               <col [style.width.%]="share(block, col.width)" />
                             }
-                            <col class="row-act-col" />
                           </colgroup>
                           <thead>
                             <tr>
@@ -122,11 +111,6 @@ export interface ActiveInsertionTarget {
                                       (focus)="onColFocus(block.key, c)"
                                       placeholder="Столбец"
                                       [attr.aria-label]="'Колонка ' + (c + 1)" />
-                                    <button
-                                      type="button"
-                                      class="col-del"
-                                      title="Убрать этот столбец"
-                                      (click)="removeColumnAt(block, c); $event.stopPropagation()">×</button>
                                   </div>
                                   <span
                                     class="col-resizer"
@@ -134,9 +118,6 @@ export interface ActiveInsertionTarget {
                                     (pointerdown)="startColResize($event, block, c, gridTable)"></span>
                                 </th>
                               }
-                              <th class="row-act-head" title="Добавить столбец">
-                                <button type="button" class="add-col-inline" title="Добавить столбец" (click)="addColumn(block); $event.stopPropagation()">+</button>
-                              </th>
                             </tr>
                           </thead>
                           <tbody>
@@ -152,43 +133,14 @@ export interface ActiveInsertionTarget {
                                       (focus)="onCellFocus(block.key, r, c, $event)"
                                       (click)="onCellFocus(block.key, r, c, $event)"
                                       (keyup)="onCellFocus(block.key, r, c, $event)"
-                                      placeholder="—"
+                                      placeholder=""
                                       [attr.aria-label]="'Ячейка ' + (r + 1) + ':' + (c + 1)" />
                                   </td>
                                 }
-                                <td class="row-act-cell">
-                                  <button
-                                    type="button"
-                                    class="row-del"
-                                    title="Удалить строку"
-                                    (click)="removeRowAt(block, r); $event.stopPropagation()">×</button>
-                                </td>
                               </tr>
                             }
                           </tbody>
                         </table>
-                        <div class="table-bar" (pointerdown)="$event.stopPropagation()">
-                          <button type="button" (click)="addColumn(block)">+ Столбец</button>
-                          <button type="button" (click)="removeLastColumn(block)">− Столбец</button>
-                          <button type="button" (click)="addRow(block)">+ Строка</button>
-                          @if (block.rows.length > 1) {
-                            <button type="button" (click)="removeRowAt(block, block.rows.length - 1)">− Строка</button>
-                          }
-                          @if (activeColIndex(block.key); as colIdx) {
-                            @if (block.columns[colIdx - 1]; as activeCol) {
-                              <label class="col-w-label">
-                                Ширина «{{ activeCol.title || ('Столб. ' + colIdx) }}»:
-                                <input
-                                  type="number"
-                                  min="5"
-                                  max="100"
-                                  [(ngModel)]="activeCol.width"
-                                  [ngModelOptions]="{ standalone: true }" />%
-                              </label>
-                            }
-                          }
-                          <button type="button" class="danger-link" (click)="clearTable(block)">Убрать таблицу</button>
-                        </div>
                       </div>
                     }
 

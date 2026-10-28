@@ -26,11 +26,11 @@ const SYSTEM_CODES = new Set([
     <header class="head">
       <div>
         <h2>Конструктор печатных форм</h2>
-        <p>Редактирование блоков, шрифтов, таблиц и переменных на листе A4. Любой системный шаблон можно изменить или сохранить как собственный.</p>
+        <p>Официальные бланки и собственные шаблоны на листе A4 (Times New Roman, 12–14 пт, чёрно-белое оформление).</p>
       </div>
       <div class="head-actions">
-        <button mat-stroked-button type="button" (click)="duplicateAsOwn()">Копировать в мои</button>
-        <button mat-flat-button color="primary" type="button" (click)="create()">+ Новый шаблон</button>
+        <button type="button" class="doc-btn" (click)="duplicateAsOwn()">Копировать в мои</button>
+        <button type="button" class="doc-btn primary" (click)="create()">+ Новый шаблон</button>
       </div>
     </header>
     @if (note()) { <p class="note">{{ note() }}</p> }
@@ -63,14 +63,32 @@ const SYSTEM_CODES = new Set([
       </section>
 
       <section class="editor">
-        <div class="panes">
-          <button type="button" [class.on]="pane() === 'layout'" (click)="pane.set('layout')">Макет A4</button>
-          <button type="button" [class.on]="pane() === 'pdf'" (click)="showPdf()">Предпросмотр PDF</button>
-          <button type="button" (click)="stepForm(-1)">← Назад</button>
-          <button type="button" (click)="stepForm(1)">Вперёд →</button>
-          @if (pane() === 'pdf' && pdfReady()) {
-            <button type="button" (click)="downloadPdf()">Скачать PDF</button>
-          }
+        <div class="doc-bar">
+          <div class="panes">
+            <button type="button" [class.on]="pane() === 'layout'" (click)="pane.set('layout')">Макет A4</button>
+            <button type="button" [class.on]="pane() === 'pdf'" (click)="showPdf()">Предпросмотр PDF</button>
+            <button type="button" title="Предыдущий шаблон" (click)="stepForm(-1)">← Назад</button>
+            <button type="button" title="Следующий шаблон" (click)="stepForm(1)">Вперёд →</button>
+            @if (pane() === 'pdf' && pdfReady()) {
+              <button type="button" (click)="downloadPdf()">Скачать PDF</button>
+            }
+          </div>
+
+          <div class="doc-save-bar">
+            <label class="scan-btn" title="Разобрать PDF, DOCX, TXT или скан в блоки листа A4">
+              Загрузить скан/PDF
+              <input type="file" accept="application/pdf,.pdf,.docx,.txt,image/*" (change)="onScan($event)" />
+            </label>
+            <button type="button" class="doc-btn" [class.on]="showParts()" (click)="showParts.set(!showParts())">
+              Структура ({{ blocks.length }})
+            </button>
+            @if (claimId && docId) {
+              <button type="button" class="doc-btn primary" (click)="saveCase()">Сохранить в деле</button>
+            } @else {
+              <button type="button" class="doc-btn primary" (click)="save()">Сохранить шаблон</button>
+              <button type="button" class="doc-btn" (click)="saveAsOwn()">Сохранить как свой шаблон</button>
+            }
+          </div>
         </div>
 
         @if (pane() === 'layout') {
@@ -94,148 +112,148 @@ const SYSTEM_CODES = new Set([
                 <option value="district">Администрация района</option>
               </select>
             </label>
-            <label class="scan">Загрузить скан/PDF
-              <input type="file" accept="application/pdf,.pdf,image/*" (change)="onScan($event)" />
-            </label>
           </div>
 
           @if (chosen(); as block) {
             <div class="word-ribbon" role="toolbar" aria-label="Панель форматирования">
-              <div class="ribbon-group">
-                <span class="group-caption">Шрифт</span>
-                <div class="ribbon-controls">
-                  <select class="font-select" [(ngModel)]="block.font_family" aria-label="Шрифт">
-                    @for (f of fonts; track f.id) {
-                      <option [value]="f.id">{{ f.label }}</option>
-                    }
-                  </select>
-                  <select class="size-select" [(ngModel)]="block.font_size" aria-label="Размер шрифта">
-                    @for (s of fontSizes; track s) {
-                      <option [ngValue]="s">{{ s }} пт</option>
-                    }
-                  </select>
-                  <button type="button" class="tb-btn" title="Уменьшить шрифт" (click)="stepFontSize(block, -1)">A−</button>
-                  <button type="button" class="tb-btn" title="Увеличить шрифт" (click)="stepFontSize(block, 1)">A+</button>
-                  <button
-                    type="button"
-                    class="tb-btn fmt-bold"
-                    [class.on]="block.bold"
-                    title="Жирный (Ж)"
-                    (click)="block.bold = !block.bold">Ж</button>
-                  <button
-                    type="button"
-                    class="tb-btn fmt-italic"
-                    [class.on]="block.italic"
-                    title="Курсив (К)"
-                    (click)="block.italic = !block.italic">К</button>
-                  <button type="button" class="tb-btn" title="Применить шрифт и размер ко всем блокам" (click)="applyFontToAll(block)">Ко всем</button>
-                </div>
-              </div>
-
-              <div class="ribbon-group">
-                <span class="group-caption">Абзац и блок</span>
-                <div class="ribbon-controls">
-                  <button type="button" class="tb-btn" [class.on]="block.align === 'left'" title="По левому краю" (click)="block.align = 'left'">Слева</button>
-                  <button type="button" class="tb-btn" [class.on]="block.align === 'center'" title="По центру" (click)="block.align = 'center'">Центр</button>
-                  <button type="button" class="tb-btn" [class.on]="block.align === 'right'" title="По правому краю" (click)="block.align = 'right'">Справа</button>
-                  <button type="button" class="tb-btn" [class.on]="block.align === 'justify'" title="По ширине" (click)="block.align = 'justify'">По ширине</button>
-                  <label class="inline-num" title="Ширина блока в процентах листа">
-                    Шир.
-                    <input type="number" min="20" max="100" [(ngModel)]="block.w" />%
-                  </label>
-                </div>
-              </div>
-
-              <div class="ribbon-group">
-                <span class="group-caption">Блоки</span>
-                <div class="ribbon-controls">
-                  <button type="button" class="tb-btn" (click)="addTextBlock()">+ Текст</button>
-                  <button type="button" class="tb-btn" (click)="addTableBlock()">+ Таблица</button>
-                  <button type="button" class="tb-btn" (click)="addSignBlock()">+ Подпись</button>
-                  <button type="button" class="tb-btn" (click)="duplicateBlock(block)">Дублировать</button>
-                  @if (blocks.length > 1) {
-                    <button type="button" class="tb-btn danger" (click)="removeBlock(block)">Удалить блок</button>
+              <div class="ribbon-seg">
+                <select class="font-select" [(ngModel)]="block.font_family" aria-label="Шрифт">
+                  @for (f of fonts; track f.id) {
+                    <option [value]="f.id">{{ f.label }}</option>
                   }
-                </div>
+                </select>
+                <select class="size-select" [(ngModel)]="block.font_size" aria-label="Размер шрифта">
+                  @for (s of fontSizes; track s) {
+                    <option [ngValue]="s">{{ s }} пт</option>
+                  }
+                </select>
+                <button type="button" class="tb-btn" title="Уменьшить шрифт" (click)="stepFontSize(block, -1)">A−</button>
+                <button type="button" class="tb-btn" title="Увеличить шрифт" (click)="stepFontSize(block, 1)">A+</button>
+                <button
+                  type="button"
+                  class="tb-btn fmt-bold"
+                  [class.on]="block.bold"
+                  title="Полужирный (Ж)"
+                  (click)="block.bold = !block.bold">Ж</button>
+                <button
+                  type="button"
+                  class="tb-btn fmt-italic"
+                  [class.on]="block.italic"
+                  title="Курсив (К)"
+                  (click)="block.italic = !block.italic">К</button>
+                <button type="button" class="tb-btn" title="Применить гарнитуру и кегль ко всем блокам" (click)="applyFontToAll(block)">Ко всем</button>
               </div>
 
-              <div class="ribbon-group">
-                <span class="group-caption">Таблица в блоке «{{ block.title }}»</span>
-                <div class="ribbon-controls">
-                  @if (!block.columns.length) {
-                    <button type="button" class="tb-btn" (click)="addColumn(block)">+ Создать таблицу</button>
-                    <button type="button" class="tb-btn" (click)="addServiceTable(block)">+ Таблица услуг</button>
-                  } @else {
-                    <button type="button" class="tb-btn" (click)="addColumn(block)">+ Столбец</button>
-                    <button type="button" class="tb-btn" (click)="removeColumn(block)">− Столбец</button>
-                    <button type="button" class="tb-btn" (click)="addRow(block)">+ Строка</button>
-                    @if (block.rows.length > 1) {
-                      <button type="button" class="tb-btn" (click)="removeRow(block)">− Строка</button>
-                    }
-                    <button type="button" class="tb-btn danger" (click)="clearTable(block)">Убрать таблицу</button>
-                  }
-                </div>
+              <span class="sep" aria-hidden="true"></span>
+
+              <div class="ribbon-seg">
+                <button type="button" class="tb-btn" [class.on]="block.align === 'left'" title="По левому краю" (click)="block.align = 'left'">Слева</button>
+                <button type="button" class="tb-btn" [class.on]="block.align === 'center'" title="По центру" (click)="block.align = 'center'">Центр</button>
+                <button type="button" class="tb-btn" [class.on]="block.align === 'right'" title="По правому краю" (click)="block.align = 'right'">Справа</button>
+                <button type="button" class="tb-btn" [class.on]="block.align === 'justify'" title="По ширине" (click)="block.align = 'justify'">По ширине</button>
+                <label class="inline-num" title="Ширина блока в процентах листа">
+                  Шир.
+                  <input type="number" min="20" max="100" [(ngModel)]="block.w" />%
+                </label>
               </div>
+
+              <span class="sep" aria-hidden="true"></span>
+
+              <div class="ribbon-seg">
+                <select
+                  class="token-select"
+                  aria-label="Вставить поле ЛС"
+                  [ngModel]="''"
+                  (ngModelChange)="onPickToken($event)">
+                  <option value="">+ Поле ЛС…</option>
+                  @for (token of tokens; track token) {
+                    <option [value]="token">{{ labelOf(token) }} ({{ '{' + token + '}' }})</option>
+                  }
+                </select>
+              </div>
+
+              <span class="sep" aria-hidden="true"></span>
+
+              <div class="ribbon-seg">
+                <button type="button" class="tb-btn" (click)="addTextBlock()">+ Текст</button>
+                <button type="button" class="tb-btn" (click)="addTableBlock()">+ Таблица</button>
+                <button type="button" class="tb-btn" (click)="addSignBlock()">+ Подпись</button>
+                <button type="button" class="tb-btn" (click)="duplicateBlock(block)">Дублировать</button>
+                @if (blocks.length > 1) {
+                  <button type="button" class="tb-btn danger" (click)="removeBlock(block)">Удалить блок</button>
+                }
+              </div>
+
+              @if (block.columns.length) {
+                <span class="sep" aria-hidden="true"></span>
+                <div class="ribbon-seg">
+                  <button type="button" class="tb-btn" (click)="addColumn(block)">+ Столбец</button>
+                  <button type="button" class="tb-btn" (click)="removeColumn(block)">− Столбец</button>
+                  <button type="button" class="tb-btn" (click)="addRow(block)">+ Строка</button>
+                  @if (block.rows.length > 1) {
+                    <button type="button" class="tb-btn" (click)="removeRow(block)">− Строка</button>
+                  }
+                  <button type="button" class="tb-btn danger" (click)="clearTable(block)">Убрать таблицу</button>
+                </div>
+              } @else {
+                <span class="sep" aria-hidden="true"></span>
+                <div class="ribbon-seg">
+                  <button type="button" class="tb-btn" (click)="addServiceTable(block)">+ Таблица в блок</button>
+                </div>
+              }
             </div>
           }
 
-          <div class="tokens-bar">
-            <span class="tokens-title">Вставить поле ЛС:</span>
-            @for (token of tokens; track token) {
-              <button type="button" class="token-chip" (click)="insert(token)" [title]="'Вставить {' + token + '}'">
-                {{ labelOf(token) }}
-              </button>
-            }
-          </div>
-
-          <div class="work">
-            <aside class="parts">
-              <div class="parts-head">
-                <h3>Блоки ({{ blocks.length }})</h3>
-                <div class="parts-add">
-                  <button type="button" (click)="addTextBlock()" title="Добавить текстовый блок">+ Блок</button>
-                  <button type="button" (click)="addTableBlock()" title="Добавить блок с таблицей">+ Табл.</button>
-                </div>
-              </div>
-              <p class="parts-hint">Перетаскивайте блоки мышью для смены порядка. Галочка включает блок на листе.</p>
-              @for (block of orderedBlocks(); track block.key) {
-                <div
-                  class="part-item"
-                  [class.on]="block.enabled"
-                  [class.active]="selectedKey === block.key"
-                  [class.drop-target]="dragOverSidebarKey() === block.key"
-                  draggable="true"
-                  (click)="focusBlock(block.key)"
-                  (dragstart)="onSidebarDragStart($event, block)"
-                  (dragover)="onSidebarDragOver($event, block)"
-                  (dragleave)="onSidebarDragLeave(block)"
-                  (drop)="onSidebarDrop($event, block)"
-                  (dragend)="onSidebarDragEnd()">
-                  <span class="drag-grip" title="Перетащите для изменения порядка">⋮⋮</span>
-                  <button
-                    type="button"
-                    class="mark"
-                    [class.checked]="block.enabled"
-                    title="Включить / выключить блок"
-                    (click)="block.enabled = !block.enabled; $event.stopPropagation()">
-                    {{ block.enabled ? '✓' : '' }}
-                  </button>
-                  <input
-                    class="part-title-input"
-                    [(ngModel)]="block.title"
-                    (focus)="focusBlock(block.key)"
-                    (click)="$event.stopPropagation()"
-                    [attr.aria-label]="'Название блока'" />
-                  <div class="part-moves" (click)="$event.stopPropagation()">
-                    <button type="button" title="Выше" (click)="moveBlock(block, -1)">↑</button>
-                    <button type="button" title="Ниже" (click)="moveBlock(block, 1)">↓</button>
-                    @if (blocks.length > 1) {
-                      <button type="button" class="del" title="Удалить блок" (click)="removeBlock(block)">×</button>
-                    }
+          <div class="work" [class.with-parts]="showParts()">
+            @if (showParts()) {
+              <aside class="parts">
+                <div class="parts-head">
+                  <h3>Блоки ({{ blocks.length }})</h3>
+                  <div class="parts-add">
+                    <button type="button" (click)="addTextBlock()" title="Добавить текстовый блок">+ Блок</button>
+                    <button type="button" (click)="addTableBlock()" title="Добавить блок с таблицей">+ Табл.</button>
                   </div>
                 </div>
-              }
-            </aside>
+                <p class="parts-hint">Перетаскивайте блоки мышью для смены порядка. Галочка включает блок на листе.</p>
+                @for (block of orderedBlocks(); track block.key) {
+                  <div
+                    class="part-item"
+                    [class.on]="block.enabled"
+                    [class.active]="selectedKey === block.key"
+                    [class.drop-target]="dragOverSidebarKey() === block.key"
+                    draggable="true"
+                    (click)="focusBlock(block.key)"
+                    (dragstart)="onSidebarDragStart($event, block)"
+                    (dragover)="onSidebarDragOver($event, block)"
+                    (dragleave)="onSidebarDragLeave(block)"
+                    (drop)="onSidebarDrop($event, block)"
+                    (dragend)="onSidebarDragEnd()">
+                    <span class="drag-grip" title="Перетащите для изменения порядка">⋮⋮</span>
+                    <button
+                      type="button"
+                      class="mark"
+                      [class.checked]="block.enabled"
+                      title="Включить / выключить блок"
+                      (click)="block.enabled = !block.enabled; $event.stopPropagation()">
+                      {{ block.enabled ? '✓' : '' }}
+                    </button>
+                    <input
+                      class="part-title-input"
+                      [(ngModel)]="block.title"
+                      (focus)="focusBlock(block.key)"
+                      (click)="$event.stopPropagation()"
+                      [attr.aria-label]="'Название блока'" />
+                    <div class="part-moves" (click)="$event.stopPropagation()">
+                      <button type="button" title="Выше" (click)="moveBlock(block, -1)">↑</button>
+                      <button type="button" title="Ниже" (click)="moveBlock(block, 1)">↓</button>
+                      @if (blocks.length > 1) {
+                        <button type="button" class="del" title="Удалить блок" (click)="removeBlock(block)">×</button>
+                      }
+                    </div>
+                  </div>
+                }
+              </aside>
+            }
 
             <div class="sheet-wrap">
               <app-print-sheet
@@ -248,21 +266,16 @@ const SYSTEM_CODES = new Set([
             </div>
           </div>
 
-          <div class="actions">
-            @if (claimId && docId) {
-              <button mat-flat-button color="primary" type="button" (click)="saveCase()">Сохранить в деле</button>
-            } @else {
-              <button mat-flat-button color="primary" type="button" (click)="save()">Сохранить шаблон</button>
-              <button mat-stroked-button type="button" (click)="saveAsOwn()">Сохранить как свой шаблон</button>
-            }
-            @if (current()?.revisions?.length) {
+          @if (current()?.revisions?.length) {
+            <div class="actions">
+              <span class="muted">Версии:</span>
               @for (rev of current()?.revisions; track rev.version) {
-                <button mat-stroked-button type="button" (click)="restore(rev.version)" [disabled]="rev.version === current()?.version">
+                <button type="button" class="doc-btn" (click)="restore(rev.version)" [disabled]="rev.version === current()?.version">
                   Вернуть v{{ rev.version }}
                 </button>
               }
-            }
-          </div>
+            </div>
+          }
         } @else {
           <h3 class="preview-title">Предпросмотр</h3>
           <p class="doc-title">{{ name || current()?.name || 'Документ' }}</p>
@@ -277,130 +290,127 @@ const SYSTEM_CODES = new Set([
     </div>
   `,
   styles: `
-    .head, .head-actions, .line, .actions, .panes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .head { justify-content: space-between; margin-bottom: 12px; }
-    h2, h3 { margin: 0; color: var(--erip-primary-dark); }
-    h3 { margin: 10px 0 6px; font-size: 13px; }
-    .muted, .head p, .note { color: var(--erip-muted); margin: 4px 0 0; font-size: 13px; }
-    .note { background: #fff8e8; border: 1px solid #e0a106; border-radius: 8px; padding: 8px 10px; }
-    .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; }
-    .list, .editor { background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; min-width: 0; }
-    .list { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+    .head, .head-actions, .line, .actions, .panes, .doc-bar, .doc-save-bar {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+    .head { justify-content: space-between; margin-bottom: 10px; }
+    .doc-bar { justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #d4d4d4; }
+    h2, h3 { margin: 0; color: #1a1a1a; }
+    h3 { margin: 8px 0 4px; font-size: 13px; }
+    .muted, .head p, .note { color: #595959; margin: 4px 0 0; font-size: 13px; }
+    .note { background: #fafafa; border: 1px solid #bdbdbd; border-radius: 4px; padding: 6px 10px; color: #1a1a1a; }
+    .layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 12px; }
+    .list, .editor { background: #fff; border: 1px solid #d4d4d4; border-radius: 6px; padding: 10px 12px; min-width: 0; }
+    .list { display: flex; flex-direction: column; gap: 5px; align-items: stretch; }
     .list-head { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
     .list-head h3 { margin: 0; }
-    .add-own-btn {
-      border: 1px solid var(--erip-primary); background: var(--erip-primary-soft); color: var(--erip-primary-dark);
-      border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+    .add-own-btn, .doc-btn, .scan-btn {
+      border: 1px solid #bdbdbd; background: #fff; color: #1a1a1a;
+      border-radius: 4px; padding: 5px 10px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px;
     }
+    .add-own-btn { padding: 2px 8px; font-size: 11px; }
+    .add-own-btn:hover, .doc-btn:hover, .scan-btn:hover { background: #f0f0f0; border-color: #8c8c8c; }
+    .doc-btn.primary { background: #262626; border-color: #262626; color: #fff; }
+    .doc-btn.primary:hover { background: #000; border-color: #000; }
+    .doc-btn.on { background: #e8e8e8; border-color: #595959; font-weight: 600; }
+    .scan-btn input { display: none; }
+
     .tpl-row {
-      display: flex; align-items: stretch; border: 1px solid var(--erip-border); border-radius: 8px; background: #fff; overflow: hidden;
+      display: flex; align-items: stretch; border: 1px solid #d9d9d9; border-radius: 4px; background: #fff; overflow: hidden;
     }
-    .tpl-row.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .tpl-row.on { border-color: #262626; background: #f2f2f2; font-weight: 600; }
     .tpl-pick {
-      flex: 1; text-align: left; border: 0; background: transparent; padding: 8px 10px; cursor: pointer; font: inherit; min-width: 0;
+      flex: 1; text-align: left; border: 0; background: transparent; padding: 6px 8px; cursor: pointer; font: inherit; font-size: 12px; min-width: 0; color: #1a1a1a;
     }
     .tpl-del {
-      border: 0; border-left: 1px solid var(--erip-border); background: transparent; color: #8c9ba5;
-      padding: 0 8px; cursor: pointer; font-size: 15px;
+      border: 0; border-left: 1px solid #e0e0e0; background: transparent; color: #737373;
+      padding: 0 7px; cursor: pointer; font-size: 14px;
     }
-    .tpl-del:hover { color: #c62828; background: #fdecec; }
+    .tpl-del:hover { color: #a61b1b; background: #fbe9e9; }
     .tpl-system, .panes button {
-      text-align: left; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
-      padding: 8px 10px; cursor: pointer; font: inherit;
+      text-align: left; border: 1px solid #d9d9d9; background: #fff; border-radius: 4px;
+      padding: 6px 8px; cursor: pointer; font: inherit; font-size: 12px; color: #1a1a1a;
     }
-    .tpl-system.on, .panes button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
-    .list small { display: block; color: var(--erip-muted); font-size: 11px; margin-top: 2px; }
+    .tpl-system.on, .panes button.on { border-color: #262626; background: #f2f2f2; font-weight: 600; }
+    .list small { display: block; color: #666; font-size: 11px; margin-top: 2px; font-weight: 400; }
     .grow { flex: 1; min-width: 180px; }
     .meta-line { margin-top: 8px; }
-    label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--erip-muted); }
-    input, select { font: inherit; color: #1f2933; border: 1px solid var(--erip-border); border-radius: 6px; padding: 5px 8px; }
-    .scan input { font-size: 12px; padding: 3px 6px; }
-    .need { color: #c62828; }
+    label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #595959; }
+    input, select { font: inherit; font-size: 12px; color: #1a1a1a; border: 1px solid #c4c4c4; border-radius: 3px; padding: 4px 7px; background: #fff; }
+    .need { color: #a61b1b; }
 
     .word-ribbon {
-      display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; padding: 8px 10px;
-      background: #f6f9fb; border: 1px solid #d5e1e6; border-radius: 10px; align-items: flex-end;
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding: 6px 8px;
+      background: #f5f5f5; border: 1px solid #d4d4d4; border-radius: 4px; align-items: center;
     }
-    .ribbon-group {
-      display: flex; flex-direction: column; gap: 4px; padding-right: 10px; border-right: 1px solid #dce6eb;
-    }
-    .ribbon-group:last-child { border-right: 0; padding-right: 0; }
-    .group-caption { font-size: 11px; font-weight: 600; color: #546a76; text-transform: uppercase; letter-spacing: 0.02em; }
-    .ribbon-controls { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-    .font-select { min-width: 148px; padding: 4px 6px; font-size: 13px; background: #fff; }
-    .size-select { width: 72px; padding: 4px 6px; font-size: 13px; background: #fff; }
+    .ribbon-seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .sep { width: 1px; height: 22px; background: #d0d0d0; margin: 0 2px; }
+    .font-select { min-width: 142px; padding: 3px 6px; font-size: 12px; }
+    .size-select { width: 68px; padding: 3px 6px; font-size: 12px; }
+    .token-select { min-width: 168px; padding: 3px 6px; font-size: 12px; font-weight: 500; }
     .tb-btn {
-      border: 1px solid #c5d4dc; background: #fff; color: #1f2933; border-radius: 6px;
-      padding: 4px 8px; font: inherit; font-size: 12px; cursor: pointer; line-height: 1.2;
+      border: 1px solid #c4c4c4; background: #fff; color: #1a1a1a; border-radius: 3px;
+      padding: 3px 7px; font: inherit; font-size: 12px; cursor: pointer; line-height: 1.25;
     }
-    .tb-btn:hover { background: #e8f1f5; border-color: #1d4f63; }
-    .tb-btn.on { background: #1d4f63; border-color: #1d4f63; color: #fff; }
-    .tb-btn.fmt-bold { font-weight: 700; min-width: 28px; text-align: center; }
-    .tb-btn.fmt-italic { font-style: italic; font-family: Georgia, serif; min-width: 28px; text-align: center; }
-    .tb-btn.danger { color: #b71c1c; border-color: #e4b4b4; }
-    .tb-btn.danger:hover { background: #fdecec; border-color: #c62828; }
+    .tb-btn:hover { background: #e8e8e8; border-color: #737373; }
+    .tb-btn.on { background: #262626; border-color: #262626; color: #fff; }
+    .tb-btn.fmt-bold { font-weight: 700; min-width: 26px; text-align: center; }
+    .tb-btn.fmt-italic { font-style: italic; font-family: Georgia, serif; min-width: 26px; text-align: center; }
+    .tb-btn.danger { color: #a61b1b; border-color: #d9b2b2; }
+    .tb-btn.danger:hover { background: #fbe9e9; border-color: #a61b1b; }
     .inline-num {
-      flex-direction: row; align-items: center; gap: 4px; font-size: 12px; color: #334e5c; margin-left: 2px;
+      flex-direction: row; align-items: center; gap: 3px; font-size: 12px; color: #333; margin-left: 2px;
     }
-    .inline-num input { width: 52px; padding: 3px 5px; font-size: 12px; }
+    .inline-num input { width: 48px; padding: 2px 4px; font-size: 12px; }
 
-    .tokens-bar {
-      display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 8px 0 4px;
-      padding: 6px 8px; background: #fbfcfd; border: 1px solid var(--erip-border); border-radius: 8px;
-    }
-    .tokens-title { font-size: 12px; font-weight: 600; color: var(--erip-muted); margin-right: 4px; }
-    .token-chip {
-      border: 1px solid #cad6de; background: #fff; color: #1d4f63; border-radius: 999px;
-      padding: 2px 9px; cursor: pointer; font: inherit; font-size: 12px;
-    }
-    .token-chip:hover { background: var(--erip-primary-soft); border-color: var(--erip-primary); }
-
-    .work { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 12px; margin-top: 8px; align-items: start; }
+    .work { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 8px; align-items: start; }
+    .work.with-parts { grid-template-columns: 240px minmax(0, 1fr); }
     .parts {
-      border: 1px solid var(--erip-border); border-radius: 12px; padding: 10px; background: #fff;
-      display: flex; flex-direction: column; gap: 6px;
+      border: 1px solid #d4d4d4; border-radius: 4px; padding: 8px; background: #fafafa;
+      display: flex; flex-direction: column; gap: 5px;
     }
     .parts-head { display: flex; justify-content: space-between; align-items: center; }
     .parts-head h3 { margin: 0; }
     .parts-add { display: flex; gap: 4px; }
     .parts-add button {
-      border: 1px solid var(--erip-border); background: #f6f9fb; color: var(--erip-primary-dark);
-      border-radius: 6px; padding: 2px 6px; font-size: 11px; font-weight: 600; cursor: pointer;
+      border: 1px solid #bdbdbd; background: #fff; color: #1a1a1a;
+      border-radius: 3px; padding: 2px 6px; font-size: 11px; cursor: pointer;
     }
-    .parts-hint { margin: 0; font-size: 11px; color: var(--erip-muted); line-height: 1.3; }
+    .parts-hint { margin: 0; font-size: 11px; color: #666; line-height: 1.3; }
     .part-item {
-      display: flex; gap: 6px; align-items: center; width: 100%; box-sizing: border-box;
-      border: 1px solid var(--erip-border); background: #fff; border-radius: 8px;
-      padding: 5px 6px; cursor: pointer;
+      display: flex; gap: 5px; align-items: center; width: 100%; box-sizing: border-box;
+      border: 1px solid #d4d4d4; background: #fff; border-radius: 4px;
+      padding: 4px 5px; cursor: pointer;
     }
-    .part-item.active { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
-    .part-item.drop-target { border-top: 2px solid #1d4f63; }
-    .drag-grip { cursor: grab; color: #7b8d98; font-weight: 700; letter-spacing: -1px; user-select: none; }
+    .part-item.active { border-color: #262626; background: #f0f0f0; }
+    .part-item.drop-target { border-top: 2px solid #000; }
+    .drag-grip { cursor: grab; color: #737373; font-weight: 700; letter-spacing: -1px; user-select: none; }
     .mark {
-      width: 18px; height: 18px; flex: 0 0 18px; border: 1px solid #c5ced6; border-radius: 4px;
+      width: 16px; height: 16px; flex: 0 0 16px; border: 1px solid #8c8c8c; border-radius: 2px;
       display: inline-flex; align-items: center; justify-content: center;
-      font-size: 12px; line-height: 1; color: transparent; background: #fff; cursor: pointer; padding: 0;
+      font-size: 11px; line-height: 1; color: transparent; background: #fff; cursor: pointer; padding: 0;
     }
-    .mark.checked { background: #2e9b57; border-color: #2e9b57; color: #fff; }
+    .mark.checked { background: #262626; border-color: #262626; color: #fff; }
     .part-title-input {
       flex: 1; min-width: 0; border: 1px solid transparent; background: transparent;
-      padding: 2px 4px; font-size: 12px; color: #1f2933; border-radius: 4px;
+      padding: 2px 4px; font-size: 12px; color: #1a1a1a; border-radius: 2px;
     }
-    .part-title-input:focus { border-color: #b7cbd4; background: #fff; outline: none; }
+    .part-title-input:focus { border-color: #8c8c8c; background: #fff; outline: none; }
     .part-moves { display: flex; gap: 2px; }
     .part-moves button {
-      border: 1px solid #d5e0e6; background: #fff; border-radius: 4px; padding: 1px 4px;
-      font-size: 11px; cursor: pointer; color: #334e5c;
+      border: 1px solid #c4c4c4; background: #fff; border-radius: 2px; padding: 1px 4px;
+      font-size: 11px; cursor: pointer; color: #262626;
     }
-    .part-moves button.del:hover { color: #c62828; border-color: #c62828; }
+    .part-moves button.del:hover { color: #a61b1b; border-color: #a61b1b; }
 
     .sheet-wrap { min-width: 0; }
-    .actions { margin-top: 12px; }
-    .preview-title { margin: 12px 0 2px; font-size: 16px; color: #1f2933; }
-    .doc-title { margin: 0 0 8px; color: var(--erip-muted); }
-    .ok { margin: 0 0 8px; padding: 8px 12px; border-radius: 6px; background: #e7f6ec; color: #1b7f4e; }
-    .pdf-frame { width: 100%; height: min(80vh, 900px); border: 0; background: #525659; }
-    @media (max-width: 900px) { .layout, .work { grid-template-columns: 1fr; } }
+    .actions { margin-top: 10px; }
+    .preview-title { margin: 12px 0 2px; font-size: 16px; color: #1a1a1a; }
+    .doc-title { margin: 0 0 8px; color: #595959; }
+    .ok { margin: 0 0 8px; padding: 6px 10px; border-radius: 4px; background: #f2f2f2; border: 1px solid #bdbdbd; color: #1a1a1a; }
+    .pdf-frame { width: 100%; height: min(80vh, 900px); border: 1px solid #d4d4d4; background: #e6e6e6; }
+    @media (max-width: 900px) { .layout, .work, .work.with-parts { grid-template-columns: 1fr; } }
   `,
 })
 export class PrintFormsComponent implements OnInit, OnDestroy {
@@ -414,6 +424,7 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly current = signal<PrintFormRow | null>(null);
   protected readonly pane = signal<'layout' | 'pdf'>('layout');
+  protected readonly showParts = signal(false);
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected readonly pdfReady = signal(false);
   protected readonly note = signal('');
@@ -533,19 +544,24 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     this.blocks = [
       normalizeBlock({
         key: 'logo', title: 'Шапка организации', enabled: true, align: 'center', bold: true,
-        font_size: 12, font_family: 'Times New Roman', y: 12,
-        text: 'Республика Беларусь\n{organization}',
+        font_size: 12, font_family: 'Times New Roman', x: 4, y: 12, w: 46,
+        text: 'Республика Беларусь\n{organization}\n{date}, № {doc_number}',
       }, 0),
       normalizeBlock({
         key: 'requisites', title: 'Адресат и реквизиты', enabled: true, align: 'right',
-        font_size: 12, font_family: 'Times New Roman', y: 80,
+        font_size: 12, font_family: 'Times New Roman', x: 52, y: 12, w: 44,
         text: 'Должник: {fio}\nЛицевой счёт: {account}\nАдрес: {address}',
       }, 1),
       normalizeBlock({
-        key: 'body', title: 'Основной текст', enabled: true, align: 'left',
-        font_size: 12, font_family: 'Times New Roman', y: 160,
-        text: 'УВЕДОМЛЕНИЕ\n\nУважаемый(ая) {fio}!\nПо лицевому счёту № {account} по адресу {address} числится задолженность в размере {amount} руб., в том числе пеня {penalty} руб.\nПросим погасить задолженность в течение {due_days} дней.',
+        key: 'block-title', title: 'Заголовок', enabled: true, align: 'center', bold: true,
+        font_size: 14, font_family: 'Times New Roman', y: 90,
+        text: 'УВЕДОМЛЕНИЕ',
       }, 2),
+      normalizeBlock({
+        key: 'body', title: 'Основной текст', enabled: true, align: 'justify',
+        font_size: 12, font_family: 'Times New Roman', y: 150,
+        text: 'Уважаемый(ая) {fio}!\nПо лицевому счёту № {account} по адресу {address} числится задолженность в размере {amount} руб., в том числе пеня {penalty} руб.\nПросим погасить задолженность в течение {due_days} дней.',
+      }, 3),
       normalizeBlock({
         key: 'table', title: 'Таблица задолженности', enabled: true, align: 'left',
         font_size: 11, font_family: 'Times New Roman', y: 260, text: '',
@@ -555,12 +571,12 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
           { title: 'Пеня', width: 25 },
         ],
         rows: [['{services}', '{amount}', '{penalty}']],
-      }, 3),
+      }, 4),
       normalizeBlock({
         key: 'signatory', title: 'Подпись', enabled: true, align: 'left',
         font_size: 12, font_family: 'Times New Roman', y: 360,
         text: 'Руководитель _______________________ {organization}',
-      }, 4),
+      }, 5),
     ];
     this.blank.set('');
     this.selectedKey = 'body';
@@ -602,6 +618,11 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     if (target.blockKey) {
       this.selectedKey = target.blockKey;
     }
+  }
+
+  protected onPickToken(token: string): void {
+    if (!token) return;
+    this.insert(token);
   }
 
   protected insert(token: string): void {
@@ -745,7 +766,6 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     other.y = y === other.y ? y + delta * 40 : y;
   }
 
-  // Перетаскивание блоков в левой панели
   protected onSidebarDragStart(event: DragEvent, block: SheetBlock): void {
     this.dragSidebarKey.set(block.key);
     if (event.dataTransfer) {
@@ -842,12 +862,19 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
         this.blocks = draft.blocks.length
           ? draft.blocks.map((block, index) => normalizeBlock(block, index))
           : [normalizeBlock({ key: 'body', title: 'Текст', text: '', enabled: true }, 0)];
-        if (!this.name.trim()) this.name = draft.name;
-        if (!this.code.trim()) this.code = 'scan-' + Date.now().toString().slice(-6);
+        this.selectedKey = this.blocks[0]?.key || 'body';
+        this.activeTarget = null;
+        if (!this.name.trim() || this.isSystemForm(this.current())) {
+          this.current.set(null);
+          this.autoCode = true;
+          this.name = draft.name || 'Шаблон из файла';
+          this.code = slugifyCode('', this.name);
+        }
+        this.blank.set('');
         this.note.set(draft.note);
         this.pane.set('layout');
         this.openSheet();
-        this.snack.open(draft.recognized ? 'Скан разобран в макет' : 'Скан загружен как черновик', 'OK', { duration: 3000 });
+        this.snack.open(draft.recognized ? 'Файл разобран в макет A4' : 'Файл загружен как черновик', 'OK', { duration: 3000 });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -976,18 +1003,32 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   }
 
   private applyBlank(data: BlankData, claim?: ClaimCase, replaceBlocks = false): void {
-    if (replaceBlocks && data.blocks?.length) {
-      this.blocks = data.blocks.map((b, i) => normalizeBlock(b, i));
-      this.selectedKey = this.blocks[0]?.key || 'body';
-    }
     const vals: Record<string, string> = { ...(data.values || {}) };
     if (claim?.warning_delivered_on) {
       const [year, month, day] = claim.warning_delivered_on.slice(0, 10).split('-');
       if (day && month && year) vals['warning_date'] = `${day}.${month}.${year}`;
     }
+    if (replaceBlocks && data.blocks?.length) {
+      this.blocks = data.blocks.map((b, i) => normalizeBlock(b, i));
+      this.selectedKey = this.blocks[0]?.key || 'body';
+    }
+    if (this.accountId || claim) {
+      this.substituteBlockValues(vals);
+    }
     this.editor.load(this.blocks);
     if (this.accountId || claim) {
       this.editor.fillEmpty(vals);
+    }
+  }
+
+  private substituteBlockValues(values: Record<string, string>): void {
+    const replaceTokens = (str: string) => (str || '').replace(/\{([a-z0-9_]+)\}/g, (full, key: string) => {
+      const val = values[key];
+      return val && val.trim() ? val : full;
+    });
+    for (const block of this.blocks) {
+      block.text = replaceTokens(block.text);
+      block.rows = block.rows.map((row) => row.map((cell) => replaceTokens(cell)));
     }
   }
 
@@ -1025,6 +1066,9 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
   }
 
   private openSheet(claim?: ClaimCase): void {
+    if (claim) {
+      this.substituteBlockValues(this.claimValues(claim));
+    }
     this.editor.load(this.blocks);
     if (claim) this.editor.fillEmpty(this.claimValues(claim));
     if (this.pane() === 'pdf') this.showPdf();

@@ -1,5 +1,5 @@
 import { Component, OnDestroy, OnInit, effect, inject, input, output, signal } from '@angular/core';
-import { FormBuilder, FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -9,10 +9,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 
 import { DateFieldComponent, HoldDraftDirective } from '../../core/date-field.component';
-import { ApiService, BlankPenaltyRow, BlankPeriodPair, BlankResident, BlankSection, BlankServiceRow, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
-import { SheetBlock, SheetEditor, bodyBlock, normalizeBlock } from '../settings/document-flow';
-import { OfficialSheetComponent } from '../settings/official-sheet.component';
-import { PrintSheetComponent } from '../settings/print-sheet.component';
+import { ApiService, BnpDocument, ClaimCase, ClaimPackage, PrintFormRow, errorMessage } from '../../core/api.service';
 
 interface Slot {
   code: string;
@@ -40,11 +37,11 @@ const COURT: Slot[] = [
 
 @Component({
   selector: 'app-claim-checklist',
-  host: { '[class.file-open]': 'editing() || pdfUrl()' },
+  host: { '[class.file-open]': '!!pdfUrl()' },
   standalone: true,
   imports: [
-    FormsModule, ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule,
-    MatSnackBarModule, DateFieldComponent, HoldDraftDirective, PrintSheetComponent, OfficialSheetComponent,
+    FormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule, MatInputModule,
+    MatSnackBarModule, DateFieldComponent, HoldDraftDirective,
   ],
   template: `
     <div class="split" [attr.data-slot]="selected()">
@@ -103,40 +100,9 @@ const COURT: Slot[] = [
             <p class="meta" [attr.title]="doc.file_name">{{ doc.file_name }} · {{ doc.generated ? 'собран в ПМ' : 'загружен' }}</p>
             <div class="acts">
               <button type="button" (click)="viewPdf(doc)">Просмотреть</button>
-              <button type="button" (click)="startEdit(doc)">Редактировать</button>
-              <button type="button" (click)="openEditor(doc)">Открыть в конструкторе</button>
+              <button type="button" (click)="openEditor(doc)">Открыть в редакторе печатных форм</button>
               <button type="button" (click)="remove(doc)">Удалить</button>
             </div>
-            @if (editing()) {
-              @if (editBlank) {
-                <p class="meta">Бланк образца. Статичный текст не меняется. Дата, номер и примечание правятся на листе, суммы берутся из лицевого счёта.</p>
-                <div class="sheet-edit">
-                  <aside class="parts">
-                    @for (part of sheetParts; track part.id) {
-                      <button type="button" class="part" [class.on]="sectionOn(part.id)" (click)="toggleSection(part.id)">
-                        <span class="mark">{{ sectionOn(part.id) ? '✓' : '' }}</span>
-                        <span>{{ part.title }}</span>
-                      </button>
-                    }
-                  </aside>
-                  <app-official-sheet
-                    [family]="sheetFamily"
-                    [copy]="sheetCopy"
-                    [values]="sheetValues"
-                    [pairs]="sheetPairs"
-                    [residents]="sheetResidents"
-                    [penaltyRows]="sheetPenalty"
-                    [serviceRows]="sheetServiceRows"
-                    [sections]="sectionMap"
-                    [showServices]="sheetServices"
-                    (serviceToggle)="toggleService($event)" />
-                </div>
-              } @else {
-                <p class="meta">Правка на листе A4. В PDF попадает то же оформление: поля, таблица и рамки.</p>
-                <app-print-sheet [blocks]="editBlocks" [flows]="editor.flows" [form]="editor.form" selectedKey="body" />
-              }
-              <button mat-stroked-button type="button" [disabled]="busy()" (click)="saveText(doc)">Сохранить документ</button>
-            }
             @if (pdfUrl(); as url) {
               <iframe class="sheet" title="Просмотр PDF" [src]="url"></iframe>
             }
@@ -155,20 +121,6 @@ const COURT: Slot[] = [
       border: 0; background: transparent; color: var(--erip-link); font: inherit; font-size: 13px; cursor: pointer;
     }
     .upload input { display: none; }
-    .sheet-edit { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 12px; align-items: start; }
-    .parts { display: flex; flex-direction: column; gap: 6px; }
-    .part {
-      display: flex; gap: 10px; align-items: center; width: 100%; text-align: left;
-      border: 1px solid var(--erip-border); background: #fff; border-radius: 10px;
-      padding: 8px 10px; cursor: pointer; font: inherit; color: inherit;
-    }
-    .mark {
-      width: 18px; height: 18px; flex: 0 0 18px; border: 1px solid #c5ced6; border-radius: 3px;
-      display: inline-flex; align-items: center; justify-content: center;
-      font-size: 13px; line-height: 1; color: transparent; background: #fff;
-    }
-    .part.on .mark { background: #2e9b57; border-color: #2e9b57; color: #fff; }
-    @media (max-width: 900px) { .sheet-edit { grid-template-columns: 1fr; } }
     h3, h4 { margin: 0 0 8px; color: var(--erip-primary-dark); }
     .hint, .meta, .empty, .doc-name { overflow-wrap: break-word; }
     .hint, .meta { color: var(--erip-muted); font-size: 13px; }
@@ -185,7 +137,7 @@ const COURT: Slot[] = [
     .checks li.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .checks li.need { border-color: #c62828; }
     .need { color: #c62828; }
-    .sheet { width: 100%; height: min(420px, 46vh); border: 0; border-radius: 6px; background: #f4f6f8; }
+    .sheet { width: 100%; height: min(420px, 46vh); border: 1px solid #d4d4d4; border-radius: 4px; background: #e6e6e6; }
     :host.file-open { flex: none; min-height: auto; --sheet-max-height: none; --sheet-min-height: 520px; --sheet-height: min(780px, 70vh); }
     :host.file-open .split { flex: none; min-height: auto; align-items: start; }
     :host.file-open .viewer { overflow: visible; min-height: auto; }
@@ -204,7 +156,7 @@ const COURT: Slot[] = [
     .checks .acts {
       display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; min-width: 0; margin: 0 0 2px 24px;
     }
-    .viewer .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
+    .viewer .acts { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; min-width: 0; max-width: 100%; }
     .acts button, .acts label {
       border: 0; background: transparent; color: var(--erip-link); font: inherit; font-size: 12px; cursor: pointer; padding: 0;
       white-space: nowrap;
@@ -246,25 +198,11 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
   private readonly snack = inject(MatSnackBar);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
-  protected readonly editor = new SheetEditor(inject(FormBuilder));
 
   protected readonly slots = SLOTS;
   protected readonly selected = signal('application');
   protected readonly forms = signal<PrintFormRow[]>([]);
   protected readonly busy = signal(false);
-  protected readonly editing = signal(false);
-  protected editBlocks: SheetBlock[] = [];
-  protected editBlank = '';
-  protected sheetFamily = '';
-  protected sheetCopy: Record<string, string> = {};
-  protected sheetValues: Record<string, string> = {};
-  protected sheetPairs: BlankPeriodPair[] = [];
-  protected sheetResidents: BlankResident[] = [];
-  protected sheetPenalty: BlankPenaltyRow[] = [];
-  protected sheetServiceRows: BlankServiceRow[] = [];
-  protected sheetParts: BlankSection[] = [];
-  protected sectionMap: Record<string, boolean> = {};
-  protected sheetServices = true;
   protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
   protected templateId: number | null = null;
   private rawUrl = '';
@@ -380,24 +318,9 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
 
   protected pick(code: string): void {
     this.selected.set(code);
-    this.editing.set(false);
     this.pdfUrl.set(null);
     const forms = this.formsOf(this.slotBy(code));
     if (!forms.some((form) => form.id === Number(this.templateId))) this.templateId = forms[0]?.id ?? null;
-  }
-
-  protected sectionOn(id: string): boolean {
-    return this.sectionMap[id] !== false;
-  }
-
-  protected toggleSection(id: string): void {
-    this.sectionMap = { ...this.sectionMap, [id]: !this.sectionOn(id) };
-  }
-
-  protected toggleService(id: string): void {
-    this.sheetServiceRows = this.sheetServiceRows.map((row) => (
-      row.id === id ? { ...row, selected: !row.selected } : row
-    ));
   }
 
   protected formsOf(slot: Slot | undefined): PrintFormRow[] {
@@ -421,79 +344,25 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
     });
   }
 
-  protected startEdit(doc: BnpDocument): void {
-    const layout = doc.layout;
-    if (layout?.blank && layout.copy) {
-      this.editBlank = layout.blank;
-      this.sheetFamily = layout.family || '';
-      this.sheetCopy = { ...layout.copy };
-      this.sheetValues = { ...(layout.values || {}) };
-      this.sheetPairs = layout.pairs || [];
-      this.sheetResidents = layout.residents || [];
-      this.sheetPenalty = layout.penalty_rows || [];
-      this.sheetServices = layout.show_services !== false;
-      this.sheetServiceRows = (layout.service_rows || []).map((row) => ({ ...row }));
-      this.sheetParts = layout.section_list || [];
-      this.sectionMap = { ...(layout.sections || {}) };
-      this.editing.set(true);
-      this.pdfUrl.set(null);
-      return;
-    }
-    this.editBlank = '';
-    const saved = doc.layout?.blocks;
-    this.editBlocks = saved?.length && saved.some((block) => block.key === 'body')
-      ? saved.map((block, index) => normalizeBlock(block, index))
-      : [bodyBlock(doc.body || '')];
-    this.editor.load(this.editBlocks);
-    this.editing.set(true);
-    this.pdfUrl.set(null);
-  }
-
-  protected saveText(doc: BnpDocument): void {
-    if (this.editBlank) {
-      this.busy.set(true);
-      this.api.claimAction(this.claimId(), `package/documents/${doc.id}/layout`, {
-        blank: this.editBlank, values: this.sheetValues, sections: this.sectionMap,
-        service_rows: this.sheetServiceRows, body: '', blocks: [],
-      }).subscribe({
-        next: (row) => {
-          this.busy.set(false);
-          this.editing.set(false);
-          this.changed.emit(row);
-          this.snack.open('Документ сохранён. Подпись комплекта снята.', 'OK', { duration: 2500 });
-        },
-        error: (err) => this.fail(err),
-      });
-      return;
-    }
-    this.editor.commit(this.editBlocks, 'filled');
-    const body = this.editBlocks.find((block) => block.key === 'body')?.text
-      || this.editBlocks.map((block) => block.text).filter(Boolean).join('\n');
-    this.busy.set(true);
-    this.api.claimAction(this.claimId(), `package/documents/${doc.id}/layout`, { body, blocks: this.editBlocks }).subscribe({
-      next: (row) => {
-        this.busy.set(false);
-        this.editing.set(false);
-        this.changed.emit(row);
-        this.snack.open('Документ сохранён. Подпись комплекта снята.', 'OK', { duration: 2500 });
-      },
-      error: (err) => this.fail(err),
-    });
-  }
-
-  protected openEditor(doc: BnpDocument | null, formId = this.templateId): void {
+  protected openEditor(doc: BnpDocument | null, formId?: number | null): void {
+    const slot = this.active();
+    const forms = this.formsOf(slot);
+    const resolvedForm = formId
+      || Number(doc?.layout?.form || 0)
+      || Number(this.templateId || 0)
+      || forms[0]?.id
+      || null;
     this.router.navigate(['/settings/work/forms'], {
       queryParams: {
         claim: this.claimId(),
         doc: doc?.id || null,
-        form: formId || null,
+        form: resolvedForm,
         pane: 'layout',
       },
     });
   }
 
   protected viewPdf(doc: BnpDocument): void {
-    this.editing.set(false);
     this.api.claimPackageFile(this.claimId(), doc.id, 'pdf', true).subscribe({
       next: (blob) => {
         this.revoke();

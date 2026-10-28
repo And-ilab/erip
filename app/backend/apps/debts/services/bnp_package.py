@@ -215,7 +215,10 @@ def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     )
     document.layout = {"blocks": blocks, "form": form.id, "version": form.version}
     if ctx is not None:
-        document.layout.update(payload_of(ctx))
+        blank_payload = payload_of(ctx)
+        merged_vals = {**values, **(ctx.get("values") or {})}
+        blank_payload["blocks"] = fill_blocks(blank_payload.get("blocks") or [], merged_vals)
+        document.layout.update(blank_payload)
     document.save(update_fields=["layout", "updated_at"])
     return document
 

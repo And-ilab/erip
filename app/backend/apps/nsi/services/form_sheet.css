@@ -139,4 +139,4 @@ table.grid td {
   word-break: break-word;
 }
 
-table.grid th { font-weight: 700; background: #f4f4f4; }
+table.grid th { font-weight: 700; background: transparent; }

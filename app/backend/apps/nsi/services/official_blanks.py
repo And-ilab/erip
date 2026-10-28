@@ -477,63 +477,136 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
         ]
     if family == "case":
         mode = copy.get("mode") or "claim"
-        person_text = (
-            f"{copy.get('person_label', 'Должник')}: {{fio}}\n"
-            f"{copy.get('address_label', 'Адрес')}: {{address}}"
-        )
         if mode == "proxy":
-            person_text += (
-                f"\n{copy.get('grantor_label', 'Доверитель')}: {{organization}}\n"
-                f"{copy.get('rep_label', 'Представитель')}: {{representative}}\n\n"
-                f"{copy.get('powers', '')}"
-            )
-        else:
-            person_text += "\nВзыскатель (Истец): {organization}\nИдентификационный номер: {personal_id}   УНП: {unp}"
-        req_cols = [
-            {"title": copy.get("warning_label", "Дата вручения предупреждения"), "width": 36},
-            {"title": copy.get("days_label", "Дней на погашение"), "width": 28},
-            {"title": copy.get("tariff_label", "Нотариальный тариф") if mode == "writ" else copy.get("duty_label", "Госпошлина"), "width": 36},
-        ]
-        req_row = ["{warning_date}", "{due_days}", "{tariff}" if mode == "writ" else "{duty}"]
+            return [
+                blk(
+                    "logo", "Шапка организации",
+                    f"{copy.get('country', 'Республика Беларусь')}\n{{organization}}\n{{locality}}\n{{date}}, № {{doc_number}}",
+                    12, align="center", bold=True, x=4, w=46,
+                ),
+                blk("block-title", "Заголовок", "ДОВЕРЕННОСТЬ", 90, align="center", bold=True, size=14),
+                blk(
+                    "body", "Текст доверенности",
+                    "{organization}, УНП {unp}, в лице руководителя, действующего на основании Устава (Положения), "
+                    "настоящей доверенностью уполномочивает представителя {representative} представлять интересы "
+                    "организации в нотариальных конторах и нотариальных бюро Республики Беларусь по вопросам "
+                    "обращения за совершением исполнительных надписей о взыскании задолженности по плате за "
+                    "жилищно-коммунальные услуги и пени, подписывать заявления о совершении исполнительных "
+                    "надписей и расчёты суммы задолженности.",
+                    140, align="justify",
+                ),
+                blk(
+                    "requisites", "Сведения по лицевому счёту",
+                    f"{copy.get('person_label', 'Должник')}: {{fio}}\n"
+                    f"{copy.get('account_label', 'Лицевой счёт')}: {{account}}\n"
+                    f"{copy.get('address_label', 'Адрес')}: {{address}}\n"
+                    "Период задолженности: с {period_from} по {period_to}\n"
+                    "Задолженность: {amount} бел. руб., в том числе пеня {penalty} бел. руб.",
+                    260,
+                ),
+                blk(
+                    "signatory", "Подпись",
+                    "Руководитель _______________________ {organization}\nМ.П.",
+                    380,
+                ),
+            ]
+        if mode == "writ":
+            return [
+                blk(
+                    "logo", "Шапка организации",
+                    f"{copy.get('country', 'Республика Беларусь')}\n{{organization}}\n{{locality}}\nУНП {{unp}}\n{{date}}, исх. № {{doc_number}}",
+                    12, align="center", bold=True, x=4, w=46,
+                ),
+                blk(
+                    "requisites", "Адресат и стороны",
+                    "В нотариальную контору / нотариальное бюро\n"
+                    "Взыскатель: {organization}\n"
+                    "Должник: {fio}\n"
+                    "Идентификационный номер: {personal_id}\n"
+                    "Адрес: {address}\n"
+                    "Лицевой счёт № {account}",
+                    12, align="right", x=52, w=44,
+                ),
+                blk(
+                    "block-title", "Заголовок",
+                    "ЗАЯВЛЕНИЕ\nо совершении исполнительной надписи",
+                    96, align="center", bold=True, size=14,
+                ),
+                blk(
+                    "body", "Текст заявления",
+                    "Прошу совершить исполнительную надпись о взыскании с должника {fio}, проживающего по адресу: "
+                    "{address} (лицевой счёт № {account}), задолженности по плате за жилищно-коммунальные услуги "
+                    "({services}) за период с {period_from} по {period_to} и пени в связи с просрочкой внесения платы.\n\n"
+                    "Письменное предупреждение о необходимости погашения задолженности вручено должнику {warning_date} "
+                    "(срок для погашения — {due_days} дней). В установленный срок задолженность не погашена, судебного спора не имеется.",
+                    156, align="justify",
+                ),
+                blk(
+                    "table", "Расчёт требований", "", 270, size=11,
+                    columns=[
+                        {"title": "Наименование требования", "width": 46},
+                        {"title": "Период задолженности", "width": 30},
+                        {"title": "Сумма, бел. руб.", "width": 24},
+                    ],
+                    rows=[
+                        ["Основной долг ({services})", "{period_from} – {period_to}", "{principal}"],
+                        ["Пеня за просрочку платы", "{period_from} – {period_to}", "{penalty}"],
+                        ["Нотариальный тариф", "", "{tariff}"],
+                        ["ИТОГО", "", "{amount}"],
+                    ],
+                ),
+                blk(
+                    "signatory", "Подпись",
+                    f"{copy.get('sign_hint', 'Подпись уполномоченного')} _______________________ {{representative}}\nМ.П.",
+                    400,
+                ),
+            ]
+        claim_sub = copy.get("kind") or "На взыскание задолженности"
         return [
             blk(
-                "logo", "Номер и лицевой счёт", copy.get("title", "Исполнительная надпись"),
-                12, align="center", bold=True, size=14,
-                columns=[
-                    {"title": copy.get("number_label", "Номер"), "width": 50},
-                    {"title": copy.get("account_label", "Лицевой счёт"), "width": 50},
-                ],
-                rows=[["{doc_number}", "{account}"]],
+                "requisites", "В суд и стороны",
+                "В суд по месту нахождения жилого помещения\n"
+                "Истец: {organization}, УНП {unp}\n"
+                "Адрес истца: {address_org}\n"
+                f"{copy.get('person_label', 'ФИО ответчика')}: {{fio}}\n"
+                "Идентификационный номер: {personal_id}\n"
+                f"{copy.get('address_label', 'Адрес')}: {{address}}\n"
+                f"{copy.get('account_label', 'Лицевой счёт')}: {{account}}\n"
+                "Цена иска: {amount} бел. руб.   Госпошлина: {duty} бел. руб.",
+                12, align="right", x=40, w=56,
             ),
             blk(
-                "block-period", "Период долга", "", 80,
-                columns=[
-                    {"title": copy.get("from_label", "Начало периода долга"), "width": 50},
-                    {"title": copy.get("to_label", "Окончание периода долга"), "width": 50},
-                ],
-                rows=[["{period_from}", "{period_to}"]],
-            ),
-            blk("body", "Ответчик", person_text, 150),
-            blk(
-                "table", "Услуги", copy.get("services_title", "Услуги"), 230, size=11,
-                columns=[
-                    {"title": "Вкл", "width": 14},
-                    {"title": copy.get("col_id", "ID"), "width": 24},
-                    {"title": copy.get("col_name", "Услуга"), "width": 62},
-                ],
-                rows=[["✓", "1", "{services}"]],
+                "block-title", "Заголовок",
+                f"ИСКОВОЕ ЗАЯВЛЕНИЕ\n({claim_sub})",
+                100, align="center", bold=True, size=14,
             ),
             blk(
-                "block-sums", "Суммы", "", 310,
-                columns=[
-                    {"title": copy.get("debt_label", "Долг по услугам"), "width": 50},
-                    {"title": copy.get("penalty_label", "Долг по пене"), "width": 50},
-                ],
-                rows=[["{amount}", "{penalty}"]],
+                "body", "Текст иска",
+                "Ответчик {fio}, проживающий по адресу: {address} (лицевой счёт № {account}), имеет задолженность "
+                "по плате за жилищно-коммунальные услуги ({services}) за период с {period_from} по {period_to} "
+                "в общей сумме {amount} бел. руб., в том числе основной долг {principal} бел. руб. и пеня {penalty} бел. руб.\n\n"
+                "Предупреждение о необходимости погашения задолженности вручено {warning_date} (срок погашения — {due_days} дней). "
+                "В добровольном порядке задолженность не погашена.\n\n"
+                "На основании изложенного и руководствуясь жилищным и гражданским процессуальным законодательством Республики Беларусь, "
+                "прошу суд удовлетворить заявленные исковые требования и взыскать с ответчика задолженность и судебные расходы.",
+                160, align="justify",
             ),
-            blk("requisites", "Вид документа и даты", copy.get("kind", ""), 380, size=11, columns=req_cols, rows=[req_row]),
-            blk("block-note", "Примечание", f"{copy.get('note_label', 'Примечание')}: {{note}}", 450),
-            blk("signatory", "Подпись", f"{copy.get('sign_hint', 'Подпись уполномоченного')} _______________________", 510),
+            blk(
+                "table", "Суммы задолженности", "", 290, size=11,
+                columns=[
+                    {"title": copy.get("col_name", "Услуга"), "width": 44},
+                    {"title": "Период долга", "width": 26},
+                    {"title": copy.get("debt_label", "Долг по услугам"), "width": 15},
+                    {"title": copy.get("penalty_label", "Долг по пене"), "width": 15},
+                ],
+                rows=[["{services}", "{period_from} – {period_to}", "{principal}", "{penalty}"]],
+            ),
+            blk(
+                "signatory", "Подпись и дата",
+                f"{{date}}, исх. № {{doc_number}}\n{copy.get('note_label', 'Примечание')}: {{note}}\n\n"
+                f"{copy.get('sign_hint', 'Подпись уполномоченного')} _______________________ {{organization}}",
+                400,
+            ),
         ]
     return []
 
