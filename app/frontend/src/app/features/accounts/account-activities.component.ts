@@ -63,6 +63,9 @@ import { ActivityNode } from '../../core/models';
           <span class="box" [class.on]="row.status === 'done'" [class.need]="row.mandatory && row.status !== 'done'"></span>
           {{ row.title }}
           @if (row.mandatory && row.status !== 'done') { <span class="req" title="Обязательный пункт">*</span> }
+          @if (depth === 0 && measureLink(row); as measureId) {
+            <button type="button" class="go measure-go" (click)="openMeasure.emit(measureId)">К мероприятию</button>
+          }
           @if (row.note && row.status === 'done') { <span class="note">{{ row.note }}</span> }
         </td>
         <td class="cell-status"><span class="status" [class.work]="row.status === 'running'" [class.done]="row.status === 'done'">{{ row.status_label }}</span></td>
@@ -120,6 +123,7 @@ import { ActivityNode } from '../../core/models';
     .status.work { background: #fff4d6; color: #8a5a00; }
     .status.done { background: #e5f6ea; color: #1b7a3a; }
     button.need, button.go { border: 0; background: transparent; color: #1d6f8a; cursor: pointer; font: inherit; }
+    .measure-go { display: inline; margin-left: 8px; text-decoration: underline; }
     .note { display: block; color: #6b7280; font-size: 12px; }
     input { font: inherit; margin-right: 6px; max-width: 150px; }
   `,
@@ -132,6 +136,7 @@ export class AccountActivitiesComponent {
   readonly focusMeasure = input<number | null>(null);
   readonly focusCode = input('');
   readonly act = output<{ id: number; note: string; file?: File }>();
+  readonly openMeasure = output<number>();
   protected readonly closed = signal<Set<number>>(new Set());
   protected readonly editing = signal<number | null>(null);
   protected readonly draft = signal('');
@@ -168,6 +173,15 @@ export class AccountActivitiesComponent {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     this.closed.set(next);
+  }
+
+  protected measureLink(row: ActivityNode): number | null {
+    if (row.measure_id) return row.measure_id;
+    for (const child of row.children) {
+      const found = this.measureLink(child);
+      if (found) return found;
+    }
+    return null;
   }
 
   protected hint(row: ActivityNode): string {

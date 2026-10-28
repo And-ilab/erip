@@ -105,7 +105,8 @@ import { FunnelBarComponent } from './funnel-bar.component';
             [canAct]="canAct()"
             [focusMeasure]="focusMeasure()"
             [focusCode]="focusActivity()"
-            (act)="actOn($event)" />
+            (act)="actOn($event)"
+            (openMeasure)="openAssignedMeasure($event)" />
         </mat-tab>
         <mat-tab label="Общие">
             <div class="grid">
@@ -266,10 +267,14 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   }
                 </summary>
                 @for (item of step.checklist; track item) {
-                  <p class="check-line">{{ item }}</p>
+                  @if (step.measures.length) {
+                    <button type="button" class="check-line check-go" (click)="openAssignedMeasure(step.measures[0].id)">{{ item }}</button>
+                  } @else {
+                    <p class="check-line">{{ item }}</p>
+                  }
                 }
                 @for (row of step.measures; track row.id) {
-                  <div class="step-measure">
+                  <div class="step-measure" [id]="'measure-' + row.id" [class.focus]="focusMeasure() === row.id">
                     <div class="step-head">
                       <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
                       <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
@@ -295,10 +300,10 @@ import { FunnelBarComponent } from './funnel-bar.component';
                 }
               </details>
             }
-            <details class="step">
+            <details class="step" [open]="manualOpen()">
               <summary>Инициировано вручную</summary>
               @for (row of scenarioManual(); track row.id) {
-                <div class="step-measure">
+                <div class="step-measure" [id]="'measure-' + row.id" [class.focus]="focusMeasure() === row.id">
                   <div class="step-head">
                     <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
                     <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
@@ -667,7 +672,9 @@ import { FunnelBarComponent } from './funnel-bar.component';
     .step { border: 1px solid var(--erip-border); border-radius: 8px; margin: 8px 0; padding: 8px 12px; background: #fff; }
     .step summary { cursor: pointer; font-weight: 600; }
     .step-measure { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 8px 0; }
+    .step-measure.focus { background: #e7f4f1; border-radius: 8px; padding: 4px 8px; }
     .step-head, .check-line, .step-summary { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
+    button.check-go { width: 100%; border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; text-align: left; color: var(--erip-link); text-decoration: underline; }
     .pause-btn { margin-left: auto; }
     .pause-box { position: fixed; z-index: 40; left: 50%; top: 20vh; transform: translateX(-50%); background: #fff; border: 1px solid var(--erip-border); border-radius: 8px; padding: 16px; display: grid; gap: 8px; min-width: 320px; }
     .table-settings { margin: 0 0 8px; }
@@ -947,7 +954,7 @@ export class AccountDetailComponent implements OnInit {
         const activity = this.route.snapshot.queryParamMap.get('activity') || '';
         this.loadHeader(id);
         const named = this.tabIndexOf(tab);
-        if (named === 0 && measure) this.focusMeasure.set(measure);
+        if (measure) this.focusMeasure.set(measure);
         if (activity) this.focusActivity.set(activity);
         this.tabIndex.set(named);
         this.ensureTab(named);
@@ -965,6 +972,22 @@ export class AccountDetailComponent implements OnInit {
   protected openTab(index: number): void {
     this.tabIndex.set(index);
     this.ensureTab(index);
+  }
+
+  protected openAssignedMeasure(id: number): void {
+    this.focusMeasure.set(id);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: 'measures', measure: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+    this.openTab(3);
+    this.scrollMeasure(id);
+  }
+
+  private scrollMeasure(id: number): void {
+    setTimeout(() => document.getElementById(`measure-${id}`)?.scrollIntoView({ block: 'nearest' }), 0);
   }
 
   private applyAccount(account: AccountDetail): void {
@@ -1121,6 +1144,8 @@ export class AccountDetailComponent implements OnInit {
         this.extraCatalog.set(extra.results);
         this.extraCatalogId = extra.results[0]?.id ?? null;
       }
+      const focused = this.focusMeasure();
+      if (focused) this.scrollMeasure(focused);
     } else if (index === 4) {
       this.contacts.set((result['contacts'] as { results: ContactRow[] }).results);
     } else if (index === 5) {
@@ -1937,6 +1962,11 @@ export class AccountDetailComponent implements OnInit {
 
   protected stepOpen(step: ScenarioStep): boolean {
     return step.measures.length > 0;
+  }
+
+  protected manualOpen(): boolean {
+    const id = this.focusMeasure();
+    return !!id && this.scenarioManual().some((row) => row.id === id);
   }
 
   protected writPreview(): WritDraft | null {
