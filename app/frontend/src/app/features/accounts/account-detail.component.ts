@@ -268,11 +268,11 @@ import { FunnelBarComponent } from './funnel-bar.component';
                     </button>
                   }
                 </summary>
-                @for (item of step.checklist; track item) {
+                @for (item of step.checklist; track $index) {
                   @if (stepWork(step) || step.measures.length) {
-                    <button type="button" class="check-line check-go" (click)="openStepWork(step)">{{ item }}</button>
+                    <button type="button" class="check-line check-go" (click)="openStepWork(step)">{{ checkLabel(item) }}</button>
                   } @else {
-                    <p class="check-line">{{ item }}</p>
+                    <p class="check-line">{{ checkLabel(item) }}</p>
                   }
                 }
                 @for (row of step.measures; track row.id) {
@@ -1017,6 +1017,11 @@ export class AccountDetailComponent implements OnInit {
     }
     const id = step.measures[0]?.id;
     if (id) this.router.navigate(['/measures', id]);
+  }
+
+  protected checkLabel(item: ScenarioStep['checklist'][number]): string {
+    if (typeof item === 'string') return item;
+    return item.name || item.criteria || item.code || '';
   }
 
   protected stepWork(step: ScenarioStep): string {

@@ -734,11 +734,19 @@ export interface ScenarioMeasure {
   tasks: MeasureTaskRow[];
 }
 
+export interface ScenarioCheck {
+  code?: string;
+  name?: string;
+  order?: number;
+  criteria?: string;
+  mandatory?: boolean;
+}
+
 export interface ScenarioStep {
   order: number;
   action: string;
   title: string;
-  checklist: string[];
+  checklist: Array<string | ScenarioCheck>;
   measures: ScenarioMeasure[];
 }
 
