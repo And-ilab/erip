@@ -112,7 +112,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </mat-select>
                   </mat-form-field>
                 }
-                <p class="muted">Подпись ставит плагин AvCMXWebP на этом компьютере: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт подписывает представитель, доверенность — руководитель. Если в личном сертификате нет УНП, плагин добавляет атрибутный сертификат. Статус ключа проверяется по списку отозванных сертификатов. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит. «Отправить» неактивна: канал БНП система-система не подключён.</p>
+                <p class="muted">Подпись ставит плагин AvCMXWebP на этом компьютере: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт подписывает представитель, доверенность — руководитель. Если в личном сертификате нет УНП, плагин добавляет атрибутный сертификат. Статус ключа проверяется по списку отозванных сертификатов. Chrome и Edge плагин не загружают (NPAPI/ActiveX) — для подписи откройте ПМ в Internet Explorer. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>, проверка у АВЕСТ — <a href="http://dev.avest.by/avjceprovdemoweb/" target="_blank" rel="noopener">демо AvCMXWebP</a>. В кабинет БНП вызов не уходит. «Отправить» неактивна: канал БНП система-система не подключён.</p>
                 @if (sendGaps(row).length) {
                   <ul class="blockers">
                     @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }

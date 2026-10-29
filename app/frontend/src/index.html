@@ -8,7 +8,15 @@
   <link rel="icon" href="erip-logo.png?v=2" type="image/png">
 </head>
 <body class="mat-typography">
-  <object id="oavcmx" type="application/x-avcmx-web-plugin" width="0" height="0" aria-hidden="true"></object>
+  <!-- AvCMXWebP: MIME для NPAPI + classid ActiveX (IE). Chrome/Edge этот объект не активируют. -->
+  <object
+    id="oavcmx"
+    type="application/x-avcmx-web-plugin"
+    classid="CLSID:35B35038-9C01-5D75-943F-5A19E32AC230"
+    width="0"
+    height="0"
+    aria-hidden="true"
+  ></object>
   <app-root></app-root>
 </body>
 </html>

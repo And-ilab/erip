@@ -2,10 +2,13 @@ import { Injectable } from '@angular/core';
 
 /**
  * Вызов плагина AvCMXWebP из «Комплекта абонента АВЕСТ».
- * Объект на странице — тот же, что в примере ЗАО «АВЕСТ»: id="oavcmx",
- * type="application/x-avcmx-web-plugin". Подпись отсоединённая, сертификат
- * подписанта вложен. Если в личном сертификате нет УНП, в подпись берётся
- * атрибутный сертификат с этим OID. Статус сертификата плагин проверяет по СОС.
+ * На странице — object type="application/x-avcmx-web-plugin" и classid ActiveX
+ * (ProgID AVEST.AvCMXWebP). Подпись отсоединённая, сертификат подписанта вложен.
+ * Если в личном сертификате нет УНП, в подпись берётся атрибутный сертификат
+ * с этим OID. Статус сертификата плагин проверяет по СОС.
+ *
+ * Chrome и Edge плагин не поднимают: AvCMXWebP — NPAPI/ActiveX, в Chromium
+ * NPAPI снят с 2015 (демо АВЕСТ: IE, Firefox; Chrome только до 45).
  */
 
 const AVCMF_NO_AUTH = 0x4;
@@ -18,6 +21,7 @@ const AVCM_TYPE_MY = 0x10e;
 const AVCM_PUB_KEY_ID = 0x100f;
 const AVCMXF_ZT_STRING = 1;
 const UNP_OID = '1.2.112.1.2.1.1.1.1.2';
+const AVCMX_PROGID = 'AVEST.AvCMXWebP';
 
 export interface EdsCertificate {
   pubKeyId: string;
@@ -91,8 +95,13 @@ interface AvPlugin {
   GetErrorInformation(code: number, flags: number): string;
 }
 
+type ActiveXFactory = new (progId: string) => AvPlugin;
+
 @Injectable({ providedIn: 'root' })
 export class AvcmxService {
+  /** Держим ActiveX-экземпляр, чтобы его не собрал GC. */
+  private activeX: AvPlugin | null = null;
+
   installed(): boolean {
     return this.plugin() !== null;
   }
@@ -102,7 +111,20 @@ export class AvcmxService {
   }
 
   missingText(): string {
-    return 'На этом компьютере не найден плагин AvCMXWebP. Установите «Комплект абонента АВЕСТ» для носителя AvPass со страницы НЦЭУ и обновите страницу. Дистрибутив: https://nces.by/pki/info/software';
+    if (this.chromiumBrowser()) {
+      return (
+        'Комплект АВЕСТ на компьютере может быть установлен, но этот браузер не загружает AvCMXWebP. ' +
+        'Плагин — NPAPI/ActiveX; Chrome и Edge его не поднимают (в демо АВЕСТ: Internet Explorer и Firefox; Chrome только до версии 45). ' +
+        'Откройте ПМ в Internet Explorer и нажмите «Подписать» снова. ' +
+        'Проверка плагина у АВЕСТ: http://dev.avest.by/avjceprovdemoweb/. ' +
+        'Дистрибутив: https://nces.by/pki/info/software'
+      );
+    }
+    return (
+      'Браузер не отдал API плагина AvCMXWebP (у объекта нет CreateBlob). ' +
+      'Установите «Комплект абонента АВЕСТ» для AvPass вместе с AvCMXWebP со страницы НЦЭУ и откройте ПМ в Internet Explorer ' +
+      '(или Firefox с NPAPI). Дистрибутив: https://nces.by/pki/info/software'
+    );
   }
 
   async certificates(): Promise<EdsCertificate[]> {
@@ -169,11 +191,36 @@ export class AvcmxService {
   }
 
   private plugin(): AvPlugin | null {
+    const fromObject = this.fromPageObject();
+    if (fromObject) return fromObject;
+    return this.fromActiveX();
+  }
+
+  private fromPageObject(): AvPlugin | null {
     const node = document.getElementById('oavcmx');
     if (!node) return null;
     const plugin = node as unknown as AvPlugin;
     if (typeof plugin.CreateBlob !== 'function') return null;
     return plugin;
+  }
+
+  private fromActiveX(): AvPlugin | null {
+    if (this.activeX && typeof this.activeX.CreateBlob === 'function') return this.activeX;
+    const factory = (window as unknown as { ActiveXObject?: ActiveXFactory }).ActiveXObject;
+    if (!factory) return null;
+    try {
+      const instance = new factory(AVCMX_PROGID);
+      if (!instance || typeof instance.CreateBlob !== 'function') return null;
+      this.activeX = instance;
+      return instance;
+    } catch {
+      return null;
+    }
+  }
+
+  private chromiumBrowser(): boolean {
+    const ua = navigator.userAgent;
+    return /Chrome\/|Edg\/|OPR\//.test(ua) && !/Firefox\//.test(ua);
   }
 
   private connect(plugin: AvPlugin, params: AvParams, flags: number): Promise<AvConnection> {
