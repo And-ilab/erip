@@ -184,8 +184,8 @@ def context_for_account(account, tariff: str = "", warning_date: str = "") -> di
     raw = placeholder_values(account, tariff=tariff, warning_date=warning_date)
     letterhead, locality, address_org, unp, bik, bank_account = _organization_bits(account)
     penalty = _dec(raw.get("penalty"))
-    total = _dec(account.balance_out)
-    principal = None if total is None else total - (penalty or Decimal("0"))
+    principal = _dec(raw.get("principal"))
+    total = _dec(raw.get("total"))
     groups = _period_groups(account)
     residents = _residents(account)
     registered = account.registrations.filter(subj_is_check_out=False).count()
@@ -522,15 +522,15 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
                     "В нотариальную контору / нотариальное бюро\n"
                     "Взыскатель: {organization}\n"
                     "Должник: {fio}\n"
-                    "Идентификационный номер: {personal_id}\n"
+                    "Ид. номер: {personal_id}\n"
                     "Адрес: {address}\n"
                     "Лицевой счёт № {account}",
-                    12, align="right", x=52, w=44,
+                    12, align="right", x=52, w=46,
                 ),
                 blk(
                     "block-title", "Заголовок",
                     "ЗАЯВЛЕНИЕ\nо совершении исполнительной надписи",
-                    96, align="center", bold=True, size=14,
+                    96, align="center", bold=True, size=13,
                 ),
                 blk(
                     "body", "Текст заявления",
@@ -539,7 +539,7 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
                     "({services}) за период с {period_from} по {period_to} и пени в связи с просрочкой внесения платы.\n\n"
                     "Письменное предупреждение о необходимости погашения задолженности вручено должнику {warning_date} "
                     "(срок для погашения — {due_days} дней). В установленный срок задолженность не погашена, судебного спора не имеется.",
-                    156, align="justify",
+                    156, align="justify", size=11,
                 ),
                 blk(
                     "table", "Расчёт требований", "", 270, size=11,
@@ -549,7 +549,7 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
                         {"title": "Сумма, бел. руб.", "width": 24},
                     ],
                     rows=[
-                        ["Основной долг ({services})", "{period_from} – {period_to}", "{principal}"],
+                        ["Основной долг за ЖКУ", "{period_from} – {period_to}", "{principal}"],
                         ["Пеня за просрочку платы", "{period_from} – {period_to}", "{penalty}"],
                         ["Нотариальный тариф", "", "{tariff}"],
                         ["ИТОГО", "", "{amount}"],
@@ -558,7 +558,7 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
                 blk(
                     "signatory", "Подпись",
                     f"{copy.get('sign_hint', 'Подпись уполномоченного')} _______________________ {{representative}}\nМ.П.",
-                    400,
+                    400, size=11,
                 ),
             ]
         claim_sub = copy.get("kind") or "На взыскание задолженности"
@@ -569,16 +569,16 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
                 "Истец: {organization}, УНП {unp}\n"
                 "Адрес истца: {address_org}\n"
                 f"{copy.get('person_label', 'ФИО ответчика')}: {{fio}}\n"
-                "Идентификационный номер: {personal_id}\n"
+                "Ид. номер: {personal_id}\n"
                 f"{copy.get('address_label', 'Адрес')}: {{address}}\n"
                 f"{copy.get('account_label', 'Лицевой счёт')}: {{account}}\n"
                 "Цена иска: {amount} бел. руб.   Госпошлина: {duty} бел. руб.",
-                12, align="right", x=40, w=56,
+                12, align="right", x=40, w=56, size=11,
             ),
             blk(
                 "block-title", "Заголовок",
                 f"ИСКОВОЕ ЗАЯВЛЕНИЕ\n({claim_sub})",
-                100, align="center", bold=True, size=14,
+                100, align="center", bold=True, size=13,
             ),
             blk(
                 "body", "Текст иска",
@@ -589,7 +589,7 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
                 "В добровольном порядке задолженность не погашена.\n\n"
                 "На основании изложенного и руководствуясь жилищным и гражданским процессуальным законодательством Республики Беларусь, "
                 "прошу суд удовлетворить заявленные исковые требования и взыскать с ответчика задолженность и судебные расходы.",
-                160, align="justify",
+                160, align="justify", size=11,
             ),
             blk(
                 "table", "Суммы задолженности", "", 290, size=11,
@@ -599,13 +599,13 @@ def blank_to_blocks(blank: str, ctx: dict | None = None) -> list[dict]:
                     {"title": copy.get("debt_label", "Долг по услугам"), "width": 15},
                     {"title": copy.get("penalty_label", "Долг по пене"), "width": 15},
                 ],
-                rows=[["{services}", "{period_from} – {period_to}", "{principal}", "{penalty}"]],
+                rows=[["Жилищно-коммунальные услуги", "{period_from} – {period_to}", "{principal}", "{penalty}"]],
             ),
             blk(
                 "signatory", "Подпись и дата",
                 f"{{date}}, исх. № {{doc_number}}\n{copy.get('note_label', 'Примечание')}: {{note}}\n\n"
                 f"{copy.get('sign_hint', 'Подпись уполномоченного')} _______________________ {{organization}}",
-                400,
+                400, size=11,
             ),
         ]
     return []

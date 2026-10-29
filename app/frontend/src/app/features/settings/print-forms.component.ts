@@ -942,7 +942,10 @@ export class PrintFormsComponent implements OnInit, OnDestroy {
     const body = blocks.find((block) => block.key === 'body')?.text
       || blocks.filter((b) => b.enabled && b.text).map((b) => b.text).join('\n\n');
     this.api.claimAction(this.claimId, `package/documents/${this.docId}/layout`, { body, blocks, blank: '' }).subscribe({
-      next: () => this.snack.open('Документ дела сохранён. Подпись пакета снята.', 'OK', { duration: 2500 }),
+      next: () => {
+        this.snack.open('Документ дела сохранён. Подпись пакета снята.', 'OK', { duration: 2500 });
+        if (this.pane() === 'pdf') this.showPdf();
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }

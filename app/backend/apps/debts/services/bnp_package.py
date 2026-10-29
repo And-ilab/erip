@@ -202,22 +202,25 @@ def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
             blank, case.account, warning_date=warning, extras=_case_extras(case, tariff),
         )
         text = official_plaintext(blank, ctx)
+        blank_payload = payload_of(ctx)
+        merged_vals = {**values, **(ctx.get("values") or {})}
+        blocks = fill_blocks(blank_payload.get("blocks") or [], merged_vals)
     else:
         blank = ""
         text = fill_account_text(form.body, case.account, tariff=tariff, warning_date=warning)
-    blocks = fill_blocks(blocks_of(form), values)
-    for block in blocks:
-        if block["key"] == "body":
-            block["text"] = text
+        blocks = fill_blocks(blocks_of(form), values)
+        for block in blocks:
+            if block["key"] == "body":
+                block["text"] = text
+        blank_payload = None
     document = _save_generated(
         package, doc_type, text, f"{form.code}-{_safe_token(case.account.client_account)}.pdf", blocks,
-        blank=blank, context=ctx,
+        blank=blank if blank == "calculation" else "",
+        context=ctx if blank == "calculation" else None,
     )
     document.layout = {"blocks": blocks, "form": form.id, "version": form.version}
-    if ctx is not None:
-        blank_payload = payload_of(ctx)
-        merged_vals = {**values, **(ctx.get("values") or {})}
-        blank_payload["blocks"] = fill_blocks(blank_payload.get("blocks") or [], merged_vals)
+    if blank_payload is not None:
+        blank_payload["blocks"] = blocks
         document.layout.update(blank_payload)
     document.save(update_fields=["layout", "updated_at"])
     return document

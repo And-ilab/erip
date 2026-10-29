@@ -120,7 +120,7 @@ def serialize_nodes(nodes: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def render_form_html(blocks: list[dict]) -> str:
+def render_form_html(blocks: list[dict], *, plain_lines: bool = False) -> str:
     parts = [
         "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\">",
         f"<style>{_CSS}</style></head><body><article class=\"sheet\">",
@@ -130,7 +130,7 @@ def render_form_html(blocks: list[dict]) -> str:
         if split:
             parts.append('<div class="doc-row split">')
         for block in sorted(row, key=lambda item: _num(item.get("x"))):
-            parts.append(_block_html(block))
+            parts.append(_block_html(block, split=split, plain_lines=plain_lines))
         if split:
             parts.append("</div>")
     parts.append("</article></body></html>")
@@ -165,18 +165,26 @@ def _ordered(blocks: list[dict]) -> list[dict]:
     return [item for _, item in indexed if item.get("enabled", True)]
 
 
-def _block_html(block: dict) -> str:
+def _block_html(block: dict, *, split: bool = False, plain_lines: bool = False) -> str:
     key = str(block.get("key") or "")
+    compact_lines = split or key in {"logo", "requisites", "signatory"} or _num(block.get("w"), 92) < 90
     classes = ["doc-block"]
     if key == "logo":
         classes.append("letterhead")
     if key == "signatory":
         classes.append("sign")
-    chunks = [f'<section class="{" ".join(classes)}" style="{_style(block)}">']
-    if key == "signatory":
-        chunks.append('<div class="sign-caption">Подпись</div>')
-    for node in parse_text(str(block.get("text") or ""), title=key == "body"):
-        chunks.append(_node_html(node))
+    chunks = [f'<section class="{" ".join(classes)}" style="{_style(block, split=split)}">']
+    text = str(block.get("text") or "")
+    if plain_lines:
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            if not line.strip():
+                chunks.append('<div class="gap"></div>')
+            else:
+                klass = "prose indent" if len(line) > 80 and block.get("align") in {None, "", "left", "justify"} else "prose"
+                chunks.append(f'<p class="{klass}">{_with_blanks(line)}</p>')
+    else:
+        for node in parse_text(text, title=key == "body"):
+            chunks.append(_node_html(node, split=compact_lines))
     table = _table_html(block.get("columns") or [], block.get("rows") or [])
     if table:
         chunks.append(table)
@@ -184,14 +192,25 @@ def _block_html(block: dict) -> str:
     return "".join(chunks)
 
 
-def _node_html(node: dict) -> str:
+def _node_html(node: dict, *, split: bool = False) -> str:
     if node["kind"] == "gap":
         return '<div class="gap"></div>'
     if node["kind"] == "title":
         return f'<h1 class="doc-title">{escape(node["text"])}</h1>'
     if node["kind"] == "paragraph":
-        klass = "prose indent" if len(node["text"]) > 80 else "prose"
+        klass = "prose indent" if len(node["text"]) > 80 and not split else "prose"
         return f'<p class="{klass}">{_with_blanks(node["text"])}</p>'
+    if split:
+        lines = []
+        for item in node["items"]:
+            if item["bare"]:
+                lines.append(f'<p class="prose">{_with_blanks("{" + item["token"] + "}")}</p>')
+            elif item["literal"]:
+                val = _with_blanks(item["value"]) if item["value"] else '<span class="blank inline">&nbsp;</span>'
+                lines.append(f'<p class="prose">{escape(item["label"])}: {val}</p>')
+            else:
+                lines.append(f'<p class="prose">{escape(item["label"])}: <span class="blank inline">&nbsp;</span></p>')
+        return "".join(lines)
     box = "frame" if node["framed"] else "panel"
     fields = "".join(_field_html(item) for item in node["items"])
     return f'<div class="{box}"><div class="fields">{fields}</div></div>'
@@ -248,7 +267,7 @@ def _with_blanks(text: str) -> str:
     return "".join(parts)
 
 
-def _style(block: dict) -> str:
+def _style(block: dict, *, split: bool = False) -> str:
     size = _num(block.get("font_size"), 12)
     if size < 8 or size > 36:
         size = 12
@@ -261,8 +280,15 @@ def _style(block: dict) -> str:
     font_css = _FONTS.get(font_name, _FONTS["Times New Roman"])
     style = f"font-family:{font_css};font-size:{size}pt;text-align:{align};font-weight:{weight};font-style:{font_style}"
     w = _num(block.get("w"), 92)
-    if 20 <= w < 90:
+    if split:
+        col_w = max(w, 20)
+        style += f";flex:0 0 {min(col_w, 48)}%;max-width:{min(col_w, 48)}%"
+    elif 20 <= w < 90:
         style += f";width:{w}%"
+        if align == "right" or _num(block.get("x"), 4) >= 35:
+            style += ";margin-left:auto"
+        elif align == "center":
+            style += ";margin-left:auto;margin-right:auto"
     return style
 
 

@@ -278,15 +278,15 @@ export function blankToBlocks(blank: string): SheetBlock[] {
         text: 'Республика Беларусь\n{organization}\n{locality}\nУНП {unp}\n{date}, исх. № {doc_number}',
       }, 0),
       mk({
-        key: 'requisites', title: 'Адресат и стороны', align: 'right', x: 52, y: 12, w: 44,
-        text: 'В нотариальную контору / нотариальное бюро\nВзыскатель: {organization}\nДолжник: {fio}\nИдентификационный номер: {personal_id}\nАдрес: {address}\nЛицевой счёт № {account}',
+        key: 'requisites', title: 'Адресат и стороны', align: 'right', x: 52, y: 12, w: 46,
+        text: 'В нотариальную контору / нотариальное бюро\nВзыскатель: {organization}\nДолжник: {fio}\nИд. номер: {personal_id}\nАдрес: {address}\nЛицевой счёт № {account}',
       }, 1),
       mk({
-        key: 'block-title', title: 'Заголовок', align: 'center', bold: true, font_size: 14, y: 96,
+        key: 'block-title', title: 'Заголовок', align: 'center', bold: true, font_size: 13, y: 96,
         text: 'ЗАЯВЛЕНИЕ\nо совершении исполнительной надписи',
       }, 2),
       mk({
-        key: 'body', title: 'Текст заявления', align: 'justify', y: 156,
+        key: 'body', title: 'Текст заявления', align: 'justify', font_size: 11, y: 156,
         text: 'Прошу совершить исполнительную надпись о взыскании с должника {fio}, проживающего по адресу: {address} (лицевой счёт № {account}), задолженности по плате за жилищно-коммунальные услуги ({services}) за период с {period_from} по {period_to} и пени в связи с просрочкой внесения платы.\n\nПисьменное предупреждение о необходимости погашения задолженности вручено должнику {warning_date} (срок для погашения — {due_days} дней). В установленный срок задолженность не погашена, судебного спора не имеется.',
       }, 3),
       mk({
@@ -297,14 +297,14 @@ export function blankToBlocks(blank: string): SheetBlock[] {
           { title: 'Сумма, бел. руб.', width: 24 },
         ],
         rows: [
-          ['Основной долг ({services})', '{period_from} – {period_to}', '{principal}'],
+          ['Основной долг за ЖКУ', '{period_from} – {period_to}', '{principal}'],
           ['Пеня за просрочку платы', '{period_from} – {period_to}', '{penalty}'],
           ['Нотариальный тариф', '', '{tariff}'],
           ['ИТОГО', '', '{amount}'],
         ],
       }, 4),
       mk({
-        key: 'signatory', title: 'Подпись', y: 400,
+        key: 'signatory', title: 'Подпись', font_size: 11, y: 400,
         text: 'Подпись уполномоченного _______________________ {representative}\nМ.П.',
       }, 5),
     ];
@@ -316,15 +316,15 @@ export function blankToBlocks(blank: string): SheetBlock[] {
   };
   return [
     mk({
-      key: 'requisites', title: 'В суд и стороны', align: 'right', x: 40, y: 12, w: 56,
-      text: 'В суд по месту нахождения жилого помещения\nИстец: {organization}, УНП {unp}\nАдрес истца: {address_org}\nФИО ответчика: {fio}\nИдентификационный номер: {personal_id}\nАдрес: {address}\nЛицевой счёт: {account}\nЦена иска: {amount} бел. руб.   Госпошлина: {duty} бел. руб.',
+      key: 'requisites', title: 'В суд и стороны', align: 'right', font_size: 11, x: 40, y: 12, w: 56,
+      text: 'В суд по месту нахождения жилого помещения\nИстец: {organization}, УНП {unp}\nАдрес истца: {address_org}\nФИО ответчика: {fio}\nИд. номер: {personal_id}\nАдрес: {address}\nЛицевой счёт: {account}\nЦена иска: {amount} бел. руб.   Госпошлина: {duty} бел. руб.',
     }, 0),
     mk({
-      key: 'block-title', title: 'Заголовок', align: 'center', bold: true, font_size: 14, y: 100,
+      key: 'block-title', title: 'Заголовок', align: 'center', bold: true, font_size: 13, y: 100,
       text: `ИСКОВОЕ ЗАЯВЛЕНИЕ\n(${claimTitles[blank] || 'На взыскание задолженности'})`,
     }, 1),
     mk({
-      key: 'body', title: 'Текст иска', align: 'justify', y: 160,
+      key: 'body', title: 'Текст иска', align: 'justify', font_size: 11, y: 160,
       text: 'Ответчик {fio}, проживающий по адресу: {address} (лицевой счёт № {account}), имеет задолженность по плате за жилищно-коммунальные услуги ({services}) за период с {period_from} по {period_to} в общей сумме {amount} бел. руб., в том числе основной долг {principal} бел. руб. и пеня {penalty} бел. руб.\n\nПредупреждение о необходимости погашения задолженности вручено {warning_date} (срок погашения — {due_days} дней). В добровольном порядке задолженность не погашена.\n\nНа основании изложенного и руководствуясь жилищным и гражданским процессуальным законодательством Республики Беларусь, прошу суд удовлетворить заявленные исковые требования и взыскать с ответчика задолженность и судебные расходы.',
     }, 2),
     mk({
@@ -335,10 +335,10 @@ export function blankToBlocks(blank: string): SheetBlock[] {
         { title: 'Долг по услугам', width: 15 },
         { title: 'Долг по пене', width: 15 },
       ],
-      rows: [['{services}', '{period_from} – {period_to}', '{principal}', '{penalty}']],
+      rows: [['Жилищно-коммунальные услуги', '{period_from} – {period_to}', '{principal}', '{penalty}']],
     }, 3),
     mk({
-      key: 'signatory', title: 'Подпись и дата', y: 400,
+      key: 'signatory', title: 'Подпись и дата', font_size: 11, y: 400,
       text: '{date}, исх. № {doc_number}\nПримечание: {note}\n\nПодпись уполномоченного _______________________ {organization}',
     }, 4),
   ];

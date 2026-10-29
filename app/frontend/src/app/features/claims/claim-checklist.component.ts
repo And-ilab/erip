@@ -338,7 +338,7 @@ export class ClaimChecklistComponent implements OnInit, OnDestroy {
         this.busy.set(false);
         this.changed.emit(row);
         const doc = row.package?.documents.find((item) => item.doc_type === slot.docType) || null;
-        this.openEditor(doc, formId);
+        if (doc) this.viewPdf(doc);
       },
       error: (err) => this.fail(err),
     });

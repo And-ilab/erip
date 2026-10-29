@@ -240,8 +240,15 @@ def placeholder_values(account, tariff: str = "", warning_date: str = "") -> dic
     service_rows = list(account.services.all())
     names = [row.service_name for row in service_rows if row.service_name][:8]
     penalty = sum((row.balance_mulct_out or Decimal("0")) for row in service_rows)
-    total = account.balance_out
-    principal = None if total is None else total - penalty
+    out_sum = sum((row.balance_out or Decimal("0")) for row in service_rows)
+    total = account.balance_out if account.balance_out is not None and account.balance_out > 0 else (out_sum or account.balance_out)
+    if total is None:
+        principal = None
+    elif total >= penalty and total > 0:
+        principal = total - penalty
+    else:
+        principal = out_sum if out_sum > 0 else Decimal("0.00")
+        total = principal + penalty
     last = account.payments.exclude(pay_date=None).order_by("-pay_date").values_list("pay_date", flat=True).first()
     started = account.debt_started_on
     op_date = account.operational_date or date.today()
@@ -308,14 +315,19 @@ def fill_account_text(template: str, account, *, tariff: str = "", warning_date:
 def render_print(form: PrintForm, account, tariff: str = "", batch: str = "") -> PrintedDocument:
     from apps.debts.services.artifacts import render_layout_pdf
     from apps.nsi.services.form_layout import blocks_of, fill_blocks
-    from apps.nsi.services.official_blanks import context_for_blank, known, official_plaintext
+    from apps.nsi.services.official_blanks import blank_to_blocks, context_for_blank, known, official_plaintext
 
     blank = (form.blank or "").strip()
     if blank and known(blank) and not form.blocks:
-        ctx = context_for_blank(blank, account, warning_date="")
+        ctx = context_for_blank(blank, account, warning_date="", extras={"tariff": tariff} if tariff else None)
         text = official_plaintext(blank, ctx)
-        filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
-        payload = render_layout_pdf(filled, font_size=form.font_size or 12, blank=blank, context=ctx)
+        raw_vals = {**placeholder_values(account, tariff=tariff), **(ctx.get("values") or {})}
+        filled = fill_blocks(blank_to_blocks(blank, ctx), raw_vals)
+        payload = render_layout_pdf(
+            filled, font_size=form.font_size or 12,
+            blank=blank if blank == "calculation" else "",
+            context=ctx if blank == "calculation" else None,
+        )
     else:
         text = fill_account_text(form.body, account, tariff=tariff)
         filled = fill_blocks(blocks_of(form), placeholder_values(account, tariff=tariff))
