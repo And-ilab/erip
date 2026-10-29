@@ -395,8 +395,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </div>
 
                 <div class="opi-card" [hidden]="opiSlot() !== 'acts' && opiSlot() !== 'acts3'">
-                  <h4>Акты ОПИ о невозможности взыскания (FR-CLM-08)</h4>
-                  <p class="hint">Приложено актов: <b>{{ row.acts_count }}</b> из 3 для списания.</p>
+                  <h4>Акт о невозможности взыскания</h4>
+                  <p class="hint">Взыскание идёт по исполнительному документу. Акт прикладывают, только если взыскать не удалось. Для списания по этому документу нужны три таких акта. Сейчас приложено: <b>{{ row.acts_count }}</b>.</p>
                   @if (row.acts.length) {
                     <table class="opi-table">
                       <thead>
@@ -431,10 +431,10 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </table>
                   }
                   <div class="fields top-gap">
-                    <mat-form-field [class.need]="!actTitle.trim()"><mat-label>Акт о невозможности взыскания *</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
-                    <mat-form-field [class.need]="!actNumber.trim()"><mat-label>Номер акта *</mat-label><input matInput [(ngModel)]="actNumber" /></mat-form-field>
-                    <app-date-field label="Дата акта" [required]="true" [value]="actDate" (valueChange)="actDate = $event" />
-                    <mat-form-field class="wide" [class.need]="!actReason.trim()"><mat-label>Основание возврата (ст. 52 Закона об ИП) *</mat-label>
+                    <mat-form-field><mat-label>Акт о невозможности взыскания</mat-label><input matInput [(ngModel)]="actTitle" /></mat-form-field>
+                    <mat-form-field><mat-label>Номер акта</mat-label><input matInput [(ngModel)]="actNumber" /></mat-form-field>
+                    <app-date-field label="Дата акта" [value]="actDate" (valueChange)="actDate = $event" />
+                    <mat-form-field class="wide"><mat-label>Основание возврата (ст. 52 Закона об ИП)</mat-label>
                       <input matInput [(ngModel)]="actReason" [matAutocomplete]="autoActReason" />
                       <mat-autocomplete #autoActReason="matAutocomplete">
                         @for (r of dict('204'); track r.code) {
@@ -442,8 +442,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         }
                       </mat-autocomplete>
                     </mat-form-field>
-                    <label class="file-pick" [class.need]="!actFile">
-                      Скан акта / постановления ОПИ *
+                    <label class="file-pick">
+                      Скан акта / постановления ОПИ
                       <input type="file" (change)="onActFile($event)" />
                     </label>
                   </div>
@@ -828,8 +828,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     { id: 'document', title: 'Исполнительный документ', required: true },
     { id: 'measures', title: 'Меры принудительного исполнения', required: true },
     { id: 'fullness', title: 'Полнота: долг, пеня и тариф', required: false },
-    { id: 'acts', title: 'Акт о невозможности взыскания', required: true },
-    { id: 'acts3', title: 'Три акта для списания', required: true },
+    { id: 'acts', title: 'Акт о невозможности взыскания', required: false },
+    { id: 'acts3', title: 'Три акта для списания', required: false },
     { id: 'pris', title: 'Обмен с АИС ПРИС', required: false },
   ];
   protected readonly opiSlot = signal('register');
@@ -1064,7 +1064,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   }
 
   protected opiState(id: string, row: ClaimCase): string {
-    if (id === 'acts' || id === 'acts3') return `${row.acts_count} из 3`;
+    if (id === 'acts') return row.acts_count ? String(row.acts_count) : 'нет';
+    if (id === 'acts3') return `${row.acts_count} из 3`;
     return this.opiDone(id, row) ? 'есть' : 'нет';
   }
 

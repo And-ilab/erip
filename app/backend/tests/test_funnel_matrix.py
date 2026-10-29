@@ -251,8 +251,8 @@ def test_action_stages_carry_a_checklist(api, specialist_a, account_a):
             "opi_full": ("Полнота: долг, пеня и тариф", False, "check"),
         },
         "impossible": {
-            "acts": ("Акт о невозможности взыскания", True, "upload"),
-            "acts_three": ("Три акта для списания", True, "check"),
+            "acts": ("Акт о невозможности взыскания", False, "upload"),
+            "acts_three": ("Три акта для списания", False, "check"),
         },
         "writeoff": {
             "docs": ("Акт о списании", True, "upload"),

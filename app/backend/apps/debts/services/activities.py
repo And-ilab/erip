@@ -100,7 +100,6 @@ MANDATORY = {
     "decision", "sheet",
     "opi_office", "opi_sent", "opi_doc", "opi_send",
     "opi_act",
-    "acts", "acts_three",
     "docs", "route",
 }
 # Ручная отметка не снимается, пока дело само не подтвердит пункт.
