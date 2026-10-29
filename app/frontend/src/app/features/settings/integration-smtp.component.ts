@@ -27,7 +27,7 @@ import { AuthService } from '../../core/auth.service';
     @if (canEdit()) {
       <section class="card">
         <h3>Почта схемы</h3>
-        <p class="muted">Отправитель, запасная тема и подпись писем этой схемы. Если у шаблона тема заполнена, в письмо идёт она. Прочтение не отмечается. Хост SMTP задаётся в окружении шлюза (`GW_EMAIL_MODE`, `GW_SMTP_HOST`).</p>
+        <p class="muted">Отправитель, запасная тема и подпись писем этой схемы. Если у шаблона тема заполнена, в письмо идёт она. Прочтение не отмечается. Хост SMTP задаётся в окружении шлюза (GW_EMAIL_MODE, GW_SMTP_HOST).</p>
         <div class="grid">
           <mat-form-field><mat-label>E-mail отправителя</mat-label><input matInput [(ngModel)]="mailFrom" maxlength="254" /></mat-form-field>
           <mat-form-field><mat-label>Имя отправителя</mat-label><input matInput [(ngModel)]="mailFromName" maxlength="250" /></mat-form-field>

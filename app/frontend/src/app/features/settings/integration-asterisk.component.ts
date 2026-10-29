@@ -32,7 +32,7 @@ import { AuthService } from '../../core/auth.service';
     @if (canEdit()) {
       <section class="card">
         <h3>Номера схемы</h3>
-        <p class="muted">Ротация уходит в адаптер. Хост и секрет AMI задаются в окружении шлюза (`GW_VOICE_MODE`, `GW_AMI_*`). Окно обзвона сценария остаётся в <a routerLink="/settings/work/scenario">Сценариях</a>.</p>
+        <p class="muted">Ротация уходит в адаптер. Хост и секрет AMI задаются в окружении шлюза (GW_VOICE_MODE, GW_AMI_*). Окно обзвона сценария остаётся в <a routerLink="/settings/work/scenario">Сценариях</a>.</p>
         <div class="checks">
           <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
         </div>
