@@ -6,6 +6,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { RouterLink } from '@angular/router';
 
 import { ApiService, PrintFormRow, ScenarioRow, ScenarioStep, WritChecklistItem, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
@@ -39,7 +40,7 @@ function defaultWritChecklist(): WritChecklistItem[] {
   standalone: true,
   imports: [
     FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
-    MatCheckboxModule, MatSnackBarModule, GridResizeDirective,
+    MatCheckboxModule, MatSnackBarModule, GridResizeDirective, RouterLink,
   ],
   template: `
     <div>
@@ -309,24 +310,10 @@ function defaultWritChecklist(): WritChecklistItem[] {
         @if (sheet() === 'dial') {
           <p class="lead">В этом сценарии нет шага «Автообзвон». Номера схемы и окно задаются здесь.</p>
         }
-        @if (canEdit()) {
-          <section class="card">
-            <h3>Номера схемы</h3>
-            <div class="checks">
-              <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
-            </div>
-            <mat-form-field class="wide"><mat-label>Исходящие номера, по одному в строке</mat-label>
-              <textarea matInput rows="3" [(ngModel)]="outgoingNumbers"></textarea>
-            </mat-form-field>
-            <p class="muted">Ротация уходит в адаптер. Пока адаптер — заглушка, номер пишется в журнал партии, набор не выполняется.</p>
-            <div class="checks">
-              <mat-checkbox [checked]="false" disabled>Запись разговора</mat-checkbox>
-              <mat-checkbox [checked]="false" disabled>Перевод на оператора</mat-checkbox>
-            </div>
-            <p class="muted">Запись и перевод выключены, пока Asterisk их не отдаёт.</p>
-            <button mat-stroked-button type="button" (click)="saveCalling()">Сохранить обзвон схемы</button>
-          </section>
-        }
+        <section class="card">
+          <h3>Номера схемы</h3>
+          <p class="muted">Исходящие номера и признак обзвона ЮЛ перенесены в <a routerLink="/settings/integrations/asterisk">Настройка → Интеграции → Asterisk AMI</a>. Здесь остаётся окно сценария.</p>
+        </section>
         @if (auth.isSuperadmin()) {
           <section class="card">
             <h3>Общее правило номера</h3>
@@ -371,17 +358,10 @@ function defaultWritChecklist(): WritChecklistItem[] {
         }
       }
 
-      @if (showMail() && canEdit()) {
+      @if (showMail()) {
         <section class="card">
           <h3>Почта схемы</h3>
-          <p class="muted">Отправитель, тема и подпись писем этой схемы. Если у шаблона тема заполнена, в письмо идёт она. Прочтение не отмечается. Пока шлюз в режиме заглушки, письмо во внешнюю почту не уходит.</p>
-          <div class="grid">
-            <mat-form-field><mat-label>E-mail отправителя</mat-label><input matInput [(ngModel)]="mailFrom" maxlength="254" /></mat-form-field>
-            <mat-form-field><mat-label>Имя отправителя</mat-label><input matInput [(ngModel)]="mailFromName" maxlength="250" /></mat-form-field>
-            <mat-form-field class="wide"><mat-label>Тема, если у шаблона её нет</mat-label><input matInput [(ngModel)]="mailSubject" maxlength="250" /></mat-form-field>
-            <mat-form-field class="wide"><mat-label>Подпись</mat-label><textarea matInput rows="2" [(ngModel)]="mailSignature" maxlength="500"></textarea></mat-form-field>
-          </div>
-          <button mat-stroked-button type="button" (click)="saveMail()">Сохранить почту схемы</button>
+          <p class="muted">Отправитель, тема и подпись писем схемы настраиваются в <a routerLink="/settings/integrations/smtp">Настройка → Интеграции → SMTP</a>.</p>
         </section>
       }
     </div>
@@ -405,6 +385,7 @@ function defaultWritChecklist(): WritChecklistItem[] {
     .card-head + h4 { margin-top: 4px; }
     .hint, .muted, .meta { color: var(--erip-muted); margin: 4px 0 0; }
     .hint { font-size: 13px; }
+    a { color: var(--erip-primary-dark); font-weight: 600; }
     .picker { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
     .picker button { border: 1px solid var(--erip-border); background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; font: inherit; }
     .picker button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
@@ -475,12 +456,6 @@ export class ScenariosComponent implements OnInit {
   protected formBody = 'Уважаемый {fio}, по счёту {account} долг {amount}. Услуги: {services}. Оплатите за {due_days} дн. {organization}.';
   protected renderAccounts = '';
   protected applyRunning = false;
-  protected orgCallLegal = false;
-  protected outgoingNumbers = '';
-  protected mailFrom = '';
-  protected mailFromName = '';
-  protected mailSubject = '';
-  protected mailSignature = '';
   protected callFromDay = 27;
   protected weekdayFrom = '18:00';
   protected weekdayTo = '21:00';
@@ -516,22 +491,6 @@ export class ScenariosComponent implements OnInit {
       error: () => this.categories.set([]),
     });
     if (this.canEdit()) {
-      this.api.scenarioCalling().subscribe({
-        next: (row) => {
-          this.orgCallLegal = row.call_legal;
-          this.outgoingNumbers = (row.outgoing_numbers || []).join('\n');
-        },
-        error: () => undefined,
-      });
-      this.api.scenarioMail().subscribe({
-        next: (row) => {
-          this.mailFrom = row.mail_from;
-          this.mailFromName = row.mail_from_name;
-          this.mailSubject = row.mail_subject;
-          this.mailSignature = row.mail_signature;
-        },
-        error: () => undefined,
-      });
       this.api.scenarioTimeline().subscribe({
         next: (row) => {
           this.warningWait = row.warning_wait_custom;
@@ -1018,35 +977,6 @@ export class ScenariosComponent implements OnInit {
       weekend_from: this.weekendFrom || '10:00',
       weekend_to: this.weekendTo || '22:00',
     };
-  }
-
-  protected saveMail(): void {
-    this.api.saveScenarioMail({
-      mail_from: this.mailFrom.trim(),
-      mail_from_name: this.mailFromName.trim(),
-      mail_subject: this.mailSubject.trim(),
-      mail_signature: this.mailSignature.trim(),
-    }).subscribe({
-      next: (row) => {
-        this.mailFrom = row.mail_from;
-        this.mailFromName = row.mail_from_name;
-        this.mailSubject = row.mail_subject;
-        this.mailSignature = row.mail_signature;
-        this.snack.open('Почта схемы сохранена', 'OK', { duration: 2000 });
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
-  }
-
-  protected saveCalling(): void {
-    const numbers = this.outgoingNumbers.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    this.api.saveScenarioCalling({ call_legal: this.orgCallLegal, outgoing_numbers: numbers }).subscribe({
-      next: (row) => {
-        this.outgoingNumbers = (row.outgoing_numbers || numbers).join('\n');
-        this.snack.open('Обзвон схемы сохранён', 'OK', { duration: 2000 });
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
   }
 
   private hhmm(value: string | null | undefined, fallback: string): string {

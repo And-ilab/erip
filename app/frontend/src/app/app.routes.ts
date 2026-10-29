@@ -92,6 +92,60 @@ export const routes: Routes = [
               },
             ],
           },
+          {
+            path: 'integrations',
+            loadComponent: () =>
+              import('./features/settings/settings-integrations.component').then((m) => m.SettingsIntegrationsComponent),
+            children: [
+              { path: '', pathMatch: 'full', redirectTo: 'smtp' },
+              {
+                path: 'smtp',
+                loadComponent: () =>
+                  import('./features/settings/integration-smtp.component').then((m) => m.IntegrationSmtpComponent),
+              },
+              {
+                path: 'asterisk',
+                loadComponent: () =>
+                  import('./features/settings/integration-asterisk.component').then((m) => m.IntegrationAsteriskComponent),
+              },
+              {
+                path: 'sms',
+                data: { code: 'sms' },
+                loadComponent: () =>
+                  import('./features/settings/integration-status.component').then((m) => m.IntegrationStatusComponent),
+              },
+              {
+                path: 'messengers',
+                data: { code: 'messengers' },
+                loadComponent: () =>
+                  import('./features/settings/integration-status.component').then((m) => m.IntegrationStatusComponent),
+              },
+              {
+                path: 'belpochta',
+                data: { code: 'belpochta' },
+                loadComponent: () =>
+                  import('./features/settings/integration-status.component').then((m) => m.IntegrationStatusComponent),
+              },
+              {
+                path: 'pris',
+                data: { code: 'pris' },
+                loadComponent: () =>
+                  import('./features/settings/integration-status.component').then((m) => m.IntegrationStatusComponent),
+              },
+              {
+                path: 'bnp',
+                data: { code: 'bnp' },
+                loadComponent: () =>
+                  import('./features/settings/integration-status.component').then((m) => m.IntegrationStatusComponent),
+              },
+              {
+                path: 'ais',
+                data: { code: 'ais' },
+                loadComponent: () =>
+                  import('./features/settings/integration-status.component').then((m) => m.IntegrationStatusComponent),
+              },
+            ],
+          },
         ],
       },
       {

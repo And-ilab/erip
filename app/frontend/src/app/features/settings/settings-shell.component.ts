@@ -15,6 +15,7 @@ import { AuthService } from '../../core/auth.service';
           <a routerLink="directory" routerLinkActive="on">Организации и пользователи</a>
         }
         <a routerLink="work" routerLinkActive="on">Сценарии и шаблоны</a>
+        <a routerLink="integrations" routerLinkActive="on">Интеграции</a>
       </nav>
       <router-outlet />
     </div>

@@ -846,6 +846,18 @@ export class ApiService {
     );
   }
 
+  integrations(): Observable<{ results: IntegrationRow[]; count: number }> {
+    return this.http.get<{ results: IntegrationRow[]; count: number }>(`${this.base}/integrations/`);
+  }
+
+  integration(code: string): Observable<IntegrationRow> {
+    return this.http.get<IntegrationRow>(`${this.base}/integrations/${code}/`);
+  }
+
+  integrationStatus(code: string): Observable<IntegrationStatus> {
+    return this.http.get<IntegrationStatus>(`${this.base}/integrations/${code}/status/`);
+  }
+
   scenarioMail(): Observable<{
     mail_from: string;
     mail_from_name: string;
@@ -1434,4 +1446,22 @@ export interface PrintFormRow {
   version: number;
   organization: number | null;
   revisions?: VersionRow[];
+}
+
+export interface IntegrationStatus {
+  mode: string;
+  connected: boolean;
+  ready: boolean;
+  detail: string;
+  source: string;
+  raw?: Record<string, unknown>;
+}
+
+export interface IntegrationRow {
+  code: string;
+  title: string;
+  summary: string;
+  settings: 'mail' | 'calling' | 'none' | string;
+  stub_detail: string;
+  status: IntegrationStatus;
 }
