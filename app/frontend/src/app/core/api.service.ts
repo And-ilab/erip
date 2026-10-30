@@ -695,6 +695,22 @@ export class ApiService {
     return this.http.post<ClaimCase>(`${this.base}/claims/${id}/${action}/`, body);
   }
 
+  ieSignTicket(id: number, role: 'applicant' | 'head' | 'all' = 'all'): Observable<{
+    token: string;
+    path: string;
+    expires_in: number;
+    role: string;
+    claim_id: number;
+  }> {
+    return this.http.post<{
+      token: string;
+      path: string;
+      expires_in: number;
+      role: string;
+      claim_id: number;
+    }>(`${this.base}/claims/${id}/ie-sign-ticket/`, { role });
+  }
+
   uploadClaimAct(
     id: number,
     body: { title: string; act_number?: string; act_date?: string | null; reason?: string; attachment_id?: number | null },

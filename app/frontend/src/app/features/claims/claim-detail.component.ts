@@ -97,11 +97,19 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 <div class="bar">
                   <button mat-stroked-button type="button" (click)="signDocuments('applicant')" [disabled]="signing">Подписать документы заявителя</button>
                   <button mat-stroked-button type="button" (click)="signDocuments('head')" [disabled]="signing">Подписать доверенность</button>
+                  <button mat-stroked-button type="button" (click)="openIeSign('all')" [disabled]="signing">Подпись в Internet Explorer</button>
                   <button mat-flat-button color="primary" type="button" (click)="formPackage()">Собрать архив</button>
                   <button mat-stroked-button type="button" (click)="downloadArchive()">Скачать архив</button>
                   <button mat-stroked-button type="button" (click)="downloadManifest()">Скачать json</button>
                   <button mat-flat-button type="button" disabled title="Обмен с БНП система-система не подключён">Отправить</button>
                 </div>
+                @if (ieSignUrl) {
+                  <mat-form-field class="wide">
+                    <mat-label>Ссылка для Internet Explorer (20 мин)</mat-label>
+                    <input matInput readonly [ngModel]="ieSignUrl" />
+                  </mat-form-field>
+                  <p class="muted">Скопируйте ссылку и откройте в Internet Explorer (Пуск → Internet Explorer). Angular-карточка в IE не открывается — эта страница только для AvCMXWebP.</p>
+                }
                 @if (edsCerts.length) {
                   <mat-form-field class="wide">
                     <mat-label>Сертификат ГосСУОК на AvPass</mat-label>
@@ -112,7 +120,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </mat-select>
                   </mat-form-field>
                 }
-                <p class="muted">Подпись ставит плагин AvCMXWebP на этом компьютере: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт подписывает представитель, доверенность — руководитель. Если в личном сертификате нет УНП, плагин добавляет атрибутный сертификат. Статус ключа проверяется по списку отозванных сертификатов. Chrome и Edge плагин не загружают (NPAPI/ActiveX) — для подписи откройте ПМ в Internet Explorer. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>, проверка у АВЕСТ — <a href="http://dev.avest.by/avjceprovdemoweb/" target="_blank" rel="noopener">демо AvCMXWebP</a>. В кабинет БНП вызов не уходит. «Отправить» неактивна: канал БНП система-система не подключён.</p>
+                <p class="muted">Подпись ставит плагин AvCMXWebP: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт — представитель, доверенность — руководитель. Chrome и Edge плагин не загружают. Кнопка «Подпись в Internet Explorer» выдаёт отдельную страницу `/ie-sign/` (без Angular) с ticket на 20 минут — откройте её в IE, подпишите PDF, вернитесь в Chrome собрать архив. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит.</p>
                 @if (sendGaps(row).length) {
                   <ul class="blockers">
                     @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
@@ -889,6 +897,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected signing = false;
   protected edsCerts: EdsCertificate[] = [];
   protected edsCert = 0;
+  protected ieSignUrl = '';
   private edsListed = false;
   protected prisOpf = '';
   protected prisCountry = '';
@@ -1406,6 +1415,31 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     const row = this.claim();
     if (!row || this.signing) return;
     void this.signPackage(row, role);
+  }
+
+  protected openIeSign(role: 'applicant' | 'head' | 'all' = 'all'): void {
+    const row = this.claim();
+    if (!row || this.signing) return;
+    this.signing = true;
+    this.api.ieSignTicket(row.id, role).subscribe({
+      next: (issued) => {
+        this.signing = false;
+        const url = `${window.location.origin}${issued.path}`;
+        this.ieSignUrl = url;
+        if (navigator.clipboard?.writeText) {
+          void navigator.clipboard.writeText(url);
+        }
+        this.snack.open(
+          'Ссылка скопирована. Откройте её в Internet Explorer (не в Chrome). Подпишите документы на странице IE, затем вернитесь сюда.',
+          'OK',
+          { duration: 8000 },
+        );
+      },
+      error: (err) => {
+        this.signing = false;
+        this.snack.open(errorMessage(err), 'OK');
+      },
+    });
   }
 
   protected signPrisPdf(): void {

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>ЕРИП — подпись комплекта (Internet Explorer)</title>
+  <link rel="stylesheet" href="ie-sign.css" />
+  <script type="text/javascript" src="avcmxwebp.js"></script>
+  <script type="text/javascript" src="ie-sign.js"></script>
+</head>
+<body>
+  <object id="oavcmx" type="application/x-avcmx-web-plugin" classid="CLSID:35B35038-9C01-5D75-943F-5A19E32AC230" width="0" height="0">
+    <param name="onload" value="onPluginLoaded" />
+  </object>
+
+  <div class="page">
+    <h1>Подпись комплекта для нотариата</h1>
+    <p class="lead">Страница для Internet Explorer и плагина AvCMXWebP. В Chrome и Edge плагин не загружается — откройте эту ссылку в IE.</p>
+
+    <div id="status" class="status">Загрузка…</div>
+
+    <div id="meta" class="meta" style="display:none;">
+      <div>Дело: <b id="claim-id"></b></div>
+      <div>ЛС: <b id="account"></b></div>
+      <div>Должник: <b id="debtor"></b></div>
+      <div>Пользователь ссылки: <b id="user"></b></div>
+    </div>
+
+    <div id="plugin-box" class="box" style="display:none;">
+      <label for="cert-select">Сертификат ГосСУОК на AvPass</label>
+      <select id="cert-select"></select>
+      <p class="hint">Вставьте носитель AvPass. При подписи плагин запросит пароль.</p>
+    </div>
+
+    <div id="docs-box" class="box" style="display:none;">
+      <h2>Документы комплекта</h2>
+      <table id="docs-table">
+        <thead>
+          <tr>
+            <th>Документ</th>
+            <th>Кто подписывает</th>
+            <th>ЭЦП</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="actions">
+        <button type="button" id="btn-sign-pending" onclick="signPending();">Подписать без ЭЦП</button>
+        <button type="button" id="btn-reload" onclick="reloadSession();">Обновить список</button>
+      </div>
+      <p id="work" class="work"></p>
+    </div>
+  </div>
+</body>
+</html>
