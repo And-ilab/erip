@@ -120,7 +120,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </mat-select>
                   </mat-form-field>
                 }
-                <p class="muted">Подпись ставит плагин AvCMXWebP: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт — представитель, доверенность — руководитель. Chrome и Edge плагин не загружают. Кнопка «Подпись в Internet Explorer» выдаёт отдельную страницу `/ie-sign/` (без Angular) с ticket на 20 минут — откройте её в IE, подпишите PDF, вернитесь в Chrome собрать архив. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит.</p>
+                <p class="muted">Подпись ставит плагин AvCMXWebP: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт — представитель, доверенность — руководитель. Chrome и Edge плагин не загружают. Кнопка «Подпись в Internet Explorer» выдаёт отдельную страницу ie-sign (без Angular) с ticket на 20 минут — откройте её в IE, подпишите PDF, вернитесь в Chrome собрать архив. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит.</p>
                 @if (sendGaps(row).length) {
                   <ul class="blockers">
                     @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
