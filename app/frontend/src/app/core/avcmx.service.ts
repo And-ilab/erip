@@ -219,13 +219,10 @@ export class AvcmxService {
     }
   }
 
-  /** ActiveX в IE: typeof method === "unknown". */
+  /** ActiveX в IE: typeof method часто "unknown" — проверяем только вызовом. */
   private hasCreateBlob(plugin: AvPlugin): boolean {
     try {
-      const kind = typeof plugin.CreateBlob;
-      if (kind === 'function' || kind === 'unknown') return true;
-      plugin.CreateBlob(0);
-      return true;
+      return plugin.CreateBlob(0) != null;
     } catch {
       return false;
     }
