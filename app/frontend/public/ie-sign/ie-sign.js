@@ -2,7 +2,7 @@
 (function (window, document) {
   "use strict";
 
-  var BUILD = "20261030d";
+  var BUILD = "20261030e";
   var token = "";
   var session = null;
   var signingBusy = false;
@@ -31,13 +31,27 @@
     if (el) el.innerHTML = text || "";
   }
 
+  function isProtectedModeError(e) {
+    if (!e || e.code === undefined || e.code === null) return false;
+    var u = e.code >>> 0;
+    var low = u & 0xff;
+    return u === 3895066916 || u === 3895066900 || low === 0x24 || low === 0x14;
+  }
+
   function errText(e) {
     if (!e) return "неизвестная ошибка";
     if (typeof e === "string") return e;
     var parts = [];
     if (e.message) parts.push(e.message);
-    if (e.code !== undefined && e.code !== null && e.code !== 0) parts.push("код " + e.code);
-    return parts.length ? parts.join(" · ") : String(e);
+    if (e.code !== undefined && e.code !== null && e.code !== 0) parts.push("код " + (e.code >>> 0));
+    var base = parts.length ? parts.join(" · ") : String(e);
+    if (isProtectedModeError(e)) {
+      base +=
+        " (Защищённый режим IE / Low Integrity блокирует доступ AvCryptMail.dll к %APPDATA%\\Avest: " +
+        "в «Надёжные узлы» снимите галочку «Для всех узлов этой зоны требуется проверка серверов (https:)», " +
+        "добавьте http-адрес сервера, отключите «Защищённый режим» и перезапустите IE)";
+    }
+    return base;
   }
 
   function softFlags() {
@@ -50,11 +64,10 @@
   }
 
   function noAuthFlags() {
-    var flags = softFlags();
     try {
-      if (typeof AVCMF_NO_AUTH !== "undefined") flags = flags | AVCMF_NO_AUTH;
+      if (typeof AVCMF_NO_AUTH !== "undefined") return AVCMF_NO_AUTH;
     } catch (e2) {}
-    return flags;
+    return 4;
   }
 
   function allCertFlags() {
@@ -69,7 +82,7 @@
   }
 
   /**
-   * В IE у методов ActiveX typeof часто "unknown", а не "function".
+   * В IE у методов ActiveX typeof часто "unknown" или "object", а не "function".
    * Version уже есть (1.1.x) — плагин поднят; CreateBlob проверяем вызовом.
    */
   function activeXCallable(obj, name) {
@@ -80,7 +93,7 @@
     } catch (e) {
       return false;
     }
-    if (t === "function" || t === "unknown") return true;
+    if (t === "function" || t === "unknown" || t === "object") return true;
     try {
       return obj[name] != null;
     } catch (e2) {
@@ -150,14 +163,12 @@
       lines.push("avcmx probe: " + errText(eWrap));
     }
     try {
-      /* IE11 иногда прячет ActiveXObject, но <object> уже работает */
-      var hasAx = false;
-      try {
-        hasAx = typeof window.ActiveXObject !== "undefined";
-      } catch (eAx) {}
-      if (hasAx) {
+      /* Если <object id="oavcmx"> уже работает, второй экземпляр ActiveX не создаём — иначе два экземпляра блокируют AvCryptMail.dll */
+      if (node && probeCreateBlob().ok) {
+        lines.push("ActiveX: активен через object#oavcmx");
+      } else if (typeof window.ActiveXObject !== "undefined") {
         try {
-          var ax = new ActiveXObject("AVEST.AvCMXWebP");
+          var ax = new window.ActiveXObject("AVEST.AvCMXWebP");
           lines.push(
             "ActiveX AVEST.AvCMXWebP: " +
               (ax && activeXCallable(ax, "CreateBlob") ? "да" : "создан, CreateBlob сомнителен")
@@ -166,7 +177,7 @@
           lines.push("ActiveX AVEST.AvCMXWebP: нет (" + (e2.message || e2) + ")");
         }
       } else {
-        lines.push("ActiveXObject: недоступен (для IE это бывает; смотрите object/CreateBlob выше)");
+        lines.push("ActiveXObject: недоступен (смотрите object/CreateBlob выше)");
       }
     } catch (e3) {
       lines.push("ActiveX проверка: " + (e3.message || e3));
@@ -286,11 +297,13 @@
   }
 
   function selectedPubKeyId() {
-    if (chosenPubKeyId) return chosenPubKeyId;
     var select = document.getElementById("cert-select");
-    if (!select || !select.options.length) return "";
-    var opt = select.options[select.selectedIndex];
-    return opt ? (opt.getAttribute("data-pub") || "") : "";
+    if (select && select.options && select.options.length > 0 && select.selectedIndex >= 0) {
+      var opt = select.options[select.selectedIndex];
+      var pub = opt ? (opt.getAttribute("data-pub") || "") : "";
+      if (pub) return pub;
+    }
+    return chosenPubKeyId || "";
   }
 
   function rememberCert(certs) {
@@ -299,9 +312,68 @@
     return selectedPubKeyId();
   }
 
+  var preloadBusy = false;
+
+  /** Синхронное чтение личного справочника (AVCMF_NO_AUTH не показывает окон и не блокирует IE). */
+  function readMyCertsSync() {
+    var conn = avcmx().connection(noAuthFlags());
+    var params = avcmx().params().add(AVCM_TYPE, avcmx().blob().int(AVCM_TYPE_MY));
+    var certs = conn.selectCerts(params, allCertFlags());
+    return rememberCert(certs);
+  }
+
+  /** Предзагрузка личного справочника (AVCMF_NO_AUTH + AVCM_TYPE_MY, как в демо sign_cmx.jsp). */
+  function preloadCerts(cb) {
+    if (selectedPubKeyId()) {
+      if (cb) cb(null);
+      return;
+    }
+    if (preloadBusy) {
+      if (cb) cb(null);
+      return;
+    }
+    if (typeof avcmx !== "function" || !pluginAlive()) {
+      if (cb) cb(null);
+      return;
+    }
+    try {
+      var pubSync = readMyCertsSync();
+      if (pubSync) {
+        if (cb) cb(null);
+        return;
+      }
+    } catch (eSync) {
+      if (isProtectedModeError(eSync)) {
+        if (cb) cb(eSync);
+        return;
+      }
+    }
+    preloadBusy = true;
+    try {
+      avcmx().connectionAsync(noAuthFlags(), function (e, conn) {
+        preloadBusy = false;
+        if (e || !conn) {
+          if (cb) cb(e);
+          return;
+        }
+        try {
+          var params = avcmx().params().add(AVCM_TYPE, avcmx().blob().int(AVCM_TYPE_MY));
+          var certs = conn.selectCerts(params, allCertFlags());
+          rememberCert(certs);
+        } catch (err) {}
+        if (cb) cb(null);
+      });
+    } catch (ex) {
+      preloadBusy = false;
+      if (cb) cb(ex);
+    }
+  }
+
   /**
-   * Выбор сертификата. Сначала диалог авторизации АВЕСТ (окно ключа/пароля),
-   * без предварительного selectCerts — он часто даёт «Внутренняя ошибка библиотеки».
+   * Выбор сертификата:
+   * 1. Сначала сессия AVCMF_NO_AUTH и список личных сертификатов (AVCM_TYPE_MY) — как в демо АВЕСТ sign_cmx.jsp.
+   * 2. Если в списке пусто — диалог selectCertsDlgAsync.
+   * 3. Запасной путь — авторизация контейнера с диалогом.
    */
   function pickCertificate(done) {
     var existing = selectedPubKeyId();
@@ -321,9 +393,62 @@
       return;
     }
 
-    setStatus("Открываю окно АВЕСТ — выберите сертификат и введите пароль AvPass…");
+    setStatus("Чтение сертификата из личного справочника АВЕСТ…");
 
-    /* Путь 1: авторизация с диалогом (без AVCMF_NO_AUTH) — как в демо АВЕСТ. */
+    try {
+      var pubSync = readMyCertsSync();
+      if (pubSync) {
+        done(null, pubSync);
+        return;
+      }
+    } catch (eSync) {
+      if (isProtectedModeError(eSync)) {
+        done("Сессия АВЕСТ не открылась: " + errText(eSync));
+        return;
+      }
+    }
+
+    avcmx().connectionAsync(noAuthFlags(), function (e, conn) {
+      if (!e && conn) {
+        try {
+          var params = avcmx().params().add(AVCM_TYPE, avcmx().blob().int(AVCM_TYPE_MY));
+          var certs = conn.selectCerts(params, allCertFlags());
+          var pub = rememberCert(certs);
+          if (pub) {
+            done(null, pub);
+            return;
+          }
+        } catch (errList) {}
+
+        try {
+          conn.selectCertsDlgAsync(
+            "Выбор сертификата ГосСУОК",
+            "Выберите личный сертификат. AvPass должен быть вставлен.",
+            allCertFlags(),
+            function (e2, dlgCerts) {
+              if (!e2 && dlgCerts) {
+                var pub2 = rememberCert(dlgCerts);
+                if (pub2) {
+                  done(null, pub2);
+                  return;
+                }
+              }
+              tryAuthDialog(done, e2);
+            }
+          );
+          return;
+        } catch (errDlg) {
+          tryAuthDialog(done, errDlg);
+          return;
+        }
+      }
+
+      tryAuthDialog(done, e);
+    });
+  }
+
+  function tryAuthDialog(done, prevErr) {
+    setStatus("Открываю окно АВЕСТ — выберите сертификат и введите пароль AvPass…");
     avcmx().connectionAsync(softFlags(), function (eAuth, connAuth) {
       if (!eAuth && connAuth) {
         try {
@@ -343,64 +468,34 @@
             done(null, pub);
             return;
           }
-        } catch (eOwn) {
-          setStatus("Сессия есть, ownCert недоступен (" + errText(eOwn) + "). Пробую выбор из справочника…");
-        }
-      } else if (eAuth) {
-        setStatus("Авторизация АВЕСТ: " + errText(eAuth) + ". Пробую без входа в контейнер…");
+        } catch (eOwn) {}
       }
-
-      /* Путь 2: NO_AUTH + диалог выбора сертификатов. */
-      avcmx().connectionAsync(noAuthFlags(), function (e, conn) {
-        if (e) {
-          done(
-            "Сессия АВЕСТ не открылась: " + errText(e) +
-              ". Проверьте Персональный менеджер сертификатов АВЕСТ, AvPass, IE x86 и СОС."
-          );
-          return;
-        }
-        try {
-          conn.selectCertsDlgAsync(
-            "Выбор сертификата ГосСУОК",
-            "Выберите личный сертификат. AvPass должен быть вставлен.",
-            allCertFlags(),
-            function (e2, dlgCerts) {
-              if (e2) {
-                tryList(conn, done, "Окно выбора: " + errText(e2));
-                return;
-              }
-              var pub2 = rememberCert(dlgCerts);
-              if (pub2) {
-                done(null, pub2);
-                return;
-              }
-              tryList(conn, done, "В окне сертификат не выбран.");
-            }
-          );
-        } catch (errDlg) {
-          tryList(conn, done, errText(errDlg));
-        }
-      });
+      done("Сессия АВЕСТ не открылась: " + errText(prevErr || eAuth));
     });
   }
 
-  function tryList(conn, done, prevErr) {
-    setStatus((prevErr || "") + " Пробую список личного справочника…");
+  function openSignConnection(pubKeyId, done) {
+    var login = avcmx().params().add(AVCM_PUB_KEY_ID, avcmx().blob().zttext(pubKeyId));
+    var flags = softFlags();
     try {
-      var params = avcmx().params().add(AVCM_TYPE, avcmx().blob().int(AVCM_TYPE_MY));
-      var certs = conn.selectCerts(params, allCertFlags());
-      var pub = rememberCert(certs);
-      if (pub) {
-        done(null, pub);
+      if (typeof AVCMF_FORCE_TOKEN_CONTROL !== "undefined") flags = flags | AVCMF_FORCE_TOKEN_CONTROL;
+    } catch (eFlag) {}
+    avcmx().connectionAsync(login, flags, function (e, conn) {
+      if (e) {
+        avcmx().connectionAsync(login, softFlags(), function (e2, conn2) {
+          if (e2) {
+            done(errText(e2));
+            return;
+          }
+          done(null, conn2);
+        });
         return;
       }
-      done((prevErr ? prevErr + " " : "") + "В личном справочнике нет сертификатов. Откройте менеджер АВЕСТ и проверьте AvPass.");
-    } catch (err) {
-      done((prevErr ? prevErr + " " : "") + "Справочник: " + errText(err));
-    }
+      done(null, conn);
+    });
   }
 
-  function signOne(doc, pubKeyId, done) {
+  function signOneWithConn(conn, doc, done) {
     setWork("Скачиваю " + (doc.file_name || doc.id) + "…");
     api(
       "GET",
@@ -409,26 +504,8 @@
       true,
       function (buf) {
         var b64 = arrayBufferToBase64(buf);
-        setWork("Подписываю " + (doc.file_name || doc.id) + " — при запросе введите пароль AvPass…");
-        var login = avcmx().params().add(AVCM_PUB_KEY_ID, avcmx().blob().zttext(pubKeyId));
-        var flags = softFlags();
-        try {
-          if (typeof AVCMF_FORCE_TOKEN_CONTROL !== "undefined") flags = flags | AVCMF_FORCE_TOKEN_CONTROL;
-        } catch (eFlag) {}
-        avcmx().connectionAsync(login, flags, function (e, conn) {
-          if (e) {
-            /* без FORCE_TOKEN — иногда носитель уже в сессии */
-            avcmx().connectionAsync(login, softFlags(), function (e2, conn2) {
-              if (e2) {
-                done(errText(e2));
-                return;
-              }
-              doSign(conn2, b64, doc, done);
-            });
-            return;
-          }
-          doSign(conn, b64, doc, done);
-        });
+        setWork("Подписываю " + (doc.file_name || doc.id) + "…");
+        doSign(conn, b64, doc, done);
       },
       function (message) {
         done(message);
@@ -439,7 +516,7 @@
   function doSign(conn, b64, doc, done) {
     try {
       var message = conn.message(avcmx().blob().base64(b64));
-      var signFlags = AVCMF_DETACHED | AVCMF_ADD_SIGN_CERT | AVCMF_REPEAT_AUTHENTICATION;
+      var signFlags = AVCMF_DETACHED | AVCMF_ADD_SIGN_CERT;
       message.signAsync(signFlags, function (err, signed) {
         if (err) {
           done(errText(err));
@@ -485,51 +562,60 @@
         setStatus(pickErr || "Сертификат не выбран.", "err");
         return;
       }
-      setStatus("Подпись " + pending.length + " документ(ов) сертификатом…", "ok");
-      var signatures = [];
-      var index = 0;
-
-      function next(err) {
-        if (err) {
+      setStatus("Авторизация на носителе AvPass (введите пароль в окне АВЕСТ)…", "ok");
+      openSignConnection(pub, function (connErr, conn) {
+        if (connErr || !conn) {
           signingBusy = false;
           setWork("");
-          setStatus(err, "err");
+          setStatus(connErr || "Не удалось открыть сессию подписи.", "err");
           return;
         }
-        if (index >= pending.length) {
-          setWork("Сохраняю подписи на сервере…");
-          api(
-            "POST",
-            "/api/v1/ie-sign/" + encodeURIComponent(token) + "/sign/",
-            { signatures: signatures },
-            false,
-            function (data) {
-              signingBusy = false;
-              setWork("");
-              setStatus("Подписи сохранены. Закройте IE и в Chrome нажмите «Собрать архив».", "ok");
-              if (data.session) showSession(data.session);
-            },
-            function (message) {
-              signingBusy = false;
-              setWork("");
-              setStatus(message, "err");
-            }
-          );
-          return;
-        }
-        setStatus("Подпись документа " + (index + 1) + " из " + pending.length + "…");
-        signOne(pending[index], pub, function (signErr, row) {
-          if (signErr) {
-            next(signErr);
+
+        var signatures = [];
+        var index = 0;
+
+        function next(err) {
+          if (err) {
+            signingBusy = false;
+            setWork("");
+            setStatus(err, "err");
             return;
           }
-          signatures.push(row);
-          index += 1;
-          next(null);
-        });
-      }
+          if (index >= pending.length) {
+            setWork("Сохраняю подписи на сервере…");
+            api(
+              "POST",
+              "/api/v1/ie-sign/" + encodeURIComponent(token) + "/sign/",
+              { signatures: signatures },
+              false,
+              function (data) {
+                signingBusy = false;
+                setWork("");
+                setStatus("Подписи сохранены. Закройте IE и в Chrome нажмите «Собрать архив».", "ok");
+                if (data.session) showSession(data.session);
+              },
+              function (message) {
+                signingBusy = false;
+                setWork("");
+                setStatus(message, "err");
+              }
+            );
+            return;
+          }
+          setStatus("Подпись документа " + (index + 1) + " из " + pending.length + "…");
+          signOneWithConn(conn, pending[index], function (signErr, row) {
+            if (signErr) {
+              next(signErr);
+              return;
+            }
+            signatures.push(row);
+            index += 1;
+            next(null);
+          });
+        }
 
-      next(null);
+        next(null);
+      });
     });
   }
 
@@ -546,10 +632,17 @@
       );
       return;
     }
-    setStatus(
-      "Плагин виден (сборка " + BUILD + "). Нажмите «Подписать документы AvPass» — откроется окно АВЕСТ.",
-      "ok"
-    );
+    preloadCerts(function (err) {
+      if (err) {
+        setStatus("Плагин виден, но сессия не открылась: " + errText(err), "err");
+        return;
+      }
+      var pub = selectedPubKeyId();
+      setStatus(
+        "Плагин и справочник готовы (сборка " + BUILD + (pub ? ", сертификат найден" : "") + "). Нажмите «Подписать документы AvPass».",
+        "ok"
+      );
+    });
   }
 
   function reloadSession() {
@@ -585,7 +678,13 @@
 
   window.onPluginLoaded = function () {
     diagnosePlugin();
-    setStatus("Плагин сообщил onload. Можно подписывать (сборка " + BUILD + ").", "ok");
+    preloadCerts(function (err) {
+      if (err) {
+        setStatus("Плагин загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
+        return;
+      }
+      setStatus("Плагин сообщил onload. Можно подписывать (сборка " + BUILD + ").", "ok");
+    });
   };
 
   window.reloadPlugin = safeCall(checkPluginOnly, "Проверка плагина");
@@ -595,6 +694,7 @@
   window.onload = function () {
     token = qs("t");
     diagnosePlugin();
+    preloadCerts();
     if (!token) {
       setStatus("В ссылке нет ticket. В Chrome на карточке нажмите «Подпись в Internet Explorer».", "err");
       return;
@@ -607,17 +707,23 @@
       function (data) {
         showSession(data);
         diagnosePlugin();
-        if (pluginAlive()) {
-          setStatus(
-            "Комплект загружен. Сборка " + BUILD + ". Нажмите «Подписать документы AvPass» — окно АВЕСТ с ключом.",
-            "ok"
-          );
-        } else {
-          setStatus(
-            "Комплект загружен, но CreateBlob нет. IE x86 + надёжные узлы + ActiveX. Сборка " + BUILD + ".",
-            "err"
-          );
-        }
+        preloadCerts(function (err) {
+          if (err) {
+            setStatus("Комплект загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
+            return;
+          }
+          if (pluginAlive()) {
+            setStatus(
+              "Комплект загружен. Сборка " + BUILD + ". Нажмите «Подписать документы AvPass» — окно АВЕСТ с ключом.",
+              "ok"
+            );
+          } else {
+            setStatus(
+              "Комплект загружен, но CreateBlob нет. IE x86 + надёжные узлы + ActiveX. Сборка " + BUILD + ".",
+              "err"
+            );
+          }
+        });
       },
       function (message) {
         setStatus(message, "err");
