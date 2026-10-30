@@ -3,10 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
   <title>ЕРИП — подпись комплекта (Internet Explorer)</title>
-  <link rel="stylesheet" href="ie-sign.css" />
-  <script type="text/javascript" src="avcmxwebp.js"></script>
-  <script type="text/javascript" src="ie-sign.js"></script>
+  <link rel="stylesheet" href="ie-sign.css?v=20261030c" />
+  <script type="text/javascript" src="avcmxwebp.js?v=20261030c"></script>
+  <script type="text/javascript" src="ie-sign.js?v=20261030c"></script>
 </head>
 <body>
   <!-- width/height > 0: в IE нулевой object иногда не активирует ActiveX -->
@@ -23,8 +25,9 @@
 
     <p class="hint">
       <button type="button" onclick="reloadPlugin();">Проверить плагин</button>
-      Сайт в IE: «Свойства обозревателя» → «Безопасность» → «Надёжные узлы» → добавить адрес сервера.
-      Разрешите ActiveX. IE x86: <code>C:\Program Files (x86)\Internet Explorer\iexplore.exe</code>. AvPass вставьте заранее.
+      В диагностике должна быть строка <b>сборка страницы: 20261030c</b>. Если её нет — IE держит старый JS: Ctrl+F5 или перезалейте файлы.
+      Сайт в «Надёжные узлы», ActiveX разрешён. IE x86:
+      <code>C:\Program Files (x86)\Internet Explorer\iexplore.exe</code>. AvPass вставьте заранее.
     </p>
 
     <div id="meta" class="meta" style="display:none;">
@@ -35,7 +38,7 @@
     </div>
 
     <div id="plugin-box" class="box" style="display:none;">
-      <label for="cert-select">Сертификат (если список пуст — окно АВЕСТ откроется при подписи)</label>
+      <label for="cert-select">Сертификат (заполнится после выбора в окне АВЕСТ)</label>
       <select id="cert-select"></select>
     </div>
 
