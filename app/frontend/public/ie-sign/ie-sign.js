@@ -2,7 +2,7 @@
 (function (window, document) {
   "use strict";
 
-  var BUILD = "20261030e";
+  var BUILD = "20261030f";
   var token = "";
   var session = null;
   var signingBusy = false;
@@ -187,6 +187,21 @@
     return pluginAlive();
   }
 
+  function decodeBufferUtf8(buf) {
+    if (!buf) return "";
+    try {
+      var bytes = new Uint8Array(buf);
+      var out = "";
+      var i;
+      for (i = 0; i < bytes.length; i++) {
+        out += "%" + ("0" + bytes[i].toString(16)).slice(-2);
+      }
+      return decodeURIComponent(out);
+    } catch (e) {
+      return "";
+    }
+  }
+
   function api(method, path, body, binary, onOk, onErr) {
     var xhr = new XMLHttpRequest();
     xhr.open(method, path, true);
@@ -216,11 +231,22 @@
       }
       var message = "Ошибка HTTP " + xhr.status;
       try {
-        var err = JSON.parse(xhr.responseText || "{}");
+        var raw = "";
+        if (binary && xhr.response) {
+          raw = decodeBufferUtf8(xhr.response);
+        } else {
+          raw = xhr.responseText || "";
+        }
+        var err = JSON.parse(raw || "{}");
         if (err.error && err.error.message) message = err.error.message;
         else if (err.detail) message = typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail);
         else if (err.message) message = err.message;
       } catch (e2) {}
+      if (message === "Ошибка HTTP 400") {
+        message =
+          "Ошибка HTTP 400: ссылка подписи истекла или попала на другой процесс сервера. " +
+          "В Chrome нажмите «Подпись в Internet Explorer» ещё раз и откройте новую ссылку.";
+      }
       onErr(message);
     };
     xhr.send(body ? JSON.stringify(body) : null);
@@ -495,22 +521,37 @@
     });
   }
 
-  function signOneWithConn(conn, doc, done) {
-    setWork("Скачиваю " + (doc.file_name || doc.id) + "…");
-    api(
-      "GET",
-      "/api/v1/ie-sign/" + encodeURIComponent(token) + "/documents/" + doc.id + "/pdf/",
-      null,
-      true,
-      function (buf) {
-        var b64 = arrayBufferToBase64(buf);
-        setWork("Подписываю " + (doc.file_name || doc.id) + "…");
-        doSign(conn, b64, doc, done);
-      },
-      function (message) {
-        done(message);
+  function fetchPendingPdfs(docs, done) {
+    var buffers = [];
+    var idx = 0;
+    function step() {
+      if (idx >= docs.length) {
+        done(null, buffers);
+        return;
       }
-    );
+      var doc = docs[idx];
+      setWork("Скачиваю PDF (" + (idx + 1) + "/" + docs.length + "): " + (doc.file_name || doc.id) + "…");
+      api(
+        "GET",
+        "/api/v1/ie-sign/" + encodeURIComponent(token) + "/documents/" + doc.id + "/pdf/",
+        null,
+        true,
+        function (buf) {
+          buffers.push({ doc: doc, b64: arrayBufferToBase64(buf) });
+          idx += 1;
+          step();
+        },
+        function (message) {
+          done(message);
+        }
+      );
+    }
+    step();
+  }
+
+  function signOneWithConn(conn, item, done) {
+    setWork("Подписываю " + (item.doc.file_name || item.doc.id) + "…");
+    doSign(conn, item.b64, item.doc, done);
   }
 
   function doSign(conn, b64, doc, done) {
@@ -554,67 +595,78 @@
 
     diagnosePlugin();
     signingBusy = true;
-    setStatus("Шаг 1/" + pending.length + ": выбор сертификата AvPass…");
+    setStatus("Подготовка: скачивание " + pending.length + " PDF с сервера…");
 
-    pickCertificate(function (pickErr, pub) {
-      if (pickErr || !pub) {
+    fetchPendingPdfs(pending, function (fetchErr, items) {
+      if (fetchErr || !items) {
         signingBusy = false;
-        setStatus(pickErr || "Сертификат не выбран.", "err");
+        setWork("");
+        setStatus(fetchErr || "Не удалось скачать PDF для подписи.", "err");
         return;
       }
-      setStatus("Авторизация на носителе AvPass (введите пароль в окне АВЕСТ)…", "ok");
-      openSignConnection(pub, function (connErr, conn) {
-        if (connErr || !conn) {
+
+      setStatus("Шаг 1/" + items.length + ": выбор сертификата AvPass…");
+      pickCertificate(function (pickErr, pub) {
+        if (pickErr || !pub) {
           signingBusy = false;
           setWork("");
-          setStatus(connErr || "Не удалось открыть сессию подписи.", "err");
+          setStatus(pickErr || "Сертификат не выбран.", "err");
           return;
         }
-
-        var signatures = [];
-        var index = 0;
-
-        function next(err) {
-          if (err) {
+        setStatus("Авторизация на носителе AvPass (введите пароль в окне АВЕСТ)…", "ok");
+        openSignConnection(pub, function (connErr, conn) {
+          if (connErr || !conn) {
             signingBusy = false;
             setWork("");
-            setStatus(err, "err");
+            setStatus(connErr || "Не удалось открыть сессию подписи.", "err");
             return;
           }
-          if (index >= pending.length) {
-            setWork("Сохраняю подписи на сервере…");
-            api(
-              "POST",
-              "/api/v1/ie-sign/" + encodeURIComponent(token) + "/sign/",
-              { signatures: signatures },
-              false,
-              function (data) {
-                signingBusy = false;
-                setWork("");
-                setStatus("Подписи сохранены. Закройте IE и в Chrome нажмите «Собрать архив».", "ok");
-                if (data.session) showSession(data.session);
-              },
-              function (message) {
-                signingBusy = false;
-                setWork("");
-                setStatus(message, "err");
-              }
-            );
-            return;
-          }
-          setStatus("Подпись документа " + (index + 1) + " из " + pending.length + "…");
-          signOneWithConn(conn, pending[index], function (signErr, row) {
-            if (signErr) {
-              next(signErr);
+
+          var signatures = [];
+          var index = 0;
+
+          function next(err) {
+            if (err) {
+              signingBusy = false;
+              setWork("");
+              setStatus(err, "err");
               return;
             }
-            signatures.push(row);
-            index += 1;
-            next(null);
-          });
-        }
+            if (index >= items.length) {
+              setWork("Сохраняю подписи на сервере…");
+              api(
+                "POST",
+                "/api/v1/ie-sign/" + encodeURIComponent(token) + "/sign/",
+                { signatures: signatures },
+                false,
+                function (data) {
+                  signingBusy = false;
+                  setWork("");
+                  setStatus("Подписи сохранены. Закройте IE и в Chrome нажмите «Собрать архив».", "ok");
+                  if (data.session) showSession(data.session);
+                },
+                function (message) {
+                  signingBusy = false;
+                  setWork("");
+                  setStatus(message, "err");
+                }
+              );
+              return;
+            }
+            setStatus("Подпись документа " + (index + 1) + " из " + items.length + "…");
+            signOneWithConn(conn, items[index], function (signErr, row) {
+              if (signErr) {
+                next(signErr);
+                return;
+              }
+              signatures.push(row);
+              index += 1;
+              next(null);
+            });
+          }
 
-        next(null);
+          next(null);
+        });
       });
     });
   }

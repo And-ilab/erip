@@ -2,7 +2,7 @@
 
 Chrome/Edge не загружают AvCMXWebP. Специалист открывает лёгкую страницу
 `/ie-sign/` в IE по ссылке с ticket. Cookie сессии Chrome в IE нет — поэтому
-JWT не подходит, нужен короткий ticket в URL.
+JWT не подходит, нужен короткий подписанный ticket в URL.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import secrets
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.core import signing
 from django.core.cache import cache
 
 from apps.debts.models import ClaimCase
@@ -19,8 +20,9 @@ from apps.debts.services.claims import ClaimBlocked
 
 User = get_user_model()
 
-TICKET_TTL = 20 * 60
+TICKET_TTL = 2 * 60 * 60
 CACHE_PREFIX = "ie-sign:"
+SIGN_SALT = "erip.ie-sign.v1"
 
 
 def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
@@ -30,16 +32,15 @@ def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
     normalized = str(role or "all").strip().lower()
     if normalized not in {"applicant", "head", "all"}:
         raise ClaimBlocked("Роль подписи: applicant, head или all")
-    token = secrets.token_urlsafe(32)
-    cache.set(
-        CACHE_PREFIX + token,
-        {
-            "claim_id": case.pk,
-            "user_id": user.pk,
-            "role": normalized,
-        },
-        timeout=TICKET_TTL,
-    )
+    data = {
+        "claim_id": case.pk,
+        "user_id": user.pk,
+        "role": normalized,
+        "nonce": secrets.token_hex(4),
+    }
+    signed = signing.dumps(data, salt=SIGN_SALT, compress=True)
+    token = signed.replace(":", ".")
+    cache.set(CACHE_PREFIX + token, data, timeout=TICKET_TTL)
     return {
         "token": token,
         "expires_in": TICKET_TTL,
@@ -51,11 +52,18 @@ def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
 
 def load_ticket(token: str) -> dict[str, Any]:
     raw = str(token or "").strip()
-    if not raw or len(raw) > 128:
-        raise ClaimBlocked("Ссылка подписи недействительна или истекла")
+    if not raw or len(raw) > 512:
+        raise ClaimBlocked("Ссылка подписи недействительна или истекла. В Chrome нажмите «Подпись в Internet Explorer» заново.")
     payload = cache.get(CACHE_PREFIX + raw)
+    if not isinstance(payload, dict):
+        try:
+            payload = signing.loads(raw.replace(".", ":"), salt=SIGN_SALT, max_age=TICKET_TTL)
+        except signing.BadSignature as exc:
+            raise ClaimBlocked(
+                "Ссылка подписи недействительна или истекла. В Chrome нажмите «Подпись в Internet Explorer» заново."
+            ) from exc
     if not isinstance(payload, dict) or not payload.get("claim_id") or not payload.get("user_id"):
-        raise ClaimBlocked("Ссылка подписи недействительна или истекла")
+        raise ClaimBlocked("Ссылка подписи недействительна или истекла. В Chrome нажмите «Подпись в Internet Explorer» заново.")
     return payload
 
 

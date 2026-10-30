@@ -165,7 +165,7 @@
 
 На 2026-10-29: сообщение «плагин не найден» при установленном АВЕСТ означало, что Chrome/Edge не отдают API AvCMXWebP (NPAPI/ActiveX). Текст ошибки и подсказка на комплекте это различают; object дополнен classid ActiveX; для подписи нужен Internet Explorer. Проверка у АВЕСТ — http://dev.avest.by/avjceprovdemoweb/.
 
-На 2026-10-30: подпись комплекта для IE — отдельная статика `/ie-sign/` (не Angular). Chrome выдаёт ticket `POST /api/v1/claims/{id}/ie-sign-ticket/`; страница IE грузит документы и шлёт PKCS#7 через `/api/v1/ie-sign/<token>/`. Срок ticket 20 минут. Сборка `20261030e`: список сертификатов предзагружается через `AVCMF_NO_AUTH` + `AVCM_TYPE_MY` (как в демо АВЕСТ), все PDF подписываются в одной авторизованной сессии AvPass; CreateBlob в IE проверяется вызовом; ошибка `3895066916` (`AVCMR_INTERNAL_ERROR`) расшифровывается как блокировка `%APPDATA%\Avest` Защищённым режимом IE (Low Integrity).
+На 2026-10-30: подпись комплекта для IE — отдельная статика `/ie-sign/` (не Angular). Chrome выдаёт криптографически подписанный ticket `POST /api/v1/claims/{id}/ie-sign-ticket/` (`django.core.signing`, срок 2 часа, не зависит от `LocMemCache` конкретного воркера Gunicorn); страница IE грузит документы и шлёт PKCS#7 через `/api/v1/ie-sign/<token>/`. Сборка `20261030f`: список сертификатов предзагружается через `AVCMF_NO_AUTH` + `AVCM_TYPE_MY`, все PDF скачиваются заранее и подписываются в одной авторизованной сессии AvPass; CreateBlob в IE проверяется вызовом; ошибка `3895066916` (`AVCMR_INTERNAL_ERROR`) расшифровывается как блокировка `%APPDATA%\Avest` Защищённым режимом IE (Low Integrity).
 
 На 2026-10-20, замечания главы 2 (важнее шкалы групп ТЗ там, где заказчик расписал иначе):
 
