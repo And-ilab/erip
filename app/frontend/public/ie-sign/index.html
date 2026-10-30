@@ -9,15 +9,23 @@
   <script type="text/javascript" src="ie-sign.js"></script>
 </head>
 <body>
-  <object id="oavcmx" type="application/x-avcmx-web-plugin" classid="CLSID:35B35038-9C01-5D75-943F-5A19E32AC230" width="0" height="0">
+  <!-- width/height > 0: в IE нулевой object иногда не активирует ActiveX -->
+  <object id="oavcmx" type="application/x-avcmx-web-plugin" classid="CLSID:35B35038-9C01-5D75-943F-5A19E32AC230" width="1" height="1">
     <param name="onload" value="onPluginLoaded" />
   </object>
 
   <div class="page">
     <h1>Подпись комплекта для нотариата</h1>
-    <p class="lead">Страница для Internet Explorer и плагина AvCMXWebP. В Chrome и Edge плагин не загружается — откройте эту ссылку в IE.</p>
+    <p class="lead">Только Internet Explorer + AvCMXWebP. Chrome и Edge сюда не подходят.</p>
 
     <div id="status" class="status">Загрузка…</div>
+    <div id="diag" class="hint"></div>
+
+    <p class="hint">
+      <button type="button" onclick="reloadPlugin();">Проверить плагин</button>
+      Сайт в IE: «Свойства обозревателя» → «Безопасность» → «Надёжные узлы» → добавить адрес сервера.
+      Разрешите ActiveX. IE x86: <code>C:\Program Files (x86)\Internet Explorer\iexplore.exe</code>. AvPass вставьте заранее.
+    </p>
 
     <div id="meta" class="meta" style="display:none;">
       <div>Дело: <b id="claim-id"></b></div>
@@ -27,9 +35,8 @@
     </div>
 
     <div id="plugin-box" class="box" style="display:none;">
-      <label for="cert-select">Сертификат ГосСУОК на AvPass</label>
+      <label for="cert-select">Сертификат (если список пуст — окно АВЕСТ откроется при подписи)</label>
       <select id="cert-select"></select>
-      <p class="hint">Вставьте носитель AvPass. При подписи плагин запросит пароль.</p>
     </div>
 
     <div id="docs-box" class="box" style="display:none;">
@@ -45,7 +52,7 @@
         <tbody></tbody>
       </table>
       <div class="actions">
-        <button type="button" id="btn-sign-pending" onclick="signPending();">Подписать без ЭЦП</button>
+        <button type="button" id="btn-sign-pending" onclick="signPending();">Подписать документы AvPass</button>
         <button type="button" id="btn-reload" onclick="reloadSession();">Обновить список</button>
       </div>
       <p id="work" class="work"></p>
