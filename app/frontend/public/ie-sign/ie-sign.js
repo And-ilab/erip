@@ -2,7 +2,7 @@
 (function (window, document) {
   "use strict";
 
-  var BUILD = "20261030c";
+  var BUILD = "20261030d";
   var token = "";
   var session = null;
   var signingBusy = false;
@@ -68,9 +68,57 @@
     return document.getElementById("oavcmx");
   }
 
-  function pluginAlive() {
+  /**
+   * В IE у методов ActiveX typeof часто "unknown", а не "function".
+   * Version уже есть (1.1.x) — плагин поднят; CreateBlob проверяем вызовом.
+   */
+  function activeXCallable(obj, name) {
+    if (!obj) return false;
+    var t;
+    try {
+      t = typeof obj[name];
+    } catch (e) {
+      return false;
+    }
+    if (t === "function" || t === "unknown") return true;
+    try {
+      return obj[name] != null;
+    } catch (e2) {
+      return false;
+    }
+  }
+
+  function probeCreateBlob() {
     var node = pluginNode();
-    return !!(node && typeof node.CreateBlob === "function");
+    if (!node) return { ok: false, detail: "нет object" };
+    var t = "?";
+    try {
+      t = typeof node.CreateBlob;
+    } catch (e) {
+      t = "ошибка typeof";
+    }
+    try {
+      var blob = node.CreateBlob(0);
+      return {
+        ok: blob != null,
+        detail: "typeof=" + t + (blob != null ? ", вызов ок" : ", вызов вернул пусто")
+      };
+    } catch (e2) {
+      return { ok: false, detail: "typeof=" + t + ", вызов: " + errText(e2) };
+    }
+  }
+
+  function pluginAlive() {
+    var probe = probeCreateBlob();
+    if (probe.ok) return true;
+    /* запасной путь: обёртка avcmx сама берёт #oavcmx */
+    try {
+      if (typeof avcmx === "function") {
+        var b = avcmx().blob();
+        return !!b;
+      }
+    } catch (e) {}
+    return false;
   }
 
   function diagnosePlugin() {
@@ -79,7 +127,9 @@
     var node = pluginNode();
     lines.push("object#oavcmx: " + (node ? "есть" : "нет"));
     if (node) {
-      lines.push("CreateBlob: " + (typeof node.CreateBlob === "function" ? "да" : "нет"));
+      var probe = probeCreateBlob();
+      lines.push("CreateBlob: " + (probe.ok ? "да" : "нет") + " (" + probe.detail + ")");
+      lines.push("CreateBlob callable: " + (activeXCallable(node, "CreateBlob") ? "да" : "нет"));
       try {
         lines.push("Version: " + (node.Version || "—"));
       } catch (e) {
@@ -88,15 +138,35 @@
     }
     lines.push("avcmx(): " + (typeof avcmx === "function" ? "да" : "нет"));
     try {
-      if (window.ActiveXObject) {
+      if (typeof avcmx === "function") {
+        try {
+          avcmx().blob();
+          lines.push("avcmx().blob(): ок");
+        } catch (eBlob) {
+          lines.push("avcmx().blob(): " + errText(eBlob));
+        }
+      }
+    } catch (eWrap) {
+      lines.push("avcmx probe: " + errText(eWrap));
+    }
+    try {
+      /* IE11 иногда прячет ActiveXObject, но <object> уже работает */
+      var hasAx = false;
+      try {
+        hasAx = typeof window.ActiveXObject !== "undefined";
+      } catch (eAx) {}
+      if (hasAx) {
         try {
           var ax = new ActiveXObject("AVEST.AvCMXWebP");
-          lines.push("ActiveX AVEST.AvCMXWebP: " + (ax && typeof ax.CreateBlob === "function" ? "да" : "создан без API"));
+          lines.push(
+            "ActiveX AVEST.AvCMXWebP: " +
+              (ax && activeXCallable(ax, "CreateBlob") ? "да" : "создан, CreateBlob сомнителен")
+          );
         } catch (e2) {
           lines.push("ActiveX AVEST.AvCMXWebP: нет (" + (e2.message || e2) + ")");
         }
       } else {
-        lines.push("ActiveXObject: нет (не IE?)");
+        lines.push("ActiveXObject: недоступен (для IE это бывает; смотрите object/CreateBlob выше)");
       }
     } catch (e3) {
       lines.push("ActiveX проверка: " + (e3.message || e3));

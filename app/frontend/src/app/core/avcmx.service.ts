@@ -200,21 +200,34 @@ export class AvcmxService {
     const node = document.getElementById('oavcmx');
     if (!node) return null;
     const plugin = node as unknown as AvPlugin;
-    if (typeof plugin.CreateBlob !== 'function') return null;
+    // В IE у методов ActiveX typeof часто "unknown", не "function".
+    if (!this.hasCreateBlob(plugin)) return null;
     return plugin;
   }
 
   private fromActiveX(): AvPlugin | null {
-    if (this.activeX && typeof this.activeX.CreateBlob === 'function') return this.activeX;
+    if (this.activeX && this.hasCreateBlob(this.activeX)) return this.activeX;
     const factory = (window as unknown as { ActiveXObject?: ActiveXFactory }).ActiveXObject;
     if (!factory) return null;
     try {
       const instance = new factory(AVCMX_PROGID);
-      if (!instance || typeof instance.CreateBlob !== 'function') return null;
+      if (!instance || !this.hasCreateBlob(instance)) return null;
       this.activeX = instance;
       return instance;
     } catch {
       return null;
+    }
+  }
+
+  /** ActiveX в IE: typeof method === "unknown". */
+  private hasCreateBlob(plugin: AvPlugin): boolean {
+    try {
+      const kind = typeof plugin.CreateBlob;
+      if (kind === 'function' || kind === 'unknown') return true;
+      plugin.CreateBlob(0);
+      return true;
+    } catch {
+      return false;
     }
   }
 
