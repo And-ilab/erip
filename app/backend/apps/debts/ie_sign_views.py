@@ -142,4 +142,5 @@ class IeModeSiteListView(APIView):
     authentication_classes = []
 
     def get(self, request):
-        return HttpResponse(ie_mode_site_list(request.get_host()), content_type="text/xml; charset=utf-8")
+        host = request.query_params.get("host") or request.get_host()
+        return HttpResponse(ie_mode_site_list(host), content_type="text/xml; charset=utf-8")

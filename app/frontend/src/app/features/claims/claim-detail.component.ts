@@ -1421,36 +1421,51 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected signAndAssemble(): void {
     const row = this.claim();
     if (!row || this.signing || !this.kitReady(row)) return;
+    const ua = navigator.userAgent || '';
+    const isEdge = /\bEdg\//.test(ua);
+    // Открываем вкладку синхронно в обработчике клика, иначе браузер блокирует окно после двух HTTP-запросов.
+    const popup = isEdge ? window.open('about:blank', '_blank') : null;
     const attempt = ++this.signAttempt;
     this.flushNotarySave(() => {
-      if (!this.alive || attempt !== this.signAttempt) return;
-      this.openSignWindow();
+      if (!this.alive || attempt !== this.signAttempt) {
+        try { popup?.close(); } catch { /* ignore */ }
+        return;
+      }
+      this.openSignWindow(popup);
     });
   }
 
-  private openSignWindow(): void {
+  private openSignWindow(popup: Window | null = null): void {
     const row = this.claim();
     const pack = row?.package;
-    if (!row || !pack || this.signing) return;
+    if (!row || !pack || this.signing) {
+      try { popup?.close(); } catch { /* ignore */ }
+      return;
+    }
     if (!this.kitReady(row)) {
+      try { popup?.close(); } catch { /* ignore */ }
       this.snack.open(this.kitGaps(row)[0] || 'Комплект неполный', 'OK');
       return;
     }
     this.signing = true;
     this.api.claimAction(row.id, 'package', this.packageBody(pack)).subscribe({
       next: (saved) => {
-        if (!this.alive) return;
+        if (!this.alive) {
+          try { popup?.close(); } catch { /* ignore */ }
+          return;
+        }
         this.emailDirty = false;
         this.apply(saved);
         if (!this.kitReady(saved)) {
           this.signing = false;
+          try { popup?.close(); } catch { /* ignore */ }
           this.snack.open(this.kitGaps(saved).join('; ') || 'Комплект неполный', 'OK');
           return;
         }
         this.api.ieSignTicket(saved.id, 'all').subscribe({
           next: (issued) => {
             this.signing = false;
-            this.launchEdge(`${window.location.origin}${issued.path}`);
+            this.launchEdge(`${window.location.origin}${issued.path}`, popup);
             this.watchArchive();
             this.snack.open(
               'Открывается Edge в режиме Internet Explorer. Введите пароль AvPass в окне плагина.',
@@ -1460,12 +1475,14 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
           },
           error: (err) => {
             this.signing = false;
+            try { popup?.close(); } catch { /* ignore */ }
             this.snack.open(errorMessage(err), 'OK');
           },
         });
       },
       error: (err) => {
         this.signing = false;
+        try { popup?.close(); } catch { /* ignore */ }
         this.snack.open(errorMessage(err), 'OK');
       },
     });
@@ -1491,7 +1508,21 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     };
   }
 
-  private launchEdge(url: string): void {
+  private launchEdge(url: string, popup: Window | null = null): void {
+    if (popup && !popup.closed) {
+      try {
+        popup.location.replace(url);
+        popup.focus();
+        return;
+      } catch {
+        /* fallback below */
+      }
+    }
+    const isEdge = /\bEdg\//.test(navigator.userAgent || '');
+    if (isEdge) {
+      const opened = window.open(url, '_blank');
+      if (opened) return;
+    }
     const link = document.createElement('a');
     link.href = `microsoft-edge:${url}`;
     link.rel = 'noopener';

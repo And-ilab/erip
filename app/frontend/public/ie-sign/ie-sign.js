@@ -2,7 +2,7 @@
 (function (window, document) {
   "use strict";
 
-  var BUILD = "20261102a";
+  var BUILD = "20261102b";
   var token = "";
   var session = null;
   var signingBusy = false;
@@ -690,7 +690,7 @@
         if (data.session) showSession(data.session);
         setStatus("Архив собран. Вернитесь в ПМ.", "ok");
         try {
-          window.alert("Архив документов собран и доступен для скачивания и отправки. Пожалуйста, вернитесь в ПМ.");
+          window.alert("Архив документов собран и доступен для скачивания/отправки, пожалуйста вернитесь в ПМ");
         } catch (eAlert) {}
       },
       function (message) {

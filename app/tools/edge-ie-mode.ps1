@@ -1,4 +1,4 @@
-﻿﻿# Один раз на компьютере с AvPass. Политика текущего пользователя, права администратора не нужны.
+﻿# Один раз на компьютере с AvPass. Политика текущего пользователя, права администратора не нужны.
 # Запуск из каталога репозитория:
 #   powershell -ExecutionPolicy Bypass -File app\tools\edge-ie-mode.ps1 -Origin https://адрес-пм
 param(
@@ -17,13 +17,16 @@ if (-not $parsed.Host) {
 }
 
 $authority = $parsed.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/')
-$list = "$authority/api/v1/ie-mode/sites.xml"
+$hostWithPort = $parsed.Authority
+$list = "$authority/api/v1/ie-mode/sites.xml?host=$([Uri]::EscapeDataString($hostWithPort))"
 $hostName = $parsed.Host
 
 $policy = 'HKCU:\Software\Policies\Microsoft\Edge'
 New-Item -Path $policy -Force | Out-Null
 New-ItemProperty -Path $policy -Name InternetExplorerIntegrationLevel -PropertyType DWord -Value 1 -Force | Out-Null
 New-ItemProperty -Path $policy -Name InternetExplorerIntegrationSiteList -PropertyType String -Value $list -Force | Out-Null
+New-ItemProperty -Path $policy -Name InternetExplorerIntegrationZoneAllowed -PropertyType DWord -Value 1 -Force | Out-Null
+New-ItemProperty -Path $policy -Name RedirectSitesFromInternetExplorerPreventBHOInstall -PropertyType DWord -Value 1 -Force | Out-Null
 
 # Надёжные узлы — зона 2. Для имени с точками IE ждёт ключ домена и поддомена.
 $zoneMap = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap'

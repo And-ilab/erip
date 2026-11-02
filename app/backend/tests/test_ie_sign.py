@@ -124,8 +124,10 @@ def test_ie_mode_site_list_opens_only_the_sign_page(client):
     assert response.status_code == 200
     body = response.content.decode()
     assert response["Content-Type"].startswith("text/xml")
-    assert body.count("<site ") == 1
     assert '<site url="testserver/ie-sign">' in body
     assert "<open-in>IE11</open-in>" in body
     assert '<site url="testserver">' not in body
     assert "/claims" not in body
+
+    with_port = client.get("/api/v1/ie-mode/sites.xml?host=10.0.0.5:8080").content.decode()
+    assert '<site url="10.0.0.5:8080/ie-sign">' in with_port

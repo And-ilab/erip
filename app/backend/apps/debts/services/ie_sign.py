@@ -117,7 +117,12 @@ def ticket_user(token: str):
 
 def ie_mode_site_list(host: str) -> str:
     """Список сайтов Edge: в режиме IE открывается только страница подписи, не карточка Angular."""
-    safe_host = escape(str(host or "").strip())
+    raw = str(host or "").strip()
+    for prefix in ("https://", "http://"):
+        if raw.lower().startswith(prefix):
+            raw = raw[len(prefix):]
+    raw = raw.split("/", 1)[0]
+    safe_host = escape(raw)
     today = date.today().isoformat()
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -128,6 +133,9 @@ def ie_mode_site_list(host: str) -> str:
         f"    <date-created>{today}</date-created>\n"
         "  </created-by>\n"
         f'  <site url="{safe_host}/ie-sign">\n'
+        "    <open-in>IE11</open-in>\n"
+        "  </site>\n"
+        f'  <site url="{safe_host}/ie-sign/">\n'
         "    <open-in>IE11</open-in>\n"
         "  </site>\n"
         "</site-list>\n"
