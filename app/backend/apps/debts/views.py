@@ -1724,7 +1724,13 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             raise PermissionDenied("Поставщик мероприятие не приостанавливает")
         measure = self.get_object()
         try:
-            hold_measure(measure, request.user, request.data.get("until"), request.data.get("reason") or "")
+            hold_measure(
+                measure,
+                request.user,
+                request.data.get("until"),
+                request.data.get("reason") or "",
+                indefinite=bool(request.data.get("indefinite")),
+            )
         except ExtraMeasureError as exc:
             raise ValidationError(exc.detail) from exc
         record_action(request, AuditLog.Action.UPDATE, measure, after={"action": "hold"})

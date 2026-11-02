@@ -65,15 +65,23 @@ def add_extra(user, payload: dict) -> Measure:
     return measure
 
 
-def hold_measure(measure: Measure, user, until, reason: str) -> Measure:
+def hold_measure(measure: Measure, user, until, reason: str, *, indefinite: bool = False) -> Measure:
     if measure.status in {Measure.Status.DONE, Measure.Status.CANCELLED, Measure.Status.FAILED}:
         raise ExtraMeasureError({"status": "Мероприятие уже закрыто"})
     text = str(reason or "").strip()
     if not text:
         raise ExtraMeasureError({"reason": "Укажите основание"})
+    if indefinite:
+        day = None
+    else:
+        day = _day(until)
+        if day is None:
+            raise ExtraMeasureError({"until": "Укажите дату приостановки или отметьте «навсегда»"})
+        if day < timezone.localdate():
+            raise ExtraMeasureError({"until": "Дата приостановки не может быть раньше сегодняшней"})
     measure.status = Measure.Status.PAUSED
     measure.stopped = True
-    measure.pause_until = _day(until)
+    measure.pause_until = day
     measure.pause_reason = text
     measure.save(update_fields=["status", "stopped", "pause_until", "pause_reason", "updated_at"])
     _log(measure, user, "assigned", "paused", text)
@@ -95,7 +103,7 @@ def release_measure(measure: Measure, user) -> Measure:
 def release_expired_holds(account: Account) -> None:
     today = timezone.localdate()
     rows = Measure.objects.filter(
-        accounts=account, status=Measure.Status.PAUSED, pause_until__lt=today,
+        accounts=account, status=Measure.Status.PAUSED, pause_until__isnull=False, pause_until__lt=today,
     ).exclude(pause_reason=DEATH_REASON)
     for measure in rows:
         release_measure(measure, None)

@@ -28,10 +28,11 @@ def _claim_ready(account) -> bool:
 def claims_population(queryset: QuerySet) -> QuerySet:
     """Должники претензионно-исковой работы.
 
-    Модуль включается с группы 3. Сюда же попадает уже открытое дело,
-    этап «Испол. надпись / иск» или «ОПИ» и мероприятие «взыскание».
+    В реестр попадают только уже открытое дело, этап воронки взыскания
+    (надпись / иск / ОПИ) или мероприятие «взыскание». Одна рассчитанная
+    группа ≥ 3 без запуска сценария и без дела карточку сюда не ставит —
+    иначе после загрузки АИС все такие ЛС оказывались в «подготовке пакета».
     """
-    shown_group = Q(debt_group_manual__gte=3) | Q(debt_group_manual__isnull=True, debt_group__gte=3)
     matched = queryset.model.objects.filter(
         Q(pk=OuterRef("pk")),
         Q(claim_case__isnull=False)
@@ -39,8 +40,7 @@ def claims_population(queryset: QuerySet) -> QuerySet:
             "enforcement", "court", "prep", "notary", "writ_done", "refused",
             "lawsuit", "judgment", "opi", "opi_measures", "impossible", "writeoff",
         ])
-        | Q(measures__kind="collection")
-        | shown_group,
+        | Q(measures__kind="collection"),
     )
     return queryset.filter(Exists(matched))
 

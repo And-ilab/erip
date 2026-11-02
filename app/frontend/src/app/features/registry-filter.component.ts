@@ -1,4 +1,4 @@
-import { Component, EventEmitter, HostListener, Input, OnInit, Output, inject, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnInit, Output, ViewChild, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
@@ -69,7 +69,13 @@ const STAGES = FUNNEL_STAGES.map((stage) => ({ id: stage.id, label: stage.title 
         @if (domain) {
           <button type="button" class="fchip" (click)="clearDomain($event)">Условие ×</button>
         }
-        <input [formControl]="search" [placeholder]="placeholder" (focus)="panelOpen.set(true)" />
+        <input
+          #searchBox
+          [formControl]="search"
+          [placeholder]="placeholder"
+          (focus)="holdSearchFocus()"
+          (blur)="releaseSearchFocus()"
+        />
         @if (showMonth) {
           <input class="month" type="month" [formControl]="month" aria-label="Период" (click)="$event.stopPropagation()" />
         }
@@ -252,6 +258,8 @@ export class RegistryFilterComponent implements OnInit {
   protected kind = '';
   protected groupBy = '';
   protected domain: DomainRule | null = null;
+  @ViewChild('searchBox') private searchBox?: ElementRef<HTMLInputElement>;
+  private searchHeld = false;
   protected get domainFields() {
     return this.showKind ? measureDomainFields() : accountDomainFields();
   }
@@ -266,6 +274,24 @@ export class RegistryFilterComponent implements OnInit {
       this.period = value;
       this.emit();
     });
+  }
+
+  protected holdSearchFocus(): void {
+    this.searchHeld = true;
+    this.panelOpen.set(true);
+  }
+
+  protected releaseSearchFocus(): void {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (active && this.searchBox?.nativeElement.closest('.search-wrap')?.contains(active)) return;
+      this.searchHeld = false;
+    }, 0);
+  }
+
+  private restoreSearchFocus(): void {
+    if (!this.searchHeld) return;
+    queueMicrotask(() => this.searchBox?.nativeElement.focus({ preventScroll: true }));
   }
 
   @HostListener('document:click')
@@ -437,5 +463,6 @@ export class RegistryFilterComponent implements OnInit {
 
   private emit(): void {
     this.queryChange.emit(this.snapshot());
+    this.restoreSearchFocus();
   }
 }

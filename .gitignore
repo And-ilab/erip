@@ -2,6 +2,17 @@
 .env
 .env.*
 !.env.example
+Pass.txt
+auth.txt
+*.ovpn
+*.ske
+*.ssct2
+Zhkh.7z
+itVPN/
+Configuration.ovpn
+PSZhkH*.ske
+PSZhkH*.ssct2
+учётки.txt
 
 # Зависимости, кэши, сборка
 .venv/

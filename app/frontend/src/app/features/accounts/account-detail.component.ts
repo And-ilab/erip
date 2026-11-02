@@ -121,8 +121,8 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   <dt>Кол-во проживающих</dt><dd>{{ a.subj_count ?? '—' }}</dd>
                   <dt>Кол-во льготников</dt><dd>{{ a.priv_acc_count ?? '—' }}</dd>
                   <dt>Кол-во месяцев долга</dt><dd>{{ a.months_debt ?? '—' }}</dd>
-                  <dt>Тип объекта жилфонда</dt><dd>{{ a.acc_category_full || a.acc_category_short || '—' }}</dd>
-                  <dt>Категория жилого фонда</dt><dd>{{ a.category_name || a.category_short_name || '—' }}</dd>
+                  <dt>Тип объекта</dt><dd>{{ a.acc_category_full || a.acc_category_short || '—' }}</dd>
+                  <dt>Категория жилфонда</dt><dd>{{ a.category_name || a.category_short_name || '—' }}</dd>
                   <dt>Тип собственности</dt><dd>{{ a.ownership_type_name || '—' }}</dd>
                   <dt>ID доп. информации 1</dt><dd>{{ a.info_param_id1 ?? '—' }}</dd>
                   <dt>Доп. информация 1</dt><dd>{{ a.info_param_value1 || '—' }}</dd>
@@ -198,12 +198,11 @@ import { FunnelBarComponent } from './funnel-bar.component';
                           }
                         </mat-autocomplete>
                       </mat-form-field>
-                      <button mat-stroked-button (click)="applyCategory()">Выбрать или добавить</button>
-                      <button mat-stroked-button (click)="clearCategory()">Очистить</button>
+                      <button mat-stroked-button type="button" (click)="saveProfile()">Сохранить</button>
+                      <button mat-stroked-button type="button" (click)="clearCategory()">Очистить</button>
                       <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
                       <mat-checkbox [(ngModel)]="inheritance">Наследственное дело</mat-checkbox>
                       <mat-form-field><mat-label>Приостановка до</mat-label><input matInput placeholder="дд.мм.гггг" [(ngModel)]="inheritanceUntil" /></mat-form-field>
-                      <button mat-stroked-button (click)="saveProfile()">Сохранить</button>
                     </div>
                   </div>
                 }
@@ -259,7 +258,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
             @for (step of scenarioSteps(); track step.order + step.action) {
               <details class="step" [open]="stepOpen(step)">
                 <summary class="step-summary">
-                  <button type="button" class="step-no" [class.on]="stepDone(step)" (click)="$event.preventDefault(); $event.stopPropagation(); toggleStep(step)">{{ step.order }}</button>
+                  <span class="step-no" [class.on]="stepDone(step)">{{ step.order }}</span>
                   {{ step.title }}
                   <span class="muted">{{ stepSpan(step) }}</span>
                   @if (canHold() && step.measures[0]; as measure) {
@@ -338,7 +337,11 @@ import { FunnelBarComponent } from './funnel-bar.component';
               <div class="picker-back" (click)="pauseFor = null"></div>
               <div class="pause-box">
                 <h4>Приостановить мероприятие</h4>
-                <mat-form-field><mat-label>До</mat-label><input matInput type="date" [(ngModel)]="pauseUntil" /></mat-form-field>
+                <mat-checkbox [(ngModel)]="pauseIndefinite">Навсегда (до ручного возобновления)</mat-checkbox>
+                <mat-form-field>
+                  <mat-label>До</mat-label>
+                  <input matInput type="date" [(ngModel)]="pauseUntil" [disabled]="pauseIndefinite" [attr.min]="todayIso()" />
+                </mat-form-field>
                 <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="pauseReason" /></mat-form-field>
                 <button mat-flat-button color="primary" type="button" (click)="confirmPause()">Приостановить</button>
               </div>
@@ -893,6 +896,7 @@ export class AccountDetailComponent implements OnInit {
   protected pauseFor: ScenarioMeasure | null = null;
   protected pauseUntil = '';
   protected pauseReason = '';
+  protected pauseIndefinite = false;
   protected residence = '';
   protected inheritance = false;
   protected inheritanceUntil = '';
@@ -1424,24 +1428,15 @@ export class AccountDetailComponent implements OnInit {
     this.categoryText = name;
   }
 
-  protected applyCategory(): void {
-    const name = this.categoryText.trim();
-    if (!name) return;
-    const found = this.categories().find((item) => item.name.toLowerCase() === name.toLowerCase());
-    if (found) {
-      this.categoryId = found.id;
-      this.categoryText = found.name;
-      return;
-    }
-    const saved = this.account()?.debtor_category_name?.trim() || '';
-    if (this.categoryId && saved.toLowerCase() === name.toLowerCase()) return;
-    this.newCategory = name;
-    this.addCategory();
-  }
-
   protected clearCategory(): void {
     this.categoryId = null;
     this.categoryText = '';
+    this.saveProfile();
+  }
+
+  protected todayIso(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   }
 
   addCategory(): void {
@@ -1964,13 +1959,19 @@ export class AccountDetailComponent implements OnInit {
     }
     this.pauseUntil = '';
     this.pauseReason = '';
+    this.pauseIndefinite = false;
     this.pauseFor = row;
   }
 
   protected confirmPause(): void {
     const row = this.pauseFor;
-    if (!row || !this.pauseUntil || !this.pauseReason.trim()) return;
-    this.api.holdMeasure(row.id, this.pauseUntil, this.pauseReason.trim()).subscribe({
+    if (!row || !this.pauseReason.trim()) return;
+    if (!this.pauseIndefinite && !this.pauseUntil) return;
+    if (!this.pauseIndefinite && this.pauseUntil < this.todayIso()) {
+      this.snack.open('Дата приостановки не может быть раньше сегодняшней', 'OK');
+      return;
+    }
+    this.api.holdMeasure(row.id, this.pauseUntil, this.pauseReason.trim(), this.pauseIndefinite).subscribe({
       next: () => {
         this.pauseFor = null;
         this.reloadScenario();

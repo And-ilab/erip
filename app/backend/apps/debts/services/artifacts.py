@@ -59,9 +59,20 @@ def attach_call_file(measure: Measure, accounts: list[Account]) -> None:
 
 
 def attach_warning_pdf(measure: Measure, accounts: list[Account]) -> None:
+    from apps.nsi.services.official_blanks import render_official_pdf
+    from apps.nsi.services.scenarios import placeholder_values
+
+    if len(accounts) == 1:
+        from apps.nsi.services.official_blanks import context_for_account
+
+        official = render_official_pdf("warning", context_for_account(accounts[0]))
+        if official:
+            measure.artifact.save(f"warning-{measure.pk}.pdf", ContentFile(official), save=True)
+            return
     lines = [f"Предупреждение. Шаблон: {measure.template_name}", ""]
     for account in accounts:
-        debt = account.balance_out if account.balance_out is not None else ""
+        values = placeholder_values(account)
+        debt = values.get("total") or values.get("amount") or ""
         lines.append(f"ЛС {account.client_account}  {account.short_fio}  {account.account_address}  долг {debt}")
     payload = _pdf_bytes(lines)
     measure.artifact.save(f"warning-{measure.pk}.pdf", ContentFile(payload), save=True)

@@ -133,6 +133,19 @@ def test_account_context_uses_card_figures(account_a):
     assert warning["values"]["amount"] == "150.00"
 
 
+@pytest.mark.django_db
+def test_warning_takes_service_balance_when_account_saldo_is_zero(account_a):
+    account_a.balance_out = Decimal("0.00")
+    account_a.save(update_fields=["balance_out"])
+    service = account_a.services.get()
+    service.balance_out = Decimal("599.95")
+    service.balance_mulct_out = Decimal("0.00")
+    service.save(update_fields=["balance_out", "balance_mulct_out"])
+    warning = context_for_blank("warning", account_a)
+    assert warning["values"]["amount"] == "599.95"
+    assert warning["values"]["total"] == "599.95"
+
+
 def test_case_cards_keep_their_titles_and_can_hide_a_part():
     writ = render_official_html("writ", blank_context("writ", values={"account": "00001001", "principal": "10.00"}))
     lawsuit = render_official_html("lawsuit", blank_context("lawsuit"))

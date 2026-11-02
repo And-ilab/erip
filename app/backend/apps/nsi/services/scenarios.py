@@ -241,14 +241,17 @@ def placeholder_values(account, tariff: str = "", warning_date: str = "") -> dic
     names = [row.service_name for row in service_rows if row.service_name][:8]
     penalty = sum((row.balance_mulct_out or Decimal("0")) for row in service_rows)
     out_sum = sum((row.balance_out or Decimal("0")) for row in service_rows)
-    total = account.balance_out if account.balance_out is not None and account.balance_out > 0 else (out_sum or account.balance_out)
-    if total is None:
-        principal = None
-    elif total >= penalty and total > 0:
+    # Сальдо ЛС и сумма услуг могут расходиться после выгрузки: в бланк берём большую.
+    account_out = account.balance_out if account.balance_out is not None else Decimal("0")
+    total = max(account_out, out_sum)
+    if total > 0 and total >= penalty:
         principal = total - penalty
-    else:
-        principal = out_sum if out_sum > 0 else Decimal("0.00")
+    elif out_sum > 0:
+        principal = out_sum
         total = principal + penalty
+    else:
+        principal = Decimal("0.00") if total == 0 else total
+        total = principal + penalty if principal is not None else None
     last = account.payments.exclude(pay_date=None).order_by("-pay_date").values_list("pay_date", flat=True).first()
     started = account.debt_started_on
     op_date = account.operational_date or date.today()

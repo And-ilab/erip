@@ -404,8 +404,16 @@ export class ApiService {
     return this.http.post<{ id: number; name: string }>(`${this.base}/contracts/${id}/extra-measure/`, { catalog_id: catalogId });
   }
 
-  holdMeasure(id: number, until: string, reason: string): Observable<{ status: string }> {
-    return this.http.post<{ status: string }>(`${this.base}/measures/${id}/hold/`, { until, reason });
+  holdMeasure(
+    id: number,
+    until: string,
+    reason: string,
+    indefinite = false,
+  ): Observable<{ status: string; pause_until?: string | null; pause_reason?: string }> {
+    return this.http.post<{ status: string; pause_until?: string | null; pause_reason?: string }>(
+      `${this.base}/measures/${id}/hold/`,
+      { until: indefinite ? '' : until, reason, indefinite },
+    );
   }
 
   releaseMeasure(id: number): Observable<{ status: string }> {

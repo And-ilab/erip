@@ -554,27 +554,30 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
     )
     party.accounts.add(on_measure)
     outsider = make_account(org_a, 4103, funnel_stage="new")
+    # Одна группа ≥ 3 без дела и без мероприятия взыскания в ПИР не попадает (гл. 4 §5, §9).
     from_group = make_account(org_a, 4104, funnel_stage="disconnect", debt_group=3)
 
     listed = api(specialist_a).get("/api/v1/accounts/", {"scope": "claims", "page_size": 50})
     assert listed.status_code == 200, listed.content
     ids = {row["id"] for row in listed.json()["results"]}
-    assert {on_writ.id, on_measure.id, from_group.id} <= ids
+    assert {on_writ.id, on_measure.id} <= ids
     assert outsider.id not in ids
+    assert from_group.id not in ids
 
     columns = api(specialist_a).get("/api/v1/accounts/kanban/", {"scope": "claims"}).json()
     cards = {card["id"] for column in columns for card in column["cards"]}
-    assert {on_writ.id, on_measure.id, from_group.id} <= cards
+    assert {on_writ.id, on_measure.id} <= cards
     assert outsider.id not in cards
+    assert from_group.id not in cards
     by_stage = {column["stage"]: column["total"] for column in columns}
     assert [column["stage"] for column in columns][:2] == ["queue", "prep"]
-    assert by_stage["queue"] >= 2
+    assert by_stage["queue"] >= 1
     assert by_stage["prep"] >= 1
     queued = next(column for column in columns if column["stage"] == "queue")
     prepared = next(column for column in columns if column["stage"] == "prep")
     assert on_writ.id in {card["id"] for card in prepared["cards"]}
     assert on_writ.id not in {card["id"] for card in queued["cards"]}
-    assert {on_measure.id, from_group.id} <= {card["id"] for card in queued["cards"]}
+    assert on_measure.id in {card["id"] for card in queued["cards"]}
     assert all(card["claim_id"] is None and card["claim_stage"] == "queue" for card in queued["cards"])
 
     events = api(specialist_a).get("/api/v1/accounts/calendar/", {
@@ -584,7 +587,7 @@ def test_claims_views_share_the_collection_population(api, specialist_a, org_a):
     assert any("Взыскание" in row["title"] and "00004102" in row["title"] for row in events.json())
 
     charts = api(specialist_a).get("/api/v1/accounts/charts/", {"scope": "claims"}).json()
-    assert charts["cases"] == 3
+    assert charts["cases"] == 2
 
 
 @pytest.mark.django_db

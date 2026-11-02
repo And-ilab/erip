@@ -1,4 +1,4 @@
-import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -182,9 +182,11 @@ interface GroupSection {
               <button type="button" class="fchip" (click)="clearDomain($event)">Условие ×</button>
             }
             <input
+              #searchBox
               [formControl]="search"
               placeholder="Поиск по ФИО плательщиков, лицевому счёту, адресу, идентификационному номеру…"
-              (focus)="openFilters()"
+              (focus)="holdSearchFocus()"
+              (blur)="releaseSearchFocus()"
             />
             <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
           </div>
@@ -903,6 +905,8 @@ export class AccountsListComponent implements OnInit {
   protected readonly selected = signal<Set<number>>(new Set());
   protected readonly dropStage = signal<string | null>(null);
   protected readonly search = new FormControl('', { nonNullable: true });
+  @ViewChild('searchBox') private searchBox?: ElementRef<HTMLInputElement>;
+  private searchHeld = false;
   protected readonly groupsSelected = new FormControl<number[]>([], { nonNullable: true });
   protected readonly rating = new FormControl<string[]>([], { nonNullable: true });
   protected readonly stage = new FormControl('', { nonNullable: true });
@@ -1136,6 +1140,24 @@ export class AccountsListComponent implements OnInit {
     this.markFilterOpen();
   }
 
+  protected holdSearchFocus(): void {
+    this.searchHeld = true;
+    this.openFilters();
+  }
+
+  protected releaseSearchFocus(): void {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (active && this.searchBox?.nativeElement.closest('.search-wrap')?.contains(active)) return;
+      this.searchHeld = false;
+    }, 0);
+  }
+
+  private restoreSearchFocus(): void {
+    if (!this.searchHeld) return;
+    queueMicrotask(() => this.searchBox?.nativeElement.focus({ preventScroll: true }));
+  }
+
   togglePanel(event: Event): void {
     event.stopPropagation();
     const opening = !this.panelOpen();
@@ -1143,16 +1165,7 @@ export class AccountsListComponent implements OnInit {
     if (opening) this.markFilterOpen();
   }
 
-  private markFilterOpen(): void {
-    const started = performance.now();
-    requestAnimationFrame(() => {
-      agentDbg('C', 'accounts-list.component.ts:openFilters', 'filter panel frame', {
-        ms: Math.round(performance.now() - started),
-        rows: this.rows().length,
-        specialists: this.specialists().length,
-      });
-    });
-  }
+  private markFilterOpen(): void {}
 
   applyCalendarGroups(groups: number[]): void {
     this.groupsSelected.setValue(groups);
@@ -2048,35 +2061,19 @@ export class AccountsListComponent implements OnInit {
       return;
     }
     this.view.set('list');
-    const started = performance.now();
     this.api.accounts({ page, page_size: this.pageSize, ordering: this.ordering, ...this.query() }).subscribe({
       next: (result) => {
-        agentDbg('D', 'accounts-list.component.ts:reload', 'accounts list', {
-          ms: Math.round(performance.now() - started),
-          page,
-          pageSize: this.pageSize,
-          count: result.count,
-          rows: result.results.length,
-        });
         this.rows.set(result.results);
         this.total.set(result.count);
         this.error.set('');
+        this.restoreSearchFocus();
       },
       error: (e) => {
-        agentDbg('D', 'accounts-list.component.ts:reload', 'accounts list failed', {
-          ms: Math.round(performance.now() - started),
-          page,
-        });
         this.error.set(errorMessage(e));
+        this.restoreSearchFocus();
       },
     });
   }
-}
-
-function agentDbg(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
-  // #region agent log
-  fetch('http://127.0.0.1:7711/ingest/f24f302c-2e56-43dc-abb2-a6fe7c5a2f70',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb728a'},body:JSON.stringify({sessionId:'cb728a',runId:'pre-fix',hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
 }
 
 function monthStart(): string {

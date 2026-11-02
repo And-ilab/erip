@@ -1,5 +1,5 @@
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
-import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -166,9 +166,11 @@ const COLUMN_LABELS: Record<string, string> = {
               <button type="button" class="fchip" (click)="clearDomain($event)">Условие ×</button>
             }
             <input
+              #searchBox
               [formControl]="search"
               placeholder="Поиск по ФИО плательщиков, лицевому счёту, наименованию услуги, идентификационному номеру, учетному номеру…"
-              (focus)="panelOpen.set(true)"
+              (focus)="holdSearchFocus()"
+              (blur)="releaseSearchFocus()"
             />
             <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
           </div>
@@ -806,6 +808,8 @@ export class ContractsListComponent implements OnInit {
   private pendingStage = '';
   private cardDragged = false;
   protected readonly search = new FormControl('', { nonNullable: true });
+  @ViewChild('searchBox') private searchBox?: ElementRef<HTMLInputElement>;
+  private searchHeld = false;
   protected readonly groups = new FormControl<number[]>([], { nonNullable: true });
   protected readonly category = new FormControl('', { nonNullable: true });
   protected readonly stage = new FormControl('', { nonNullable: true });
@@ -1640,6 +1644,24 @@ export class ContractsListComponent implements OnInit {
     if (this.groupBy.value) this.groupBy.setValue('', { emitEvent: false });
   }
 
+  protected holdSearchFocus(): void {
+    this.searchHeld = true;
+    this.panelOpen.set(true);
+  }
+
+  protected releaseSearchFocus(): void {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (active && this.searchBox?.nativeElement.closest('.search-wrap')?.contains(active)) return;
+      this.searchHeld = false;
+    }, 0);
+  }
+
+  private restoreSearchFocus(): void {
+    if (!this.searchHeld) return;
+    queueMicrotask(() => this.searchBox?.nativeElement.focus({ preventScroll: true }));
+  }
+
   private reload(): void {
     const params = { ...this.query(), page: this.page, page_size: 50 };
     this.api.contractSummary(this.query()).subscribe({
@@ -1648,19 +1670,26 @@ export class ContractsListComponent implements OnInit {
     });
     if (this.view() === 'kanban') {
       this.showKanban();
+      this.restoreSearchFocus();
       return;
     }
     if (this.view() === 'calendar') {
       this.showCalendar();
+      this.restoreSearchFocus();
       return;
     }
-    if (this.view() === 'charts') return;
+    if (this.view() === 'charts') {
+      this.restoreSearchFocus();
+      return;
+    }
     if (this.groupBy.value || this.view() === 'grouped') {
       this.showGrouped();
+      this.restoreSearchFocus();
       return;
     }
     if (this.view() === 'suppliers') {
       this.error.set('');
+      this.restoreSearchFocus();
       return;
     }
     if (this.view() === 'persons') {
@@ -1669,8 +1698,12 @@ export class ContractsListComponent implements OnInit {
           this.persons.set(result.results);
           this.total.set(result.count);
           this.error.set('');
+          this.restoreSearchFocus();
         },
-        error: (e) => this.error.set(errorMessage(e)),
+        error: (e) => {
+          this.error.set(errorMessage(e));
+          this.restoreSearchFocus();
+        },
       });
     }
     if (this.view() === 'services') {
@@ -1679,8 +1712,12 @@ export class ContractsListComponent implements OnInit {
           this.rows.set(result.results);
           this.total.set(result.count);
           this.error.set('');
+          this.restoreSearchFocus();
         },
-        error: (e) => this.error.set(errorMessage(e)),
+        error: (e) => {
+          this.error.set(errorMessage(e));
+          this.restoreSearchFocus();
+        },
       });
     }
   }

@@ -64,8 +64,8 @@ import {
                     <dt>Рейтинг</dt><dd>{{ account()?.rating_label || '—' }}</dd>
                     <dt>Группа</dt><dd>{{ account()?.effective_group ?? '—' }}</dd>
                     <dt>Тип собственности</dt><dd>{{ account()?.ownership_type_name || '—' }}</dd>
-                    <dt>Категория жилого фонда</dt><dd>{{ account()?.acc_category_full || '—' }}</dd>
-                    <dt>Тип объекта</dt><dd>{{ account()?.uniq_attr_name || '—' }}</dd>
+                    <dt>Тип объекта</dt><dd>{{ account()?.acc_category_full || account()?.acc_category_short || '—' }}</dd>
+                    <dt>Категория жилфонда</dt><dd>{{ account()?.category_name || account()?.category_short_name || '—' }}</dd>
                     <dt>Площадь</dt><dd>{{ account()?.acc_total_space || '—' }}</dd>
                     <dt>Комнаты</dt><dd>{{ account()?.room_count ?? '—' }}</dd>
                     <dt>Телефон</dt><dd>{{ account()?.phone || '—' }}</dd>
@@ -132,6 +132,8 @@ import {
                           }
                         </mat-select>
                       </mat-form-field>
+                      <button mat-stroked-button type="button" (click)="saveProfile()">Сохранить</button>
+                      <button mat-stroked-button type="button" (click)="clearCategory()">Очистить</button>
                       <mat-form-field class="reason"><mat-label>Фактическое проживание</mat-label><input matInput [(ngModel)]="residence" /></mat-form-field>
                       <mat-checkbox [(ngModel)]="inheritance">Наследственное дело</mat-checkbox>
                       <mat-form-field><mat-label>Приостановка до</mat-label><input matInput type="date" [(ngModel)]="inheritanceUntil" /></mat-form-field>
@@ -143,10 +145,9 @@ import {
                           <mat-option value="bankruptcy">Банкротство</mat-option>
                         </mat-select>
                       </mat-form-field>
-                      <button mat-stroked-button (click)="saveProfile()">Сохранить</button>
                       <mat-form-field><mat-label>Новая категория</mat-label><input matInput [(ngModel)]="newCategory" /></mat-form-field>
-                      <button mat-stroked-button (click)="addCategory()">Добавить в справочник</button>
-                      <button mat-stroked-button (click)="removeCategory()">Удалить выбранную</button>
+                      <button mat-stroked-button type="button" (click)="addCategory()">Добавить в справочник</button>
+                      <button mat-stroked-button type="button" (click)="removeCategory()">Удалить выбранную</button>
                     </div>
                   } @else {
                     <p>{{ c.category_name || 'Категория не задана' }}@if (c.inheritance_case) { · наследственное дело }</p>
@@ -769,6 +770,11 @@ export class ContractDetailComponent implements OnInit {
       },
       error: (e) => this.snack.open(errorMessage(e), 'OK'),
     });
+  }
+
+  clearCategory(): void {
+    this.categoryId = null;
+    this.saveProfile();
   }
 
   addCategory(): void {
