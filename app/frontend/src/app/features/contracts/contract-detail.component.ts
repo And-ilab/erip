@@ -946,7 +946,7 @@ export class ContractDetailComponent implements OnInit {
     return { year: value.slice(0, 4), month: value.slice(5, 7) };
   }
 
-  private loadScenario(): void {
+  protected loadScenario(): void {
     const account = this.account();
     if (!account) return;
     this.api.accountScenario(account.id).subscribe((board) => this.scenario.set(board));
