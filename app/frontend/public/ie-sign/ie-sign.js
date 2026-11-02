@@ -2,7 +2,7 @@
 (function (window, document) {
   "use strict";
 
-  var BUILD = "20261102b";
+  var BUILD = "20261102c";
   var token = "";
   var session = null;
   var signingBusy = false;
@@ -114,13 +114,28 @@
     }
     try {
       var blob = node.CreateBlob(0);
-      return {
-        ok: blob != null,
-        detail: "typeof=" + t + (blob != null ? ", вызов ок" : ", вызов вернул пусто")
-      };
-    } catch (e2) {
-      return { ok: false, detail: "typeof=" + t + ", вызов: " + errText(e2) };
+      if (blob != null) {
+        return { ok: true, detail: "typeof=" + t + ", вызов ок" };
+      }
+    } catch (e2) {}
+    /* Если <object id="oavcmx"> не создал CreateBlob, пробуем ActiveXObject и прокидываем методы в узел #oavcmx для avcmxwebp.js */
+    if (typeof window.ActiveXObject !== "undefined") {
+      var progIds = ["AVEST.AvCMXWebP", "AvCryptMailCOMSystem.AvCryptMailSystem"];
+      var p;
+      for (p = 0; p < progIds.length; p++) {
+        try {
+          var ax = new window.ActiveXObject(progIds[p]);
+          var b = ax.CreateBlob(0);
+          if (b != null) {
+            try {
+              if (node.parentNode) node.parentNode.removeChild(node);
+            } catch (eRem) {}
+            return { ok: true, detail: "через ActiveXObject(" + progIds[p] + ")" };
+          }
+        } catch (eAx) {}
+      }
     }
+    return { ok: false, detail: "typeof=" + t + ", вызов не сработал" };
   }
 
   function pluginAlive() {
@@ -810,20 +825,33 @@
       false,
       function (data) {
         showSession(data);
-        diagnosePlugin();
-        preloadCerts(function (err) {
-          if (err) {
-            setStatus("Комплект загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
+        var tries = 0;
+        function waitForPlugin() {
+          diagnosePlugin();
+          if (pluginAlive()) {
+            preloadCerts(function (err) {
+              if (err) {
+                setStatus("Комплект загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
+                return;
+              }
+              startAutoSign();
+            });
             return;
           }
-          if (pluginAlive()) startAutoSign();
-          else {
-            setStatus(
-              "Комплект загружен, но CreateBlob нет. IE x86 + надёжные узлы + ActiveX. Сборка " + BUILD + ".",
-              "err"
-            );
+          tries += 1;
+          if (tries <= 12) {
+            setStatus("Ожидание инициализации плагина AvCMXWebP (" + tries + "/12)…");
+            window.setTimeout(waitForPlugin, 350);
+            return;
           }
-        });
+          setStatus(
+            "Комплект загружен, но CreateBlob нет. Выполните на ПК скрипт app/tools/edge-ie-mode.ps1 и перезапустите Edge (сборка " +
+              BUILD +
+              ").",
+            "err"
+          );
+        }
+        waitForPlugin();
       },
       function (message) {
         setStatus(message, "err");

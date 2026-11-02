@@ -57,10 +57,31 @@ if ($hostName -match '^\d{1,3}(\.\d{1,3}){3}$') {
 }
 
 # 2500 = 3 снимает защищённый режим зоны «Надёжные узлы»: иначе AvPass не открывает %APPDATA%\Avest.
+# 1200/1201/1208/1405/2000 = 0 разрешает запуск и инициализацию ActiveX без блокировки в Edge IE Mode.
+# 2702 = 3 отключает Enhanced Protected Mode (64-битный процесс вкладки IE11), чтобы грузился 32-битный AvCMXWebP.
 $trusted = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\2'
 if (Test-Path $trusted) {
   New-ItemProperty -Path $trusted -Name '2500' -PropertyType DWord -Value 3 -Force | Out-Null
+  New-ItemProperty -Path $trusted -Name '1200' -PropertyType DWord -Value 0 -Force | Out-Null
+  New-ItemProperty -Path $trusted -Name '1201' -PropertyType DWord -Value 0 -Force | Out-Null
+  New-ItemProperty -Path $trusted -Name '1208' -PropertyType DWord -Value 0 -Force | Out-Null
+  New-ItemProperty -Path $trusted -Name '1405' -PropertyType DWord -Value 0 -Force | Out-Null
+  New-ItemProperty -Path $trusted -Name '2000' -PropertyType DWord -Value 0 -Force | Out-Null
+  New-ItemProperty -Path $trusted -Name '2702' -PropertyType DWord -Value 3 -Force | Out-Null
 }
+
+$ieMain = 'HKCU:\Software\Microsoft\Internet Explorer\Main'
+if (Test-Path $ieMain) {
+  New-ItemProperty -Path $ieMain -Name 'Isolation' -PropertyType String -Value 'PMIL' -Force | Out-Null
+  New-ItemProperty -Path $ieMain -Name 'Isolation64Bit' -PropertyType DWord -Value 0 -Force | Out-Null
+  New-ItemProperty -Path $ieMain -Name 'TabProcGrowth' -PropertyType DWord -Value 1 -Force | Out-Null
+}
+
+$extPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{35B35038-9C01-5D75-943F-5A19E32AC230}\iexplore'
+New-Item -Path $extPath -Force | Out-Null
+New-ItemProperty -Path $extPath -Name 'Flags' -PropertyType DWord -Value 4 -Force | Out-Null
+$allowedDomains = Join-Path $extPath 'AllowedDomains\*'
+New-Item -Path $allowedDomains -Force | Out-Null
 
 Write-Host "Политика Edge записана для $hostName"
 Write-Host "Список сайтов: $list"
