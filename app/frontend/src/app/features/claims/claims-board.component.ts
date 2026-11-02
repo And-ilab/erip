@@ -417,11 +417,22 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .main { min-width: 0; }
     .empty { background: #fff; border: 1px solid var(--erip-border); border-radius: 10px; padding: 16px 18px; }
     .empty h2 { margin: 0 0 8px; color: var(--erip-primary-dark); font-size: 18px; }
-    .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(20, 40, 55, .45); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+    .backdrop {
+      position: fixed; inset: 0; z-index: 1200; background: rgba(20, 40, 55, .45);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px 16px 24px max(16px, var(--erip-sidebar-width, 240px));
+      box-sizing: border-box;
+    }
     .modal {
-      box-sizing: border-box; width: min(1080px, calc(100vw - 32px)); max-width: calc(100vw - 32px);
+      box-sizing: border-box; width: min(980px, 100%); max-width: 100%;
       height: auto; max-height: calc(100vh - 48px); overflow: auto;
       background: #fff; border-radius: 12px; padding: 20px 22px 16px; box-shadow: 0 16px 40px rgba(16, 42, 67, .25);
+    }
+    @media (max-width: 960px) {
+      .backdrop { padding: 16px; }
+      .modal label { grid-template-columns: 1fr; }
+      .picks { left: 0; }
+      .writ-sheet { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     .writ-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px; }
     .modal .writ-form label {
@@ -596,7 +607,7 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected canAdd(): boolean {
-    return this.auth.canWrite() && this.auth.me()?.contour !== 'supplier';
+    return this.auth.canWrite();
   }
 
   protected shownLanes(): { id: string; label: string; stages: string[]; entry: string }[] {
@@ -1057,6 +1068,18 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   private openFromRoute(): void {
+    const accountId = Number(this.route.snapshot.queryParamMap.get('account_id'));
+    if (accountId) {
+      this.openCreate();
+      this.api.account(accountId).subscribe({
+        next: (account) => {
+          this.picked.set(account);
+          this.loadWrit(account.id, true);
+        },
+        error: (err) => this.snack.open(errorMessage(err), 'OK'),
+      });
+      return;
+    }
     const id = Number(this.route.firstChild?.snapshot.paramMap.get('id') || this.router.url.match(/\/claims\/(\d+)/)?.[1]);
     if (!id) return;
     this.api.claim(id).subscribe({

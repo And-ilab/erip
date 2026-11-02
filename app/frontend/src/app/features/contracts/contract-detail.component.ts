@@ -16,6 +16,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import { funnelTitle } from '../funnel-stages';
 import { GridResizeDirective } from '../grid-resize.directive';
+import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 import {
   AccountDetail,
   AccountService,
@@ -28,6 +29,7 @@ import {
   Registration,
   ScenarioBoard,
   ScenarioMeasure,
+  ScenarioStep,
   categoryGroups,
 } from '../../core/models';
 
@@ -37,6 +39,7 @@ import {
   imports: [
     DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatTabsModule, GridResizeDirective,
+    MeasureTasksComponent,
   ],
   template: `
     <div class="page">
@@ -59,7 +62,7 @@ import {
                     <dt>Номер ЛС</dt><dd><a [routerLink]="['/accounts', account()?.id]">{{ account()?.client_account }}</a></dd>
                     <dt>Адрес</dt><dd>{{ account()?.account_address || c.address }}</dd>
                     <dt>Обслуживающая организация</dt><dd>{{ account()?.provider_short_name || '—' }}</dd>
-                    <dt>Период действия ЛС</dt><dd>{{ account()?.start_date | date: 'dd.MM.yyyy' }} — {{ account()?.stop_date | date: 'dd.MM.yyyy' }}</dd>
+                    <dt>Период действия ЛС</dt><dd>{{ accountPeriod(account()) }}</dd>
                     <dt>Кол-во месяцев долга</dt><dd>{{ account()?.months_debt ?? '—' }}</dd>
                     <dt>Рейтинг</dt><dd>{{ account()?.rating_label || '—' }}</dd>
                     <dt>Группа</dt><dd>{{ account()?.effective_group ?? '—' }}</dd>
@@ -157,39 +160,25 @@ import {
             </div>
           </mat-tab>
 
-          <mat-tab label="Регистрация ({{ people().length }})">
-            @for (person of people(); track person.id) {
-              <div class="framed">
-                <p>
-                  {{ person.full_name }}
-                  · {{ person.debtor_role }}
-                  · {{ person.subj_legal_entity ? 'ЮЛ' : 'ФЛ' }}
-                  · {{ person.relation_degree_name || 'родство не указано' }}
-                  · {{ person.is_close_relative ? 'член семьи' : 'не член семьи' }}
-                  · {{ person.birthday | date: 'dd.MM.yyyy' }}
-                  · {{ person.registration_address }}
-                  · {{ person.work_place_name }}
-                  · {{ person.idler_val ? 'не занят в экономике' : '' }}
-                  · наследство {{ person.legacy_start_date || '—' }} / принятие {{ person.subj_heritage_date || '—' }}
-                </p>
-                @if (auth.canWrite()) {
-                  <div class="filters">
-                    <mat-form-field><mat-label>Социальная категория</mat-label><input matInput [(ngModel)]="person.social_category" /></mat-form-field>
-                    <mat-checkbox [(ngModel)]="person.unfit_for_work">Нетрудоспособен</mat-checkbox>
-                    <mat-form-field>
-                      <mat-label>Переход прав</mat-label>
-                      <mat-select [(ngModel)]="person.heritage_transfer">
-                        <mat-option value="">Не указан</mat-option>
-                        <mat-option value="accept">Принятие наследства</mat-option>
-                        <mat-option value="escheat">Выморочное</mat-option>
-                        <mat-option value="other">Иной</mat-option>
-                      </mat-select>
-                    </mat-form-field>
-                    <button mat-stroked-button (click)="savePerson(person)">Сохранить лицо</button>
-                  </div>
-                }
-              </div>
-            } @empty { <p class="muted">Зарегистрированных лиц нет.</p> }
+          <mat-tab label="Регистрация ({{ activeRegistrationCount() }})">
+            <div class="list-pane">
+              <table class="plain" appGridResize="contract-registrations">
+                <thead>
+                  <tr>
+                    @for (col of regColumns; track col) { <th [attr.data-col]="col">{{ regLabel(col) }}</th> }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (person of people(); track person.id) {
+                    <tr>
+                      @for (col of regColumns; track col) { <td>{{ regCell(person, col) }}</td> }
+                    </tr>
+                  } @empty {
+                    <tr><td [attr.colspan]="regColumns.length" class="muted">Зарегистрированных лиц нет.</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           </mat-tab>
 
           <mat-tab label="Контакты">
@@ -225,17 +214,39 @@ import {
                 <button mat-stroked-button (click)="addContact()">Добавить контакт</button>
               </div>
             }
-            @for (contact of contacts(); track contact.id) {
-              <p>
-                {{ contact.person_name || 'счёт' }} · {{ contactKindLabel(contact.kind) }} · {{ contact.value }} · приоритет {{ contact.priority }}
-                · {{ contactSourceLabel(contact.source) }}
-                @if (contact.source === 'ais' && contact.ais_updated_at) { {{ contact.ais_updated_at | date: 'dd.MM.yyyy' }} }
-                @if (auth.canWrite() && contact.source === 'pm') {
-                  <button mat-button (click)="editContact(contact)">Изменить</button>
-                  <button mat-button (click)="removeContact(contact)">Удалить</button>
-                }
-              </p>
-            } @empty { <p class="muted">Контактов нет.</p> }
+            <div class="list-pane">
+              <table class="plain" appGridResize="contract-contacts">
+                <thead>
+                  <tr>
+                    <th data-col="person">Лицо</th>
+                    <th data-col="kind">Тип</th>
+                    <th data-col="value">Значение</th>
+                    <th data-col="source">Источник</th>
+                    <th data-col="priority">Приоритет</th>
+                    <th data-col="actions"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (contact of contacts(); track contact.id) {
+                    <tr>
+                      <td>{{ contact.person_name || 'Плательщик счёта' }}</td>
+                      <td>{{ contactKindLabel(contact.kind) }}</td>
+                      <td>{{ contact.value }}</td>
+                      <td>{{ contactSourceLabel(contact.source) }}@if (contact.source === 'ais' && contact.ais_updated_at) { · {{ contact.ais_updated_at | date: 'dd.MM.yyyy' }} }</td>
+                      <td>{{ contact.priority }}</td>
+                      <td>
+                        @if (auth.canWrite() && contact.source === 'pm') {
+                          <button mat-button (click)="editContact(contact)">Изменить</button>
+                          <button mat-button (click)="removeContact(contact)">Удалить</button>
+                        }
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr><td colspan="6" class="muted">Контактов нет.</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           </mat-tab>
 
           <mat-tab label="Мероприятия">
@@ -255,7 +266,8 @@ import {
             @for (step of scenario()?.steps || []; track step.order + step.action) {
               <details class="step" [open]="step.measures.length > 0">
                 <summary class="step-summary">
-                  <span>{{ step.order }}. {{ step.title }}</span>
+                  {{ step.title }}
+                  <span class="muted">{{ stepSpan(step) }}</span>
                   @if (canHold() && step.measures[0]; as measure) {
                     <button type="button" class="text-btn pause-btn" (click)="$event.preventDefault(); $event.stopPropagation(); askPause(measure)">
                       {{ measure.status === 'paused' ? 'Возобновить мероприятие' : 'Приостановить мероприятие' }}
@@ -263,32 +275,38 @@ import {
                   }
                 </summary>
                 @for (row of step.measures; track row.id) {
-                  <p>
-                    <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
-                    · {{ row.status_label }}
-                    @if (row.owner_name) { · {{ row.owner_name }} }
-                  </p>
+                  <div class="step-measure">
+                    <div class="step-head">
+                      <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
+                      <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
+                      @if (row.owner_name) { <span class="muted">{{ row.owner_name }}</span> }
+                    </div>
+                    <app-measure-tasks [measureId]="row.id" [tasks]="row.tasks" [canWrite]="auth.canWrite()" (changed)="loadScenario()" />
+                  </div>
                 }
               </details>
             }
             <details class="step" open>
               <summary>Инициировано вручную</summary>
               @for (row of scenario()?.manual || []; track row.id) {
-                <p>
-                  <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
-                  · {{ row.status_label }}
-                  @if (row.owner_name) { · {{ row.owner_name }} }
-                  @if (canHold()) {
-                    <button type="button" class="text-btn" (click)="askPause(row)">
-                      {{ row.status === 'paused' ? 'Возобновить мероприятие' : 'Приостановить мероприятие' }}
-                    </button>
-                  }
-                </p>
+                <div class="step-measure">
+                  <div class="step-head">
+                    <a [routerLink]="['/measures', row.id]">{{ row.kind_label }}</a>
+                    <span class="status-pill {{ row.status }}">{{ row.status_label }}</span>
+                    @if (row.owner_name) { <span class="muted">{{ row.owner_name }}</span> }
+                    @if (canHold()) {
+                      <button type="button" class="text-btn pause-btn" (click)="askPause(row)">
+                        {{ row.status === 'paused' ? 'Возобновить мероприятие' : 'Приостановить мероприятие' }}
+                      </button>
+                    }
+                  </div>
+                  <app-measure-tasks [measureId]="row.id" [tasks]="row.tasks" [canWrite]="auth.canWrite()" (changed)="loadScenario()" />
+                </div>
               } @empty { <p class="muted">Отдельных мероприятий нет.</p> }
             </details>
             @if (measures().length) {
               <div class="list-pane">
-                <table appGridResize="contract-measures">
+                <table class="plain" appGridResize="contract-measures">
                   <thead>
                     <tr>
                       <th data-col="kind">Мероприятие</th>
@@ -336,7 +354,10 @@ import {
             @if (pauseFor) {
               <div class="pause-box">
                 <h4>Приостановить мероприятие</h4>
-                <mat-form-field><mat-label>До</mat-label><input matInput type="date" [(ngModel)]="pauseUntil" /></mat-form-field>
+                <mat-checkbox [(ngModel)]="pauseIndefinite">Приостановить навсегда (до ручного возобновления)</mat-checkbox>
+                @if (!pauseIndefinite) {
+                  <mat-form-field><mat-label>До</mat-label><input matInput type="date" [min]="todayIso()" [(ngModel)]="pauseUntil" /></mat-form-field>
+                }
                 <mat-form-field class="reason"><mat-label>Причина</mat-label><input matInput [(ngModel)]="pauseReason" /></mat-form-field>
                 <button mat-flat-button color="primary" type="button" (click)="confirmPause()">Приостановить</button>
                 <button mat-button type="button" (click)="pauseFor = null">Отмена</button>
@@ -346,7 +367,7 @@ import {
 
           <mat-tab label="Услуги поставщика по ЛС">
             <div class="list-pane">
-              <table appGridResize="contract-provider-services">
+              <table class="plain" appGridResize="contract-provider-services">
                 <thead>
                   <tr>
                     <th>ID договора</th>
@@ -395,7 +416,7 @@ import {
               </mat-form-field>
             </div>
             <div class="list-pane">
-              <table>
+              <table class="plain">
                 <thead><tr><th>Период</th><th>Долг</th><th>Пеня</th><th>Срок</th></tr></thead>
                 <tbody>
                   @for (period of shownPeriods(); track period.period) {
@@ -412,14 +433,14 @@ import {
           </mat-tab>
 
           <mat-tab [label]="'История изменений (' + journal().length + ')'">
-            <div class="filters">
+            <div class="filters history-tabs">
               <button mat-stroked-button type="button" (click)="historyPane = 'rating'">Группа и рейтинг</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'measure'">Изменение мероприятий</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'other'">Прочие изменения</button>
             </div>
             <p class="muted tab-note">Группа и рейтинг — отдельно. Этап, сценарий, контакты и остальные изменения — на кнопке «Прочие».</p>
             <div class="list-pane">
-              <table class="journal" appGridResize="contract-history">
+              <table class="journal plain" appGridResize="contract-history">
                 <thead>
                   <tr>
                     <th>Дата и время</th>
@@ -458,15 +479,23 @@ import {
     dt { color: #6b7280; } dd { margin: 0; }
     .reason { min-width: 240px; }
     .framed { border: 1px solid var(--erip-border, #e5e7eb); border-radius: 8px; padding: 12px; margin-top: 12px; }
-    .step-summary { display: flex; gap: 12px; align-items: center; }
+    .step { border: 1px solid var(--erip-border, #e5e7eb); border-radius: 8px; margin: 8px 0; padding: 8px 12px; background: #fff; }
+    .step summary { cursor: pointer; font-weight: 600; }
+    .step-summary, .step-head { display: flex; gap: 12px; align-items: center; margin: 6px 0; }
+    .step-measure { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 8px 0; }
     .pause-btn { margin-left: auto; }
     .pause-box { border: 1px solid var(--erip-border, #e5e7eb); border-radius: 8px; padding: 12px; margin-top: 12px; display: grid; gap: 8px; max-width: 420px; }
+    .history-tabs { margin-top: 10px; }
+    .list-pane { border: 1px solid var(--erip-border, #e5e7eb); border-radius: 8px; overflow: auto; background: #fff; margin-top: 8px; }
     tr.current { background: #e8f6ee; cursor: default; }
     tr { cursor: pointer; }
     table { width: 100%; border-collapse: collapse; }
+    table.plain th, table.plain td { text-align: left; padding: 6px 10px; border: 1px solid var(--erip-border, #e5e7eb); white-space: nowrap; }
+    table.plain th { background: #f7f9fb; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; color: #5c6b7a; }
     th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
     .tab-note { margin: 12px 0 8px; font-size: 13px; line-height: 1.45; max-width: 760px; }
-    table.journal tr { cursor: default; }
+    table.journal tr, table.plain tr { cursor: default; }
+    .text-btn { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; font-size: 13px; padding: 0; }
   `,
 })
 export class ContractDetailComponent implements OnInit {
@@ -509,9 +538,14 @@ export class ContractDetailComponent implements OnInit {
   protected pauseFor: ScenarioMeasure | null = null;
   protected pauseUntil = '';
   protected pauseReason = '';
+  protected pauseIndefinite = false;
   protected periodYear = '';
   protected periodMonth = '';
   protected historyPane: 'rating' | 'measure' | 'other' = 'other';
+  protected readonly regColumns = [
+    'payer', 'registered', 'fam', 'im', 'ot', 'debtor_role', 'legal', 'relation', 'family',
+    'birthday', 'check_in_date', 'check_out_date', 'address', 'work', 'phone', 'email',
+  ];
   protected readonly months = [
     { id: '01', label: 'январь' }, { id: '02', label: 'февраль' }, { id: '03', label: 'март' },
     { id: '04', label: 'апрель' }, { id: '05', label: 'май' }, { id: '06', label: 'июнь' },
@@ -656,6 +690,79 @@ export class ContractDetailComponent implements OnInit {
     });
   }
 
+  protected accountPeriod(account: AccountDetail | null | undefined): string {
+    if (!account?.start_date) return '—';
+    const start = this.showDate(account.start_date);
+    if (!account.stop_date || account.stop_date.startsWith('2100-01-01')) return `с ${start}`;
+    return `с ${start} по ${this.showDate(account.stop_date)}`;
+  }
+
+  protected showDate(value: string | null | undefined): string {
+    if (!value) return '';
+    const iso = value.slice(0, 10);
+    const parts = iso.split('-');
+    return parts.length === 3 && parts[0].length === 4 ? `${parts[2]}.${parts[1]}.${parts[0]}` : value;
+  }
+
+  protected todayIso(): string {
+    const now = new Date();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${m}-${d}`;
+  }
+
+  protected stepSpan(step: ScenarioStep): string {
+    const row = step.measures[0];
+    if (!row) return '';
+    const start = this.showDate(row.started_on);
+    const end = this.showDate(row.finished_on);
+    if (!start && !end) return '';
+    return `${start || '…'} — ${end || '…'}`;
+  }
+
+  protected activeRegistrationCount(): number {
+    return this.people().filter((person) => this.regCell(person, 'registered') === 'да').length;
+  }
+
+  protected regLabel(col: string): string {
+    const labels: Record<string, string> = {
+      payer: 'Плательщик', registered: 'Зарегистрирован', fam: 'Фамилия', im: 'Имя', ot: 'Отчество',
+      debtor_role: 'Роль', legal: 'Юр.лицо', relation: 'Родственные отношения', family: 'Является членом семьи',
+      birthday: 'Дата рождения', check_in_date: 'Дата прибытия', check_out_date: 'Дата убытия',
+      address: 'Адрес местожительства', work: 'Наименование предприятия', phone: 'Контактный телефон', email: 'E-mail',
+    };
+    return labels[col] || col;
+  }
+
+  protected regCell(person: Registration, col: string): string {
+    const yn = (value: boolean | number | null | undefined) => (value ? 'да' : 'нет');
+    const sheet = (label: string) =>
+      (person.sheet || []).find((field) => field.label.toLowerCase().includes(label.toLowerCase()))?.value || '';
+    if (col === 'payer') return yn(person.subj_is_main);
+    if (col === 'registered') {
+      const removed = person.subj_is_check_out || sheet('снят').startsWith('1') || sheet('снят') === 'да';
+      if (removed) return 'нет';
+      const status = sheet('статус регистрации');
+      if (status === '0' || status === 'нет') return 'нет';
+      return 'да';
+    }
+    if (col === 'fam') return person.full_name.split(' ')[0] || sheet('фамилия') || '—';
+    if (col === 'im') return person.full_name.split(' ')[1] || '—';
+    if (col === 'ot') return person.full_name.split(' ').slice(2).join(' ') || '—';
+    if (col === 'debtor_role') return person.debtor_role || '—';
+    if (col === 'legal') return yn(person.subj_legal_entity);
+    if (col === 'relation') return person.relation_degree_name || '—';
+    if (col === 'family') return yn(person.is_close_relative);
+    if (col === 'birthday') return this.showDate(person.birthday) || '—';
+    if (col === 'check_in_date') return this.showDate(sheet('прибытия')) || '—';
+    if (col === 'check_out_date') return this.showDate(sheet('убытия')) || '—';
+    if (col === 'address') return person.registration_address || sheet('местожительства') || '—';
+    if (col === 'work') return person.work_place_name || sheet('предприятия') || '—';
+    if (col === 'phone') return person.contact_phone || '—';
+    if (col === 'email') return person.email || '—';
+    return '—';
+  }
+
   protected askPause(row: ScenarioMeasure): void {
     if (row.status === 'paused') {
       this.api.releaseMeasure(row.id).subscribe({
@@ -666,13 +773,19 @@ export class ContractDetailComponent implements OnInit {
     }
     this.pauseUntil = '';
     this.pauseReason = '';
+    this.pauseIndefinite = false;
     this.pauseFor = row;
   }
 
   protected confirmPause(): void {
     const row = this.pauseFor;
-    if (!row || !this.pauseUntil || !this.pauseReason.trim()) return;
-    this.api.holdMeasure(row.id, this.pauseUntil, this.pauseReason.trim()).subscribe({
+    if (!row || !this.pauseReason.trim()) return;
+    if (!this.pauseIndefinite && !this.pauseUntil) return;
+    if (!this.pauseIndefinite && this.pauseUntil < this.todayIso()) {
+      this.snack.open('Дата приостановки не может быть раньше сегодняшней', 'OK');
+      return;
+    }
+    this.api.holdMeasure(row.id, this.pauseUntil, this.pauseReason.trim(), this.pauseIndefinite).subscribe({
       next: () => {
         this.pauseFor = null;
         this.loadScenario();

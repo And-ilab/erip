@@ -488,6 +488,7 @@ class Contact(AisRecord):
     value = models.CharField("Значение", max_length=250)
     priority = models.PositiveSmallIntegerField("Приоритет", default=0)
     source = models.CharField("Источник", max_length=10, choices=Source.choices, default=Source.PM)
+    owner_provider_id = models.BigIntegerField("Поставщик контакта ПМ", null=True, blank=True, db_index=True)
     ais_updated_at = models.DateTimeField("Обновлено из АИС", null=True, blank=True)
 
     class Meta:

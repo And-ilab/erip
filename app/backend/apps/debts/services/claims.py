@@ -29,18 +29,31 @@ def claims_population(queryset: QuerySet) -> QuerySet:
     """Должники претензионно-исковой работы.
 
     В реестр попадают только уже открытое дело, этап воронки взыскания
-    (надпись / иск / ОПИ) или мероприятие «взыскание». Одна рассчитанная
+    (надпись / иск / ОПИ) или открытое мероприятие «взыскание». Одна рассчитанная
     группа ≥ 3 без запуска сценария и без дела карточку сюда не ставит —
     иначе после загрузки АИС все такие ЛС оказывались в «подготовке пакета».
+    ЛС с ручной группой 0 без открытого дела из реестра ПИР исключается (§9).
     """
-    matched = queryset.model.objects.filter(
-        Q(pk=OuterRef("pk")),
-        Q(claim_case__isnull=False)
-        | Q(funnel_stage__in=[
+    from apps.debts.models import Measure
+
+    open_collection = Q(
+        measures__kind="collection",
+        measures__status__in=[
+            Measure.Status.ASSIGNED,
+            Measure.Status.RUNNING,
+            Measure.Status.PAUSED,
+        ],
+    )
+    in_claim_funnel = Q(
+        funnel_stage__in=[
             "enforcement", "court", "prep", "notary", "writ_done", "refused",
             "lawsuit", "judgment", "opi", "opi_measures", "impossible", "writeoff",
-        ])
-        | Q(measures__kind="collection"),
+        ],
+    )
+    not_manual_zero = ~Q(debt_group_manual=0)
+    matched = queryset.model.objects.filter(
+        Q(pk=OuterRef("pk")),
+        Q(claim_case__isnull=False) | (not_manual_zero & (in_claim_funnel | open_collection)),
     )
     return queryset.filter(Exists(matched))
 

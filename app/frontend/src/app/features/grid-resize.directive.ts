@@ -84,7 +84,10 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
   private sync(): void {
     const headers = this.headerCells();
     if (!headers.length) return;
-    headers.forEach((cell, index) => this.attachGrip(cell, this.columnId(cell, index)));
+    headers.forEach((cell, index) => {
+      if (index === headers.length - 1) return;
+      this.attachGrip(cell, this.columnId(cell, index));
+    });
     if (this.locked || this.hasWidth(headers)) this.paintAll(headers);
   }
 
@@ -224,16 +227,24 @@ export class GridResizeDirective implements AfterViewInit, OnDestroy {
     const table = this.host.nativeElement;
     const pane = table.parentElement?.clientWidth ?? sum;
     const slack = Math.max(0, pane - sum);
+    if (widths.length) widths[widths.length - 1] += slack;
     table.classList.add('widths-locked');
     table.style.tableLayout = 'fixed';
     table.style.width = `${sum + slack}px`;
     table.style.minWidth = '100%';
-    const cols = this.ensureCols(headers.length + 1);
+    const cols = this.ensureCols(headers.length);
     widths.forEach((width, index) => {
       if (cols[index]) cols[index].style.width = `${width}px`;
     });
-    const filler = cols[headers.length];
-    if (filler) filler.style.width = `${slack}px`;
+    if (headers.length) {
+      const lastIndex = headers.length - 1;
+      const lastPx = `${widths[lastIndex]}px`;
+      for (const cell of this.cellsInColumn(lastIndex)) {
+        cell.style.width = lastPx;
+        cell.style.minWidth = lastPx;
+        cell.style.maxWidth = lastPx;
+      }
+    }
     this.locked = true;
   }
 

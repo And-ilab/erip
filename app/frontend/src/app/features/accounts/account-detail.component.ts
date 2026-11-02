@@ -258,7 +258,6 @@ import { FunnelBarComponent } from './funnel-bar.component';
             @for (step of scenarioSteps(); track step.order + step.action) {
               <details class="step" [open]="stepOpen(step)">
                 <summary class="step-summary">
-                  <span class="step-no" [class.on]="stepDone(step)">{{ step.order }}</span>
                   {{ step.title }}
                   <span class="muted">{{ stepSpan(step) }}</span>
                   @if (canHold() && step.measures[0]; as measure) {
@@ -391,7 +390,8 @@ import { FunnelBarComponent } from './funnel-bar.component';
           </mat-tab>
 
           <mat-tab label="Услуги ({{ services().length }})">
-            <div class="columns-wrap">
+            <div class="filters tab-tools">
+              <div class="columns-wrap">
               <button mat-stroked-button type="button" class="table-settings" (click)="toggleColumnMenu('services', $event)">Настройки таблицы</button>
               @if (columnMenu === 'services') {
                 <div class="picker-back" (click)="columnMenu = ''"></div>
@@ -412,8 +412,10 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   }
                 </div>
               }
+              </div>
+              <input class="table-filter" placeholder="Поиск по услугам, суммам, датам…" [(ngModel)]="serviceFilter" />
             </div>
-            <div class="list-pane service-pane"><table mat-table [dataSource]="services()" appGridResize="card-services" appColumnDrag (columnMove)="dragService($event)">
+            <div class="list-pane service-pane"><table mat-table [dataSource]="filteredServices()" appGridResize="card-services" appColumnDrag (columnMove)="dragService($event)">
               <ng-container matColumnDef="report_group_id"><th mat-header-cell *matHeaderCellDef>ID группы отчёта</th><td mat-cell *matCellDef="let s">{{ s.report_group_id ?? '—' }}</td></ng-container>
               <ng-container matColumnDef="netting_mulct_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет пени <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_mulct_sum" [blank]="false" /></td></ng-container>
               <ng-container matColumnDef="netting_sum"><th mat-header-cell *matHeaderCellDef>Взаимозачет по услуге <app-byn-sign /></th><td mat-cell *matCellDef="let s"><app-money [value]="s.netting_sum" [blank]="false" /></td></ng-container>
@@ -466,7 +468,8 @@ import { FunnelBarComponent } from './funnel-bar.component';
           </mat-tab>
 
           <mat-tab label="Оплата ({{ payments().length }})">
-            <div class="columns-wrap">
+            <div class="filters tab-tools">
+              <div class="columns-wrap">
               <button mat-stroked-button type="button" class="table-settings" (click)="toggleColumnMenu('payments', $event)">Настройки таблицы</button>
               @if (columnMenu === 'payments') {
                 <div class="picker-back" (click)="columnMenu = ''"></div>
@@ -487,6 +490,8 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   }
                 </div>
               }
+              </div>
+              <input class="table-filter" placeholder="Поиск по оплате, дате, сумме…" [(ngModel)]="paymentFilter" />
             </div>
             <div class="list-pane">
               <table class="plain" appGridResize="card-payments" appColumnDrag (columnMove)="dragPayment($event)">
@@ -511,7 +516,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   }
                 </thead>
                 <tbody>
-                  @for (row of payments(); track row.id) {
+                  @for (row of filteredPayments(); track row.id) {
                     <tr>@for (col of visiblePaymentColumns(); track col) { <td>{{ paymentCell(row, col) }}</td> }</tr>
                   }
                 </tbody>
@@ -520,7 +525,14 @@ import { FunnelBarComponent } from './funnel-bar.component';
           </mat-tab>
 
           <mat-tab label="Исполнительная надпись">
-            <p class="muted tab-note">Новый период создаётся в претензионно-исковой работе, кнопка «Добавить исполнительную надпись». Здесь остаются пакеты этого счёта.</p>
+            <div class="filters writ-head">
+              @if (auth.canWrite()) {
+                <a mat-flat-button color="primary" [routerLink]="['/claims']" [queryParams]="{ writ: '1', account_id: a.id }">
+                  + Добавить исполнительную надпись
+                </a>
+              }
+              <span class="muted">Оформление исполнительной надписи выполняется строго по одному лицевому счёту.</span>
+            </div>
             @if ((writPreview()?.records || []).length > 1) {
               <p class="muted tab-note">По этому счёту несколько пакетов. У каждого свой комплект: почта, документы и архив одного в другом не появляются.</p>
             }
@@ -594,15 +606,16 @@ import { FunnelBarComponent } from './funnel-bar.component';
           </mat-tab>
 
         <mat-tab [label]="'История изменений (' + history().length + ')'">
-            <div class="filters">
+            <div class="filters history-tabs">
               <button mat-stroked-button type="button" (click)="historyPane = 'sums'">Суммы задолженности</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'rating'">Группа и рейтинг</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'measure'">Изменение мероприятий</button>
               <button mat-stroked-button type="button" (click)="historyPane = 'other'">Прочие изменения</button>
+              <input class="table-filter" placeholder="Поиск по дате, сумме, параметру, пользователю…" [(ngModel)]="historyFilter" />
             </div>
             @if (historyPane === 'sums') {
               <p class="muted tab-note">Текущие остатки по периоду и услуге: основной долг и пеня раздельно. Отдельного журнала «было / стало» по ночным загрузкам нет.</p>
-              <div class="list-pane"><table mat-table [dataSource]="balances()" appGridResize="account-balances">
+              <div class="list-pane"><table mat-table [dataSource]="filteredBalances()" appGridResize="account-balances">
                 <ng-container matColumnDef="period"><th mat-header-cell *matHeaderCellDef>Период</th><td mat-cell *matCellDef="let r">{{ r.period | date: 'MM.yyyy' }}</td></ng-container>
                 <ng-container matColumnDef="service_name"><th mat-header-cell *matHeaderCellDef>Наименование услуги</th><td mat-cell *matCellDef="let r">{{ r.service_name }}</td></ng-container>
                 <ng-container matColumnDef="principal"><th mat-header-cell *matHeaderCellDef>Остаток основного долга <app-byn-sign /></th><td mat-cell *matCellDef="let r"><app-money [value]="r.principal" [blank]="false" /></td></ng-container>
@@ -668,6 +681,13 @@ import { FunnelBarComponent } from './funnel-bar.component';
     }
     .step-no.on { background: #1d4f63; color: #fff; }
     .contact-mode { margin-left: auto; }
+    .history-tabs { margin-top: 12px; }
+    .tab-tools { margin-top: 8px; }
+    .writ-head { margin-top: 10px; }
+    .table-filter {
+      min-width: 260px; height: 34px; box-sizing: border-box; padding: 0 10px;
+      border: 1px solid var(--erip-border); border-radius: 6px; font: inherit; font-size: 13px; background: #fff;
+    }
     .writ-pack { border: 1px solid var(--erip-border); border-radius: 8px; margin: 8px 0; background: #fff; }
     .writ-pack-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
     .writ-pack-toggle { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; cursor: pointer; font: inherit; font-weight: 700; text-align: left; color: inherit; }
@@ -892,6 +912,9 @@ export class AccountDetailComponent implements OnInit {
   protected groupInvalid = false;
   protected contactInvalid = false;
   protected historyPane: 'sums' | 'rating' | 'measure' | 'other' = 'sums';
+  protected historyFilter = '';
+  protected serviceFilter = '';
+  protected paymentFilter = '';
   protected readonly extraCatalog = signal<{ id: number; name: string }[]>([]);
   protected extraCatalogId: number | null = null;
   protected pauseFor: ScenarioMeasure | null = null;
@@ -1934,11 +1957,45 @@ export class AccountDetailComponent implements OnInit {
     }).format(parsed).replace(',', '');
   }
 
+  protected filteredServices(): AccountService[] {
+    const q = this.serviceFilter.trim().toLowerCase();
+    const list = this.services();
+    if (!q) return list;
+    return list.filter((row) =>
+      Object.values(row).some((val) => val != null && String(val).toLowerCase().includes(q))
+      || (this.showDate(row.start_date) || '').includes(q)
+      || (this.showDate(row.stop_date) || '').includes(q)
+      || (this.showDate(row.calc_date) || '').includes(q),
+    );
+  }
+
+  protected filteredPayments(): Payment[] {
+    const q = this.paymentFilter.trim().toLowerCase();
+    const list = this.payments();
+    if (!q) return list;
+    return list.filter((row) =>
+      this.visiblePaymentColumns().some((col) => this.paymentCell(row, col).toLowerCase().includes(q)),
+    );
+  }
+
+  protected filteredBalances(): BalanceRow[] {
+    const q = this.historyFilter.trim().toLowerCase();
+    const list = this.balances();
+    if (!q) return list;
+    return list.filter((row) => {
+      const period = row.period ? `${row.period.slice(5, 7)}.${row.period.slice(0, 4)}` : '';
+      return `${period} ${row.period || ''} ${row.service_name || ''} ${row.principal ?? ''} ${row.penalty ?? ''}`
+        .toLowerCase()
+        .includes(q);
+    });
+  }
+
   protected historyRows(): HistoryRow[] {
     const rows = this.history();
+    let filtered: HistoryRow[] = [];
     if (this.historyPane === 'rating') {
       const rank = (kind: string) => (kind === 'group' ? 0 : kind === 'rating' ? 1 : 2);
-      return rows
+      filtered = rows
         .filter((row) => row.kind === 'group' || row.kind === 'rating')
         .slice()
         .sort((a, b) => {
@@ -1946,10 +2003,25 @@ export class AccountDetailComponent implements OnInit {
           if (byTime) return byTime;
           return rank(a.kind) - rank(b.kind);
         });
+    } else if (this.historyPane === 'measure') {
+      filtered = rows.filter((row) => row.kind === 'measure');
+    } else if (this.historyPane === 'other') {
+      filtered = rows.filter((row) => row.kind !== 'group' && row.kind !== 'rating' && row.kind !== 'measure');
     }
-    if (this.historyPane === 'measure') return rows.filter((row) => row.kind === 'measure');
-    if (this.historyPane === 'other') return rows.filter((row) => row.kind !== 'group' && row.kind !== 'rating' && row.kind !== 'measure');
-    return [];
+    const q = this.historyFilter.trim().toLowerCase();
+    if (!q) return filtered;
+    return filtered.filter((row) => {
+      const text = [
+        this.showDateTime(row.created_at),
+        row.created_at || '',
+        row.author_name || 'Система',
+        this.historyKind(row.kind),
+        this.historyValue(row.kind, row.old_value),
+        this.historyValue(row.kind, row.new_value),
+        row.reason || '',
+      ].join(' ').toLowerCase();
+      return text.includes(q);
+    });
   }
 
   protected scenarioName(): string {

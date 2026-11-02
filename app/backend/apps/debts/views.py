@@ -262,6 +262,20 @@ def _visible_accounts(user):
     )
 
 
+def _visible_contacts_q(user):
+    """Контакты АИС видны всем в контуре. Контакты ПМ схемы не видны поставщику; контакты поставщика — только ему и администраторам."""
+    from apps.users.models import User
+
+    if getattr(user, "is_superadmin", False) or getattr(user, "role", "") in {
+        User.Role.SUPERADMIN, User.Role.LOCAL_ADMIN,
+    }:
+        return Q()
+    providers = _supplier_ids(user)
+    if providers is not None:
+        return Q(source=Contact.Source.AIS) | Q(source=Contact.Source.PM, owner_provider_id__in=providers or [-1])
+    return Q(source=Contact.Source.AIS) | Q(source=Contact.Source.PM, owner_provider_id__isnull=True)
+
+
 def _supplier_measure_filter(user):
     """Своё мероприятие поставщика видно только ему. Общее мероприятие схемы — если в нём его услуга или услуг нет."""
     providers = _supplier_ids(user)
@@ -414,7 +428,12 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True)
     def contacts(self, request, pk=None):
-        return self._nested("contacts", ContactSerializer)
+        from apps.debts.services.portfolio import sync_ais_contacts
+
+        account = self.get_object()
+        sync_ais_contacts(account)
+        qs = account.contacts.select_related("registration").filter(_visible_contacts_q(request.user))
+        return self._nested("", ContactSerializer, qs)
 
     @action(detail=True, url_path="balance-history")
     def balance_history(self, request, pk=None):
@@ -505,8 +524,10 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
             payload = {key: request.query_params.get(key, "") for key in keys} if any(
                 key in request.query_params for key in keys
             ) else None
-            return Response(writ_preview(account, payload))
-        case = create_writ(account, request.user, request.data)
+            return Response(writ_preview(account, payload, user=request.user))
+        data = dict(request.data)
+        data.setdefault("enforce_remarks_12", True)
+        case = create_writ(account, request.user, data)
         return Response(case_payload(case), status=status.HTTP_201_CREATED)
 
     @action(detail=True)
@@ -1249,8 +1270,14 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
             "organization", "account__provider_id", "provider_id",
         )
         account_ids = list(services.values_list("account_id", flat=True).distinct())
+        from .services.portfolio import sync_ais_contacts
+
+        for peer_account in Account.objects.filter(pk__in=account_ids).prefetch_related("registrations"):
+            sync_ais_contacts(peer_account)
         people = Registration.objects.filter(account_id__in=account_ids)
-        contacts = Contact.objects.filter(account_id__in=account_ids).select_related("registration")
+        contacts = Contact.objects.filter(account_id__in=account_ids).filter(
+            _visible_contacts_q(request.user)
+        ).select_related("registration")
         periods = ServiceDebtPeriod.objects.filter(service__in=services).select_related("service")
         measures = Measure.objects.filter(services__in=services).distinct()
         journal = StatusHistory.objects.filter(account_id__in=account_ids).filter(
@@ -1290,6 +1317,9 @@ class ContactViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelVie
     scope_supplier_field = "account__services__provider_id"
     filterset_fields = ["account", "source", "kind"]
 
+    def get_queryset(self):
+        return super().get_queryset().filter(_visible_contacts_q(self.request.user)).distinct()
+
     def _contact_history(self, account, old: str, new: str, reason: str):
         StatusHistory.objects.create(
             organization=account.organization, account=account, kind=StatusHistory.Kind.CONTACT,
@@ -1298,7 +1328,20 @@ class ContactViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, viewsets.ModelVie
 
     def perform_create(self, serializer):
         account = _visible_account(self.request.user, serializer.validated_data["account"].pk)
-        serializer.save(organization=account.organization, account=account, source=Contact.Source.PM)
+        owner_provider_id = None
+        providers = _supplier_ids(self.request.user)
+        if providers is not None:
+            owner_provider_id = (
+                account.services.filter(provider_id__in=providers or [-1])
+                .values_list("provider_id", flat=True)
+                .first()
+            ) or (providers[0] if providers else None)
+        serializer.save(
+            organization=account.organization,
+            account=account,
+            source=Contact.Source.PM,
+            owner_provider_id=owner_provider_id,
+        )
         from apps.audit.models import AuditLog
         from apps.audit.services import record_action
 

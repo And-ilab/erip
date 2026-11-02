@@ -20,7 +20,7 @@ class WritDraftError(ServiceError):
     default_code = "writ_draft"
 
 
-def writ_preview(account, payload: dict | None = None) -> dict:
+def writ_preview(account, payload: dict | None = None, *, user=None) -> dict:
     """Суммы и ФИО за выбранное окно. Без payload берётся свободный предъявленный период и даты из мероприятий."""
     eligible = _eligible_periods(account)
     dated = list(_writs(account))
@@ -54,12 +54,18 @@ def writ_preview(account, payload: dict | None = None) -> dict:
         "tariff": None,
         "repayment_days": 7,
         "offices": _offices(account),
-        "blockers": _blockers(chosen, warning, act_on),
+        "blockers": _blockers(account, user, chosen, warning, act_on),
         "records": [_record(case) for case in _cases(account)],
     }
 
 
 def create_writ(account, user, payload: dict) -> ClaimCase:
+    if isinstance(payload.get("account_ids"), list) and len(payload["account_ids"]) > 1:
+        raise WritDraftError(
+            "Оформление исполнительной надписи возможно строго по одному лицевому счёту",
+        )
+    if bool(payload.get("enforce_remarks_12")):
+        _check_writ_gates(account, user)
     start = _parse_date(payload.get("debt_from"), "Период задолженности с")
     end = _parse_date(payload.get("debt_to"), "Период задолженности по")
     if end < start:
@@ -230,12 +236,74 @@ def _defendant(account, start, end) -> str:
     return account.short_fio or ""
 
 
-def _blockers(periods, warning, act_on) -> list[str]:
-    messages = []
+def _blockers(account, user, periods, warning, act_on) -> list[str]:
+    messages = _gate_messages(account, user) if user is not None else []
     if len({(row.period.year, row.period.month) for row in periods}) < 2:
         messages.append("Нет двух и более предъявленных расчётных периодов без уже созданной надписи")
     if not warning and not act_on:
         messages.append("Нет даты вручения предупреждения и нет даты акта о невручении")
+    return messages
+
+
+AIS_WRIT_WARNING = (
+    "Создайте исполнительную надпись в АИС «Расчет-ЖКУ», после чего дождитесь загрузки данных в ПМ"
+)
+
+
+def _check_writ_gates(account, user) -> None:
+    messages = _gate_messages(account, user)
+    if messages:
+        raise WritDraftError(messages[0])
+
+
+def _gate_messages(account, user) -> list[str]:
+    from apps.debts.models import AccountScenarioRun, DebtWorkItem
+    from apps.users.scoping import AccessScope
+
+    messages: list[str] = []
+    supplier = getattr(user, "contour", "") == "supplier"
+    if supplier and user is not None:
+        providers = AccessScope(user).provider_ids()
+        services = list(account.services.filter(provider_id__in=providers or [-1]))
+        group = max(((row.effective_group or 0) for row in services), default=0)
+    else:
+        group = account.effective_group or 0
+    if group < 2:
+        messages.append("Создание исполнительной надписи доступно для лицевых счетов с группой задолженности 2 и выше")
+    run = AccountScenarioRun.objects.filter(account=account).select_related("scenario").first()
+    if run is not None and not run.finished_on:
+        if run.awaiting_start or run.paused:
+            messages.append("Сценарий не запущен или приостановлен: назначение исполнительной надписи недоступно")
+        else:
+            revision = run.scenario.revisions.filter(version=run.version).first()
+            steps = list((revision.steps if revision else run.scenario.steps) or [])
+            writ_steps = [step for step in steps if step.get("action") == "writ"]
+            if steps and not writ_steps:
+                messages.append("Исполнительная надпись не предусмотрена настроенным сценарием")
+            elif writ_steps:
+                writ_order = min(int(step.get("order") or 0) for step in writ_steps)
+                blocking_prev = [
+                    step for step in steps
+                    if int(step.get("order") or 0) < writ_order and bool(step.get("blocks_next", True))
+                ]
+                if blocking_prev:
+                    done_orders = set(
+                        Measure.objects.filter(
+                            accounts=account, source_scenario=run.scenario, source_version=run.version,
+                            status=Measure.Status.DONE,
+                        ).values_list("source_step", flat=True)
+                    ) | set(run.skipped_orders or [])
+                    if any(int(step.get("order") or 0) not in done_orders for step in blocking_prev):
+                        messages.append("Нарушена последовательность мероприятий настроенного сценария")
+    if not supplier and user is not None:
+        has_ais_writ = (
+            DebtWorkItem.objects.filter(account=account, kind=DebtWorkItem.Kind.WRIT).exists()
+            or ClaimCase.objects.filter(account=account).exists()
+            or account.funnel_stage in {"prep", "enforcement", "notary", "writ_done", "refused"}
+            or Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION).exists()
+        )
+        if not has_ais_writ:
+            messages.append(AIS_WRIT_WARNING)
     return messages
 
 

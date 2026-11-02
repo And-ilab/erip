@@ -260,31 +260,36 @@ class PortfolioRefresher:
             account.save(update_fields=[*fields, "updated_at"])
 
     def _contacts(self, account: Account) -> None:
-        now = timezone.now()
-        pairs: list[tuple[str, str, Registration | None]] = []
-        if account.contact_phone:
-            pairs.append((Contact.Kind.MOBILE, account.contact_phone, None))
-        if account.phone and account.phone != account.contact_phone:
-            pairs.append((Contact.Kind.CITY, account.phone, None))
-        for person in account.registrations.all():
-            if person.contact_phone:
-                pairs.append((Contact.Kind.MOBILE, person.contact_phone, person))
-            if person.email:
-                pairs.append((Contact.Kind.EMAIL, person.email, person))
-        for kind, value, person in pairs:
-            contact, created = Contact.objects.get_or_create(
-                account=account, kind=kind, value=value, source=Contact.Source.AIS,
-                defaults={
-                    "organization": account.organization, "registration": person, "ais_updated_at": now, "priority": 0,
-                },
-            )
-            if not created:
-                contact.ais_updated_at = now
-                contact.registration = person
-                contact.save(update_fields=["ais_updated_at", "registration", "updated_at"])
-        from apps.debts.services.contacts import apply_call_priorities
+        sync_ais_contacts(account)
 
-        apply_call_priorities(account)
+
+def sync_ais_contacts(account: Account) -> None:
+    """Подтягивает телефоны и e-mail из карточки ЛС и регистраций в Contact (source=ais)."""
+    now = timezone.now()
+    pairs: list[tuple[str, str, Registration | None]] = []
+    if account.contact_phone:
+        pairs.append((Contact.Kind.MOBILE, account.contact_phone, None))
+    if account.phone and account.phone != account.contact_phone:
+        pairs.append((Contact.Kind.CITY, account.phone, None))
+    for person in account.registrations.all():
+        if person.contact_phone:
+            pairs.append((Contact.Kind.MOBILE, person.contact_phone, person))
+        if person.email:
+            pairs.append((Contact.Kind.EMAIL, person.email, person))
+    for kind, value, person in pairs:
+        contact, created = Contact.objects.get_or_create(
+            account=account, kind=kind, value=value, source=Contact.Source.AIS,
+            defaults={
+                "organization": account.organization, "registration": person, "ais_updated_at": now, "priority": 0,
+            },
+        )
+        if not created:
+            contact.ais_updated_at = now
+            contact.registration = person
+            contact.save(update_fields=["ais_updated_at", "registration", "updated_at"])
+    from apps.debts.services.contacts import apply_call_priorities
+
+    apply_call_priorities(account)
 
     def _history_balances(self, account: Account) -> None:
         from apps.debts.models import ServiceDebtPeriod
