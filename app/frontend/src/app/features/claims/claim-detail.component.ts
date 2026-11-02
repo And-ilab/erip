@@ -1465,7 +1465,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
         this.api.ieSignTicket(saved.id, 'all').subscribe({
           next: (issued) => {
             this.signing = false;
-            this.launchEdge(`${window.location.origin}${issued.path}`, popup);
+            const sep = issued.path.includes('?') ? '&' : '?';
+            this.launchEdge(`${window.location.origin}${issued.path}${sep}_=${Date.now()}`, popup);
             this.watchArchive();
             this.snack.open(
               'Открывается Edge в режиме Internet Explorer. Введите пароль AvPass в окне плагина.',

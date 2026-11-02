@@ -34,11 +34,12 @@ def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
     normalized = str(role or "all").strip().lower()
     if normalized not in {"applicant", "head", "all"}:
         raise ClaimBlocked("Роль подписи: applicant, head или all")
+    nonce = secrets.token_hex(8)
     data = {
         "claim_id": case.pk,
         "user_id": user.pk,
         "role": normalized,
-        "nonce": secrets.token_hex(4),
+        "nonce": nonce,
     }
     signed = signing.dumps(data, salt=SIGN_SALT, compress=True)
     token = signed.replace(":", ".")
@@ -46,7 +47,7 @@ def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
     return {
         "token": token,
         "expires_in": TICKET_TTL,
-        "path": f"/ie-sign/?t={token}",
+        "path": f"/ie-sign/index.html?t={token}&n={nonce}",
         "role": normalized,
         "claim_id": case.pk,
     }
@@ -136,6 +137,9 @@ def ie_mode_site_list(host: str) -> str:
         "    <open-in>IE11</open-in>\n"
         "  </site>\n"
         f'  <site url="{safe_host}/ie-sign/">\n'
+        "    <open-in>IE11</open-in>\n"
+        "  </site>\n"
+        f'  <site url="{safe_host}/ie-sign/index.html">\n'
         "    <open-in>IE11</open-in>\n"
         "  </site>\n"
         "</site-list>\n"
