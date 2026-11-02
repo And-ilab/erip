@@ -917,6 +917,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected decisionReason = '';
   protected eviction = '';
   protected refusalFile = 0;
+  private readySignPath = '';
+  private readySignClaimId = 0;
 
   ngOnInit(): void {
     this.route.queryParamMap.subscribe((params) => {
@@ -1421,17 +1423,41 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected signAndAssemble(): void {
     const row = this.claim();
     if (!row || this.signing || !this.kitReady(row)) return;
-    const ua = navigator.userAgent || '';
-    const isEdge = /\bEdg\//.test(ua);
-    // Открываем вкладку синхронно в обработчике клика, иначе браузер блокирует окно после двух HTTP-запросов.
-    const popup = isEdge ? window.open('about:blank', '_blank') : null;
+    // Если свежий ticket уже предзагружен и нет несохранённых правок — открываем URL /ie-sign/?t=...
+    // прямо синхронно в обработчике клика, чтобы Edge сразу запустил вкладку в режиме IE (без about:blank).
+    if (
+      this.readySignPath
+      && this.readySignClaimId === row.id
+      && !this.warningDirty
+      && !this.tariffDirty
+      && !this.withdrawnDirty
+      && !this.emailDirty
+    ) {
+      const path = this.readySignPath;
+      this.readySignPath = '';
+      const sep = path.includes('?') ? '&' : '?';
+      this.launchEdge(`${window.location.origin}${path}${sep}_=${Date.now()}`);
+      this.watchArchive();
+      this.snack.open(
+        'Открывается Edge в режиме Internet Explorer. Введите пароль AvPass в окне плагина.',
+        'OK',
+        { duration: 8000 },
+      );
+      if (row.package) {
+        this.api.claimAction(row.id, 'package', this.packageBody(row.package)).subscribe({
+          next: (saved) => {
+            if (!this.alive) return;
+            this.apply(saved);
+          },
+        });
+      }
+      this.prefetchSignTicket(row.id);
+      return;
+    }
     const attempt = ++this.signAttempt;
     this.flushNotarySave(() => {
-      if (!this.alive || attempt !== this.signAttempt) {
-        try { popup?.close(); } catch { /* ignore */ }
-        return;
-      }
-      this.openSignWindow(popup);
+      if (!this.alive || attempt !== this.signAttempt) return;
+      this.openSignWindow(null);
     });
   }
 
@@ -1467,6 +1493,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
             this.signing = false;
             const sep = issued.path.includes('?') ? '&' : '?';
             this.launchEdge(`${window.location.origin}${issued.path}${sep}_=${Date.now()}`, popup);
+            this.prefetchSignTicket(saved.id);
             this.watchArchive();
             this.snack.open(
               'Открывается Edge в режиме Internet Explorer. Введите пароль AvPass в окне плагина.',
@@ -1964,6 +1991,22 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     if (!this.emailDirty) this.notificationEmail = row.package?.notification_email || '';
     this.note = row.notary_note || '';
     this.lawsuitNote = row.lawsuit_note || '';
+    if (row.package?.persisted && (this.readySignClaimId !== row.id || !this.readySignPath)) {
+      this.prefetchSignTicket(row.id);
+    }
+  }
+
+  private prefetchSignTicket(claimId: number): void {
+    this.api.ieSignTicket(claimId, 'all').subscribe({
+      next: (issued) => {
+        if (!this.alive || this.viewedId !== claimId) return;
+        this.readySignClaimId = claimId;
+        this.readySignPath = issued.path;
+      },
+      error: () => {
+        if (this.readySignClaimId === claimId) this.readySignPath = '';
+      },
+    });
   }
 }
 

@@ -91,4 +91,43 @@ New-ItemProperty -Path $extPath -Name 'Flags' -PropertyType DWord -Value 4 -Forc
 New-Item -Path (Join-Path $extPath 'AllowedDomains\*') -Force | Out-Null
 New-Item -Path (Join-Path $extPath "AllowedDomains\$hostName") -Force | Out-Null
 
+# 5. Запись /ie-sign/ и /ie-sign/index.html в локальный список IE Mode профиля Edge (работает без прав администратора)
+taskkill /F /IM msedge.exe /T 2>$null | Out-Null
+Start-Sleep -Milliseconds 600
+$edgePrefs = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Preferences"
+if (Test-Path $edgePrefs) {
+  try {
+    $prefsObj = Get-Content $edgePrefs -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $prefsObj.dual_engine) {
+      $prefsObj | Add-Member -NotePropertyName 'dual_engine' -NotePropertyValue ([pscustomobject]@{})
+    }
+    $prefsObj.dual_engine | Add-Member -NotePropertyName 'consumer_mode' -NotePropertyValue ([pscustomobject]@{ enabled_state = 1; ie_user = $false }) -Force
+    if (-not $prefsObj.dual_engine.user_list_data_1) {
+      $prefsObj.dual_engine | Add-Member -NotePropertyName 'user_list_data_1' -NotePropertyValue ([pscustomobject]@{})
+    }
+    # Chrome/Edge timestamp (микросекунды с 1601-01-01, строго целое число без экспоненты)
+    $chromeNow = ([int64]([DateTimeOffset]::UtcNow.ToFileTime() / 10)).ToString()
+    $entry = [pscustomobject]@{
+      date_added = $chromeNow
+      engine = 2
+      source = 3
+      visit_state = $false
+      visits_after_expiration = 0
+    }
+    $listData = $prefsObj.dual_engine.user_list_data_1
+    foreach ($bad in @("$authority/", "$authority/claims/")) {
+      if ($listData.PSObject.Properties[$bad]) {
+        $listData.PSObject.Properties.Remove($bad)
+      }
+    }
+    $listData | Add-Member -NotePropertyName "$authority/ie-sign/" -NotePropertyValue $entry -Force
+    $listData | Add-Member -NotePropertyName "$authority/ie-sign/index.html" -NotePropertyValue $entry -Force
+    $jsonOut = $prefsObj | ConvertTo-Json -Depth 32 -Compress
+    [System.IO.File]::WriteAllText($edgePrefs, $jsonOut, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "В профиль Edge добавлены адреса IE Mode: $authority/ie-sign/ и $authority/ie-sign/index.html"
+  } catch {
+    Write-Warning "Не удалось обновить Preferences профиля Edge: $($_.Exception.Message)"
+  }
+}
+
 Write-Host "Настройки ActiveX (1201=0), Надёжных узлов и 32-битного режима IE успешно записаны для $hostName."

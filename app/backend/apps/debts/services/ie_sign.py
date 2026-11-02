@@ -47,7 +47,7 @@ def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
     return {
         "token": token,
         "expires_in": TICKET_TTL,
-        "path": f"/ie-sign/index.html?t={token}&n={nonce}",
+        "path": f"/ie-sign/?t={token}&n={nonce}",
         "role": normalized,
         "claim_id": case.pk,
     }

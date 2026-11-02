@@ -20,7 +20,7 @@ def test_ie_sign_ticket_session_and_submit(api, specialist_a, account_a, client)
     issued = api(specialist_a).post(f"/api/v1/claims/{case_id}/ie-sign-ticket/", {"role": "all"}, format="json")
     assert issued.status_code == 200, issued.content
     token = issued.json()["token"]
-    assert issued.json()["path"].startswith("/ie-sign/index.html?t=")
+    assert issued.json()["path"].startswith("/ie-sign/?t=")
     second = api(specialist_a).post(f"/api/v1/claims/{case_id}/ie-sign-ticket/", {"role": "all"}, format="json")
     assert second.status_code == 200
     assert second.json()["token"] != token
