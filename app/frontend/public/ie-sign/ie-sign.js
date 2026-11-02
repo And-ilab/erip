@@ -114,28 +114,13 @@
     }
     try {
       var blob = node.CreateBlob(0);
-      if (blob != null) {
-        return { ok: true, detail: "typeof=" + t + ", вызов ок" };
-      }
-    } catch (e2) {}
-    /* Если <object id="oavcmx"> не создал CreateBlob, пробуем ActiveXObject и прокидываем методы в узел #oavcmx для avcmxwebp.js */
-    if (typeof window.ActiveXObject !== "undefined") {
-      var progIds = ["AVEST.AvCMXWebP", "AvCryptMailCOMSystem.AvCryptMailSystem"];
-      var p;
-      for (p = 0; p < progIds.length; p++) {
-        try {
-          var ax = new window.ActiveXObject(progIds[p]);
-          var b = ax.CreateBlob(0);
-          if (b != null) {
-            try {
-              if (node.parentNode) node.parentNode.removeChild(node);
-            } catch (eRem) {}
-            return { ok: true, detail: "через ActiveXObject(" + progIds[p] + ")" };
-          }
-        } catch (eAx) {}
-      }
+      return {
+        ok: blob != null,
+        detail: "typeof=" + t + (blob != null ? ", вызов ок" : ", вызов вернул пусто")
+      };
+    } catch (e2) {
+      return { ok: false, detail: "typeof=" + t + ", вызов: " + errText(e2) };
     }
-    return { ok: false, detail: "typeof=" + t + ", вызов не сработал" };
   }
 
   function pluginAlive() {

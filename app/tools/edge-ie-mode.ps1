@@ -1,16 +1,16 @@
-﻿# Один раз на компьютере с AvPass. Политика текущего пользователя, права администратора не нужны.
+﻿# Один раз на компьютере с AvPass. Права администратора не требуются:
+# если политика HKCU:\Software\Policies\Microsoft\Edge закрыта, скрипт не падает и настраивает зоны IE и ActiveX.
 # Запуск из каталога репозитория:
-#   powershell -ExecutionPolicy Bypass -File app\tools\edge-ie-mode.ps1 -Origin https://адрес-пм
+#   powershell -ExecutionPolicy Bypass -File app\tools\edge-ie-mode.ps1 -Origin http://178.159.47.172
 param(
   [Parameter(Mandatory = $true)]
   [string]$Origin
 )
 
-$ErrorActionPreference = 'Stop'
 try {
   $parsed = [Uri]$Origin
 } catch {
-  throw "Укажите адрес ПМ, например https://pm.example.by"
+  throw "Укажите адрес ПМ, например http://178.159.47.172"
 }
 if (-not $parsed.Host) {
   throw "В адресе нет хоста"
@@ -21,14 +21,20 @@ $hostWithPort = $parsed.Authority
 $list = "$authority/api/v1/ie-mode/sites.xml?host=$([Uri]::EscapeDataString($hostWithPort))"
 $hostName = $parsed.Host
 
-$policy = 'HKCU:\Software\Policies\Microsoft\Edge'
-New-Item -Path $policy -Force | Out-Null
-New-ItemProperty -Path $policy -Name InternetExplorerIntegrationLevel -PropertyType DWord -Value 1 -Force | Out-Null
-New-ItemProperty -Path $policy -Name InternetExplorerIntegrationSiteList -PropertyType String -Value $list -Force | Out-Null
-New-ItemProperty -Path $policy -Name InternetExplorerIntegrationZoneAllowed -PropertyType DWord -Value 1 -Force | Out-Null
-New-ItemProperty -Path $policy -Name RedirectSitesFromInternetExplorerPreventBHOInstall -PropertyType DWord -Value 1 -Force | Out-Null
+# 1. Политика Edge IE Mode (может требовать запуск PowerShell от имени администратора, если ветка Policies закрыта)
+try {
+  $policy = 'HKCU:\Software\Policies\Microsoft\Edge'
+  New-Item -Path $policy -Force -ErrorAction Stop | Out-Null
+  New-ItemProperty -Path $policy -Name InternetExplorerIntegrationLevel -PropertyType DWord -Value 1 -Force -ErrorAction Stop | Out-Null
+  New-ItemProperty -Path $policy -Name InternetExplorerIntegrationSiteList -PropertyType String -Value $list -Force -ErrorAction Stop | Out-Null
+  New-ItemProperty -Path $policy -Name InternetExplorerIntegrationZoneAllowed -PropertyType DWord -Value 1 -Force -ErrorAction Stop | Out-Null
+  New-ItemProperty -Path $policy -Name RedirectSitesFromInternetExplorerPreventBHOInstall -PropertyType DWord -Value 1 -Force -ErrorAction Stop | Out-Null
+  Write-Host "Политика Edge IE Mode обновлена: $list"
+} catch {
+  Write-Warning "Ветка Policies\Microsoft\Edge закрыта для обычного пользователя (это нормально, если она уже задана администратором)."
+}
 
-# Надёжные узлы — зона 2. Для имени с точками IE ждёт ключ домена и поддомена.
+# 2. Добавление хоста/IP в «Надёжные сайты» (зона 2)
 $zoneMap = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap'
 if ($hostName -match '^\d{1,3}(\.\d{1,3}){3}$') {
   $ranges = Join-Path $zoneMap 'Ranges'
@@ -56,20 +62,22 @@ if ($hostName -match '^\d{1,3}(\.\d{1,3}){3}$') {
   New-ItemProperty -Path $key -Name http -PropertyType DWord -Value 2 -Force | Out-Null
 }
 
-# 2500 = 3 снимает защищённый режим зоны «Надёжные узлы»: иначе AvPass не открывает %APPDATA%\Avest.
-# 1200/1201/1208/1405/2000 = 0 разрешает запуск и инициализацию ActiveX без блокировки в Edge IE Mode.
-# 2702 = 3 отключает Enhanced Protected Mode (64-битный процесс вкладки IE11), чтобы грузился 32-битный AvCMXWebP.
-$trusted = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\2'
-if (Test-Path $trusted) {
-  New-ItemProperty -Path $trusted -Name '2500' -PropertyType DWord -Value 3 -Force | Out-Null
-  New-ItemProperty -Path $trusted -Name '1200' -PropertyType DWord -Value 0 -Force | Out-Null
-  New-ItemProperty -Path $trusted -Name '1201' -PropertyType DWord -Value 0 -Force | Out-Null
-  New-ItemProperty -Path $trusted -Name '1208' -PropertyType DWord -Value 0 -Force | Out-Null
-  New-ItemProperty -Path $trusted -Name '1405' -PropertyType DWord -Value 0 -Force | Out-Null
-  New-ItemProperty -Path $trusted -Name '2000' -PropertyType DWord -Value 0 -Force | Out-Null
-  New-ItemProperty -Path $trusted -Name '2702' -PropertyType DWord -Value 3 -Force | Out-Null
+# 3. Разрешение инициализации и скриптинга ActiveX (1201=0 — ключевой параметр для CreateBlob в AvCMXWebP!)
+# и отключение Защищённого режима (2500=3) + 64-битных вкладок (2702=3) для зон 1, 2 и 3.
+foreach ($z in @('1', '2', '3')) {
+  $zonePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\$z"
+  if (Test-Path $zonePath) {
+    New-ItemProperty -Path $zonePath -Name '1200' -PropertyType DWord -Value 0 -Force | Out-Null
+    New-ItemProperty -Path $zonePath -Name '1201' -PropertyType DWord -Value 0 -Force | Out-Null
+    New-ItemProperty -Path $zonePath -Name '1208' -PropertyType DWord -Value 0 -Force | Out-Null
+    New-ItemProperty -Path $zonePath -Name '1405' -PropertyType DWord -Value 0 -Force | Out-Null
+    New-ItemProperty -Path $zonePath -Name '2000' -PropertyType DWord -Value 0 -Force | Out-Null
+    New-ItemProperty -Path $zonePath -Name '2500' -PropertyType DWord -Value 3 -Force | Out-Null
+    New-ItemProperty -Path $zonePath -Name '2702' -PropertyType DWord -Value 3 -Force | Out-Null
+  }
 }
 
+# 4. 32-битный процесс вкладки IE11 и разрешение Per-Site ActiveX для CLSID AvCMXWebP
 $ieMain = 'HKCU:\Software\Microsoft\Internet Explorer\Main'
 if (Test-Path $ieMain) {
   New-ItemProperty -Path $ieMain -Name 'Isolation' -PropertyType String -Value 'PMIL' -Force | Out-Null
@@ -80,9 +88,7 @@ if (Test-Path $ieMain) {
 $extPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{35B35038-9C01-5D75-943F-5A19E32AC230}\iexplore'
 New-Item -Path $extPath -Force | Out-Null
 New-ItemProperty -Path $extPath -Name 'Flags' -PropertyType DWord -Value 4 -Force | Out-Null
-$allowedDomains = Join-Path $extPath 'AllowedDomains\*'
-New-Item -Path $allowedDomains -Force | Out-Null
+New-Item -Path (Join-Path $extPath 'AllowedDomains\*') -Force | Out-Null
+New-Item -Path (Join-Path $extPath "AllowedDomains\$hostName") -Force | Out-Null
 
-Write-Host "Политика Edge записана для $hostName"
-Write-Host "Список сайтов: $list"
-Write-Host "В режиме Internet Explorer откроется только /ie-sign/. Закройте все окна Edge и откройте ПМ снова."
+Write-Host "Настройки ActiveX (1201=0), Надёжных узлов и 32-битного режима IE успешно записаны для $hostName."
