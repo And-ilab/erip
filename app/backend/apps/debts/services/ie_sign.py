@@ -1,14 +1,16 @@
 """Одноразовый доступ к комплекту для подписи в Internet Explorer.
 
-Chrome/Edge не загружают AvCMXWebP. Специалист открывает лёгкую страницу
-`/ie-sign/` в IE по ссылке с ticket. Cookie сессии Chrome в IE нет — поэтому
-JWT не подходит, нужен короткий подписанный ticket в URL.
+Chrome и обычный Edge не загружают AvCMXWebP. Карточка открывает лёгкую страницу
+`/ie-sign/` в Edge в режиме Internet Explorer по ссылке с ticket. Cookie сессии
+браузера ПМ там нет — поэтому JWT не подходит, нужен короткий подписанный ticket в URL.
 """
 
 from __future__ import annotations
 
 import secrets
+from datetime import date
 from typing import Any
+from xml.sax.saxutils import escape
 
 from django.contrib.auth import get_user_model
 from django.core import signing
@@ -53,17 +55,17 @@ def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
 def load_ticket(token: str) -> dict[str, Any]:
     raw = str(token or "").strip()
     if not raw or len(raw) > 512:
-        raise ClaimBlocked("Ссылка подписи недействительна или истекла. В Chrome нажмите «Подпись в Internet Explorer» заново.")
+        raise ClaimBlocked("Ссылка подписи недействительна или истекла. В ПМ нажмите «Подписать и собрать архив» заново.")
     payload = cache.get(CACHE_PREFIX + raw)
     if not isinstance(payload, dict):
         try:
             payload = signing.loads(raw.replace(".", ":"), salt=SIGN_SALT, max_age=TICKET_TTL)
         except signing.BadSignature as exc:
             raise ClaimBlocked(
-                "Ссылка подписи недействительна или истекла. В Chrome нажмите «Подпись в Internet Explorer» заново."
+                "Ссылка подписи недействительна или истекла. В ПМ нажмите «Подписать и собрать архив» заново."
             ) from exc
     if not isinstance(payload, dict) or not payload.get("claim_id") or not payload.get("user_id"):
-        raise ClaimBlocked("Ссылка подписи недействительна или истекла. В Chrome нажмите «Подпись в Internet Explorer» заново.")
+        raise ClaimBlocked("Ссылка подписи недействительна или истекла. В ПМ нажмите «Подписать и собрать архив» заново.")
     return payload
 
 
@@ -111,6 +113,35 @@ def ticket_user(token: str):
     if user is None or not user.is_active:
         raise ClaimBlocked("Пользователь ссылки подписи недоступен")
     return user, ticket
+
+
+def ie_mode_site_list(host: str) -> str:
+    """Список сайтов Edge: в режиме IE открывается только страница подписи, не карточка Angular."""
+    safe_host = escape(str(host or "").strip())
+    today = date.today().isoformat()
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<site-list version="1">\n'
+        "  <created-by>\n"
+        "    <tool>ЕРИП</tool>\n"
+        "    <version>1</version>\n"
+        f"    <date-created>{today}</date-created>\n"
+        "  </created-by>\n"
+        f'  <site url="{safe_host}/ie-sign">\n'
+        "    <open-in>IE11</open-in>\n"
+        "  </site>\n"
+        "</site-list>\n"
+    )
+
+
+def form_signed_archive(case: ClaimCase, user):
+    """Собирает zip только когда у каждого PDF комплекта уже есть отсоединённый PKCS#7."""
+    from apps.debts.services.bnp_package import form_package, signature_blockers
+
+    blockers = signature_blockers(stored_package(case))
+    if blockers:
+        raise ClaimBlocked("; ".join(blockers))
+    return form_package(case, user)
 
 
 def ticket_case(token: str) -> ClaimCase:

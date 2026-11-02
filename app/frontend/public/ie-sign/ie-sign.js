@@ -2,10 +2,12 @@
 (function (window, document) {
   "use strict";
 
-  var BUILD = "20261030f";
+  var BUILD = "20261102a";
   var token = "";
   var session = null;
   var signingBusy = false;
+  var forming = false;
+  var autoStarted = false;
   var chosenPubKeyId = "";
 
   function qs(name) {
@@ -245,7 +247,7 @@
       if (message === "Ошибка HTTP 400") {
         message =
           "Ошибка HTTP 400: ссылка подписи истекла или попала на другой процесс сервера. " +
-          "В Chrome нажмите «Подпись в Internet Explorer» ещё раз и откройте новую ссылку.";
+          "В ПМ нажмите «Подписать и собрать архив» ещё раз.";
       }
       onErr(message);
     };
@@ -589,7 +591,8 @@
       if (!session.documents[i].has_signature) pending.push(session.documents[i]);
     }
     if (!pending.length) {
-      setStatus("Все документы по этой ссылке уже подписаны.", "ok");
+      setStatus("Все документы уже подписаны. Собираю архив…", "ok");
+      formArchive();
       return;
     }
 
@@ -640,10 +643,10 @@
                 { signatures: signatures },
                 false,
                 function (data) {
-                  signingBusy = false;
                   setWork("");
-                  setStatus("Подписи сохранены. Закройте IE и в Chrome нажмите «Собрать архив».", "ok");
                   if (data.session) showSession(data.session);
+                  setStatus("Подписи сохранены. Собираю архив…", "ok");
+                  formArchive();
                 },
                 function (message) {
                   signingBusy = false;
@@ -671,6 +674,54 @@
     });
   }
 
+  function formArchive() {
+    if (forming) return;
+    forming = true;
+    setWork("Собираю архив…");
+    api(
+      "POST",
+      "/api/v1/ie-sign/" + encodeURIComponent(token) + "/form/",
+      {},
+      false,
+      function (data) {
+        forming = false;
+        signingBusy = false;
+        setWork("");
+        if (data.session) showSession(data.session);
+        setStatus("Архив собран. Вернитесь в ПМ.", "ok");
+        try {
+          window.alert("Архив документов собран и доступен для скачивания и отправки. Пожалуйста, вернитесь в ПМ.");
+        } catch (eAlert) {}
+      },
+      function (message) {
+        forming = false;
+        signingBusy = false;
+        setWork("");
+        setStatus(message, "err");
+        try {
+          window.alert(message);
+        } catch (eAlert2) {}
+      }
+    );
+  }
+
+  function startAutoSign() {
+    if (autoStarted || !token || !session || !pluginAlive()) return;
+    autoStarted = true;
+    setStatus("Комплект загружен. Читаю сертификаты и подписываю документы…", "ok");
+    try {
+      signPending();
+    } catch (e) {
+      autoStarted = false;
+      signingBusy = false;
+      var msg = "Подпись: " + errText(e);
+      setStatus(msg, "err");
+      try {
+        window.alert(msg);
+      } catch (e2) {}
+    }
+  }
+
   function checkPluginOnly() {
     diagnosePlugin();
     if (typeof avcmx !== "function") {
@@ -691,7 +742,7 @@
       }
       var pub = selectedPubKeyId();
       setStatus(
-        "Плагин и справочник готовы (сборка " + BUILD + (pub ? ", сертификат найден" : "") + "). Нажмите «Подписать документы AvPass».",
+        "Плагин и справочник готовы (сборка " + BUILD + (pub ? ", сертификат найден" : "") + "). Можно подписывать.",
         "ok"
       );
     });
@@ -735,7 +786,8 @@
         setStatus("Плагин загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
         return;
       }
-      setStatus("Плагин сообщил onload. Можно подписывать (сборка " + BUILD + ").", "ok");
+      if (session && token) startAutoSign();
+      else setStatus("Плагин сообщил onload. Можно подписывать (сборка " + BUILD + ").", "ok");
     });
   };
 
@@ -748,7 +800,7 @@
     diagnosePlugin();
     preloadCerts();
     if (!token) {
-      setStatus("В ссылке нет ticket. В Chrome на карточке нажмите «Подпись в Internet Explorer».", "err");
+      setStatus("В ссылке нет ticket. В ПМ нажмите «Подписать и собрать архив».", "err");
       return;
     }
     api(
@@ -764,12 +816,8 @@
             setStatus("Комплект загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
             return;
           }
-          if (pluginAlive()) {
-            setStatus(
-              "Комплект загружен. Сборка " + BUILD + ". Нажмите «Подписать документы AvPass» — окно АВЕСТ с ключом.",
-              "ok"
-            );
-          } else {
+          if (pluginAlive()) startAutoSign();
+          else {
             setStatus(
               "Комплект загружен, но CreateBlob нет. IE x86 + надёжные узлы + ActiveX. Сборка " + BUILD + ".",
               "err"

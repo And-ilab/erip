@@ -73,7 +73,7 @@ def package_payload(case: ClaimCase) -> dict:
             "persisted": False,
             "formed_at": None,
             "documents": [],
-            "problems": [],
+            "problems": ["Сначала приложите заявление, расчёт и доверенность"],
             "manifest": {},
             "has_archive": False,
             "send_blockers": ["Сначала сформируйте пакет для личного кабинета БНП"],
@@ -91,7 +91,8 @@ def package_payload(case: ClaimCase) -> dict:
         "debtors": package.debtors,
         "debts": debts,
         "documents": [_document_payload(doc, labels) for doc in package.documents.all()],
-        "problems": list(package.problems or []),
+        # Актуальный состав для кнопок карточки. Сохранённый список пишется только при сборке архива.
+        "problems": _problems(case, package),
         "manifest": package.manifest if package.formed_at else {},
         "has_archive": bool(package.archive),
         "send_blockers": send_blockers(case, package),

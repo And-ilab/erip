@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,7 +13,14 @@ from apps.core.permissions import RolePermission
 from apps.debts.claims_views import ClaimCaseViewSet
 from apps.debts.services.bnp_package import open_document, sign_documents
 from apps.debts.services.claims import ClaimBlocked, case_payload
-from apps.debts.services.ie_sign import issue_ticket, session_payload, ticket_case, ticket_user
+from apps.debts.services.ie_sign import (
+    form_signed_archive,
+    ie_mode_site_list,
+    issue_ticket,
+    session_payload,
+    ticket_case,
+    ticket_user,
+)
 
 
 class IeSignTicketView(APIView):
@@ -100,3 +107,39 @@ class IeSignSubmitView(APIView):
             "session": session_payload(token),
             "case": case_payload(case, with_choices=False),
         })
+
+
+class IeSignFormView(APIView):
+    """POST /api/v1/ie-sign/<token>/form/ — zip после подписи всех PDF."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, token: str):
+        user, ticket = ticket_user(token)
+        case = ticket_case(token)
+        form_signed_archive(case, user)
+        case = ticket_case(token)
+        request.user = user
+        record_action(
+            request,
+            AuditLog.Action.UPDATE,
+            case,
+            after={"formed": True, "via": "ie-sign", "role": ticket.get("role")},
+        )
+        return Response({
+            "ok": True,
+            "formed": True,
+            "claim_id": case.pk,
+            "session": session_payload(token),
+        })
+
+
+class IeModeSiteListView(APIView):
+    """GET /api/v1/ie-mode/sites.xml — список Edge: IE-режим только для /ie-sign/."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return HttpResponse(ie_mode_site_list(request.get_host()), content_type="text/xml; charset=utf-8")

@@ -3,7 +3,14 @@ from rest_framework.routers import DefaultRouter
 
 from .board_widths import BoardWidthView
 from .claims_views import ClaimCaseViewSet
-from .ie_sign_views import IeSignPdfView, IeSignSessionView, IeSignSubmitView, IeSignTicketView
+from .ie_sign_views import (
+    IeModeSiteListView,
+    IeSignFormView,
+    IeSignPdfView,
+    IeSignSessionView,
+    IeSignSubmitView,
+    IeSignTicketView,
+)
 from .views import (
     AccountServiceViewSet,
     AccountViewSet,
@@ -33,6 +40,8 @@ router.register("saved-filters", SavedFilterViewSet, basename="savedfilter")
 urlpatterns = [
     path("board-widths/<slug:board>/", BoardWidthView.as_view(), name="board-widths"),
     path("claims/<int:pk>/ie-sign-ticket/", IeSignTicketView.as_view(), name="claim-ie-sign-ticket"),
+    path("ie-mode/sites.xml", IeModeSiteListView.as_view(), name="ie-mode-sites"),
+    path("ie-sign/<str:token>/form/", IeSignFormView.as_view(), name="ie-sign-form"),
     path("ie-sign/<str:token>/", IeSignSessionView.as_view(), name="ie-sign-session"),
     path("ie-sign/<str:token>/sign/", IeSignSubmitView.as_view(), name="ie-sign-submit"),
     path(

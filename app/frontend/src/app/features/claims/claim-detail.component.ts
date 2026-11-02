@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
@@ -17,6 +17,7 @@ import {
   ApiService,
   ClaimActRow,
   ClaimCase,
+  ClaimPackage,
   OpiMeasureTaken,
   OpiOffice,
   PrisChannelStatus,
@@ -95,35 +96,14 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </mat-form-field>
                 <p class="muted">Адрес, на который нотариус пришлёт уведомление. Несколько адресов — через запятую. Контакт должника сюда не подставляется.</p>
                 <div class="bar">
-                  <button mat-stroked-button type="button" (click)="signDocuments('applicant')" [disabled]="signing">Подписать документы заявителя</button>
-                  <button mat-stroked-button type="button" (click)="signDocuments('head')" [disabled]="signing">Подписать доверенность</button>
-                  <button mat-stroked-button type="button" (click)="openIeSign('all')" [disabled]="signing">Подпись в Internet Explorer</button>
-                  <button mat-flat-button color="primary" type="button" (click)="formPackage()">Собрать архив</button>
-                  <button mat-stroked-button type="button" (click)="downloadArchive()">Скачать архив</button>
-                  <button mat-stroked-button type="button" (click)="downloadManifest()">Скачать json</button>
-                  <button mat-flat-button type="button" disabled title="Обмен с БНП система-система не подключён">Отправить</button>
+                  <button mat-flat-button color="primary" type="button" (click)="signAndAssemble()" [disabled]="signing || !kitReady(row)" [title]="signTitle(row)">Подписать и собрать архив</button>
+                  <button mat-stroked-button type="button" (click)="downloadArchive()" [disabled]="!archiveReady(row)" [title]="archiveReady(row) ? 'Скачать zip комплекта' : 'Сначала подпишите комплект и соберите архив'">Скачать архив</button>
+                  <button mat-flat-button type="button" (click)="sendArchive()" [disabled]="!archiveReady(row)" [title]="archiveReady(row) ? 'Запись направления нотариусу. В кабинет БНП вызов не уходит.' : 'Сначала подпишите комплект и соберите архив'">Отправить</button>
                 </div>
-                @if (ieSignUrl) {
-                  <mat-form-field class="wide">
-                    <mat-label>Ссылка для Internet Explorer (20 мин)</mat-label>
-                    <input matInput readonly [ngModel]="ieSignUrl" />
-                  </mat-form-field>
-                  <p class="muted">Скопируйте ссылку и откройте в Internet Explorer (Пуск → Internet Explorer). Angular-карточка в IE не открывается — эта страница только для AvCMXWebP.</p>
-                }
-                @if (edsCerts.length) {
-                  <mat-form-field class="wide">
-                    <mat-label>Сертификат ГосСУОК на AvPass</mat-label>
-                    <mat-select [(ngModel)]="edsCert">
-                      @for (cert of edsCerts; track cert.pubKeyId) {
-                        <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · УНП из атрибутного сертификата' }}</mat-option>
-                      }
-                    </mat-select>
-                  </mat-form-field>
-                }
-                <p class="muted">Подпись ставит плагин AvCMXWebP: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Заявление и расчёт — представитель, доверенность — руководитель. Chrome и Edge плагин не загружают. Кнопка «Подпись в Internet Explorer» выдаёт отдельную страницу ie-sign (без Angular) с ticket на 20 минут — откройте её в IE, подпишите PDF, вернитесь в Chrome собрать архив. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит.</p>
-                @if (sendGaps(row).length) {
+                <p class="muted">Подпись ставит плагин AvCMXWebP в Edge в режиме Internet Explorer: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Кнопка открывает страницу подписи, плагин один раз спрашивает пароль и подписывает заявление, расчёт и доверенность. На компьютере с AvPass один раз выполните <code>app/tools/edge-ie-mode.ps1</code> и перезапустите Edge. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит.</p>
+                @if (shownGaps(row).length) {
                   <ul class="blockers">
-                    @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
+                    @for (item of shownGaps(row); track $index) { <li>{{ item }}</li> }
                   </ul>
                 }
                 @if (needsSkip(row)) {
@@ -574,6 +554,16 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         }
                       </mat-select>
                     </mat-form-field>
+                    @if (edsCerts.length) {
+                      <mat-form-field class="wide">
+                        <mat-label>Сертификат ГосСУОК на AvPass</mat-label>
+                        <mat-select [(ngModel)]="edsCert">
+                          @for (cert of edsCerts; track cert.pubKeyId) {
+                            <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · УНП из атрибутного сертификата' }}</mat-option>
+                          }
+                        </mat-select>
+                      </mat-form-field>
+                    }
                     <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF ключом AvPass</button>
                     <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
                     <mat-form-field [class.need]="!prisCountry.trim()"><mat-label>Страна адреса, справочник 306 *</mat-label>
@@ -897,8 +887,11 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected signing = false;
   protected edsCerts: EdsCertificate[] = [];
   protected edsCert = 0;
-  protected ieSignUrl = '';
   private edsListed = false;
+  private archiveWatch: ReturnType<typeof setInterval> | null = null;
+  private signAttempt = 0;
+  private readonly emailProblem = 'Нужен e-mail для уведомлений. Несколько адресов — через запятую';
+  private readonly serviceProblem = 'Выберите услугу исполнительной надписи из справочника БНП';
   protected prisOpf = '';
   protected prisCountry = '';
   protected prisAddress = '';
@@ -955,7 +948,14 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.alive = false;
+    this.stopArchiveWatch();
     this.flushNotarySave();
+  }
+
+  @HostListener('window:focus')
+  protected refreshPackOnFocus(): void {
+    if (!this.alive || !this.archiveWatch || this.tab() !== 'pack') return;
+    this.refreshClaim();
   }
 
   protected setNotificationEmail(value: string): void {
@@ -1001,6 +1001,57 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       .map((item) => item.gap || item.name);
     if (fromList.length) return fromList;
     return (row.blockers || []).filter((item) => item.includes('вручения') || item.includes('тариф'));
+  }
+
+  protected shownGaps(row: ClaimCase): string[] {
+    const items = [...this.kitGaps(row), ...this.sendGaps(row)];
+    return items.filter((item, index) => item && items.indexOf(item) === index);
+  }
+
+  protected kitReady(row: ClaimCase): boolean {
+    return this.kitGaps(row).length === 0;
+  }
+
+  protected archiveReady(row: ClaimCase): boolean {
+    const pack = row.package;
+    return this.kitReady(row) && !!pack?.formed_at && !(pack.send_blockers || []).length;
+  }
+
+  protected signTitle(row: ClaimCase): string {
+    if (this.signing) return 'Подпись уже запущена';
+    if (!this.kitReady(row)) return this.kitGaps(row)[0] || 'Комплект неполный';
+    return 'Откроет Edge в режиме Internet Explorer. Пароль спросит плагин AvPass.';
+  }
+
+  private kitGaps(row: ClaimCase): string[] {
+    const gaps: string[] = [];
+    const pack = row.package;
+    if (!pack?.persisted) {
+      gaps.push('Сначала приложите заявление, расчёт и доверенность');
+    } else {
+      for (const problem of pack.problems || []) {
+        if (problem === this.emailProblem && this.emailLooksValid()) continue;
+        if (problem === this.serviceProblem && this.defaultServiceId(pack)) continue;
+        gaps.push(problem);
+      }
+      if (!this.emailLooksValid() && !(pack.problems || []).includes(this.emailProblem)) {
+        gaps.push(this.emailProblem);
+      }
+    }
+    if (!this.warningDate) gaps.push('Нет даты вручения предупреждения');
+    if (!(Number(this.tariff) > 0)) gaps.push('Нет нотариального тарифа');
+    return gaps.filter((item, index) => gaps.indexOf(item) === index);
+  }
+
+  private emailLooksValid(): boolean {
+    const parts = this.notificationEmail.split(',').map((item) => item.trim()).filter(Boolean);
+    return parts.length > 0 && parts.every((item) => /^[^@\s,]+@[^@\s,]+\.[^@\s,]+$/.test(item));
+  }
+
+  private defaultServiceId(pack: ClaimPackage | null | undefined): number | null {
+    if (!pack) return null;
+    if (pack.service_id) return pack.service_id;
+    return (pack.services || []).find((service) => service.housing)?.id || null;
   }
 
   protected periodLine(row: ClaimCase): string {
@@ -1367,22 +1418,64 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     });
   }
 
-  protected formPackage(): void {
-    this.flushNotarySave(() => this.submitPackage());
+  protected signAndAssemble(): void {
+    const row = this.claim();
+    if (!row || this.signing || !this.kitReady(row)) return;
+    const attempt = ++this.signAttempt;
+    this.flushNotarySave(() => {
+      if (!this.alive || attempt !== this.signAttempt) return;
+      this.openSignWindow();
+    });
   }
 
-  private submitPackage(): void {
+  private openSignWindow(): void {
     const row = this.claim();
     const pack = row?.package;
-    if (!row || !pack) {
-      this.snack.open('Сначала приложите документы комплекта', 'OK');
+    if (!row || !pack || this.signing) return;
+    if (!this.kitReady(row)) {
+      this.snack.open(this.kitGaps(row)[0] || 'Комплект неполный', 'OK');
       return;
     }
-    const housing = (pack.services || []).find((service) => service.housing);
-    const serviceId = pack.service_id || housing?.id || null;
+    this.signing = true;
+    this.api.claimAction(row.id, 'package', this.packageBody(pack)).subscribe({
+      next: (saved) => {
+        if (!this.alive) return;
+        this.emailDirty = false;
+        this.apply(saved);
+        if (!this.kitReady(saved)) {
+          this.signing = false;
+          this.snack.open(this.kitGaps(saved).join('; ') || 'Комплект неполный', 'OK');
+          return;
+        }
+        this.api.ieSignTicket(saved.id, 'all').subscribe({
+          next: (issued) => {
+            this.signing = false;
+            this.launchEdge(`${window.location.origin}${issued.path}`);
+            this.watchArchive();
+            this.snack.open(
+              'Открывается Edge в режиме Internet Explorer. Введите пароль AvPass в окне плагина.',
+              'OK',
+              { duration: 8000 },
+            );
+          },
+          error: (err) => {
+            this.signing = false;
+            this.snack.open(errorMessage(err), 'OK');
+          },
+        });
+      },
+      error: (err) => {
+        this.signing = false;
+        this.snack.open(errorMessage(err), 'OK');
+      },
+    });
+  }
+
+  private packageBody(pack: ClaimPackage): object {
+    const serviceId = this.defaultServiceId(pack);
     const service = (pack.services || []).find((item) => item.id === serviceId);
     const typeId = service?.debt_type_ids?.[0] || '';
-    this.api.claimAction(row.id, 'package', {
+    return {
       service_id: serviceId,
       contact_data: pack.contact_data,
       notification_email: this.notificationEmail.trim(),
@@ -1395,51 +1488,56 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
         endDate: debt.endDate || '',
         dateAt: debt.startDate && debt.endDate ? '' : (debt.dateAt || ''),
       })),
-    }).subscribe({
-      next: () => {
-        this.api.claimAction(row.id, 'package/form', {}).subscribe({
-          next: (next) => {
-            this.emailDirty = false;
-            this.apply(next);
-            this.downloadArchive();
-            this.router.navigate(['/accounts', row.account], { queryParams: { tab: 'writ' } });
-          },
-          error: (err) => this.snack.open(errorMessage(err), 'OK'),
-        });
+    };
+  }
+
+  private launchEdge(url: string): void {
+    const link = document.createElement('a');
+    link.href = `microsoft-edge:${url}`;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  private watchArchive(): void {
+    this.stopArchiveWatch();
+    const started = Date.now();
+    this.archiveWatch = setInterval(() => {
+      if (!this.alive || Date.now() - started > 15 * 60 * 1000) {
+        this.stopArchiveWatch();
+        return;
+      }
+      this.refreshClaim();
+    }, 4000);
+    this.refreshClaim();
+  }
+
+  private stopArchiveWatch(): void {
+    if (this.archiveWatch) clearInterval(this.archiveWatch);
+    this.archiveWatch = null;
+  }
+
+  private refreshClaim(): void {
+    const row = this.claim();
+    if (!row || !this.alive) return;
+    this.api.claim(row.id).subscribe({
+      next: (next) => {
+        if (!this.alive || this.viewedId !== row.id) return;
+        this.apply(next);
+        if (this.archiveReady(next)) this.stopArchiveWatch();
       },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }
 
-  protected signDocuments(role: 'applicant' | 'head'): void {
+  protected sendArchive(): void {
     const row = this.claim();
-    if (!row || this.signing) return;
-    void this.signPackage(row, role);
-  }
-
-  protected openIeSign(role: 'applicant' | 'head' | 'all' = 'all'): void {
-    const row = this.claim();
-    if (!row || this.signing) return;
-    this.signing = true;
-    this.api.ieSignTicket(row.id, role).subscribe({
-      next: (issued) => {
-        this.signing = false;
-        const url = `${window.location.origin}${issued.path}`;
-        this.ieSignUrl = url;
-        if (navigator.clipboard?.writeText) {
-          void navigator.clipboard.writeText(url);
-        }
-        this.snack.open(
-          'Ссылка скопирована. Откройте её в Internet Explorer (не в Chrome). Подпишите документы на странице IE, затем вернитесь сюда.',
-          'OK',
-          { duration: 8000 },
-        );
-      },
-      error: (err) => {
-        this.signing = false;
-        this.snack.open(errorMessage(err), 'OK');
-      },
-    });
+    if (!row || this.signing || !this.archiveReady(row)) return;
+    if (this.needsSkip(row) && !this.checklistSkip.trim()) {
+      this.snack.open('Пропуск этапа записывается с причиной', 'OK');
+      return;
+    }
+    this.act('sign-and-send', { skip_reason: this.checklistSkip.trim() });
   }
 
   protected signPrisPdf(): void {
@@ -1450,47 +1548,6 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       return;
     }
     void this.signAttachment(row, this.prisPdf);
-  }
-
-  private async signPackage(row: ClaimCase, role: 'applicant' | 'head'): Promise<void> {
-    this.signing = true;
-    try {
-      const cert = await this.pickCertificate();
-      if (!cert) return;
-      const docs = (row.package?.documents || []).filter((doc) => {
-        if (!doc.has_pdf || doc.has_signature) return false;
-        return role === 'head' ? doc.signer === 'head' : doc.signer !== 'head';
-      });
-      if (!docs.length) {
-        this.snack.open(
-          role === 'head' ? 'Нет неподписанной доверенности' : 'Нет неподписанных документов заявителя',
-          'OK',
-        );
-        return;
-      }
-      const signatures: { doc_id: number; pkcs7: string }[] = [];
-      let attribute = false;
-      let subject = cert.subject;
-      for (const doc of docs) {
-        const blob = await firstValueFrom(this.api.downloadClaimFile(row.id, doc.id));
-        const signed = await this.eds.signDetached(new Uint8Array(await blob.arrayBuffer()), cert);
-        signatures.push({ doc_id: doc.id, pkcs7: signed.pkcs7 });
-        attribute = attribute || signed.attributeCertificate;
-        subject = signed.subject;
-      }
-      const next = await firstValueFrom(this.api.claimAction(row.id, 'sign-documents', { signatures }));
-      this.apply(next);
-      const extra = attribute ? ' В подпись включён атрибутный сертификат с УНП.' : '';
-      this.snack.open(
-        `Подписано: ${subject}. Статус ключа проверил плагин по СОС. В кабинет БНП вызов не уходит.${extra}`,
-        'OK',
-        { duration: 5000 },
-      );
-    } catch (err) {
-      this.snack.open(this.failText(err), 'OK');
-    } finally {
-      this.signing = false;
-    }
   }
 
   private async signAttachment(row: ClaimCase, fileId: number): Promise<void> {
@@ -1544,25 +1601,9 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     return errorMessage(error);
   }
 
-  protected downloadManifest(): void {
-    const row = this.claim();
-    if (!row) return;
-    this.api.claimManifest(row.id).subscribe({
-      next: (blob) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `bnp-claim-${row.id}.json`;
-        link.click();
-        URL.revokeObjectURL(url);
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
-  }
-
   protected downloadArchive(): void {
     const row = this.claim();
-    if (!row) return;
+    if (!row || !this.archiveReady(row)) return;
     this.api.claimArchive(row.id).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
