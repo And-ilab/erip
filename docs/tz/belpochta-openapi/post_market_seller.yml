@@ -1,0 +1,1223 @@
+openapi: 3.0.1
+info:
+  title: 'Marketplace Seller'
+  description: 'API for managing marketplace seller'
+  version: 1.0.0
+servers:
+  -
+    url: 'https://postmarket.by'
+paths:
+  /api/partner/v1/categories:
+    get:
+      summary: 'Получить список категорий'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список категорий'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  /api/partner/v1/parameters:
+    get:
+      summary: 'Получить список характеристик'
+      tags:
+        - Catalog
+      parameters:
+        -
+          in: query
+          name: category_id
+          required: true
+          schema:
+            type: integer
+          description: 'ID категории, по которой запрашиваются характеристики'
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список характеристик'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Parameter'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+        404:
+          $ref: '#/components/responses/NotFoundError'
+        422:
+          $ref: '#/components/responses/ValidationError'
+  /api/partner/v1/products:
+    get:
+      summary: 'Получить список товаров'
+      tags:
+        - Products
+      parameters:
+        -
+          name: sort_by
+          in: query
+          description: 'Поле для сортировки'
+          required: false
+          schema:
+            type: string
+            enum:
+              - category
+              - created
+            default: created
+        -
+          name: sort_direction
+          in: query
+          description: 'Направление сортировки'
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+        -
+          name: per_page
+          in: query
+          description: 'Количество элементов на странице'
+          required: false
+          schema:
+            type: integer
+            minimum: 10
+        -
+          name: page
+          in: query
+          description: 'Номер страницы'
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        -
+          name: f_category_id
+          in: query
+          description: 'Фильтрация по ID категории'
+          required: false
+          schema:
+            type: integer
+        -
+          name: f_brand_id
+          in: query
+          description: 'Фильтрация по ID бренда'
+          required: false
+          schema:
+            type: integer
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список товаров'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  meta:
+                    type: object
+                    properties:
+                      current_page:
+                        type: integer
+                        example: 1
+                      per_page:
+                        type: integer
+                        example: 12
+                      total:
+                        type: integer
+                        example: 42
+                      last_page:
+                        type: integer
+                        example: 4
+    post:
+      summary: 'Создать новый продукт'
+      tags:
+        - Products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        201:
+          description: 'Продукт успешно создан'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+        422:
+          $ref: '#/components/responses/ValidationError'
+  '/api/partner/v1/products/{product_id}':
+    patch:
+      summary: 'Обновить продукт'
+      tags:
+        - Products
+      parameters:
+        -
+          in: path
+          name: product_id
+          required: true
+          schema:
+            type: integer
+          description: 'ID продукта для обновления'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdate'
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Продукт успешно обновлен'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+        404:
+          $ref: '#/components/responses/NotFoundError'
+        422:
+          $ref: '#/components/responses/ValidationError'
+  /api/partner/v1/products/bulk-upsert:
+    post:
+      summary: 'Массовое создание или обновление продуктов'
+      tags:
+        - Products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProductBulkUpsert'
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        201:
+          description: 'Продукты успешно созданы'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+        422:
+          $ref: '#/components/responses/ValidationError'
+  /api/partner/v1/brands:
+    get:
+      summary: 'Получить список брендов'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список брендов'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Brand'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  /api/partner/v1/countries:
+    get:
+      summary: 'Получить страны'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список стран'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Country'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  /api/partner/v1/importers:
+    get:
+      summary: 'Получить список импортеров'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список импортеров'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Importer'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  /api/partner/v1/service-centers:
+    get:
+      summary: 'Получить список сервисных центров'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список сервисных центров'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceCenter'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  /api/partner/v1/manufacturers:
+    get:
+      summary: 'Получить список производителей'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список производителей'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Manufacturer'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  /api/partner/v1/suppliers:
+    get:
+      summary: 'Получить список поставщиков'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список поставщиков'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Supplier'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  /api/partner/v1/units:
+    get:
+      summary: 'Получить список единиц измерения'
+      tags:
+        - Catalog
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        200:
+          description: 'Список единиц измерения'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Unit'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+  '/api/partner/v1/products/{product_id}/media/file':
+    post:
+      summary: 'Загрузить изображение продукта'
+      description: "Позволяет продавцу загрузить изображение для продукта. Можно указать порядковый номер (`order`), под которым изображение будет выводиться. Файл сохраняется и обрабатывается асинхронно.\n"
+      tags:
+        - Products
+      parameters:
+        -
+          name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 'ID продукта'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 'Файл изображения'
+                order:
+                  type: integer
+                  description: 'Порядковый номер для сортировки изображения'
+                  example: 0
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        202:
+          description: 'Загрузка медиафайла начата'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Media upload started'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+        404:
+          $ref: '#/components/responses/NotFoundError'
+        422:
+          $ref: '#/components/responses/ValidationError'
+  '/api/partner/v1/products/{product_id}/media/save':
+    post:
+      summary: 'Заменить все изображения продукта по списку URL'
+      description: "Полностью заменяет существующие изображения продукта на указанные по ссылкам. Ссылки должны вести на доступные публичные файлы.\n"
+      tags:
+        - Products
+      parameters:
+        -
+          name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 'ID продукта'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - urls
+              properties:
+                urls:
+                  type: array
+                  items:
+                    type: string
+                    format: uri
+                    description: 'Ссылка на изображение'
+                  example:
+                    - 'https://fastly.picsum.photos/id/54/200/300.jpg?hmac=Vj23spqBn9b_PrCh4LPiDrcffi6svfFFmjWMfycPVRE'
+                    - 'https://fastly.picsum.photos/id/55/200/300.jpg?hmac=Vj23spqBn9b_PrCh4LPiDrcffi6svfFFmjWMfycPVRE'
+      security:
+        -
+          bearerAuth: {  }
+      responses:
+        202:
+          description: 'Замена изображений запущена'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Media replacement started'
+        401:
+          $ref: '#/components/responses/UnauthorizedError'
+        403:
+          $ref: '#/components/responses/ForbiddenError'
+        404:
+          $ref: '#/components/responses/NotFoundError'
+        422:
+          $ref: '#/components/responses/ValidationError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: 'Садовая техника'
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+          example:
+            -
+              id: 2
+              name: 'Культиваторы и мотоблоки'
+              children: {  }
+    Parameter:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Цвет
+        unit:
+          nullable: true
+          description: 'Единица измерения характеристики или null, если её нет.'
+          allOf:
+            -
+              $ref: '#/components/schemas/Unit'
+        allow_custom_values:
+          type: boolean
+          description: 'Разрешён ли произвольный ввод значения продавцом. Если true — справочные значения не возвращаются (values пустой), значение задаётся свободной строкой; если false — значение выбирается из values.'
+          example: false
+        required:
+          type: boolean
+          example: false
+        values:
+          type: array
+          description: 'Справочные значения характеристики. Для характеристик с allow_custom_values=true список пустой.'
+          items:
+            $ref: '#/components/schemas/ParameterValue'
+    ParameterValue:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 3514
+        name:
+          type: string
+          example: Белый
+    ParameterForProductResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Цвет
+        value:
+          type: string
+          example: Белый
+      required:
+        - id
+        - value
+    ParameterForProductRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        value:
+          type: string
+          example: Белый
+      required:
+        - id
+        - value
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 32
+        name:
+          type: string
+          example: 'Мойка высокого давления'
+        description:
+          type: string
+          example: 'Высококачественная мойка для дома и сада, мощность 1500 Вт.'
+        model:
+          type: string
+          example: 'Model X123'
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+            - unpublished
+            - archived
+          example: draft
+        state:
+          type: string
+          enum:
+            - in_stock
+            - out_of_stock
+            - to_order
+          example: in_stock
+        price:
+          type: object
+          description: 'Цена товара в валюте'
+          properties:
+            amount:
+              type: number
+              format: integer
+              example: 150
+            currency:
+              type: string
+              enum:
+                - BYN
+              example: BYN
+        vat_rate:
+          type: integer
+          example: 20
+        quantity:
+          type: integer
+          example: 50
+        rating:
+          type: integer
+          example: 4
+        numberOfRatings:
+          type: integer
+          example: 10
+        numberOfReviews:
+          type: integer
+          example: 5
+        number_of_views:
+          type: integer
+          example: 200
+        sku:
+          type: string
+          example: '123456'
+        barcode:
+          type: string
+          example: '987654321'
+        sdo:
+          type: string
+          example: SDO-XYZ
+        unit:
+          $ref: '#/components/schemas/Unit'
+        manufacturer:
+          $ref: '#/components/schemas/Manufacturer'
+        brand:
+          $ref: '#/components/schemas/Brand'
+        supplier:
+          $ref: '#/components/schemas/Supplier'
+        importer:
+          $ref: '#/components/schemas/Importer'
+        manufacture_country:
+          $ref: '#/components/schemas/Country'
+        category:
+          $ref: '#/components/schemas/Category'
+        processing_time:
+          type: integer
+          example: 3
+        clientWarning:
+          type: string
+          example: 'Использовать в соответствии с инструкцией.'
+        length:
+          type: integer
+          nullable: true
+          example: 35
+        width:
+          type: integer
+          nullable: true
+          example: 25
+        height:
+          type: integer
+          nullable: true
+          example: 20
+        weight:
+          type: integer
+          nullable: true
+          example: 3000
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-04-07T12:00:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2024-04-07T12:00:00Z'
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParameterForProductResponse'
+      required:
+        - name
+        - sku
+        - category_id
+    ProductCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          example: 'Мойка высокого давления'
+        description:
+          type: string
+          example: 'Высококачественная мойка для дома и сада, мощность 1500 Вт.'
+        model:
+          type: string
+          example: 'Model X123'
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+            - unpublished
+            - archived
+          example: draft
+        state:
+          type: string
+          enum:
+            - in_stock
+            - out_of_stock
+            - to_order
+          example: in_stock
+        price:
+          type: object
+          description: 'Цена товара в валюте'
+          properties:
+            amount:
+              type: number
+              format: integer
+              example: 150
+            currency:
+              type: string
+              enum:
+                - BYN
+              example: BYN
+        tnvd:
+          type: string
+          example: '0101210000'
+        vat_rate:
+          type: integer
+          example: 20
+        quantity:
+          type: integer
+          example: 50
+        sku:
+          type: string
+          example: '123456'
+        barcode:
+          type: string
+          example: '987654321'
+        category_id:
+          type: integer
+          example: 1
+          description: 'ID категории товара'
+        brand_id:
+          type: integer
+          example: 2
+          description: 'ID бренда товара'
+        manufacturer_id:
+          type: integer
+          example: 3
+          description: 'ID производителя товара'
+        supplier_id:
+          type: integer
+          example: 4
+          description: 'ID поставщика товара'
+        importer_id:
+          type: integer
+          example: 5
+          description: 'ID импортера товара'
+        manufacturer_country_id:
+          type: integer
+          example: 6
+          description: 'ID страны'
+        unit_id:
+          type: integer
+          example: 7
+          description: 'ID единицы измерения товара'
+        processing_time:
+          type: integer
+          example: 3
+        length:
+          type: integer
+          nullable: true
+          example: 35
+        width:
+          type: integer
+          nullable: true
+          example: 25
+        height:
+          type: integer
+          nullable: true
+          example: 20
+        weight:
+          type: integer
+          nullable: true
+          example: 3000
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParameterForProductRequest'
+      required:
+        - name
+        - category_id
+        - tnvd
+        - unit_id
+        - price
+        - sku
+        - barcode
+        - state
+        - status
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          example: 'Мойка высокого давления'
+        description:
+          type: string
+          example: 'Высококачественная мойка для дома и сада, мощность 1500 Вт.'
+        model:
+          type: string
+          example: 'Model X123'
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+            - unpublished
+            - archived
+          example: draft
+        state:
+          type: string
+          enum:
+            - in_stock
+            - out_of_stock
+            - to_order
+          example: in_stock
+        price:
+          type: object
+          description: 'Цена товара в валюте'
+          properties:
+            amount:
+              type: number
+              format: integer
+              example: 150
+            currency:
+              type: string
+              enum:
+                - BYN
+              example: BYN
+        vat_rate:
+          type: integer
+          example: 20
+        quantity:
+          type: integer
+          example: 50
+        sku:
+          type: string
+          example: '123456'
+        barcode:
+          type: string
+          example: '987654321'
+        category_id:
+          type: integer
+          example: 1
+          description: 'ID категории товара'
+        brand_id:
+          type: integer
+          example: 2
+          description: 'ID бренда товара'
+        manufacturer_id:
+          type: integer
+          example: 3
+          description: 'ID производителя товара'
+        supplier_id:
+          type: integer
+          example: 4
+          description: 'ID поставщика товара'
+        importer_id:
+          type: integer
+          example: 5
+          description: 'ID импортера товара'
+        manufacturer_country_id:
+          type: integer
+          example: 6
+          description: 'ID страны'
+        unit_id:
+          type: integer
+          example: 7
+          description: 'ID единицы измерения товара'
+        processing_time:
+          type: integer
+          example: 3
+        length:
+          type: integer
+          nullable: true
+          example: 35
+        width:
+          type: integer
+          nullable: true
+          example: 25
+        height:
+          type: integer
+          nullable: true
+          example: 20
+        weight:
+          type: integer
+          nullable: true
+          example: 3000
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParameterForProductRequest'
+      required:
+        - name
+        - category_id
+        - model
+        - status
+        - state
+        - sku
+        - barcode
+        - unit_id
+    ProductBulkUpsert:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 342
+        name:
+          type: string
+          example: 'Мойка высокого давления'
+        description:
+          type: string
+          example: 'Высококачественная мойка для дома и сада, мощность 1500 Вт.'
+        model:
+          type: string
+          example: 'Model X123'
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+            - unpublished
+            - archived
+          example: draft
+        state:
+          type: string
+          enum:
+            - in_stock
+            - out_of_stock
+            - to_order
+          example: in_stock
+        price:
+          type: object
+          description: 'Цена товара в валюте'
+          properties:
+            amount:
+              type: number
+              format: integer
+              example: 150
+            currency:
+              type: string
+              enum:
+                - BYN
+              example: BYN
+        vat_rate:
+          type: integer
+          example: 20
+        quantity:
+          type: integer
+          example: 50
+        sku:
+          type: string
+          example: '123456'
+        barcode:
+          type: string
+          example: '987654321'
+        category_id:
+          type: integer
+          example: 1
+          description: 'ID категории товара'
+        brand_id:
+          type: integer
+          example: 2
+          description: 'ID бренда товара'
+        manufacturer_id:
+          type: integer
+          example: 3
+          description: 'ID производителя товара'
+        supplier_id:
+          type: integer
+          example: 4
+          description: 'ID поставщика товара'
+        importer_id:
+          type: integer
+          example: 5
+          description: 'ID импортера товара'
+        manufacturer_country_id:
+          type: integer
+          example: 6
+          description: 'ID страны'
+        unit_id:
+          type: integer
+          example: 7
+          description: 'ID единицы измерения товара'
+        processing_time:
+          type: integer
+          example: 3
+        length:
+          type: integer
+          nullable: true
+          example: 35
+        width:
+          type: integer
+          nullable: true
+          example: 25
+        height:
+          type: integer
+          nullable: true
+          example: 20
+        weight:
+          type: integer
+          nullable: true
+          example: 3000
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParameterForProductRequest'
+      required:
+        - name
+        - category_id
+    Brand:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Купалинка
+    Country:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 16
+        name:
+          type: string
+          example: Беларусь
+          description: 'Название страны'
+    Importer:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: 'Suppl. Raynor-Hudson'
+        address:
+          type: string
+          example: 'ул. Якуба Коласа 52, Минск, Минская область 220113'
+    Manufacturer:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: 'ОАО "Купалинка"'
+        address:
+          type: string
+          example: 'ул. Якуба Коласа 52, Минск, Минская область 220113'
+    ServiceCenter:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: ЦБТСЕРВИС
+        address:
+          type: string
+          example: 'ул. Якуба Коласа 52, Минск, Минская область 220113'
+    Supplier:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: 'ПЧУП "Виктория"'
+        address:
+          type: string
+          example: 'ул. Якуба Коласа 52, Минск, Минская область 220113'
+    Unit:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: шт.
+    RangeValue:
+      type: object
+      properties:
+        min:
+          type: number
+          example: 0
+        max:
+          type: number
+          example: 100
+    BooleanValue:
+      type: boolean
+      example: true
+    SingleSelectValue:
+      type: string
+      example: option_1
+    MultiSelectValue:
+      type: array
+      items:
+        type: string
+      example:
+        - option_1
+        - option_2
+  responses:
+    UnauthorizedError:
+      description: 'Неавторизован (требуется авторизация)'
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: Unauthorized
+              code:
+                type: string
+                example: unauthorized
+    ForbiddenError:
+      description: 'Доступ запрещен'
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: Forbidden
+              code:
+                type: string
+                example: forbidden
+    NotFoundError:
+      description: 'Ресурс не найден'
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: 'Not found'
+              code:
+                type: string
+                example: not_found
+    ValidationError:
+      description: 'Ошибка валидации'
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: 'The given data was invalid.'
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string

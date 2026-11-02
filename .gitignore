@@ -35,6 +35,11 @@ staticfiles/
 # Выгрузка OSM и сборка справочника, в репозиторий не входят
 .cache/
 
+# Локальный съём внешних порталов (токены, HTML)
+.tmp_belpost/
+.tmp_belpochta_guide.txt
+.tmp_*/
+
 # Локальные инструменты и служебные файлы Cursor
 .idea/
 .vscode/

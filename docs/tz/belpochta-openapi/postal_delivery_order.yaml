@@ -1,0 +1,1802 @@
+openapi: 3.0.0
+info:
+  title: 'API предпочтовой подготовки'
+  description: "# API предпочтовой подготовки для бизнес-клиентов\n\nДанный раздел описывает работу с API предпочтовой подготовки для бизнес-клиентов,\nкоторые приобрели доступ к API Белпочты.\n\n## Основные возможности\n\n### Создание почтовых отправлений\n- Поддержка различных типов отправлений (посылки, EMS, мелкие пакеты)\n- Автоматическая валидация адресов отправителя и получателя\n- Интеграция с адресным виджетом для корректного заполнения контактных данных\n\n### Автоматическая валидация\nСистема автоматически:\n1. **Валидирует данные** отправителя и получателя согласно правилам для конкретной страны\n2. **Обрабатывает ошибки** с понятными сообщениями на русском языке\n\n## Важные особенности\n\n### Отправитель всегда из Беларуси\n- **Отправитель** всегда валидируется как республиканский адрес (BY)\n- **Правила валидации** для отправителя всегда применяются для Беларуси\n\n### Получатель зависит от страны доставки\n- **Страна получателя** определяется из поля `country_code` в данных получателя\n- **BY** - республиканские правила (обязательные: country_code, id, type, house)\n- **Другие страны** - международные правила (обязательные: country_code, postcode, city, address_line)\n\n## Интеграция с адресным виджетом\n\n### Получение адресов из справочника\nДля получения адресов и их идентификаторов используйте endpoints адресного справочника:\n- `GET /api/v2/business/geo-directory/dictionary?name=address&type=address&search=Минск` - поиск адресов\n- `GET /api/v2/business/geo-directory/dictionary/{id}` - получение конкретного адреса по ID\n- `POST /api/v2/business/geo-directory/dictionary-list` - поиск адресов через POST запрос\n\nПолученный `id` из справочника используется в поле `address.id` при создании отправления.\n\n### Использование в адресном виджете\nАдресный виджет использует данные из справочника для:\n- Определения обязательных полей для конкретной страны\n- Валидации введенных данных\n- Отображения подсказок пользователю\n\n### Поддержка международных отправлений\n- Автоматическое определение правил для разных стран\n- Поддержка различных форматов адресов\n- Интеграция с таможенными требованиями\n"
+  version: 2.0.0
+servers:
+  -
+    url: 'https://api.belpost.by/api/v1/business'
+security:
+  -
+    bearerAuth: {  }
+paths:
+  '/postal-deliveries/validation/{countryCode}':
+    get:
+      summary: 'Получение правил валидации для страны (Бизнес API)'
+      description: "Позволяет получить объект с правилами валидации для конкретной страны.\n\n## Назначение\n\nЭтот эндпоинт используется для получения правил валидации, которые применяются\nпри создании почтовых отправлений в указанную страну.\n\n## Использование\n\n### В бизнес-приложениях\n- Получение ограничений по весу, размерам, объявленной ценности\n- Проверка поддержки дополнительных услуг (уведомления, наложенный платеж)\n- Определение доступных типов отправлений для конкретной страны\n\n### В адресном виджете\n- Определение обязательных полей для адреса получателя\n- Валидация введенных данных согласно правилам страны\n- Отображение подсказок пользователю\n\n## Автоматическое использование\n\n**Важно:** При создании отправлений через POST `/postal-deliveries` система\nавтоматически валидирует данные согласно правилам для указанной страны получателя.\nРучной вызов этого эндпоинта обычно не требуется.\n\n## Примеры использования\n\n### Получение правил для Беларуси\n```\nGET /postal-deliveries/validation/BY\n```\n\n### Получение правил для России\n```\nGET /postal-deliveries/validation/RU\n```\n\n### Получение правил для конкретного региона\n```\nGET /postal-deliveries/validation/RU-LEN\n```\n"
+      parameters:
+        -
+          name: countryCode
+          in: path
+          description: 'Код страны, капсом. обычно это 2 буквы (BY для Беларуси), но может быть до 6 символов (например RU-LEN в данном роуте валидный кантрикод)'
+          required: true
+          explode: false
+          schema:
+            type: string
+          example: BY
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/postal_delivery_country_response'
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+  /postal-deliveries/countries:
+    get:
+      summary: 'Получение списка доступных стран (Бизнес API)'
+      description: "Позволяет получить список стран, в которые осуществляется отправка почтовых отправлений.\n\n## Назначение\n\nЭтот эндпоинт используется для получения актуального списка стран, доступных\nдля отправки почтовых отправлений через API Белпочты.\n\n## Использование\n\n### В бизнес-приложениях\n- Отображение списка доступных стран в интерфейсе\n- Валидация выбранной страны перед отправкой\n- Динамическое обновление списка стран\n\n### В адресном виджете\n- Предоставление списка доступных стран для выбора\n- Автоматическое определение правил валидации для выбранной страны\n\n## Структура ответа\n\nКаждая страна содержит:\n- `id` - уникальный идентификатор страны\n- `code` - код страны (например, \"BY\", \"RU\")\n- `names` - названия страны на разных языках\n- `name` - основное название страны\n\n## Примеры использования\n\n### Получение списка всех стран\n```\nGET /postal-deliveries/countries\n```\n\n### Использование в адресном виджете\nПосле получения списка стран, виджет может:\n1. Отобразить список для выбора пользователем\n2. Автоматически применить правила валидации для выбранной страны\n3. Показать соответствующие поля для заполнения адреса\n"
+      responses:
+        200:
+          description: 'Список стран'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/postal_delivery_country_list_response'
+  /postal-deliveries/hs-codes/list:
+    get:
+      summary: 'Получение кодов ТН ВЭД (Бизнес API)'
+      description: "Позволяет получить дерево кодов ТН ВЭД для классификации товаров.\n\n## Назначение\n\nЭтот эндпоинт используется для получения иерархической структуры кодов ТН ВЭД,\nкоторые необходимы для правильного оформления таможенных документов при\nмеждународных отправлениях.\n\n## Использование\n\n### В бизнес-приложениях\n- Классификация товаров согласно международным стандартам\n- Заполнение таможенных деклараций\n- Определение таможенных пошлин и ограничений\n\n### В адресном виджете\n- Предоставление списка доступных кодов для выбора\n- Автоматическое заполнение полей декларации\n\n## Структура ответа\n\nКаждый код ТН ВЭД содержит:\n- `id` - уникальный идентификатор кода\n- `name` - название товарной позиции\n- `code` - код ТН ВЭД (например, \"01\", \"0101\")\n- `children` - дочерние коды (подкатегории)\n\n## Примеры использования\n\n### Получение всех кодов ТН ВЭД\n```\nGET /postal-deliveries/hs-codes/list\n```\n\n### Использование в декларации\nПосле получения кодов ТН ВЭД, система может:\n1. Предоставить пользователю выбор соответствующего кода\n2. Автоматически заполнить поля декларации\n3. Применить соответствующие таможенные правила\n\n## Важные особенности\n\n- Коды ТН ВЭД регулярно обновляются согласно международным стандартам\n- Для международных отправлений указание кода ТН ВЭД является обязательным\n- Неправильный код может привести к задержке или возврату отправления\n"
+      responses:
+        200:
+          description: 'Коды тн вэд найдеы'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      example: 1
+                      description: идентифика́тор
+                    name:
+                      type: string
+                      example: 'ЖИВЫЕ ЖИВОТНЫЕ'
+                      description: название
+                    code:
+                      type: string
+                      example: '01'
+                      description: 'код кода тн вэд'
+                    children:
+                      type: array
+                      description: 'дети кода тнвэд'
+                      example: {  }
+                      items:
+                        properties:
+                          id:
+                            type: integer
+                            example: 1
+                            description: идентифика́тор
+                          name:
+                            type: string
+                            example: 'ЖИВЫЕ ЖИВОТНЫЕ'
+                            description: название
+                          code:
+                            type: string
+                            example: '01'
+                            description: 'код кода тн вэд'
+                          children:
+                            description: 'дети кода тнвэд'
+                            example: {  }
+  '/postal-deliveries/{order_id}/{label_name}':
+    get:
+      summary: 'Получение бланка отправления (Бизнес API)'
+      description: "Позволяет получить бланк подготовленного почтового отправления в формате PDF.\n\n## Назначение\n\nЭтот эндпоинт используется для получения готовых бланков и этикеток,\nкоторые необходимы для оформления и отправки почтовых отправлений.\n\n## Использование\n\n### В бизнес-приложениях\n- Печать этикеток для отправлений\n- Генерация сопроводительных документов\n- Создание архивных копий документов\n\n### Типы доступных бланков\n\n#### Адресные этикетки\n- `address_label_regular` - обычная адресная этикетка\n- `address_label_large` - большая адресная этикетка\n- `address_label_cash_on_delivery_regular` - этикетка с наложенным платежом (обычная)\n- `address_label_cash_on_delivery_large` - этикетка с наложенным платежом (большая)\n\n#### EMS документы\n- `ems_regular` - обычная EMS этикетка\n- `ems_large` - большая EMS этикетка\n- `cn23ems_regular` - таможенная декларация CN23 для EMS\n\n#### Другие документы\n- `cn07_regular` - таможенная декларация CN07\n- `cp72_regular` - сопроводительный документ CP72\n\n## Примеры использования\n\n### Получение обычной адресной этикетки\n```\nGET /postal-deliveries/12345/address_label_regular\n```\n\n### Получение EMS этикетки\n```\nGET /postal-deliveries/12345/ems_regular\n```\n\n### Получение таможенной декларации\n```\nGET /postal-deliveries/12345/cn23ems_regular\n```\n\n## Важные особенности\n\n- Все бланки генерируются в формате PDF\n- Размер файла зависит от типа бланка и содержимого\n- Бланки содержат всю необходимую информацию для отправки\n- Рекомендуется сохранять бланки для архивирования\n"
+      parameters:
+        -
+          name: order_id
+          in: path
+          description: 'идентифика́тор отправления'
+          required: true
+          explode: false
+          schema:
+            type: integer
+          example:
+            order_id: 21
+        -
+          name: label_name
+          in: path
+          description: 'имя бланка'
+          required: true
+          explode: false
+          schema:
+            type: string
+            enum:
+              - address_label_regular
+              - address_label_large
+              - address_label_cash_on_delivery_regular
+              - address_label_cash_on_delivery_large
+              - ems_regular
+              - ems_large
+              - cn23ems_regular
+              - cn07_regular
+              - cp72_regular
+          example:
+            label_name: ems_regular
+      responses:
+        200:
+          description: 'отображения бланка'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: 'заголовок успешного ответа пдф'
+              example: 'inline; filename="{s10code}_{size}.pdf"'
+  /postal-deliveries:
+    post:
+      summary: 'Создание почтового отправления (Бизнес API)'
+      description: "Создает новое почтовое отправление с автоматической валидацией контактов.\n\n## Автоматическая валидация\n\nСистема автоматически валидирует данные отправителя и получателя согласно правилам для указанной страны.\n\n## Новые поля для адресного виджета\n\n### `sender_contact_widget_data` и `recipient_contact_widget_data`\nПозволяют использовать новый адресный виджет вместо устаревших полей `sender` и `recipient`.\n\n**Важно:** Используйте либо новые поля виджета, либо устаревшие поля, но не оба одновременно.\n\n### `sender_payment_info`\nДополнительные данные для реквизитов отправителя (для юридических лиц и ИП).\n\n## Правила валидации адресов\n\n### Республиканские адреса (BY)\n**Обязательные поля:**\n- `country_code` - код страны (всегда \"BY\")\n- `id` - идентификатор адреса из справочника (получается через `/api/v2/business/geo-directory/dictionary`)\n- `type` - тип адреса (address, on_demand, subscriber_box)\n- `house` - номер дома\n\n**Опциональные поля:**\n- `block` - корпус\n- `flat` - квартира\n- `postcode`, `region`, `district`, `city_type`, `city`, `street_type`, `street`\n- `cell_number`, `floor`, `entrance`, `door_code`\n- `latitude`, `longitude`, `full_address`\n\n**Примечание:** Идентификатор `id` адреса получается через endpoints адресного справочника:\n- `GET /api/v2/business/geo-directory/dictionary?name=address&type=address&search=...`\n- `GET /api/v2/business/geo-directory/dictionary/{id}`\n\n### Международные адреса (другие страны)\n**Обязательные поля:**\n- `country_code` - код страны (например, \"RU\")\n- `postcode` - почтовый индекс\n- `city` - название города\n- `address_line` - адресная строка\n\n## Правила валидации контактных данных (person)\n\n### Для отправителя (всегда BY)\n**Обязательные поля:**\n- `type` - тип контакта (individual, legal, individual_entrepreneur)\n- `first_name`, `last_name` - для individual\n- `organization_name` - для legal и individual_entrepreneur\n\n**Опциональные поля:**\n- `second_name`, `email`, `phone` - не обязательные для всех типов\n\n### Для получателя (зависит от страны)\n**Обязательные поля:**\n- `type` - тип контакта (individual, legal, individual_entrepreneur)\n- `first_name`, `last_name` - для individual\n- `organization_name` - для legal и individual_entrepreneur\n\n**Опциональные поля:**\n- `second_name`, `email`, `phone` - не обязательные для всех типов\n\n## Важные особенности логики работы\n\n### Отправитель (sender_contact_widget_data)\n- **Всегда валидируется как BY**\n- **Применяются только республиканские правила** валидации\n- **Обязательные поля:** `country_code` (BY), `id`, `type`, `house`\n- **Опциональные поля:** `block`, `flat`\n\n### Получатель (recipient_contact_widget_data)\n- **Страна определяется из поля `country_code`** в данных получателя\n- **BY** - республиканские правила (обязательные: country_code, id, type, house; опциональные: block, flat)\n- **Другие страны** - международные правила (обязательные: country_code, postcode, city, address_line)\n\n## Поддерживаемые типы отправлений\n- `package` - посылка\n- `ems` - экспресс-почта\n- `small_package` - мелкий пакет\n- `small_valued_package` - мелкий пакет с объявленной ценностью\n\n## Поддерживаемые типы вложений\n- `documents` - документы\n- `products` - товары\n\n## Миграция с устаревшего API\n\n### Старый формат (устаревший):\n```json\n{\n  \"sender\": {\n    \"type\": \"natural_person\",\n    \"info\": { \"first_name\": \"John\", \"last_name\": \"Doe\" },\n    \"location\": { \"country_code\": \"BY\", \"house\": \"1\" }\n  },\n  \"recipient\": {\n    \"type\": \"natural_person\",\n    \"info\": { \"first_name\": \"Jane\", \"last_name\": \"Smith\" },\n    \"location\": { \"country_code\": \"RU\", \"city\": \"Moscow\" }\n  }\n}\n```\n\n### Новый формат с виджетом:\n```json\n{\n  \"sender_contact_widget_data\": {\n    \"person\": { \"type\": \"individual\", \"first_name\": \"John\", \"last_name\": \"Doe\" },\n    \"address\": { \"id\": 12345, \"type\": \"address\", \"country_code\": \"BY\", \"house\": \"1\", \"block\": \"1\", \"flat\": \"15\" }\n  },\n  \"recipient_contact_widget_data\": {\n    \"person\": { \"type\": \"individual\", \"first_name\": \"Jane\", \"last_name\": \"Smith\" },\n    \"address\": { \"country_code\": \"RU\", \"postcode\": \"101000\", \"city\": \"Moscow\", \"address_line\": \"ул. Ленина, д. 1\" }\n  }\n}\n```\n\n**Преимущества нового формата:**\n- Автоматическая валидация через виджет контактов\n- Поддержка международных адресов\n- Единообразная структура данных\n- Лучшая обработка ошибок\n\n## Получение адресов из справочника\n\nПеред созданием отправления с адресом получателя в Беларуси (BY) необходимо:\n1. Найти адрес через адресный справочник: `GET /api/v2/business/geo-directory/dictionary?name=address&type=address&search=...`\n2. Получить идентификатор `id` из результата поиска\n3. Использовать этот `id` в поле `address.id` при создании отправления\n\nДля получения детальной информации об адресе используйте:\n- `GET /api/v2/business/geo-directory/dictionary/{id}` - получение адреса по ID\n"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/postal_delivery_store_request'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/postal_delivery_store_response'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    postal_delivery_country_response:
+      properties:
+        id:
+          type: integer
+          description: 'идентифика́тор страны'
+        name_ru:
+          type: string
+          description: 'Название страны на русском языке'
+        name_en:
+          type: string
+          description: 'Название страны на английском языке'
+        document:
+          type: object
+          description: 'Тип правила "документ"'
+          properties:
+            ems:
+              type: object
+              description: 'Правила для ems'
+              properties:
+                regular:
+                  type: object
+                  description: 'правила для обычных посылок с типом ems'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 2000
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 1
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 431.78
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                        max:
+                          type: number
+                          example: 10
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+                priority:
+                  type: object
+                  description: 'правила для приоритетных посылок с типом ems'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 0
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 0
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                        max:
+                          type: number
+                          example: 0
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+            smallPackage:
+              type: object
+              description: 'Правила для мелкого пакета'
+              properties:
+                regular:
+                  type: object
+                  description: 'правила для обычных посылок с типом мелкий пакета'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 2000
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 1
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 431.78
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                        max:
+                          type: number
+                          example: 10
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+                priority:
+                  type: object
+                  description: 'правила для приоритетных посылок с типом мелкого пакета'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 0
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 0
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                        max:
+                          type: number
+                          example: 0
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+            smallValuedPackage:
+              type: object
+              description: 'Правила для заказной мелкий пакет с наложенным платежом'
+              properties:
+                regular:
+                  type: object
+                  description: 'правила для обычных посылок с заказной мелкий пакет с наложенным платежом'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 2000
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 1
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 431.78
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                        max:
+                          type: number
+                          example: 10
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+                priority:
+                  type: object
+                  description: 'правила для приоритетных посылок с типом заказной мелкий пакет с наложенным платежом'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 0
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 0
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                        max:
+                          type: number
+                          example: 0
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+        package:
+          type: object
+          description: 'Тип правила "пакет"'
+          properties:
+            ems:
+              type: object
+              description: 'Правила для ems'
+              properties:
+                regular:
+                  type: object
+                  description: 'правила для обычных посылок с типом ems'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 2000
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 1
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 431.78
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                        max:
+                          type: number
+                          example: 10
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+                priority:
+                  type: object
+                  description: 'правила для приоритетных посылок с типом ems'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 0
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 0
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                        max:
+                          type: number
+                          example: 0
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+            smallPackage:
+              type: object
+              description: 'Правила для мелкого пакета'
+              properties:
+                regular:
+                  type: object
+                  description: 'правила для обычных посылок с типом мелкий пакета'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 2000
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 1
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 431.78
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                        max:
+                          type: number
+                          example: 10
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+                priority:
+                  type: object
+                  description: 'правила для приоритетных посылок с типом мелкого пакета'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 0
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 0
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                        max:
+                          type: number
+                          example: 0
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+            smallValuedPackage:
+              type: object
+              description: 'Правила для заказной мелкий пакет с наложенным платежом'
+              properties:
+                regular:
+                  type: object
+                  description: 'правила для обычных посылок с заказной мелкий пакет с наложенным платежом'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 2000
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 1
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 431.78
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0.2
+                        max:
+                          type: number
+                          example: 10
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+                priority:
+                  type: object
+                  description: 'правила для приоритетных посылок с типом заказной мелкий пакет с наложенным платежом'
+                  properties:
+                    maxWeight:
+                      type: integer
+                      example: 0
+                      description: 'максимальный вес'
+                    declareValue:
+                      type: object
+                      description: 'объявленная ценность'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена'
+                        min_with_cash_on_delivery:
+                          type: number
+                          example: 0
+                          description: 'минимальная цена с наложенным платежем'
+                        max:
+                          type: number
+                          example: 0
+                          description: 'максимальная цена'
+                    cashOnDelivery:
+                      type: object
+                      description: 'наложеный платеж'
+                      properties:
+                        min:
+                          type: number
+                          example: 0
+                        max:
+                          type: number
+                          example: 0
+                    simple_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении простое'
+                    sms_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по смс'
+                    email_notification:
+                      type: boolean
+                      description: 'Поддерживает ли уведомление о вручении по email'
+        notify:
+          type: boolean
+          example: 0
+          description: 'есть ли уведомление о доставке (касается международник, не имеет отношения к уведомлению Вайбер/смс или емэйл. эти только для внутрянки)'
+        bulky:
+          type: boolean
+          example: 0
+          description: 'может ли быть негабаритный груз'
+        has_cyrillic:
+          type: boolean
+          example: 1
+          description: 'можно ли заполнять данные об отправителе и получателе на русском'
+        regional_cities:
+          type: array
+          nullable: true
+          description: 'список областных и региональных городов в которые разрешена доставка для емс с указанным временем или “до 10 утра завтрашнего дня”. (список городов прилетает КАПСОМ)'
+          items:
+            type: string
+          example: {  }
+    postal_delivery_country_list_response:
+      properties:
+        id:
+          type: integer
+          description: 'Идентификатор страны'
+        code:
+          type: string
+          description: 'Код страны'
+        names:
+          type: object
+          properties:
+            ru:
+              type: string
+              description: 'Название страны на русском языке'
+            en:
+              type: string
+              description: 'Название страны на английском языке'
+            by:
+              type: string
+              description: 'Название страны на беларуском языке'
+        name:
+          type: string
+          description: 'Название страны'
+    postal_delivery_store_request:
+      type: object
+      description: "Схема запроса для создания почтового отправления.\n\n## Обязательные поля\n\n- `parcel` - информация о посылке (тип, размеры, места отправки/доставки)\n- `addons` - дополнительные услуги и настройки\n- `recipient_contact_widget_data` - данные получателя через адресный виджет\n- `sender_contact_widget_data` - данные отправителя через адресный виджет\n\n## Опциональные поля\n\n- `cp72` - декларация отправления (для международных отправлений)\n- `sender_payment_info` - дополнительные данные для реквизитов отправителя\n\n## Важные особенности\n\n### Автоматическая валидация\nСистема автоматически валидирует данные согласно правилам для указанной страны получателя.\n\n### Адресный виджет\nПоля `*_contact_widget_data` содержат структурированные данные от адресного виджета,\nкоторые автоматически валидируются согласно правилам для конкретной страны.\n\n### Получение адресов из справочника\nДля адресов Беларуси (BY) обязательно получение идентификатора `id` через адресный справочник:\n- `GET /api/v2/business/geo-directory/dictionary?name=address&type=address&search=...`\n- `GET /api/v2/business/geo-directory/dictionary/{id}`\n"
+      required:
+        - parcel
+        - addons
+        - recipient_contact_widget_data
+        - sender_contact_widget_data
+      properties:
+        parcel:
+          required:
+            - measures
+            - departure
+            - arrival
+          type: object
+          nullable: false
+          properties:
+            s10code:
+              type: string
+              nullable: true
+              description: 'с10 код отправления'
+              example: null
+            type:
+              type: string
+              nullable: false
+              description: 'вид отправления'
+              example: ems
+              enum:
+                - package
+                - ems
+                - small_package
+                - small_valued_package
+            attachment_type:
+              type: string
+              example: products
+              enum:
+                - products
+              nullable: false
+              description: 'вид вложения'
+            measures:
+              type: object
+              nullable: false
+              description: 'параметры, единицы измерения отправления'
+              properties:
+                weight:
+                  example: 0
+                  type: integer
+                  nullable: true
+                  description: вес
+            departure:
+              type: object
+              nullable: false
+              description: 'параметры отправки'
+              required:
+                - country
+                - place
+              properties:
+                country:
+                  example: BY
+                  type: string
+                  enum:
+                    - BY
+                  description: страна
+                  nullable: false
+                place:
+                  example: post_office
+                  type: string
+                  enum:
+                    - post_office
+                  description: 'место отправки'
+                  nullable: false
+                place_uuid:
+                  example: null
+                  type: string
+                  nullable: true
+                  description: 'идентифика́тор места отправки'
+            arrival:
+              type: object
+              description: 'параметры места доставки'
+              nullable: false
+              required:
+                - country
+                - place
+              properties:
+                country:
+                  example: BY
+                  type: string
+                  description: страна
+                  nullable: false
+                place:
+                  example: post_office
+                  type: string
+                  enum:
+                    - post_office
+                  description: 'место доставки'
+                  nullable: false
+                place_uuid:
+                  type: string
+                  nullable: true
+                  description: 'идентифика́тор места доставки'
+        addons:
+          type: object
+          nullable: false
+          required:
+            - priority_parcel
+            - attachment_inventory
+            - paid_shipping
+            - careful_fragile
+            - bulky
+            - ponderous
+            - payment_upon_receipt
+            - hand_over_personally
+            - return_of_documents
+            - open_upon_delivery
+            - delivery_to_work
+          properties:
+            declared_value:
+              type: object
+              nullable: true
+              description: ОЦ
+              properties:
+                currency:
+                  type: string
+                  description: 'валюта ОЦ'
+                  enum:
+                    - BYN
+                value:
+                  type: number
+                  description: 'Значение ОЦ'
+            cash_on_delivery:
+              type: object
+              nullable: true
+              description: НП
+              properties:
+                currency:
+                  type: string
+                  description: 'валюта НП'
+                  enum:
+                    - BYN
+                value:
+                  type: number
+                  description: 'Значение НП'
+            IOSS:
+              type: string
+              nullable: true
+              description: 'Идентификационный номер IOSS'
+            registered_notification:
+              type: string
+              nullable: true
+              description: 'Уведомление о доставке заказное'
+            simple_notification:
+              example: false
+              type: boolean
+              nullable: false
+              description: 'Уведомление о доставке простое'
+            sms_notification:
+              type: boolean
+              nullable: false
+              description: 'Уведомление о доставке по viber или sms'
+            email_notification:
+              example: false
+              type: boolean
+              nullable: false
+              description: 'Уведомление о доставке по email'
+            priority_parcel:
+              description: 'Приоритетное отправление'
+              type: boolean
+              nullable: false
+            attachment_inventory:
+              description: 'Опись вложения'
+              type: boolean
+              nullable: false
+            paid_shipping:
+              description: 'Оплаченная доставка'
+              type: boolean
+              nullable: false
+            careful_fragile:
+              description: 'Осторожно! хрупкое'
+              type: boolean
+              nullable: false
+            bulky:
+              description: Крупногабаритное
+              type: boolean
+              nullable: false
+            ponderous:
+              description: Тяжеловесное
+              type: boolean
+              nullable: false
+            payment_upon_receipt:
+              description: 'Оплата при получении'
+              type: boolean
+              nullable: false
+            hand_over_personally:
+              description: 'Вручить лично'
+              type: boolean
+              nullable: false
+            return_of_documents:
+              description: 'Возврат документов'
+              type: boolean
+              nullable: false
+            open_upon_delivery:
+              description: 'Вскрыть при вручении'
+              type: boolean
+              nullable: false
+            delivery_to_work:
+              description: 'Доставка по месту работы'
+              type: boolean
+              nullable: false
+            time_of_delivery:
+              description: 'Время доставки'
+              type: object
+              nullable: true
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - level1
+                    - level2
+                    - level3
+                    - level4
+                  description: 'тип временного интервала'
+                time_interval:
+                  description: 'временной интервал'
+                  type: object
+                  properties:
+                    to:
+                      description: до
+                      type: string
+                      default: '10:10'
+                    from:
+                      description: от
+                      type: string
+                      default: '08:10'
+        cp72:
+          type: array
+          example: {  }
+          description: 'декларация отправления'
+          required:
+            - licences
+            - certificates
+          items:
+            type: object
+            properties:
+              name:
+                type: object
+                description: 'название вложение в декларации'
+                required:
+                  - name
+                  - unit
+                  - price
+                  - count
+                  - weight
+                properties:
+                  name:
+                    required:
+                      - local
+                    type: object
+                    description: 'Описание вложения'
+                    properties:
+                      local:
+                        type: string
+                        description: название
+                  unit:
+                    type: object
+                    description: 'Единицы измерения вложения'
+                    properties:
+                      local:
+                        type: string
+                        description: название
+                      en:
+                        type: string
+                        description: 'название на латинице'
+                  price:
+                    required:
+                      - currency
+                      - value
+                    type: object
+                    description: Стоимость
+                    properties:
+                      currency:
+                        type: string
+                        maxLength: 3
+                        description: валюта
+                      value:
+                        type: number
+                        description: значение
+                  count:
+                    type: integer
+                    description: количество
+                  weight:
+                    example: 0
+                    type: integer
+                    description: вес
+                  code:
+                    type: string
+                    description: 'код вложения'
+                    nullable: true
+                  country:
+                    type: string
+                    description: 'код страны'
+                    nullable: true
+          properties:
+            price:
+              type: object
+              properties:
+                currency:
+                  type: string
+                  nullable: false
+                  description: валюта
+                value:
+                  type: number
+                  nullable: false
+                  description: 'значение цены'
+            category:
+              type: string
+              enum:
+                - gift
+                - documents
+                - sample
+                - returned_goods
+                - merchandise
+                - other
+            explanation:
+              nullable: true
+              type: string
+              maxLength: 30
+            comments:
+              nullable: true
+              type: string
+              description: комментарий
+            invoice:
+              nullable: true
+              type: string
+              description: 'номер декларации'
+            licences:
+              type: array
+              nullable: true
+              description: 'список документов'
+              items:
+                type: string
+              example: {  }
+            certificates:
+              type: array
+              nullable: true
+              description: 'список сертификатов'
+              items:
+                type: string
+              example: {  }
+        sender_contact_widget_data:
+          $ref: '#/components/schemas/ContactDTO'
+        recipient_contact_widget_data:
+          $ref: '#/components/schemas/ContactDTO'
+        sender_payment_info:
+          $ref: '#/components/schemas/PaymentInfoDTO'
+    postal_delivery_store_response:
+      properties:
+        id:
+          type: integer
+          description: 'идентифика́тор отправления'
+          example: 14991
+        data:
+          type: object
+          description: 'данные отправления'
+          properties:
+            parcel:
+              type: object
+              description: 'Информация о почтовом отправлении'
+              properties:
+                s10code:
+                  type: string
+                  nullable: true
+                  description: 'с10 код отправления'
+                type:
+                  type: string
+                  nullable: false
+                  description: 'вид отправления'
+                  enum:
+                    - package
+                    - ems
+                    - small_package
+                    - small_valued_package
+                attachment_type:
+                  type: string
+                  enum:
+                    - products
+                  nullable: false
+                  description: 'вид вложения'
+                measures:
+                  type: object
+                  nullable: false
+                  description: 'параметры, единицы измерения отправления'
+                  properties:
+                    weight:
+                      type: integer
+                      nullable: true
+                      description: вес
+                      example: 312
+                    long:
+                      type: number
+                      description: длинна
+                    height:
+                      type: number
+                      description: высота
+                    width:
+                      type: number
+                      description: широта
+                departure:
+                  type: object
+                  nullable: false
+                  description: 'параметры отправки'
+                  properties:
+                    country:
+                      type: string
+                      enum:
+                        - BY
+                      description: страна
+                      nullable: false
+                    place:
+                      type: string
+                      enum:
+                        - post_office
+                      description: 'место отправки'
+                      nullable: false
+                    place_uuid:
+                      type: string
+                      nullable: true
+                      description: 'идентифика́тор места отправки'
+                arrival:
+                  type: object
+                  description: 'параметры места доставки'
+                  nullable: false
+                  properties:
+                    country:
+                      type: string
+                      description: страна
+                      nullable: false
+                    place:
+                      type: string
+                      enum:
+                        - post_office
+                      description: 'место доставки'
+                      nullable: false
+                    place_uuid:
+                      type: string
+                      nullable: true
+                      description: 'идентифика́тор места доставки'
+                notification:
+                  type: integer
+                  description: 'оповещение посылки'
+                  enum:
+                    - 0
+                    - 1
+                    - 2
+                    - 5
+            addons:
+              type: object
+              nullable: false
+              properties:
+                declared_value:
+                  type: object
+                  nullable: true
+                  description: ОЦ
+                  properties:
+                    currency:
+                      type: string
+                      description: 'валюта ОЦ'
+                      enum:
+                        - BYN
+                    value:
+                      type: number
+                      description: 'Значение ОЦ'
+                cash_on_delivery:
+                  type: object
+                  nullable: true
+                  description: НП
+                  properties:
+                    currency:
+                      type: string
+                      description: 'валюта НП'
+                      enum:
+                        - BYN
+                    value:
+                      type: number
+                      description: 'Значение НП'
+                IOSS:
+                  type: string
+                  nullable: true
+                  description: 'Идентификационный номер IOSS'
+                registered_notification:
+                  type: string
+                  nullable: true
+                  description: 'Уведомление о доставке заказное'
+                simple_notification:
+                  example: false
+                  type: boolean
+                  nullable: false
+                  description: 'Уведомление о доставке простое'
+                sms_notification:
+                  example: false
+                  type: boolean
+                  nullable: false
+                  description: 'Уведомление о доставке по viber или sms'
+                email_notification:
+                  example: false
+                  type: boolean
+                  nullable: false
+                  description: 'Уведомление о доставке по email'
+                priority_parcel:
+                  description: 'Приоритетное отправление'
+                  type: boolean
+                  nullable: false
+                attachment_inventory:
+                  description: 'Опись вложения'
+                  type: boolean
+                  nullable: false
+                paid_shipping:
+                  description: 'Оплаченная доставка'
+                  type: boolean
+                  nullable: false
+                careful_fragile:
+                  description: 'Осторожно! хрупкое'
+                  type: boolean
+                  nullable: false
+                bulky:
+                  description: Крупногабаритное
+                  type: boolean
+                  nullable: false
+                ponderous:
+                  description: Тяжеловесное
+                  type: boolean
+                  nullable: false
+                payment_upon_receipt:
+                  description: 'Оплата при получении'
+                  type: boolean
+                  nullable: false
+                hand_over_personally:
+                  description: 'Вручить лично'
+                  type: boolean
+                  nullable: false
+                return_of_documents:
+                  description: 'Возврат документов'
+                  type: boolean
+                  nullable: false
+                open_upon_delivery:
+                  description: 'Вскрыть при вручении'
+                  type: boolean
+                  nullable: false
+                delivery_to_work:
+                  description: 'Доставка по месту работы'
+                  type: boolean
+                  nullable: false
+                time_of_delivery:
+                  description: 'Время доставки'
+                  type: object
+                  nullable: true
+                  properties:
+                    type:
+                      type: string
+                      enum:
+                        - level1
+                        - level2
+                        - level3
+                        - level4
+                      description: 'тип временного интервала'
+                    time_interval:
+                      description: 'временной интервал'
+                      type: object
+                      properties:
+                        to:
+                          description: до
+                          type: string
+                          example: '10:10'
+                        from:
+                          description: от
+                          type: string
+                          example: '01:10'
+                non_delivered:
+                  type: string
+                  description: 'не доставлено'
+                  enum:
+                    - refusal
+                    - priority
+                    - regular
+            cp72:
+              type: array
+              description: 'декларация отправления'
+              items:
+                type: object
+                properties:
+                  name:
+                    type: object
+                    description: 'название вложение в декларации'
+                    properties:
+                      name:
+                        type: object
+                        description: 'Описание вложения'
+                        properties:
+                          local:
+                            type: string
+                            description: название
+                      unit:
+                        type: object
+                        description: 'Единицы измерения вложения'
+                        properties:
+                          local:
+                            type: string
+                            description: название
+                          en:
+                            type: string
+                            description: 'название на латинице'
+                      price:
+                        type: object
+                        description: Стоимость
+                        properties:
+                          currency:
+                            type: string
+                            maxLength: 3
+                            description: валюта
+                          value:
+                            type: number
+                            description: значение
+                      code:
+                        type: string
+                        description: 'код вложения'
+                        nullable: true
+                      country:
+                        type: string
+                        description: 'код страны'
+                        nullable: true
+                  price:
+                    type: object
+                    properties:
+                      currency:
+                        type: string
+                        nullable: false
+                        description: валюта
+                      value:
+                        type: number
+                        nullable: false
+                        description: 'значение цены'
+                  category:
+                    type: string
+                    enum:
+                      - gift
+                      - documents
+                      - sample
+                      - returned_goods
+                      - merchandise
+                      - other
+                  explanation:
+                    nullable: true
+                    type: string
+                    maxLength: 30
+                  comments:
+                    nullable: true
+                    type: string
+                    description: комментарий
+                  invoice:
+                    nullable: true
+                    type: string
+                    description: 'номер декларации'
+                  licences:
+                    type: array
+                    nullable: true
+                    description: 'список документов'
+                    items:
+                      type: string
+                    example: {  }
+            plOrder:
+              type: object
+              nullable: false
+              description: 'данные о почтомате'
+              properties:
+                cellType:
+                  type: string
+                  description: 'тип ячейки'
+                  enum:
+                    - S
+                    - M
+                    - L
+                cellUuid:
+                  type: string
+                  nullable: true
+                  description: 'UUid ячейки'
+                lockerUuid:
+                  type: string
+                  nullable: true
+                  description: 'Uuid почтомата'
+                parcelUuid:
+                  type: string
+                  nullable: true
+                  description: 'Uuid отправления'
+            labels:
+              type: array
+              description: 'доступные шаблоны'
+              items:
+                type: string
+            user_id:
+              type: integer
+              description: 'идентифика́тор пользователя'
+            created_at:
+              type: string
+              description: 'дата создания'
+            updated_at:
+              type: string
+              description: 'дата обновления'
+        sender_contact_widget_data:
+          $ref: '#/components/schemas/ContactDTO'
+        recipient_contact_widget_data:
+          $ref: '#/components/schemas/ContactDTO'
+        sender_payment_info:
+          $ref: '#/components/schemas/PaymentInfoDTO'
+    ContactDTO:
+      type: object
+      description: "Схема контактных данных для адресного виджета.\n\n## Структура\n\n- `person` - персональные данные контакта\n- `address` - адресные данные (один из типов адресов)\n\n## Автоматическое обогащение адреса (BY)\n\nПри передаче `id` из геосправочника для адресов BY достаточно отправить\nтолько пользовательские данные. Остальные поля (`postcode`, `region`, `district`,\n`city`, `city_type`, `street`, `street_type`) обогащаются автоматически по `id`.\n\n**Минимальный адрес BY:**\n```json\n{\n  \"id\": 12345, \"type\": \"address\", \"country_code\": \"BY\",\n  \"house\": \"10\", \"block\": \"1\", \"flat\": \"15\"\n}\n```\n\n## Типы адресов\n\n### Республиканские адреса (BY)\n- `RepublicAddressDTO` - обычный адрес (`type: address`)\n- `RepublicOnDemandAddressDTO` - до востребования (`type: on_demand`)\n- `RepublicSubscriberBoxAddressDTO` - абонентский ящик (`type: subscriber_box`)\n\n### Международные адреса\n- `InternationalAddressDTO` - адрес для других стран (обязательны: `country_code`, `postcode`, `city`, `address_line`)\n\n## Получение идентификатора адреса\n\nДля адресов BY идентификатор `id` получается через геосправочник:\n- `GET /api/v2/business/geo-directory/dictionary?name=address&type=address&search=...`\n- `GET /api/v2/business/geo-directory/dictionary/{id}`\n"
+      properties:
+        address:
+          oneOf:
+            -
+              $ref: '#/components/schemas/RepublicAddressDTO'
+            -
+              $ref: '#/components/schemas/RepublicOnDemandAddressDTO'
+            -
+              $ref: '#/components/schemas/RepublicSubscriberBoxAddressDTO'
+            -
+              $ref: '#/components/schemas/InternationalAddressDTO'
+        person:
+          $ref: '#/components/schemas/PersonDTO'
+    PersonDTO:
+      type: object
+      discriminator:
+        propertyName: type
+        mapping:
+          legal: '#/components/schemas/LegalPersonDTO'
+          individual: '#/components/schemas/IndividualPersonDTO'
+          individual_entrepreneur: '#/components/schemas/IndividualEntrepreneurPersonDTO'
+      oneOf:
+        -
+          $ref: '#/components/schemas/LegalPersonDTO'
+        -
+          $ref: '#/components/schemas/IndividualPersonDTO'
+        -
+          $ref: '#/components/schemas/IndividualEntrepreneurPersonDTO'
+    LegalPersonDTO:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - legal
+        organization_name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+    IndividualPersonDTO:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - individual
+        first_name:
+          type: string
+        last_name:
+          type: string
+        second_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+    IndividualEntrepreneurPersonDTO:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - individual_entrepreneur
+        organization_name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+    RepublicAddressDTO:
+      type: object
+      description: "Республиканский адрес (BY), тип address.\n\n## Минимальный набор полей\n\nПри передаче `id` из геосправочника достаточно отправить только те поля,\nкоторые не содержатся в справочнике (пользовательские данные):\n\n| Поле | Обязательность | Описание |\n|------|---------------|----------|\n| `id` | **обязательное** | Идентификатор адреса из геосправочника |\n| `type` | **обязательное** | Тип адреса (`address`, `on_demand`, `subscriber_box`) |\n| `country_code` | **обязательное** | Код страны (всегда `BY`) |\n| `house` | **обязательное** | Номер дома |\n| `block` | опциональное | Корпус |\n| `flat` | опциональное | Квартира |\n\nОстальные поля (`postcode`, `region`, `district`, `city`, `city_type`, `street`, `street_type` и др.)\n**автоматически обогащаются** из геосправочника по переданному `id`.\nИх можно не передавать.\n\n## Получение идентификатора адреса\n\nИдентификатор `id` получается через адресный справочник:\n- `GET /api/v2/business/geo-directory/dictionary?name=address&type=address&search=...` - поиск адресов\n- `GET /api/v2/business/geo-directory/dictionary/{id}` - получение конкретного адреса по ID\n\n## Минимальный пример\n\n```json\n{\n  \"id\": 12345,\n  \"type\": \"address\",\n  \"country_code\": \"BY\",\n  \"house\": \"10\",\n  \"block\": \"1\",\n  \"flat\": \"15\"\n}\n```\n"
+      required:
+        - id
+        - type
+        - country_code
+        - house
+      properties:
+        id:
+          type: integer
+          description: 'Идентификатор адреса из геосправочника'
+          example: 12345
+        type:
+          type: string
+          enum:
+            - address
+          description: 'Тип адреса'
+        country_code:
+          type: string
+          enum:
+            - BY
+          description: 'Код страны'
+        house:
+          type: string
+          description: 'Номер дома'
+          example: '10'
+        block:
+          type: string
+          nullable: true
+          description: Корпус
+          example: '1'
+        flat:
+          type: string
+          nullable: true
+          description: Квартира
+          example: '15'
+        postcode:
+          type: string
+          nullable: true
+          description: 'Почтовый индекс (обогащается из справочника по id)'
+        region:
+          type: string
+          nullable: true
+          description: 'Область (обогащается из справочника по id)'
+        district:
+          type: string
+          nullable: true
+          description: 'Район (обогащается из справочника по id)'
+        city_type:
+          type: string
+          nullable: true
+          description: 'Тип населённого пункта (обогащается из справочника по id)'
+        city:
+          type: string
+          nullable: true
+          description: 'Населённый пункт (обогащается из справочника по id)'
+        street_type:
+          type: string
+          nullable: true
+          description: 'Тип улицы (обогащается из справочника по id)'
+        street:
+          type: string
+          nullable: true
+          description: 'Улица (обогащается из справочника по id)'
+        cell_number:
+          type: string
+          nullable: true
+        full_address:
+          type: string
+          nullable: true
+          description: 'Полный адрес (обогащается из справочника по id)'
+        floor:
+          type: string
+          nullable: true
+        entrance:
+          type: string
+          nullable: true
+        door_code:
+          type: string
+          nullable: true
+        latitude:
+          type: string
+          nullable: true
+        longitude:
+          type: string
+          nullable: true
+    RepublicOnDemandAddressDTO:
+      type: object
+      description: 'Республиканский адрес (BY), тип on_demand'
+      properties:
+        postcode:
+          type: string
+        country_code:
+          type: string
+          enum:
+            - BY
+        region:
+          type: string
+          nullable: true
+        district:
+          type: string
+          nullable: true
+        latitude:
+          type: string
+          nullable: true
+        longitude:
+          type: string
+          nullable: true
+        city:
+          type: string
+        street:
+          type: string
+        house:
+          type: string
+        type:
+          type: string
+          enum:
+            - on_demand
+        city_type:
+          type: string
+          nullable: true
+        street_type:
+          type: string
+          nullable: true
+        full_address:
+          type: string
+        block:
+          type: string
+          nullable: true
+        flat:
+          type: string
+          nullable: true
+        floor:
+          type: string
+          nullable: true
+        entrance:
+          type: string
+          nullable: true
+        door_code:
+          type: string
+          nullable: true
+    RepublicSubscriberBoxAddressDTO:
+      type: object
+      description: 'Республиканский адрес (BY), тип subscriber_box'
+      properties:
+        country_code:
+          type: string
+          enum:
+            - BY
+        latitude:
+          type: string
+          nullable: true
+        longitude:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        district:
+          type: string
+          nullable: true
+        postcode:
+          type: string
+        city:
+          type: string
+        street:
+          type: string
+        house:
+          type: string
+        type:
+          type: string
+          enum:
+            - on_demand
+        city_type:
+          type: string
+          nullable: true
+        street_type:
+          type: string
+          nullable: true
+        full_address:
+          type: string
+        cell_number:
+          type: string
+        block:
+          type: string
+          nullable: true
+        flat:
+          type: string
+          nullable: true
+        floor:
+          type: string
+          nullable: true
+        entrance:
+          type: string
+          nullable: true
+        door_code:
+          type: string
+          nullable: true
+    InternationalAddressDTO:
+      type: object
+      description: "Международный адрес (country_code != BY).\n\n## Обязательные поля\n\n- `country_code` - код страны (например, \"RU\", \"US\")\n- `postcode` - почтовый индекс\n- `city` - название города\n- `address_line` - адресная строка\n\n## Опциональные поля\n\n- `flat` - номер квартиры/офиса\n- `latitude`, `longitude` - координаты\n- `full_address` - полный адрес в текстовом виде\n\n## Автоматическая валидация\n\nСистема автоматически валидирует международные адреса согласно правилам для указанной страны.\n\n## Использование в адресном виджете\n\nВиджет использует правила валидации для:\n- Определения обязательных полей для конкретной страны\n- Валидации введенных данных согласно международным стандартам\n- Отображения подсказок на соответствующем языке\n\n## Особенности международных адресов\n\n- Структура адреса может отличаться в зависимости от страны\n- Некоторые страны требуют дополнительные поля\n- Рекомендуется использовать `full_address` для сложных адресов\n"
+      properties:
+        postcode:
+          type: string
+        country_code:
+          type: string
+          not:
+            enum:
+              - BY
+        latitude:
+          type: string
+          nullable: true
+        longitude:
+          type: string
+          nullable: true
+        city:
+          type: string
+        flat:
+          type: string
+          nullable: true
+        address_line:
+          type: string
+          nullable: true
+        full_address:
+          type: string
+    PaymentInfoDTO:
+      type: object
+      nullable: true
+      properties:
+        taxpayer_number:
+          type: string
+          minLength: 9
+          maxLength: 9
+        bank:
+          type: string
+        IBAN:
+          type: string
+        BIC:
+          type: string

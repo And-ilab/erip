@@ -1,0 +1,458 @@
+openapi: 3.0.0
+info:
+  title: 'API справочной информации'
+  description: 'Позволяет осуществить проверку правильности индексов и адресов, а также автоподбор индекса по адресу, адресов по индексу, найти все отделения почтовой связи, осуществляющие доставку, для определенного индекса.'
+  version: 1.0.0
+servers:
+  -
+    url: 'https://api.belpost.by/api/v1/business'
+security:
+  -
+    bearerAuth: {  }
+paths:
+  /geo-directory/search-address:
+    get:
+      summary: 'Поиск адресов по строке'
+      description: 'Принимает строку с адресом в произвольной форме. Возвращает найденные адреса (до 50 записей). Номера зданий указываются без пробелов, “номер здания””литера””корпус”. Литера заглавная, “корпус” (“корп”, ““кор””, “к”) заменяется на “/”. Пример “город Минск улица Автодоровская 3Е корпус 4” должно быть преобразовано в “город Минск улица Автодоровская 3Е/4”.Если у вас есть четко определенные город, улица (переулок, проспект и т.д.) и, опционально, номер здания - лучше использовать “поиск индекса”'
+      parameters:
+        -
+          name: search
+          in: query
+          description: 'Поисковый запрос'
+          required: true
+          example: 'Минск, Коласа'
+      responses:
+        200:
+          description: 'Адреса найдены'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/address_response'
+              example:
+                data:
+                  -
+                    postcode: 220013
+                    region: ''
+                    district: ''
+                    city: Минск
+                    city_type: город
+                    buildings: '4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15'
+                    street: 'Коласа Якуба'
+                    street_type: переулок
+                    short_address: '220013, город Минск, переулок Коласа Якуба'
+                  -
+                    postcode: 220013
+                    region: ''
+                    district: ''
+                    city: Минск
+                    city_type: город
+                    buildings: '30, 32, 34, 34Б, 36, 37, 38, 39, 40, 41, 42, 43к1, 43к2, 45к1, 45к2, 45к3, 47к1, 47к2'
+                    street: 'Коласа Якуба'
+                    street_type: улица
+                    short_address: '220013, город Минск, улица Коласа Якуба'
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        422:
+          description: 'Неверное значение поля search'
+          content:
+            application/json:
+              example:
+                message: 'The given data was invalid.'
+                errors:
+                  search:
+                    - 'Поле search имеет ошибочный формат.'
+  /geo-directory/postcode:
+    get:
+      summary: 'Поиск индекса'
+      description: 'Номера зданий указываются без пробелов, “номер здания””литера””корпус”. Литера заглавная, “корпус” (“корп”, ““кор””, ) заменяется на “/” или “к”. Пример “3Е корпус 4” должно быть преобразовано в “3Е/4” или “3Ек4”.'
+      parameters:
+        -
+          name: city
+          in: query
+          description: 'Наименование города'
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: string
+          example: Витебск
+        -
+          name: street
+          in: query
+          description: 'Наименование улицы'
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: string
+          example: Ильинского
+        -
+          name: building
+          in: query
+          description: 'Номер здания'
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: string
+          example: 51/1
+        -
+          name: limit
+          in: query
+          description: 'Ограничение на количество записей в выдаче, от 1 до 200'
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: integer
+          example: 50
+      responses:
+        200:
+          description: 'Адреса найдены'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/address_response'
+              example:
+                data:
+                  -
+                    postcode: 220013
+                    region: ''
+                    district: ''
+                    city: Минск
+                    city_type: город
+                    buildings: '4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15'
+                    street: 'Коласа Якуба'
+                    street_type: переулок
+                    short_address: '220013, город Минск, переулок Коласа Якуба'
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        422:
+          description: 'Неверный формат поля city / street / building / limit'
+          content:
+            application/json:
+              example:
+                message: 'The given data was invalid.'
+                errors:
+                  search:
+                    - 'Поле {column_name} имеет ошибочный формат.'
+  /geo-directory/ops:
+    get:
+      summary: 'Поиск отделения почтовой связи по индексу'
+      description: 'Осуществляет поиск ОПС осуществляющих прием и выдачу отправлений.'
+      parameters:
+        -
+          name: postcode
+          in: query
+          description: 'индекс, 6 цифр'
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: number
+          example: 220001
+      responses:
+        200:
+          description: 'опс найдено'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ops_response'
+              example:
+                data:
+                  -
+                    address: '202101, Минская область обл., Борисовский р-н Борисов-мотодоставка Велятичи'
+                    postcode: '202101'
+                    city: Борисовский
+                    region: 'Минская область'
+                    street: ''
+                    phone: ''
+                    phone_delivery: ''
+                    name: 'Борисов-мотодоставка Велятичи '
+                    longitude: 0
+                    latitude: 0
+                    timetable:
+                      -
+                        type: monday_friday
+                        from: '09:00'
+                        to: 1050
+                      -
+                        type: saturday_sunday
+                        from: '09:00'
+                        to: 1050
+                      -
+                        type: holiday
+                        from: '09:00'
+                        to: 1050
+                    seconds_to_close: 6515
+                    time_status:
+                      -
+                        status: opened
+                        close_in: 6515
+                        close_at: 1685554200
+                        closed: open_in
+                        opened: close_in
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        422:
+          description: 'Неверный формат поля postcode'
+          content:
+            application/json:
+              example:
+                message: 'The given data was invalid.'
+                errors:
+                  search:
+                    - 'Поле postcode имеет ошибочный формат.'
+  /geo-directory/addresses:
+    get:
+      summary: 'Поиск адресов по индексу'
+      description: 'Осуществляет поиск адресов принадлежащих индексу'
+      parameters:
+        -
+          name: postcode
+          in: query
+          description: 'индекс, 6 цифр'
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: number
+          example: 220001
+      responses:
+        200:
+          description: 'Адреса найдены'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/address_response'
+              example:
+                -
+                  postcode: 220013
+                  region: ''
+                  district: ''
+                  city: Минск
+                  city_type: город
+                  buildings: '4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15'
+                  street: 'Коласа Якуба'
+                  street_type: переулок
+                  short_address: '220013, город Минск, переулок Коласа Якуба'
+                -
+                  postcode: 220013
+                  region: ''
+                  district: ''
+                  city: Минск
+                  city_type: город
+                  buildings: '30, 32, 34, 34Б, 36, 37, 38, 39, 40, 41, 42, 43к1, 43к2, 45к1, 45к2, 45к3, 47к1, 47к2'
+                  street: 'Коласа Якуба'
+                  street_type: улица
+                  short_address: '220013, город Минск, улица Коласа Якуба'
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        422:
+          description: 'Неверный формат поля postcode'
+          content:
+            application/json:
+              example:
+                message: 'The given data was invalid.'
+                errors:
+                  search:
+                    - 'Поле postcode имеет ошибочный формат.'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    address_response:
+      properties:
+        postcode:
+          type: string
+          description: Индекс
+          nullable: true
+        city:
+          type: string
+          description: Город
+          nullable: true
+        district:
+          type: string
+          description: Район
+          nullable: true
+        region:
+          type: string
+          description: Регион
+          nullable: true
+        street:
+          type: string
+          description: Улица
+          nullable: true
+        buildings:
+          type: string
+          description: Дома
+          nullable: true
+        city_type:
+          type: string
+          description: 'Тип населенного'
+          nullable: true
+        street_type:
+          type: string
+          description: 'Тип улицы'
+          nullable: true
+        short_address:
+          type: string
+          description: Адрес
+          nullable: false
+    ops_response:
+      properties:
+        address:
+          type: string
+          description: 'Адрес отделения'
+          nullable: true
+        postcode:
+          type: string
+          description: 'Индекс отделения'
+          nullable: true
+        city:
+          type: string
+          description: 'Город отделения'
+          nullable: true
+        district:
+          type: string
+          description: 'Район отделения'
+          nullable: true
+        region:
+          type: string
+          description: 'Регион отделения'
+          nullable: true
+        street:
+          type: string
+          description: 'Улица отделения'
+          nullable: true
+        house:
+          type: string
+          description: 'Дом отделения'
+          nullable: true
+        building:
+          type: string
+          description: 'Корпус отделения'
+          nullable: true
+        city_type:
+          type: string
+          description: 'Тип населенного пункта отделения'
+          nullable: true
+        street_type:
+          type: string
+          description: 'Тип улицы отделения'
+          nullable: true
+        phone:
+          type: string
+          description: 'Телефон отделения'
+          nullable: true
+        phone_delivery:
+          type: string
+          description: 'Телефон доставки отделения'
+          nullable: true
+        name:
+          type: string
+          description: 'Название отделения'
+          nullable: true
+        ems_delivery_mode:
+          type: string
+          description: 'Правило доставки ems отделения'
+          nullable: true
+        ems_departure_time:
+          type: string
+          description: 'Время доставки ems отделения'
+          nullable: true
+        longitude:
+          type: number
+          description: 'долгота отделения'
+          nullable: false
+        latitude:
+          type: number
+          description: 'штрота отделения'
+          nullable: false
+        timetable:
+          type: array
+          description: 'Режим работы отделения'
+          nullable: false
+          items:
+            $ref: '#/components/schemas/timetable'
+        seconds_to_close:
+          type: integer
+          description: 'Режим работы отделения'
+        time_status:
+          $ref: '#/components/schemas/ops_response_time_status'
+    timetable:
+      properties:
+        type:
+          type: string
+          enum:
+            - monday_friday
+            - saturday_sunday
+            - holiday
+        from:
+          type: string
+          nullable: true
+        to:
+          type: string
+          nullable: true
+        lunch_to:
+          type: string
+          nullable: true
+        lunch_from:
+          type: string
+          nullable: true
+    ops_response_time_status:
+      type: object
+      properties:
+        status:
+          type: string
+          description: статус
+          enum:
+            - opened
+            - closed
+        open_in:
+          type: integer
+          description: 'через сколько открытие'
+          nullable: true
+        open_at:
+          type: string
+          description: 'время открытия'
+          nullable: true
+        close_in:
+          type: integer
+          description: 'через сколько закрытие'
+          nullable: true
+        close_at:
+          type: string
+          description: 'время закрытия'
+          nullable: true
+        closed:
+          type: string
+          description: 'Статус ожидания открытия отделения'
+          enum:
+            - open_in
+            - open_at
+        opened:
+          type: string
+          description: 'Статус ожидания закрытия отделения'
+          enum:
+            - close_in
+            - close_at
+      description: 'Стутус времени отделения'

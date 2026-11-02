@@ -1,0 +1,3058 @@
+openapi: 3.0.0
+info:
+  title: 'API партионных отправлений'
+  version: 1.1.0
+servers:
+  -
+    url: 'https://api.belpost.by'
+security:
+  -
+    bearerAuth: {  }
+tags:
+  -
+    name: Получатели
+  -
+    name: Партии
+  -
+    name: Расписки
+  -
+    name: 'Отправления внутри партии'
+  -
+    name: 'Вложение в отправлении'
+paths:
+  /api/v1/business/batch-mailing/recipient:
+    get:
+      tags:
+        - Получатели
+      summary: 'Найти всех получателей'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - legal
+              - individual
+              - individual_entrepreneur
+            description: 'тип получателя'
+            example: individual_entrepreneur
+            nullable: true
+        -
+          name: perPage
+          in: query
+          required: false
+          schema:
+            type: integer
+            description: 'количество на странице'
+            example: 16
+            minimum: 5
+            maximum: 100
+            nullable: true
+        -
+          name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            description: 'поисковая строка'
+            example: Иванов
+            maxLength: 256
+            nullable: true
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient_index'
+    post:
+      tags:
+        - Получатели
+      summary: 'Создать получателя'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/batch_mailing_recipient_body'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200'
+  '/api/v1/business/batch-mailing/recipient/{id}':
+    get:
+      tags:
+        - Получатели
+      summary: 'Найти получателя по его ID'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient_index_data'
+    post:
+      tags:
+        - Получатели
+      summary: 'Изменить получателя'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/recipient_id_body'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient_index_data'
+  /api/v1/business/batch-mailing/list:
+    get:
+      tags:
+        - Партии
+      summary: 'Найти все партии'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: status
+          in: query
+          schema:
+            type: string
+            nullable: true
+            enum:
+              - uncommitted
+              - committed
+              - in_ops
+            description: 'Статус отправления'
+        -
+          name: perPage
+          in: query
+          schema:
+            type: integer
+            minimum: 5
+            maximum: 50
+            nullable: true
+            description: 'количество элементов на странице'
+        -
+          name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            nullable: true
+            description: 'номер страницы'
+        -
+          name: search
+          in: query
+          schema:
+            type: string
+            nullable: true
+            maxLength: 256
+            description: пойск
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing_items_index'
+    post:
+      tags:
+        - Партии
+      summary: 'Создать партию'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Create_batch_mailing'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing'
+  '/api/v1/business/batch-mailing/list/{id}':
+    get:
+      tags:
+        - Партии
+      summary: 'Найти партию по ее ID'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing'
+    post:
+      tags:
+        - Партии
+      summary: 'Обновление партии'
+      description: "Обновляет несформированную партию (статус `uncommitted`).\n\n## Смена вида отправления (`postal_delivery_type`)\n\nВид отправления **нельзя сменить, если после изменения часть признаков партии станет\nнедопустимой для нового вида**. Проверяется итоговое состояние партии: значения из запроса,\nналоженные на уже сохранённые. Непереданные поля берутся из партии — то есть отказ возможен\nи тогда, когда «проблемное» поле в запрос не попало.\n\nУчаствуют в проверке (те же правила, что и при создании партии):\n\n| Поле | Ограничение по виду отправления |\n|---|---|\n| `postal_items_in_ops` | `false` (приём отправлений не в ОПС) допустим только для `ecommerce_standard`, `ecommerce_elite`, `ecommerce_express`, `marketplace` |\n| `is_declared_value` | `true` недопустим для `ordered_postcard`, `ordered_letter`, `ordered_parcel_post`, `ordered_small_package`, `package`, а также при `negotiated_rate = true`; для `small_package_declare_value` и `package_declare_value` при `negotiated_rate = false` обязателен `true` |\n\nПример отказа: партия создана как `ecommerce_standard` с `postal_items_in_ops: false`;\nпопытка сменить вид на `ecommerce_optima` (где приём не в ОПС не предусмотрен) возвращает\n`422`, вид отправления не меняется.\n\nЧтобы всё-таки сменить вид, передайте корректные для нового вида значения этих полей\n**в том же запросе** (например `postal_delivery_type: ecommerce_optima` вместе с\n`postal_items_in_ops: true`) — либо создайте новую партию.\n\nОшибки приходят и на конкретное поле, и на `postal_delivery_type` (сводка со списком\nнесовместимых полей). Проверка не выполняется, если запрос не содержит ни\n`postal_delivery_type`, ни зависящих от вида признаков (например при правке одного лишь\n`name`) — чтобы давно созданные партии оставались редактируемыми.\n"
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Create_batch_mailing'
+            examples:
+              rename:
+                summary: 'Переименование партии'
+                value:
+                  name: 'Партия для тестов'
+              type_change_with_fixed_fields:
+                summary: 'Смена вида отправления вместе с приведением признаков к допустимым'
+                value:
+                  postal_delivery_type: ecommerce_optima
+                  postal_items_in_ops: true
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing'
+        422:
+          $ref: '#/components/responses/ListTypeIncompatible'
+    delete:
+      tags:
+        - Партии
+      summary: 'Удалить партию'
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json: {  }
+  '/api/v1/business/batch-mailing/list/{id}/commit':
+    post:
+      tags:
+        - Партии
+      summary: 'Сформировать партию'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing'
+  '/api/v1/business/batch-mailing/list/{id}/duplicate-full':
+    post:
+      tags:
+        - Партии
+      summary: 'Создание дубликата партии с ее оправлениями'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing_list'
+  '/api/v1/business/batch-mailing/list/{id}/duplicate':
+    post:
+      tags:
+        - Партии
+      summary: 'Создание дубликата партии без ее оправлений'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing_list'
+  '/api/v1/business/batch-mailing/list/{id}/document':
+    get:
+      tags:
+        - Партии
+      summary: 'Документы партии'
+      description: "Запускает генерацию документа (расписки/бланков) по сформированной партии. Если по партии\nгенерация ещё идёт, запрос отклоняется с ошибкой `422` (см. ответ 422) — повторный запуск\nне стартует, чтобы не сбить текущий прогон. Дождитесь завершения и повторите попытку.\n"
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_document'
+        422:
+          $ref: '#/components/responses/GenerationInProgress'
+  /api/v1/business/batch-mailing/documents:
+    get:
+      tags:
+        - Партии
+      summary: 'Список документов партий'
+      description: "Документы партий текущего юридического лица.\n\nСтраница задаётся `page` (с 1) и `perPage` (от 5 до 50, по умолчанию 5).\nЕсли `current_page` меньше `last_page`, следующая страница — в `next_page_url`.\n\nФильтры можно сочетать:\n\n`/api/v1/business/batch-mailing/documents?list_id=1113586&status=done&parent_only=1&page=1&perPage=20`\n"
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: list_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            example: 1113586
+          description: 'Только документы указанной партии.'
+        -
+          name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - new
+              - processing
+              - done
+              - error
+            example: done
+          description: "`new` — создан, `processing` — генерируется,\n`done` — готов к скачиванию, `error` — ошибка генерации.\n"
+        -
+          name: parent_only
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum:
+              - 0
+              - 1
+            default: 0
+            example: 1
+          description: '1 — только архив партии. 0 — архив партии и документы отправлений.'
+        -
+          name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+            example: '12'
+          description: 'Порядковый номер партии за год, название партии или дата создания документа (`YYYY-MM-DD`).'
+        -
+          name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+            example: 1
+          description: 'Номер страницы.'
+        -
+          name: perPage
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 5
+            maximum: 50
+            default: 5
+            example: 20
+          description: 'Количество документов на странице.'
+      responses:
+        200:
+          description: 'Страница списка документов'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_documents'
+              example:
+                total: 3
+                current_page: 1
+                per_page: 20
+                from: 0
+                first_page_url: 'https://api.belpost.by/api/v1/business/batch-mailing/documents?page=1'
+                last_page: 1
+                last_page_url: 'https://api.belpost.by/api/v1/business/batch-mailing/documents?page=1'
+                next_page_url: null
+                path: 'https://api.belpost.by/api/v1/business/batch-mailing/documents'
+                prev_page_url: null
+                to: 20
+                data:
+                  -
+                    id: 3984
+                    list_id: 1113586
+                    status: done
+                    path: 'https://s3.example/storage/documents/1/2026/1113586.zip'
+                    expire_at: '2026-10-10 12:00:00'
+                    created_at: '2026-09-10 12:00:00'
+                    updated_at: '2026-09-10 12:05:00'
+                    name: 'Партия (заказ) №12'
+        401:
+          description: 'Не передан или недействителен токен'
+        403:
+          description: 'Нет доступа к API партионных отправлений или не заполнены реквизиты юридического лица'
+        422:
+          description: 'Некорректные параметры запроса'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+  '/api/v1/business/batch-mailing/documents/{id}/download':
+    get:
+      tags:
+        - Партии
+      summary: 'Скачать архив документов'
+      description: 'Возвращает ZIP-архив с документами (например, бланки, сопроводительные документы) по ID.'
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          description: 'ID документа'
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Успешный ответ. Возвращается ZIP-архив с документами.'
+          headers:
+            Content-Disposition:
+              description: 'Указывает, что контент должен быть скачан как вложение, содержит имя файла.'
+              schema:
+                type: string
+              example: 'attachment; filename="document.zip"'
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        404:
+          description: 'Документ не найден или архив еще не сгенерирован'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'Resource not found.'
+        422:
+          description: 'Файл не найден на сервере (например, не успел сгенерироваться)'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'File not found.'
+  '/api/v1/business/batch-mailing/list/{id}/generate-blank':
+    post:
+      tags:
+        - Партии
+      summary: 'Создать бланки партии'
+      description: "Запускает генерацию бланков/ярлыков по партии. Если по этой партии генерация ещё идёт,\nзапрос отклоняется с ошибкой `422` (см. ответ 422) — повторный запуск не стартует, чтобы\nне сбить текущий прогон. Дождитесь завершения генерации и повторите попытку.\n"
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing'
+        404:
+          description: 'Not found document'
+        422:
+          $ref: '#/components/responses/GenerationInProgress'
+  '/api/v1/business/batch-mailing/item/{s10code}':
+    get:
+      tags:
+        - Партии
+      summary: 'Найти партию по с10 коду отправления'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: s10code
+          in: path
+          required: true
+          schema:
+            type: string
+          example: PC111200306BY
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing'
+        404:
+          description: 'не найдена партия'
+  '/api/v1/business/batch-mailing/receipt/{id}':
+    get:
+      tags:
+        - Расписки
+      summary: 'Найти расписку по ее ID'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+    post:
+      tags:
+        - Расписки
+      summary: 'Обновление расписки'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example:
+                lists:
+                  - id
+                  - id2
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+  '/api/v1/business/batch-mailing/receipt/{id}/download':
+    get:
+      tags:
+        - Расписки
+      summary: 'Скачать расписку'
+      description: 'Возвращает файл расписки в формате PDF или XLSX.'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          description: 'ID расписки'
+          schema:
+            type: string
+          example: 12
+        -
+          name: type
+          in: query
+          required: false
+          description: 'Формат скачиваемого файла (по умолчанию pdf)'
+          schema:
+            type: string
+            enum:
+              - pdf
+              - xlsx
+            default: pdf
+          example: pdf
+      responses:
+        200:
+          description: 'Успешный ответ. Возвращается файл расписки.'
+          headers:
+            Content-Disposition:
+              description: 'Указывает, что контент должен быть скачан как вложение, содержит имя файла.'
+              schema:
+                type: string
+              example: 'attachment; filename="receipt.pdf"'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        404:
+          description: 'Расписка не найдена'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'Resource not found.'
+        422:
+          description: 'Ошибка валидации параметров (неверный type)'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'The type field is invalid.'
+  /api/v1/business/batch-mailing/receipt:
+    get:
+      tags:
+        - Расписки
+      summary: 'Получение списка расписок'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptIndex'
+    post:
+      tags:
+        - Расписки
+      summary: 'Создание расписки'
+      description: "Пример запроса:\n\n```bash\ncurl --location 'http://localhost:8001/api/v1/business/batch-mailing/receipt' \\\n  --header 'Accept: application/json' \\\n  --header 'Content-Type: application/json' \\\n  --header 'Authorization: Bearer <access_token>' \\\n  --data '{\"lists\":[4]}'\n```\n\nПоле `message` в ответе 422 — краткое резюме: первое сообщение об ошибке; если ошибок несколько, к нему добавляется указание на число остальных. Полный перечень — в `errors`.\n"
+      security:
+        -
+          bearerAuth: {  }
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReceiptRequestBody'
+            example:
+              lists:
+                - 4
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+        422:
+          description: "Ошибка валидации входных данных. Ниже — фактические ответы Laravel для правил `CreateReceiptRequest` (локаль `ru`, как в работающем API).\nЕсли id партии чужой или записи нет, срабатывает правило `exists` с условием `user_id` текущего пользователя — текст тот же, что и для «несуществующего» id.\n"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                ru_lists_required:
+                  summary: '[ru] Нет поля lists (пустой JSON-объект {})'
+                  value:
+                    message: 'Поле lists обязательно для заполнения.'
+                    errors:
+                      lists:
+                        - 'Поле lists обязательно для заполнения.'
+                ru_lists_not_array:
+                  summary: '[ru] lists не массив'
+                  value:
+                    message: 'Поле lists должно быть массивом.'
+                    errors:
+                      lists:
+                        - 'Поле lists должно быть массивом.'
+                ru_lists_max_and_exists:
+                  summary: '[ru] Больше 8 id — ошибка max и exists по каждому индексу'
+                  description: 'При 9+ элементах одновременно проверяются `max:8` и `exists` для каждого элемента.'
+                  value:
+                    message: 'Количество элементов в поле lists не может превышать 8. (and 9 more errors)'
+                    errors:
+                      lists:
+                        - 'Количество элементов в поле lists не может превышать 8.'
+                      lists.0:
+                        - 'Выбранное значение для lists.0 некорректно.'
+                      lists.1:
+                        - 'Выбранное значение для lists.1 некорректно.'
+                      lists.2:
+                        - 'Выбранное значение для lists.2 некорректно.'
+                      lists.3:
+                        - 'Выбранное значение для lists.3 некорректно.'
+                      lists.4:
+                        - 'Выбранное значение для lists.4 некорректно.'
+                      lists.5:
+                        - 'Выбранное значение для lists.5 некорректно.'
+                      lists.6:
+                        - 'Выбранное значение для lists.6 некорректно.'
+                      lists.7:
+                        - 'Выбранное значение для lists.7 некорректно.'
+                      lists.8:
+                        - 'Выбранное значение для lists.8 некорректно.'
+                ru_foreign_or_missing_list_id:
+                  summary: '[ru] id не существует или не принадлежит пользователю (один id в массиве)'
+                  value:
+                    message: 'Выбранное значение для lists.0 некорректно.'
+                    errors:
+                      lists.0:
+                        - 'Выбранное значение для lists.0 некорректно.'
+                ru_lists_item_required:
+                  summary: '[ru] Пустой элемент массива (например `[1, ""]`)'
+                  value:
+                    message: 'Выбранное значение для lists.0 некорректно. (and 1 more error)'
+                    errors:
+                      lists.0:
+                        - 'Выбранное значение для lists.0 некорректно.'
+                      lists.1:
+                        - 'Поле lists.1 обязательно для заполнения.'
+  '/api/v1/business/batch-mailing/list/{id}/item/{itemId}':
+    get:
+      tags:
+        - 'Отправления внутри партии'
+      summary: 'Получить отправление внутри партии'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+        -
+          name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing_items'
+    delete:
+      tags:
+        - 'Отправления внутри партии'
+      summary: 'Удалить отправление внутри партии'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+        -
+          name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json: {  }
+    put:
+      tags:
+        - 'Отправления внутри партии'
+      summary: 'Обновить отправление внутри партии'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+        -
+          name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Create_batch_mailing_items_items'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batching_mailing_items'
+  '/api/v1/business/batch-mailing/list/{id}/item':
+    post:
+      tags:
+        - 'Отправления внутри партии'
+      summary: 'Создать отправление внутри партии'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Create_batch_mailing_items'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200_1'
+  '/api/v1/business/batch-mailing/list/{id}/item/{itemId}/generate-blank':
+    post:
+      tags:
+        - 'Отправления внутри партии'
+      summary: 'Создать бланки для отправления внутри партии'
+      description: "Запускает генерацию бланков/ярлыков по отправлению. Если по партии этого отправления\nгенерация ещё идёт, запрос отклоняется с ошибкой `422` (см. ответ 422) — повторный запуск\nне стартует, чтобы не сбить текущий прогон. Дождитесь завершения и повторите попытку.\n"
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+        -
+          name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 12
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Create_batch_mailing_items'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200_1'
+        422:
+          $ref: '#/components/responses/GenerationInProgress'
+  '/api/v1/business/batch-mailing/list/{list}/item/{item}/partial-receipts':
+    post:
+      tags:
+        - 'Вложение в отправлении'
+      summary: 'Создать вложение в отправлении'
+      parameters:
+        -
+          name: list
+          in: path
+          required: true
+          description: 'идентификатор партии'
+          example: 12
+        -
+          name: item
+          in: path
+          required: true
+          description: 'идентификатор отправления'
+          example: 12
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/partial_receipt_request'
+      responses:
+        200:
+          description: вложение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/partial_receipt_response'
+    get:
+      tags:
+        - 'Вложение в отправлении'
+      summary: 'Получить все вложении в отправлении'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: list
+          in: path
+          required: true
+          description: 'идентификатор партии'
+          example: 12
+        -
+          name: item
+          in: path
+          required: true
+          description: 'идентификатор отправления'
+          example: 12
+      responses:
+        200:
+          description: 'отображение всех вложений внутри отправления'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/partial_receipt_response'
+  '/api/v1/business/batch-mailing/list/{list}/item/{item}/partial-receipts/{partial-receipts}':
+    get:
+      tags:
+        - 'Вложение в отправлении'
+      summary: 'Получить вложение в отправлении'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: list
+          in: path
+          required: true
+          description: 'идентификатор партии'
+          example: 12
+        -
+          name: item
+          in: path
+          required: true
+          description: 'идентификатор отправления'
+          example: 12
+        -
+          name: partial-receipts
+          in: path
+          required: true
+          description: 'идентификатор вложения'
+          example: 9ccdb4c1-cd4c-445b-932c-368b00e4c394
+      responses:
+        200:
+          description: 'получение одного вложения'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/partial_receipt_response'
+    put:
+      tags:
+        - 'Вложение в отправлении'
+      summary: 'Обновление вложения в отправлении'
+      parameters:
+        -
+          name: list
+          in: path
+          required: true
+          description: 'идентификатор партии'
+          example: 12
+        -
+          name: item
+          in: path
+          required: true
+          description: 'идентификатор отправления'
+          example: 12
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: partial-receipts
+          in: path
+          required: true
+          description: 'идентификатор вложения'
+          example: 9ccdb4c1-cd4c-445b-932c-368b00e4c394
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/partial_receipt_request'
+      responses:
+        200:
+          description: вложение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/partial_receipt_response'
+    delete:
+      tags:
+        - 'Вложение в отправлении'
+      summary: 'Удаление вложения в отправлении'
+      parameters:
+        -
+          name: list
+          in: path
+          required: true
+          description: 'идентификатор партии'
+          example: 12
+        -
+          name: item
+          in: path
+          required: true
+          description: 'идентификатор отправления'
+          example: 12
+        -
+          name: Accept
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+            enum:
+              - application/json
+            default: application/json
+        -
+          name: Content-Type
+          in: header
+          required: false
+          style: simple
+          explode: false
+          schema:
+            type: string
+          example: application/json
+        -
+          name: partial-receipts
+          in: path
+          required: true
+          description: 'идентификатор вложения'
+          example: 9ccdb4c1-cd4c-445b-932c-368b00e4c394
+      responses:
+        204:
+          description: 'Successful response'
+          content:
+            application/json: {  }
+components:
+  schemas:
+    Recipient:
+      required:
+        - address
+        - type
+      type: object
+      properties:
+        foreign_id:
+          type: string
+          description: 'Внешний идентификатор'
+          nullable: true
+          example: '12'
+        type:
+          type: string
+          description: 'Тип получателя'
+          example: legal
+          enum:
+            - legal
+            - individual
+            - individual_to_organization
+            - individual_entrepreneur
+        first_name:
+          maxLength: 20
+          type: string
+          description: 'имя получателя'
+          nullable: true
+          example: Имя
+        second_name:
+          maxLength: 20
+          type: string
+          description: 'Отчество получателя'
+          example: Отчество
+        last_name:
+          maxLength: 25
+          type: string
+          description: 'Фамилия получателя'
+          example: Фамилия
+        company_name:
+          maxLength: 30
+          type: string
+          description: 'Компания получателя'
+          example: 'ООО Пример'
+        phone:
+          maxLength: 12
+          type: string
+          description: 'Номер телефона получателя'
+          example: '375259321235'
+        email:
+          maxLength: 30
+          type: string
+          description: 'Имейл получателя'
+          example: test@test.com
+        address:
+          $ref: '#/components/schemas/Recipient_address'
+      example:
+        type: legal
+        first_name: Имя
+        second_name: Отчество
+        last_name: Фамилия
+        company_name: 'ООО Пример'
+        phone: '375259321235'
+        email: test@test.com
+        address:
+          postcode: '220141'
+          country_code: BY
+          region: Минская
+          district: Минский
+          city: Минск
+          street: Никифорова
+          building: '35'
+          housing: ''
+          apartment: '12'
+          address_type: on_demand
+          street_type: улица
+          city_type: город
+    Recipient_index:
+      properties:
+        total:
+          type: integer
+          description: 'Количесво получателей'
+          example: 1
+        current_page:
+          type: integer
+          description: 'Текущая страница'
+          example: 1
+        per_page:
+          type: integer
+          description: 'Максимальное значение получателей на странице'
+          example: 100
+        from:
+          type: integer
+          description: 'Следующая страница'
+          example: 1
+        first_page_url:
+          type: string
+          description: 'Ссылку на первую страницу'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/recipient?page=1'
+        last_page:
+          type: integer
+          description: 'Номер последней страницы'
+          example: 1
+        last_page_url:
+          type: string
+          description: 'Ссылка на полследнюю страницу'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/recipient?page=1'
+        next_page_url:
+          type: string
+          description: 'Ссылка следующей страница'
+          nullable: true
+        path:
+          type: string
+          description: 'Путь до получателей'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/recipient'
+        prev_page_url:
+          type: string
+          description: 'Ссылка на предыдущюю страницу'
+          nullable: true
+        to:
+          type: integer
+          description: 'Количество получателей на странице'
+          example: 1
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recipient_index_data'
+      description: 'Список получателей'
+    Recipient_address:
+      required:
+        - building
+        - city
+        - country_code
+        - postcode
+        - street
+        - street_type
+        - address_type
+        - city_type
+      type: object
+      properties:
+        postcode:
+          maxLength: 6
+          minLength: 6
+          type: string
+          description: Индекс
+          example: '220141'
+        country_code:
+          type: string
+          description: 'Код страны'
+          example: BY
+        region:
+          maxLength: 22
+          type: string
+          description: Регион
+          example: Минская
+          nullable: true
+        district:
+          maxLength: 18
+          type: string
+          description: Район
+          example: Минский
+          nullable: true
+        city:
+          maxLength: 25
+          type: string
+          description: Город
+          example: Минск
+        street:
+          maxLength: 50
+          type: string
+          description: Улица
+          example: Никифорова
+        building:
+          maxLength: 8
+          type: string
+          description: Дом
+          nullable: false
+          example: '35'
+        housing:
+          maxLength: 2
+          type: string
+          description: Корпус
+          nullable: true
+          example: ''
+        apartment:
+          maxLength: 5
+          type: string
+          description: Квартира
+          nullable: true
+          example: '12'
+        address_type:
+          type: string
+          description: 'Тип адреса'
+          example: on_demand
+          enum:
+            - address
+            - on_demand
+            - subscriber_box
+        street_type:
+          maxLength: 10
+          type: string
+          example: улица
+        city_type:
+          maxLength: 30
+          type: string
+          example: город
+    Recipient_index_data:
+      required:
+        - address
+        - id
+        - type
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 'Идентификатор получателя'
+          example: 1
+        foreign_id:
+          type: string
+          description: 'Внешний идентификатор'
+          nullable: true
+          example: '12'
+        type:
+          type: string
+          description: 'Тип получателя'
+          example: legal
+          enum:
+            - legal
+            - individual
+            - individual_to_organization
+            - individual_entrepreneur
+        first_name:
+          maxLength: 20
+          type: string
+          description: 'имя получателя'
+          nullable: true
+          example: ''
+        second_name:
+          maxLength: 20
+          type: string
+          description: 'Отчество получателя'
+          example: ''
+        last_name:
+          maxLength: 25
+          type: string
+          description: 'Фамилия получателя'
+          example: ''
+        company_name:
+          maxLength: 30
+          type: string
+          description: 'Компания получателя'
+          example: 'ООО Пример'
+        phone:
+          maxLength: 12
+          type: string
+          description: 'Номер телефона получателя'
+          example: '375259321235'
+        email:
+          maxLength: 30
+          type: string
+          description: 'Имейл получателя'
+          example: test@test.com
+        address:
+          $ref: '#/components/schemas/Recipient_address'
+    Batching_mailing:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 'ID партии'
+          format: int64
+          example: 12
+        name:
+          type: string
+          description: 'Название партии'
+          example: string
+        filial:
+          type: string
+          nullable: true
+          description: 'Филиал отправителя'
+          example: null
+        trn:
+          type: string
+          description: УНП
+          example: 192766206
+        address:
+          type: string
+          description: Адрес
+          example: '220076, ГОРОД МИНСК, УЛИЦА ГЛЕБОВА ЕВГЕНИЯ ДОМ 11'
+        iban:
+          type: string
+          description: 'Банковский счет отправителя (IBAN)'
+          nullable: true
+          example: null
+        bank:
+          type: string
+          description: 'Банк отправителя'
+          nullable: true
+          example: null
+        formation_date:
+          type: string
+          description: 'Дата формирования партии'
+          format: datetime
+          nullable: true
+          example: '2024-08-09 11:48:32'
+        update_post_system_at:
+          type: string
+          description: 'Дата последнего обращения по Internal API'
+          format: datetime
+          nullable: true
+          example: null
+        created_at:
+          type: string
+          description: 'Дата создания партии'
+          format: datetime
+          nullable: true
+          example: 1723204112
+        year_order_number:
+          type: integer
+          description: 'Порядковый номер партии (уникально для каждого отправителя внутри года)'
+          example: 4
+        total_payable:
+          type: number
+          description: 'Сумма к оплате'
+          example: 15
+        total_vat:
+          type: number
+          description: 'Сумма НДС'
+          example: 3
+        total_items:
+          type: integer
+          description: 'Количество отправлений'
+          example: 3
+        total_weight:
+          type: integer
+          description: 'Общий вес партии в граммах'
+          example: 2313
+        postal_delivery_type:
+          type: string
+          description: "Тип отправления: * `ordered_postcard` - Заказная почтовая карточка республиканская * `ordered_letter` - Заказное письмо республиканское * `ordered_parcel_post` - Заказная бандероль республиканская * `ordered_small_package` - Заказной мелкий пакет республиканский * `small_package_declare_value` - Мелкий пакет с объявленной ценностью республиканский * `package` - Простая посылка республиканская (без ОЦ) * `package_declare_value` - Посылка с объявленной ценностью республиканская * `ems` - Экспресс посылка * `ecommerce_economical` - Посылка E-commerce Эконом * `ecommerce_standard` - Посылка E-commerce Стандарт * `ecommerce_elite` - Посылка E-commerce Элит * `ecommerce_express` - Посылка E-commerce Экспресс * `ecommerce_light` - Посылка E-commerce Лайт * `ecommerce_optima` - Посылка E-commerce Оптима  \n"
+          enum:
+            - ordered_postcard
+            - ordered_letter
+            - ordered_parcel_post
+            - ordered_small_package
+            - small_package_declare_value
+            - package
+            - package_declare_value
+            - ems
+            - ecommerce_economical
+            - ecommerce_standard
+            - ecommerce_elite
+            - ecommerce_express
+            - ecommerce_light
+            - ecommerce_optima
+          example: package
+        direction:
+          type: string
+          description: "Направление: * `internal` - внутреннее * `CIS` - по СНГ * `international` - международное              \n"
+          enum:
+            - internal
+            - CIS
+            - international
+          example: internal
+        payment_type:
+          type: string
+          description: "Способ оплаты: * `payment_order` - Платежное поручение * `advance_receipt` - Ав. квитанция * `monetary_document` - Денежный документ * `electronic_personal_account` - электронный лицевой счет * `commitment_letter` - Гарантийное письмо\n"
+          enum:
+            - payment_order
+            - advance_receipt
+            - monetary_document
+            - electronic_personal_account
+            - commitment_letter
+          example: payment_order
+        card_number:
+          type: string
+          description: 'Номер лицевого счета (если способ оплаты - electronic_personal_account)'
+          nullable: true
+          example: null
+        card_name:
+          type: string
+          description: 'Название лицевого счета (если способ оплаты - electronic_personal_account)'
+          nullable: true
+          example: null
+        negotiated_rate:
+          type: integer
+          description: 'Признак наличия договорного тарифа'
+          format: binary
+          example: 0
+        phone:
+          type: string
+          description: 'Номер телефона отправителя в формате E.164 без знака "+"'
+          nullable: true
+          example: null
+        email:
+          type: string
+          description: 'Email отправителя'
+          example: test@belpost.by
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Batching_mailing_items'
+        status:
+          type: string
+          description: "Статус партии: * `committed` - Сформирована * `uncommitted` - Не сформирована * `in_ops` - Принята\n"
+          enum:
+            - committed
+            - uncommitted
+            - in_ops
+          example: uncommitted
+        is_document:
+          type: boolean
+          description: 'Признак наличия в партии только документов'
+          format: binary
+          example: false
+          enum: false
+        is_declared_value:
+          type: boolean
+          description: 'Признак наличия в партии только отправлений с обьявленой ценностью'
+          format: binary
+          default: false
+        receiving_postal_items_in_office:
+          type: integer
+          description: 'Признак  получения оправления в офисе'
+          format: binary
+          example: 1
+        is_partial_receipt:
+          type: boolean
+          description: 'Признак "Получение части вложения"'
+          example: false
+        total_additional_services_price:
+          type: number
+          description: 'стоимость дополнительных услуг всех отправлений внутри партии'
+          example: 33.11
+        has_documents_label:
+          type: boolean
+          description: 'Имеет ли партия возможность сгенерировать бланки'
+          example: true
+    Batching_document:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 'Идентификатор документа'
+          format: int64
+          example: 3984
+        list_id:
+          type: integer
+          description: 'Идентификатор партии'
+          format: int64
+          example: 1113586
+        status:
+          type: string
+          description: 'Статус генерации. Скачивание доступно только для `done`.'
+          example: done
+          enum:
+            - processing
+            - new
+            - done
+            - error
+        path:
+          type: string
+          description: 'Путь до zip'
+          nullable: true
+          example: null
+        expire_at:
+          type: string
+          description: 'Дата истечения документа'
+          example: null
+          nullable: true
+        created_at:
+          type: string
+          description: 'Дата создания'
+          example: 1724866489
+        updated_at:
+          type: string
+          description: 'Дата обновления'
+          example: 1724866489
+        name:
+          type: string
+          description: 'Название документа'
+          example: 'Партия (заказ) №12'
+    Batching_documents:
+      type: object
+      description: 'Список документов с пагинацией. Следующая страница — `next_page_url` или `page`.'
+      properties:
+        total:
+          type: integer
+          description: 'Всего документов по текущим фильтрам'
+          example: 3
+        current_page:
+          type: integer
+          description: 'Текущая страница'
+          example: 1
+        per_page:
+          type: integer
+          description: 'Количество документов на странице'
+          example: 20
+        from:
+          type: integer
+          description: 'Индекс первой записи на странице'
+          example: 0
+        first_page_url:
+          type: string
+          description: 'URL первой страницы'
+          example: 'https://api.belpost.by/api/v1/business/batch-mailing/documents?page=1'
+        last_page:
+          type: integer
+          description: 'Номер последней страницы'
+          example: 1
+        last_page_url:
+          type: string
+          description: 'URL последней страницы'
+          example: 'https://api.belpost.by/api/v1/business/batch-mailing/documents?page=1'
+        next_page_url:
+          type: string
+          description: 'URL следующей страницы, `null` если страница последняя'
+          nullable: true
+          example: null
+        path:
+          type: string
+          description: 'Базовый URL метода'
+          example: 'https://api.belpost.by/api/v1/business/batch-mailing/documents'
+        prev_page_url:
+          type: string
+          description: 'URL предыдущей страницы, `null` на первой странице'
+          nullable: true
+          example: null
+        to:
+          type: integer
+          description: 'Количество документов на текущей странице'
+          example: 20
+        data:
+          type: array
+          description: 'Документы текущей страницы'
+          items:
+            $ref: '#/components/schemas/Batching_document'
+    Batching_mailing_list:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 'Идентификатор оправления'
+          format: int64
+        name:
+          type: string
+          description: 'Имя отправления'
+        trn:
+          type: string
+          description: 'УНП отправителя'
+        filial:
+          type: string
+          nullable: true
+          description: 'Филиал отправителя'
+        address:
+          type: string
+          description: 'Адрес отправителя'
+        iban:
+          type: string
+          description: 'Банковский счет отправителя (IBAN)'
+        bank:
+          type: string
+          description: 'Банк отправителя'
+        formation_date:
+          type: string
+          description: 'Дата формирования партии'
+          format: datetime
+          nullable: true
+        update_post_system_at:
+          type: string
+          description: 'Дата последнего обращения по Internal API'
+          format: datetime
+          nullable: true
+        created_at:
+          type: string
+          description: 'Дата создания партии'
+          format: datetime
+          nullable: true
+        year_order_number:
+          type: integer
+          description: 'Порядковый номер партии (уникально для каждого отправителя внутри года)'
+        total_payable:
+          type: number
+          description: 'Сумма к оплате'
+        total_vat:
+          type: number
+          description: 'Сумма НДС'
+        total_items:
+          type: integer
+          description: 'Количество отправлений'
+        total_weight:
+          type: integer
+          description: 'Общий вес партии в граммах'
+        postal_delivery_type:
+          type: string
+          description: "Тип отправления: * `ordered_postcard` - Заказная почтовая карточка республиканская * `ordered_letter` - Заказное письмо республиканское * `ordered_parcel_post` - Заказная бандероль республиканская * `ordered_small_package` - Заказной мелкий пакет республиканский * `small_package_declare_value` - Мелкий пакет с объявленной ценностью республиканский * `package` - Простая посылка республиканская (без ОЦ) * `package_declare_value` - Посылка с объявленной ценностью республиканская * `ems` - Экспресс посылка * `ecommerce_economical` - Посылка E-commerce Эконом * `ecommerce_standard` - Посылка E-commerce Стандарт * `ecommerce_elite` - Посылка E-commerce Элит * `ecommerce_express` - Посылка E-commerce Экспресс * `ecommerce_light` - Посылка E-commerce Лайт * `ecommerce_optima` - Посылка E-commerce Оптима\n"
+          enum:
+            - ordered_postcard
+            - ordered_letter
+            - ordered_parcel_post
+            - ordered_small_package
+            - small_package_declare_value
+            - package
+            - package_declare_value
+            - ems
+            - ecommerce_economical
+            - ecommerce_standard
+            - ecommerce_elite
+            - ecommerce_express
+            - ecommerce_light
+            - ecommerce_optima
+        direction:
+          type: string
+          description: "Направление: * `internal` - внутреннее * `CIS` - по СНГ * `international` - международное\n"
+          enum:
+            - internal
+            - CIS
+            - international
+        payment_type:
+          type: string
+          description: "Способ оплаты: * `payment_order` - Платежное поручение * `advance_receipt` - Ав. квитанция * `monetary_document` - Денежный документ * `electronic_personal_account` - электронный лицевой счет * `commitment_letter` - Гарантийное письмо\n"
+          enum:
+            - payment_order
+            - advance_receipt
+            - monetary_document
+            - electronic_personal_account
+            - commitment_letter
+        card_number:
+          type: string
+          description: 'Номер лицевого счета (если способ оплаты - electronic_personal_account)'
+        card_name:
+          type: string
+          description: 'Название лицевого счета (если способ оплаты - electronic_personal_account)'
+        negotiated_rate:
+          type: integer
+          description: 'Признак наличия договорного тарифа'
+          format: binary
+        phone:
+          type: string
+          description: 'Номер телефона отправителя в формате E.164 без знака "+"'
+        email:
+          type: string
+          description: 'Email отправителя'
+        items:
+          $ref: '#/components/schemas/Batching_mailing_items'
+        documents:
+          $ref: '#/components/schemas/Batching_document'
+        status:
+          type: string
+          description: "Статус партии: * `committed` - Сформирована * `uncommitted` - Не сформирована * `in_ops` - Принята\n"
+          enum:
+            - committed
+            - uncommitted
+            - in_ops
+        postal_items_in_ops:
+          type: boolean
+          description: 'Признак приема отправлений в ОПС'
+          format: binary
+          default: true
+        is_document:
+          type: boolean
+          default: false
+          description: 'Признак наличия в партии только документов'
+          format: binary
+          enum: false
+    Batching_mailing_items:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 'ID отправления'
+          format: int64
+          example: 12
+        list_id:
+          type: integer
+          description: 'ID партии'
+          format: int64
+          example: 12
+        weight:
+          type: number
+          description: 'Вес отправления в граммах'
+          format: float
+          example: 2666
+        cost:
+          type: number
+          description: 'Стоимость отправления'
+          format: float
+          example: 10.1
+        vat:
+          type: number
+          description: 'Сумма НДС'
+          format: float
+          example: 2.2
+        notification:
+          type: integer
+          description: "Тип уведомления: * 0 – без уведомления * 1 – простое * 2 – заказное * 5 – электронное\n"
+          enum:
+            - 0
+            - 1
+            - 2
+            - 5
+          example: 0
+        s10code:
+          type: string
+          description: 'C10 код отправления'
+          nullable: true
+          example: null
+        notification_s10code:
+          type: string
+          description: 'C10 код уведомления (только для заказных уведомлений, присваивается автоматически)'
+          nullable: true
+          example: null
+        recipient:
+          $ref: '#/components/schemas/Recipient_index_data'
+        addons:
+          $ref: '#/components/schemas/Batching_mailing_items_addons'
+        recipient_phone:
+          type: string
+          nullable: true
+          minimum: 9
+          maximum: 20
+          description: 'телефон получателя'
+          example: null
+        partial_receipts:
+          $ref: '#/components/schemas/Partial_receipts'
+        date_cod_payment:
+          type: string
+          description: 'Дата почтового денежного перевода наложенного платежа'
+          nullable: true
+          example: null
+        by_code_payment:
+          nullable: true
+          type: string
+          description: 'BY- код почтового денежного перевода наложенного платежа.'
+          example: null
+        back_track_code:
+          nullable: true
+          type: string
+          description: 'Обратный трек-код почтового отправления – в случае частичного возврата (в случае частичного или полного возврата)'
+          example: null
+        date_send_to_ops:
+          nullable: true
+          type: string
+          description: 'Дата отправки почтового отправления из ОПС (в случае частичного или полного возврата)'
+          example: null
+        partial_receipts_count:
+          nullable: false
+          type: integer
+          example: 2
+          description: 'Количество вложений'
+        issued_partial_receipts_count:
+          nullable: false
+          type: integer
+          example: 2
+          description: 'Количество принятых вложений'
+        canceled_partial_receipts_count:
+          nullable: false
+          type: integer
+          example: 0
+          description: 'Количество возвращенных вложений'
+        additional_services_price:
+          type: number
+          description: 'стоимость дополнительных услуг'
+          example: 33.11
+        document:
+          $ref: '#/components/schemas/Batching_document'
+        payment_price:
+          type: number
+          nullable: true
+          example: 12.12
+          description: 'Сумма почтового денежного перевода наложенного платежа на сумму врученных вложений получателю'
+        has_documents_label:
+          type: boolean
+          description: 'Имеет ли отправление возможность сгенерировать бланки'
+          example: true
+    Partial_receipts:
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+            example: 9ccdcced-a262-4619-beca-76e9d29919ef
+            description: 'Идентификатор вложения'
+          article:
+            type: string
+            example: 223131М
+            description: Артикул
+          name:
+            type: string
+            example: Майка
+            description: Наименование
+          quantity:
+            type: integer
+            example: 1
+            description: Размер
+          price:
+            type: number
+            example: 12.11
+            description: Цена
+          currency:
+            type: string
+            example: byn
+            description: Валюта
+          total_price:
+            type: string
+            example: 12.11
+            description: 'Общая стоимость'
+          status:
+            type: string
+            example: pending
+            description: 'статус вложения'
+    Batching_mailing_items_index:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: 'Количесво получателей'
+          example: 1
+        current_page:
+          type: integer
+          description: 'Текущая страница'
+          example: 1
+        per_page:
+          type: integer
+          description: 'Максимальное значение получателей на странице'
+          example: 100
+        from:
+          type: integer
+          description: 'Следующая страница'
+          example: 1
+        first_page_url:
+          type: string
+          description: 'Ссылку на первую страницу'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/list?page=1'
+        last_page:
+          type: integer
+          description: 'Номер последней страницы'
+          example: 1
+        last_page_url:
+          type: string
+          description: 'Ссылка на полследнюю страницу'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/list?page=1'
+        next_page_url:
+          type: string
+          description: 'Ссылка следующей страница'
+          nullable: true
+        path:
+          type: string
+          description: 'Путь до получателей'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/list'
+        prev_page_url:
+          type: string
+          description: 'Ссылка на предыдущюю страницу'
+          nullable: true
+        to:
+          type: integer
+          description: 'Количество получателей на странице'
+          example: 1
+        data:
+          $ref: '#/components/schemas/Batching_mailing'
+    Create_batch_mailing_items:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Create_batch_mailing_items_items'
+    Create_batch_mailing:
+      required:
+        - direction
+        - negotiated_rate
+        - payment_type
+      type: object
+      properties:
+        postal_delivery_type:
+          type: string
+          description: "Тип отправления: * `ordered_postcard` - Заказная почтовая карточка республиканская * `ordered_letter` - Заказное письмо республиканское * `ordered_parcel_post` - Заказная бандероль республиканская * `ordered_small_package` - Заказной мелкий пакет республиканский * `small_package_declare_value` - Мелкий пакет с объявленной ценностью республиканский * `package` - Простая посылка республиканская (без ОЦ) * `package_declare_value` - Посылка с объявленной ценностью республиканская * `ems` - Экспресс посылка * `ecommerce_economical` - Посылка E-commerce Эконом * `ecommerce_standard` - Посылка E-commerce Стандарт * `ecommerce_elite` - Посылка E-commerce Элит * `ecommerce_express` - Посылка E-commerce Экспресс * `ecommerce_light` - Посылка E-commerce Лайт * `ecommerce_optima` - Посылка E-commerce Оптима\n"
+          enum:
+            - ordered_postcard
+            - ordered_letter
+            - ordered_parcel_post
+            - ordered_small_package
+            - small_package_declare_value
+            - package
+            - package_declare_value
+            - ems
+            - ecommerce_economical
+            - ecommerce_standard
+            - ecommerce_elite
+            - ecommerce_express
+            - ecommerce_light
+            - ecommerce_optima
+        direction:
+          type: string
+          description: "Направление: * `internal` - внутреннее * `CIS` - по СНГ * `international` - международное\n"
+          enum:
+            - internal
+            - CIS
+            - international
+        payment_type:
+          type: string
+          description: "Способ оплаты: * `payment_order` - Платежное поручение * `advance_receipt` - Ав. квитанция * `monetary_document` - Денежный документ * `electronic_personal_account` - электронный лицевой счет * `commitment_letter` - Гарантийное письмо\n"
+          enum:
+            - payment_order
+            - advance_receipt
+            - monetary_document
+            - electronic_personal_account
+            - commitment_letter
+        negotiated_rate:
+          type: integer
+          description: "Признак наличия договорного тарифа. Участвует в проверке совместимости вида отправления\nвместе с `is_declared_value`.\n"
+          format: binary
+        name:
+          type: string
+          description: Название
+        card_number:
+          maxLength: 18
+          minLength: 18
+          type: string
+          description: 'Номер карты'
+        postal_items_in_ops:
+          type: boolean
+          description: "Признак приема отправлений в ОП. `false` (приём не в ОПС) допустим только для видов\n`ecommerce_standard`, `ecommerce_elite`, `ecommerce_express`, `marketplace`;\nдля остальных видов запрос отклоняется с `422`.\n"
+          format: binary
+          default: true
+        category:
+          type: integer
+          description: "Категория отправления: * `0` – отправление по РБ * `1` – неприоритетное * `2` – приоритетное\n"
+          enum:
+            - 0
+        is_document:
+          type: boolean
+          description: 'Признак наличия в партии только документов'
+          default: false
+          format: binary
+          enum: false
+        is_declared_value:
+          type: boolean
+          default: false
+          description: "Признак наличия в партии оправлений с обьявленной ценностью. Недопустим (`true`) для\nвидов `ordered_postcard`, `ordered_letter`, `ordered_parcel_post`,\n`ordered_small_package`, `package` и при `negotiated_rate = true`; обязателен (`true`)\nдля `small_package_declare_value` и `package_declare_value` при `negotiated_rate = false`.\n"
+          format: binary
+        is_partial_receipt:
+          type: boolean
+          description: 'Признак "Получение части вложения"'
+    Batching_mailing_items_addons_time_of_delivery:
+      type: object
+      properties:
+        time:
+          type: string
+          enum:
+            - 'level1 level2 level3 level4'
+        time_interval:
+          type: string
+    Batching_mailing_items_addons:
+      type: object
+      properties:
+        bulky:
+          type: integer
+          description: 'Отметка "Громоздкое"'
+          format: binary
+          nullable: true
+          example: null
+        service:
+          type: integer
+          description: 'Отметка "Служебное"'
+          format: binary
+          nullable: true
+          example: null
+        military:
+          type: integer
+          description: 'Отметка "Воинская бесплатная"'
+          format: binary
+          nullable: true
+          example: null
+        subpoena:
+          type: integer
+          description: 'Отметка "Судебная повестка"'
+          format: binary
+          nullable: true
+          example: null
+        government:
+          type: integer
+          description: 'Отметка "Правительственное"'
+          format: binary
+          nullable: true
+          example: null
+        description:
+          type: integer
+          description: 'Отметка "С описью"'
+          format: binary
+          nullable: true
+          example: null
+        free_return:
+          type: integer
+          description: 'Отметка "Бесплатный возврат"'
+          format: binary
+          nullable: true
+          example: null
+        declared_value:
+          type: number
+          description: 'Объявленная ценность'
+          format: float
+          nullable: true
+          example: null
+        partial_return:
+          type: integer
+          description: 'Отметка "Частичный возврат"'
+          format: binary
+          nullable: true
+          example: null
+        careful_fragile:
+          type: integer
+          description: 'Отметка "Осторожно, хрупкое"'
+          format: binary
+          nullable: true
+          example: null
+        deliver_to_work:
+          type: integer
+          description: 'Отметка "Доставить по месту работы"'
+          format: binary
+          nullable: true
+          example: null
+        cash_on_delivery:
+          type: number
+          description: 'Наложенный платеж'
+          format: float
+          nullable: true
+          example: null
+        documents_return:
+          type: integer
+          description: 'Отметка "Возврат документов"'
+          format: binary
+          nullable: true
+          example: null
+        recipient_payment:
+          type: integer
+          description: 'Отметка "Оплата получателем"'
+          format: binary
+          nullable: true
+          example: null
+        open_upon_delivery:
+          type: integer
+          description: 'Отметка "При вручении вскрыть"'
+          format: binary
+          nullable: true
+          example: null
+        hand_over_personally:
+          type: integer
+          description: 'Отметка "Вручить лично"'
+          format: binary
+          nullable: true
+          example: null
+        time_of_delivery:
+          $ref: '#/components/schemas/Batching_mailing_items_addons_time_of_delivery_1'
+        email:
+          type: string
+          nullable: true
+          description: 'email для уведомлений'
+          example: null
+        phone:
+          type: string
+          nullable: true
+          description: 'телефон для уведомлений'
+          example: 375253281622.0
+        shelf_life:
+          type: integer
+          minimum: 10
+          maximum: 30
+          nullable: true
+          description: 'срок хранения'
+          example: null
+      description: 'Особые отметки'
+    CreateReceiptRequestBody:
+      type: object
+      required:
+        - lists
+      properties:
+        lists:
+          type: array
+          description: 'Идентификаторы партий текущего пользователя (не более 8)'
+          maxItems: 8
+          minItems: 1
+          items:
+            type: integer
+            format: int64
+          example:
+            - 4
+    ValidationError:
+      type: object
+      description: 'Ответ при ошибке валидации Form Request (HTTP 422)'
+      properties:
+        message:
+          type: string
+          description: 'Краткое резюме (первое сообщение; при нескольких ошибках добавляется указание на число остальных)'
+          example: 'Выбранное значение для lists.0 некорректно.'
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: 'Полные сообщения по полям (`lists`, `lists.0`, …)'
+    Receipt:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        lists:
+          type: array
+          items:
+            $ref: '#/components/schemas/Batching_mailing'
+        committed:
+          type: boolean
+          nullable: true
+          example: false
+        serial_number:
+          type: integer
+          description: 'номер расписки'
+          example: 1
+        created_at:
+          type: string
+          description: 'дата создания'
+          example: '2024-08-09 11:48:32'
+        updated_at:
+          type: string
+          description: 'дата обновления'
+          example: '2024-08-09 11:48:32'
+    ReceiptIndex:
+      properties:
+        total:
+          type: integer
+          description: 'Количесво получателей'
+          example: 1
+        current_page:
+          type: integer
+          description: 'Текущая страница'
+          example: 1
+        per_page:
+          type: integer
+          description: 'Максимальное значение получателей на странице'
+          example: 100
+        from:
+          type: integer
+          description: 'Следующая страница'
+          example: 1
+        first_page_url:
+          type: string
+          description: 'Ссылку на первую страницу'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/receipt?page=1'
+        last_page:
+          type: integer
+          description: 'Номер последней страницы'
+          example: 1
+        last_page_url:
+          type: string
+          description: 'Ссылка на полследнюю страницу'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/receipt?page=1'
+        next_page_url:
+          type: string
+          description: 'Ссылка следующей страница'
+          nullable: true
+        path:
+          type: string
+          description: 'Путь до получателей'
+          example: 'https://belpost.by/api/v1/business/batch-mailing/receipt'
+        prev_page_url:
+          type: string
+          description: 'Ссылка на предыдущюю страницу'
+          nullable: true
+        to:
+          type: integer
+          description: 'Количество получателей на странице'
+          example: 1
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Receipt'
+    batch_mailing_recipient_body:
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recipient'
+    inline_response_200:
+      properties:
+        created:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recipient_index_data'
+        failed:
+          type: array
+          example: {  }
+          items:
+            $ref: '#/components/schemas/inline_response_200_failed'
+    recipient_id_body:
+      properties:
+        foreign_id:
+          type: string
+          maxLength: 255
+          description: 'Внешний идентификатор,'
+          example: '12'
+    inline_response_200_1:
+      properties:
+        created:
+          type: array
+          items:
+            $ref: '#/components/schemas/Batching_mailing_items'
+        failed:
+          type: array
+          example: {  }
+          items:
+            $ref: '#/components/schemas/Batching_mailing_items'
+    Create_batch_mailing_items_items:
+      properties:
+        recipient_id:
+          type: integer
+          description: 'Идентификатор получателя'
+          nullable: true
+        recipient_foreign_id:
+          type: string
+          description: 'Внешний идентификатор получателя'
+          nullable: true
+        foreign_id:
+          type: string
+          nullable: true
+          description: 'внешний идентификатор отправления'
+        recipient_object:
+          type: object
+          nullable: true
+          properties:
+            foreign_id:
+              type: string
+              maxLength: 255
+              nullable: true
+              description: 'внешней идентификатор получателя'
+            type:
+              type: string
+              nullable: false
+              enum:
+                - legal
+                - individual
+                - individual_to_organization
+                - individual_entrepreneur
+            first_name:
+              type: string
+              description: 'имя получателя'
+              maxLength: 20
+              nullable: true
+            second_name:
+              type: string
+              nullable: true
+              maxLength: 20
+              description: 'отчество получателя'
+            last_name:
+              type: string
+              nullable: true
+              maxLength: 25
+            company_name:
+              type: string
+              maxLength: 30
+              nullable: true
+            address:
+              type: object
+              description: 'адрес получателя'
+              properties:
+                address_type:
+                  type: string
+                  nullable: false
+                  description: 'тип адреса'
+                  enum:
+                    - address
+                    - on_demand
+                    - subscriber_box
+                postcode:
+                  type: string
+                  maxLength: 6
+                  minLength: 6
+                  description: 'индекс адреса'
+                ops_id:
+                  type: string
+                  nullable: false
+                  description: 'идентификатор отделения'
+                country_code:
+                  type: string
+                  nullable: false
+                  description: 'Код страны'
+                region:
+                  type: string
+                  maxLength: 22
+                  nullable: true
+                  description: регион
+                district:
+                  type: string
+                  maxLength: 18
+                  nullable: true
+                  description: район
+                city:
+                  type: string
+                  maxLength: 25
+                  description: город
+                city_type:
+                  type: string
+                  maxLength: 25
+                  description: 'тип города'
+                street_type:
+                  type: string
+                  maxLength: 25
+                  description: 'тип улицы'
+                building:
+                  type: string
+                  maxLength: 8
+                  nullable: true
+                  description: 'номер дома'
+                housing:
+                  type: string
+                  nullable: true
+                  maxLength: 2
+                  description: 'номер корпуса'
+                apartment:
+                  type: string
+                  nullable: true
+                  maxLength: 5
+                  description: квартира
+                cell_number:
+                  type: string
+                  nullable: true
+                  maxLength: 20
+                  description: ячейка
+            phone:
+              minLength: 9
+              maxLength: 20
+              description: телефон
+              type: string
+              nullable: true
+        s10code:
+          type: string
+          description: 'C10 код отправления'
+          nullable: true
+        notification:
+          type: integer
+          description: "Тип уведомления: * 0 – без уведомления * 1 – простое * 2 – заказное * 5 – электронное\n"
+          enum:
+            - 0
+            - 1
+            - 2
+            - 5
+        weight:
+          type: number
+          description: 'Вес отправления в граммах'
+          format: float
+        addons:
+          $ref: '#/components/schemas/Batching_mailing_items_addons'
+    Batching_mailing_items_addons_time_of_delivery_1_time_interval:
+      type: object
+      properties:
+        from:
+          type: string
+          description: 'Начало интервала доставки'
+          format: datetime
+        to:
+          type: string
+          description: 'Конец интервала доставки'
+          format: datetime
+      description: 'Интервал доставки'
+    Batching_mailing_items_addons_time_of_delivery_1:
+      type: object
+      properties:
+        type:
+          type: string
+          description: "Тип интервала: * `level1` – в течение следующего дня * `level2` – в день приема * `level3` – до 10 часов следующего дня * `level4` – в указанное время\n"
+          enum:
+            - level1
+            - level2
+            - level3
+            - level4
+        time_interval:
+          $ref: '#/components/schemas/Batching_mailing_items_addons_time_of_delivery_1_time_interval'
+      description: 'Время доставки'
+    inline_response_200_failed:
+      properties:
+        reason:
+          type: string
+          description: "Текст ошибки валидации. Возможные варианты ошибок валидации адреса и получателя:\n* Указан некорректный или несуществующий адрес\n* Указанный населенный пункт или улица не найдены\n* Адрес с указанным населенным пунктом и улицей найден, но почтовый индекс не совпадает\n* Адрес найден, но неверно указаны типы населенного пункта или улицы\n* Адрес найден, но указанные область или район не совпадают\n* Внешний идентификатор (foreign_id) должен быть уникальным\n* Получатель с указанным recipient_id не найден\n* Получатель с указанным recipient_foreign_id не найден\n* Не переданы данные получателя (recipient_id, recipient_foreign_id или recipient_object)\n* Неверный формат поля «Дом». (ожидается только номер: \"15\" вместо \"д 15\")\n* Корпус must not exceed 6 characters. / Количество символов в поле Корпус получателя не может превышать 8.\n* Количество символов в поле Квартира получателя не может превышать 5.\n"
+          example: 'Указанный населенный пункт или улица не найдены'
+        object:
+          $ref: '#/components/schemas/Recipient_index_data'
+    partial_receipt_request:
+      type: object
+      required:
+        - article
+        - name
+        - quantity
+        - price
+        - currency
+      properties:
+        article:
+          type: string
+          example: 223131М
+          description: 'Артикул. * Доступен ввод числовых и буквенных символов (кириллица, латиница) * мин. 1 символ, макс 20 символов'
+        name:
+          type: string
+          example: Майка
+          description: 'Наименование. * Доступен ввод числовых и буквенных символов (кириллица, латиница); * мин. 1 символ, макс 60 символов'
+        quantity:
+          type: integer
+          example: 1
+          description: 'Количество. * Доступен ввод числовых символов. * мин. 1 символа , макс 4 символа'
+        price:
+          type: number
+          example: 12.11
+          description: 'Цена. * Доступен ввод числовых символов. * Округление до 2-ух знаков после запятой. * мин. 1 символ , макс 4 символа'
+        currency:
+          type: string
+          example: byn
+          enum:
+            - byn
+          description: Валюта
+    partial_receipt_response:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 9ccf1955-69ad-47d9-ab3a-c6f94ed6533c
+          description: идентификатор
+        article:
+          type: string
+          example: 223131М
+          description: Артикул
+        name:
+          type: string
+          example: Майка
+          description: Наименование
+        quantity:
+          type: integer
+          example: 1
+          description: Количество
+        price:
+          type: number
+          example: 12.11
+          description: Цена
+        currency:
+          type: string
+          example: byn
+          enum:
+            - byn
+          description: Валюта
+        total_price:
+          type: number
+          example: 12.11
+          description: 'Общая стоимость. * Рассчитывается автоматически (цена за единицу умноженная на количество товара)'
+        status:
+          type: string
+          example: pending
+          description: 'статус вложения'
+          enum:
+            - pending
+            - issued
+            - canceled
+    step:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: 'код события'
+          example: 4
+        system:
+          type: string
+          enum:
+            - internal
+            - international
+          description: 'Система события'
+          example: internal
+        timestamp:
+          type: integer
+          description: 'Временная метка'
+          example: 1714998716
+        created_at:
+          type: string
+          description: 'Время создания'
+          example: 1715009516
+        place:
+          type: string
+          description: 'место создания события'
+          example: Минск-65
+        event:
+          type: string
+          description: 'название события'
+          example: 'Принято от отправителя'
+        is_border:
+          type: boolean
+          description: 'находиться ли отправление на таможне'
+          example: false
+        border_link:
+          type: string
+          nullable: true
+          description: 'ссылка для получения статуса на таможне'
+          example: null
+        place_index:
+          type: string
+          description: 'индекс места создания события'
+        is_customs:
+          type: boolean
+          example: false
+          description: 'Принято для таможенного контроля'
+  responses:
+    ListTypeIncompatible:
+      description: "Вид отправления несовместим с итоговым состоянием партии (или переданное значение признака\nнедопустимо для текущего вида). Ошибка приходит на конкретное поле и, дополнительно,\nна `postal_delivery_type` — сводкой со списком несовместимых полей.\n"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            postal_items_in_ops_conflict:
+              summary: 'Смена вида на ecommerce_optima при сохранённом postal_items_in_ops = false'
+              value:
+                message: 'Признак приема отправлений в ОПС неверного типа (and 1 more error)'
+                errors:
+                  postal_items_in_ops:
+                    - 'Признак приема отправлений в ОПС неверного типа'
+                  postal_delivery_type:
+                    - 'Нельзя изменить вид отправления на «ecommerce_optima»: для него недопустимы текущие значения полей: postal_items_in_ops. Передайте корректные значения этих полей в этом же запросе или создайте новую партию.'
+            declared_value_conflict:
+              summary: 'Смена вида на package при сохранённой объявленной ценности'
+              value:
+                message: 'Объявленная ценность не может быть true (and 1 more error)'
+                errors:
+                  is_declared_value:
+                    - 'Объявленная ценность не может быть true'
+                  postal_delivery_type:
+                    - 'Нельзя изменить вид отправления на «package»: для него недопустимы текущие значения полей: is_declared_value. Передайте корректные значения этих полей в этом же запросе или создайте новую партию.'
+            postal_items_in_ops_for_current_type:
+              summary: 'Признак «приём не в ОПС» для вида, который его не допускает (без смены вида)'
+              value:
+                message: 'Признак приема отправлений в ОПС неверного типа (and 1 more error)'
+                errors:
+                  postal_items_in_ops:
+                    - 'Признак приема отправлений в ОПС неверного типа'
+                  postal_delivery_type:
+                    - 'Значения полей postal_items_in_ops недопустимы для вида отправления «package».'
+    GenerationInProgress:
+      description: "По партии уже идёт генерация документов (бланков/ярлыков). Повторный запуск генерации\nотклонён, чтобы не сбить текущий прогон — дождитесь его завершения и повторите попытку.\nПо истечении тайм-аута зависший прогон освобождается автоматически, и генерация снова доступна.\n"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          example:
+            message: 'Генерация документов по этой партии ещё выполняется. Дождитесь её завершения и повторите попытку.'
+            errors:
+              error:
+                - 'Генерация документов по этой партии ещё выполняется. Дождитесь её завершения и повторите попытку.'
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

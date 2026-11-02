@@ -1,0 +1,269 @@
+openapi: 3.0.0
+info:
+  title: 'API получения информации об ОПС'
+  description: 'Данный раздел описывает работу отделениями'
+  version: 1.1.0
+servers:
+  -
+    url: 'https://api.belpost.by/api/v1/business'
+security:
+  -
+    bearerAuth: {  }
+paths:
+  /geo-directory/ops/list:
+    get:
+      summary: 'Получения списка отделений почтовой связи'
+      description: 'Осуществляет поиск ОПС осуществляющих прием и выдачу отправлений'
+      parameters:
+        -
+          name: page
+          in: query
+          description: 'число, отвечает за переход на указанную страницу. по умолчанию 500'
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: integer
+          example: 5
+        -
+          name: per_page
+          in: query
+          description: 'число, отвечает за количесво элементов на страницу.'
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: integer
+            default: 500
+          example: 20
+        -
+          name: address_type
+          in: query
+          description: 'тип отделения, on_demand - отделения который имеют сервис до востребования, subscriber_box - отделения который имеют сервис а/я'
+          required: false
+          style: form
+          schema:
+            type: string
+            enum:
+              - subscriber_box
+              - on_demand
+          example: subscriber_box
+      responses:
+        200:
+          description: 'ОПС найдены'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ops_response'
+              example:
+                data:
+                  -
+                    address: '202101, Минская область обл., Борисовский р-н Борисов-мотодоставка Велятичи'
+                    postcode: '202101'
+                    city: Борисовский
+                    region: 'Минская область'
+                    street: ''
+                    phone: ''
+                    phone_delivery: ''
+                    name: 'Борисов-мотодоставка Велятичи '
+                    longitude: 0
+                    latitude: 0
+                    timetable:
+                      -
+                        type: monday_friday
+                        from: '09:00'
+                        to: '17:30'
+                        lunch_from: null
+                        lunch_to: null
+                      -
+                        type: saturday_sunday
+                        from: '09:00'
+                        to: '17:30'
+                        lunch_from: null
+                        lunch_to: null
+                      -
+                        type: holiday
+                        from: null
+                        to: null
+                        lunch_from: null
+                        lunch_to: null
+                    seconds_to_close: 6515
+                    time_status:
+                      -
+                        status: opened
+                        close_in: 6515
+                        close_at: 1685554200
+                        closed: open_in
+                        opened: close_in
+                links:
+                  -
+                    first: 'XXX/api/v1/business/geo-directory/ops/list?paginate=true&perPage=10&page=1'
+                    last: 'XXX/api/v1/business/geo-directory/ops/list?paginate=true&perPage=10&page=393'
+                    next: 'XXX/api/v1/business/geo-directory/ops/list?paginate=true&perPage=10&page=2'
+                meta:
+                  -
+                    current_page: 1
+                    from: 1
+                    last_page: 393
+                    path: 'XXX/api/v1/business/geo-directory/ops/list?paginate=true&perPage=10'
+                    per_page: 10
+                    to: 10
+                    total: 3923
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        422:
+          description: 'Неверное значение поля page'
+          content:
+            application/json:
+              example:
+                message: 'The given data was invalid.'
+                errors:
+                  page:
+                    - 'Поле page не может быть более N.'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    ops_response:
+      properties:
+        address:
+          type: string
+          description: 'Адрес отделения'
+          nullable: true
+        postcode:
+          type: string
+          description: 'Индекс отделения'
+          nullable: true
+        city:
+          type: string
+          description: 'Город отделения'
+          nullable: true
+        district:
+          type: string
+          description: 'Район отделения'
+          nullable: true
+        region:
+          type: string
+          description: 'Регион отделения'
+          nullable: true
+        street:
+          type: string
+          description: 'Улица отделения'
+          nullable: true
+        house:
+          type: string
+          description: 'Дом отделения'
+          nullable: true
+        building:
+          type: string
+          description: 'Корпус отделения'
+          nullable: true
+        city_type:
+          type: string
+          description: 'Тип населенного пункта отделения'
+          nullable: true
+        street_type:
+          type: string
+          description: 'Тип улицы отделения'
+          nullable: true
+        phone:
+          type: string
+          description: 'Телефон отделения'
+          nullable: true
+        phone_delivery:
+          type: string
+          description: 'Телефон доставки отделения'
+          nullable: true
+        name:
+          type: string
+          description: 'Название отделения'
+          nullable: true
+        ems_delivery_mode:
+          type: string
+          description: 'Правило доставки ems отделения'
+          nullable: true
+        ems_departure_time:
+          type: string
+          description: 'Время доставки ems отделения'
+          nullable: true
+        longitude:
+          type: number
+          description: 'долгота отделения'
+          nullable: false
+        latitude:
+          type: number
+          description: 'штрота отделения'
+          nullable: false
+        timetable:
+          type: array
+          description: 'Режим работы отделения'
+          nullable: false
+          items:
+            $ref: '#/components/schemas/timetable'
+        seconds_to_close:
+          type: integer
+          description: 'Режим работы отделения'
+        time_status:
+          type: object
+          description: 'Стутус времени отделения'
+          properties:
+            status:
+              type: string
+              enum:
+                - opened
+                - closed
+              description: статус
+            open_in:
+              type: integer
+              description: 'через сколько открытие'
+              nullable: true
+            open_at:
+              type: string
+              description: 'время открытия'
+              nullable: true
+            close_in:
+              type: integer
+              description: 'через сколько закрытие'
+              nullable: true
+            close_at:
+              type: string
+              description: 'время закрытия'
+              nullable: true
+            closed:
+              type: string
+              enum:
+                - open_in
+                - open_at
+              description: 'Статус ожидания открытия отделения'
+            opened:
+              type: string
+              enum:
+                - close_in
+                - close_at
+              description: 'Статус ожидания закрытия отделения'
+    timetable:
+      properties:
+        type:
+          type: string
+          enum:
+            - monday_friday
+            - saturday_sunday
+            - holiday
+        from:
+          type: string
+          nullable: true
+        to:
+          type: string
+          nullable: true
+        lunch_to:
+          type: string
+          nullable: true
+        lunch_from:
+          type: string
+          nullable: true

@@ -1,0 +1,2431 @@
+openapi: 3.0.0
+info:
+  title: 'Marketplace Seller Orders API'
+  description: "API для управления заказами, отправлениями и партиями продавца на маркетплейсе.\n\n## Авторизация\nВсе запросы требуют заголовок `Authorization: Bearer <token>` с токеном продавца.\nПродавец имеет доступ только к своим заказам и отправлениям — при обращении к чужим\nресурсам возвращается `403`. Рекомендуется также передавать `Accept: application/json`.\n\n## Денежные суммы\nВсе суммы (`amount`) передаются в **копейках** — минорных единицах валюты `BYN`.\nНапример `amount: 80788` означает `807.88 BYN`.\n\n## Коды товара в позиции\nВ каждой позиции заказа (`products[]`, `order_items[]`) приходят два кода\nтовара **на момент оформления заказа**:\n\n* `sdo` — код товара продавца. У Белпочты это «Код СДО» из справочника\n  `GET /api/partner/v1/sdo-codes`, у остальных продавцов — произвольная\n  строка. Технически поле одно и то же, различается только название в\n  интерфейсе.\n* `external_id` — код товара в учетной системе продавца (у Белпочты «Код 1С»),\n  необязательная строка у всех продавцов.\n\nОба берутся из снимка позиции, поэтому не меняются, если продавец потом\nотредактировал коды у товара. Если на момент оформления код не был задан,\nполе приходит пустым (`null`). У заказов, оформленных до появления\n`external_id` в снимке, это поле всегда `null` — задним числом оно\nне восстанавливается.\n\nЗначения для полей товара — в спецификации каталога.\n\n## УНП покупателя\nВ объекте покупателя (`buyer` в заказе, `recipient` в отправлении) приходит\nполе `tin` — УНП. Значение берётся из данных, зафиксированных при оформлении\nзаказа, поэтому не меняется, если покупатель потом отредактировал профиль.\nУ физического лица поле равно `null`.\n\n## Жизненный цикл доставки\n1. **Создать отправление** — `POST /api/partner/v1/mailings` (по получателю и позициям заказа).\n2. **Подтвердить отправление** — `PATCH /api/partner/v1/mailings/{mailing}` с фактическим весом\n   (не меньше расчётного `calculated_weight`).\n3. **Сформировать партию** — `POST /api/partner/v1/batches` создаёт партию в статусе `uncommitted`.\n4. **Зафиксировать партию** — `PATCH /api/partner/v1/batches/{id}/commit`: статус меняется\n   на `committed`, начинается формирование документов отправлений.\n5. **Дождаться документов** — `GET /api/partner/v1/mailings/{id}/document` возвращает поле\n   `status`: `processing` → `done` (или `error`).\n6. **Скачать** бланк/чеки/расписку — методы `*/download` доступны, когда документ в статусе `done`.\n"
+  version: 1.0.0
+servers:
+  -
+    url: 'https://postmarket.by'
+tags:
+  -
+    name: Заказ
+  -
+    name: Продукт
+  -
+    name: Отправление
+  -
+    name: 'Продукты в отправлении'
+  -
+    name: Партия
+  -
+    name: Документ
+  -
+    name: Получатели
+paths:
+  /api/partner/v1/orders:
+    get:
+      tags:
+        - Заказ
+      summary: 'Получить все заказы продавца'
+      description: "Список заказов продавца, которому принадлежит токен.\n\nВ список попадают те же заказы, что продавец видит в кабинете: оплаченные,\nс оплатой при получении, по счёт-фактуре или в кредит, а также все завершённые.\nЗаказ с неоплаченной онлайн-оплатой (карта, ЕРИП, Оплати, сертификат) в список не попадает.\n\nКаждая позиция заказа в `items` отдаётся отдельной записью.\n"
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: Accept-Language
+          in: header
+          required: false
+          description: 'Язык подписей `product_attribute_label` и `product_attributes_labels` (`ru`, `be`, `en`), по умолчанию `ru`'
+          schema:
+            type: string
+            example: ru
+        -
+          name: search
+          in: query
+          description: "Поиск по номеру заказа, адресу доставки и данным получателя\n(название организации, УНП, филиал, телефон, email)\n"
+          required: false
+          schema:
+            type: string
+        -
+          name: 'status[]'
+          in: query
+          description: 'Фильтрует по статусам заказа'
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - created
+                - in_progress
+                - completed
+                - cancelled
+          style: form
+          explode: true
+          example: created
+        -
+          name: 'payment_method[]'
+          in: query
+          description: 'Фильтрует по способам оплаты'
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - card
+                - erip
+                - transfer
+                - upon_receipt
+                - bank_loan
+                - gift_card
+                - oplati
+          style: form
+          explode: true
+          example: upon_receipt
+        -
+          name: 'shipping_method[]'
+          in: query
+          description: 'Фильтрует по способам доставки'
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - pickup_parcel_locker
+                - pickup_postal_office
+                - pickup_seller
+                - courier_belpost
+                - courier_seller
+          style: form
+          explode: true
+          example: pickup_seller
+        -
+          name: date_from
+          in: query
+          description: 'Заказы, созданные в этот день и позже. Сравнивается только дата, время не учитывается.'
+          required: false
+          schema:
+            type: string
+            format: date
+            example: '2024-03-01'
+        -
+          name: date_to
+          in: query
+          description: 'Заказы, созданные в этот день и раньше. Сравнивается только дата, время не учитывается.'
+          required: false
+          schema:
+            type: string
+            format: date
+            example: '2024-03-15'
+        -
+          name: page
+          in: query
+          description: 'Номер страницы'
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        -
+          name: per_page
+          in: query
+          description: 'Количество заказов на странице. Значение больше 100 не ошибка — отдаётся 100.'
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        -
+          name: sort_by
+          in: query
+          description: 'Поле сортировки. При равных значениях заказы дополнительно сортируются по `id` в том же направлении.'
+          required: false
+          schema:
+            type: string
+            enum:
+              - status
+              - payment_method
+              - shipping_method
+              - created_at
+            default: created_at
+        -
+          name: sort_direction
+          in: query
+          description: 'Направление сортировки'
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: desc
+        -
+          name: 'items_processing_status[]'
+          in: query
+          description: "Фильтрует по обработке позиций: `processed` — в заказе есть позиция, добавленная в отправление,\n`unprocessed` — есть позиция вне отправления. Оба значения сразу — без фильтра.\n"
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - processed
+                - unprocessed
+          style: form
+          explode: true
+          example: unprocessed
+        -
+          name: 'product_attributes[]'
+          in: query
+          description: "Фильтрует по `product_attribute` позиций. Несколько значений объединяются по ИЛИ:\nзаказ попадает в выборку, если хотя бы одна его позиция подходит под одно из значений.\n"
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - created_unpaid
+                - created_paid
+                - in_progress_paid
+                - in_progress_unpaid
+                - on_the_road_paid
+                - on_the_road_unpaid
+                - ready_for_pickup_paid
+                - ready_for_pickup_unpaid
+                - delivered_paid
+                - canceled_by_user_no_refund
+                - canceled_by_user_refund_required
+                - canceled_by_user_refunded
+                - canceled_by_seller_no_refund
+                - canceled_by_seller_refund_required
+                - canceled_by_seller_refunded
+                - canceled_by_admin_no_refund
+                - canceled_by_admin_refund_required
+                - canceled_by_admin_refunded
+                - canceled_unpaid
+                - missed_by_seller_no_refund
+                - missed_by_seller_refund_required
+                - missed_by_seller_refunded
+                - unclaimed_no_refund
+                - unclaimed_refund_required
+                - unclaimed_refunded
+                - user_not_picked_up_no_refund
+                - user_not_picked_up_refund_required
+                - user_not_picked_up_refunded
+                - seller_not_delivered_no_refund
+                - seller_not_delivered_refund_required
+                - seller_not_delivered_refunded
+                - returned_no_payment_required
+                - returned_refund_required
+                - returned_refunded
+                - admin_completed_delivered_paid
+                - admin_completed_returned_no_payment_required
+                - admin_completed_returned_refund_required
+                - admin_completed_returned_refunded
+          style: form
+          explode: true
+          example: canceled_by_seller_refund_required
+        -
+          name: 'cancellation_initiator[]'
+          in: query
+          description: 'Отменённые заказы по инициатору отмены. Как и остальные фильтры по отмене, оставляет в выборке только отменённые заказы.'
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - user
+                - seller
+                - admin
+          style: form
+          explode: true
+          example: seller
+        -
+          name: 'cancellation_reason_id[]'
+          in: query
+          description: 'Отменённые заказы по ID причины отмены'
+          required: false
+          schema:
+            type: array
+            items:
+              type: integer
+          style: form
+          explode: true
+        -
+          name: cancellation_type
+          in: query
+          description: 'Отменённые заказы по типу отмены'
+          required: false
+          schema:
+            type: string
+            enum:
+              - manual
+              - automatic
+        -
+          name: cancelled_at_from
+          in: query
+          description: 'Заказы, отменённые в этот день и позже. Сравнивается только дата, время не учитывается.'
+          required: false
+          schema:
+            type: string
+            format: date
+            example: '2024-03-01'
+        -
+          name: cancelled_at_to
+          in: query
+          description: 'Заказы, отменённые в этот день и раньше. Сравнивается только дата, время не учитывается.'
+          required: false
+          schema:
+            type: string
+            format: date
+            example: '2024-03-15'
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrderListEntry'
+                  links:
+                    $ref: '#/components/schemas/Link'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        401:
+          description: 'Не авторизован'
+        403:
+          description: 'Продавец на тарифе «Витрина»'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Seller has show case subscription plan'
+        422:
+          description: 'Невалидные параметры запроса'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+  '/api/partner/v1/orders/{orderId}':
+    get:
+      tags:
+        - Заказ
+      summary: 'Получить заказ на продавца'
+      description: 'получает заказ по его айди у продавца'
+      parameters:
+        -
+          name: orderId
+          in: path
+          description: 'айди заказа'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'найден контакт'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FullOrder'
+        401:
+          description: 'Не авторизован'
+        403:
+          description: 'Доступ запрещен'
+        404:
+          description: 'Заказ не найден'
+    patch:
+      tags:
+        - Заказ
+      summary: 'Обновление заказа'
+      description: 'запрос обновляет поля в заказе'
+      parameters:
+        -
+          name: orderId
+          in: path
+          description: 'айди заказа'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrder'
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FullOrder'
+  '/api/partner/v1/orders/{orderId}/order-items/{orderItemId}':
+    patch:
+      tags:
+        - Продукт
+      summary: 'Обновление продукта'
+      description: 'запрос обновляет поля в продукте заказа'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderItem'
+      parameters:
+        -
+          name: orderId
+          in: path
+          description: 'айди заказа'
+          required: true
+          schema:
+            type: string
+        -
+          name: orderItemId
+          in: path
+          description: 'айди продукта'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderProduct'
+  '/api/partner/v1/orders/{id}/order-items':
+    put:
+      tags:
+        - Продукт
+      summary: 'Обновление всех продуктов'
+      description: 'запрос обновляет поля у всех продуктов заказа'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: id
+          in: query
+          required: true
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                properties:
+                  id:
+                    type: integer
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - issued
+                      - canceled
+                  quantity:
+                    type: integer
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderProduct'
+  /api/partner/v1/mailings:
+    post:
+      tags:
+        - Отправление
+      summary: 'Создать отправление'
+      description: 'Создать отправление на белпочте'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreMailing'
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShowListMailing'
+    get:
+      tags:
+        - Отправление
+      summary: 'Список отправлений'
+      description: 'Получить список отправлений'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: sort_direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - desc
+              - asc
+        -
+          name: sort_by
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - created_at
+              - weight
+        -
+          name: f_status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - in_progress
+              - ready_for_pickup
+              - delivered
+              - returned
+        -
+          name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailingListData'
+  '/api/partner/v1/mailings/{mailing}':
+    get:
+      tags:
+        - Отправление
+      summary: Отправление
+      description: 'Получить отправление'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: mailing
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 1
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShowMailing'
+    delete:
+      tags:
+        - Отправление
+      summary: Отправление
+      description: 'разобрать отправление'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: mailing
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 1
+      responses:
+        204:
+          description: 'удаление успешно'
+    patch:
+      tags:
+        - Отправление
+      summary: Отправление
+      description: 'Подтвердить отправление'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: mailing
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMailing'
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShowMailing'
+  '/api/partner/v1/mailings/{mailing}/items':
+    post:
+      tags:
+        - 'Продукты в отправлении'
+      summary: 'Добавить Продукты'
+      description: 'Добавить продукт в отправление'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: mailing
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderProduct'
+    delete:
+      tags:
+        - 'Продукты в отправлении'
+      summary: 'Удалить Продукты'
+      description: 'Удалить продукты в отправление'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          example: application/json
+          schema:
+            type: string
+            example: application/json
+        -
+          name: mailing
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        204:
+          description: 'Успешный ответ'
+  /api/partner/v1/batches:
+    get:
+      tags:
+        - Партия
+      summary: 'Получить все партии продавца'
+      description: 'Получить список партии для аутентифицированного продавца'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: page
+          in: query
+          description: 'Номер страницы'
+          required: false
+          schema:
+            type: integer
+        -
+          name: per_page
+          in: query
+          description: 'Номер страницы'
+          required: false
+          schema:
+            type: integer
+        -
+          name: f_status
+          in: query
+          description: 'фильтрация по статусу'
+          schema:
+            type: string
+            enum:
+              - uncommitted
+              - committed
+        -
+          name: f_created_at
+          in: query
+          description: 'фильтрация по дате'
+          schema:
+            type: string
+            format: datetime
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BatchList'
+                  links:
+                    $ref: '#/components/schemas/Link'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+    post:
+      tags:
+        - Партия
+      summary: 'Создать партию из отправлений'
+      description: 'Создать партию из отправлений'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mailings:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+  '/api/partner/v1/batches/{id}':
+    get:
+      tags:
+        - Партия
+      summary: 'Получить партию'
+      description: 'Получить партию по id для аутентифицированного продавца'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: id
+          in: query
+          required: true
+          schema:
+            type: integer
+            example: 1
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+  '/api/partner/v1/mailings/{id}/document':
+    get:
+      tags:
+        - Документ
+      summary: 'Получить документ отправления'
+      description: 'получает документ'
+      parameters:
+        -
+          name: id
+          in: path
+          description: 'айди отправления'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+  '/api/partner/v1/mailings/{id}/document/download':
+    get:
+      tags:
+        - Документ
+      summary: 'Скачать бланк отправления'
+      description: 'получает файл документа'
+      parameters:
+        -
+          name: id
+          in: path
+          description: 'айди отправления'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+  '/api/partner/v1/mailings/{id}/receipt/download':
+    get:
+      tags:
+        - Документ
+      summary: 'Скачать тварный чек отправления'
+      description: 'получает товарный чек отправления'
+      parameters:
+        -
+          name: id
+          in: path
+          description: 'айди отправления'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+  '/api/partner/v1/batches/{id}/mailings/add':
+    post:
+      tags:
+        - Партии
+      summary: 'Добавить отправление в уже созданную партию'
+      description: 'обновляет партию'
+      parameters:
+        -
+          name: id
+          in: path
+          description: 'айди партии'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mailings:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+  '/api/partner/v1/batches/{id}/commit':
+    patch:
+      tags:
+        - Партии
+      summary: 'Сформировать партию'
+      description: 'обновляет партию'
+      parameters:
+        -
+          name: id
+          in: path
+          description: 'айди партии'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+  '/api/partner/v1/batches/{id}/uncommit':
+    patch:
+      tags:
+        - Партии
+      summary: 'Расформировать партию'
+      description: 'обновляет партию'
+      parameters:
+        -
+          name: id
+          in: path
+          description: 'айди партии'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+  /api/partner/v1/batches/manifest:
+    post:
+      tags:
+        - Расписка
+      summary: 'Расформировать расписку'
+      description: 'создает расписку из партий'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                batches:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        201:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Мanifest'
+  '/api/partner/v1/batches/manifest/{id}/download':
+    get:
+      tags:
+        - Расписка
+      summary: 'Скачать расписку партии'
+      description: 'получает расписку партии'
+      parameters:
+        -
+          name: id
+          in: path
+          description: 'айди расписки'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /api/partner/v1/items/without-mailing:
+    get:
+      tags:
+        - Продукт
+      summary: 'Получить все продукты без отправлений'
+      description: 'Получить список продуктов'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: page
+          in: query
+          description: 'Номер страницы'
+          required: false
+          schema:
+            type: integer
+        -
+          name: per_page
+          in: query
+          description: 'Номер страницы'
+          required: false
+          schema:
+            type: integer
+        -
+          name: recipient_id
+          in: query
+          description: 'айди получателя'
+          required: true
+          schema:
+            type: integer
+        -
+          name: shipping_method
+          in: query
+          description: 'метод получения'
+          required: true
+          schema:
+            type: string
+            enum:
+              - pickup_parcel_locker
+              - pickup_postal_office
+              - pickup_seller
+              - courier_belpost
+              - courier_seller
+        -
+          name: payment_method
+          in: query
+          description: 'метод оплаты'
+          required: true
+          schema:
+            type: string
+            enum:
+              - card
+              - erip
+              - transfer
+              - upon_receipt
+              - bank_loan
+              - gift_card
+        -
+          name: address_id
+          in: query
+          required: true
+          description: 'айди адреса'
+          schema:
+            type: integer
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrderProduct'
+                  links:
+                    $ref: '#/components/schemas/Link'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+  /api/partner/v1/recipient/with-unprocessed-items/list:
+    get:
+      tags:
+        - Получатели
+      summary: 'Получить всех получателей без отправлений'
+      description: 'Получить всех получателей'
+      parameters:
+        -
+          name: Accept
+          in: header
+          required: true
+          schema:
+            type: string
+            example: application/json
+        -
+          name: page
+          in: query
+          description: 'Номер страницы'
+          required: false
+          schema:
+            type: integer
+        -
+          name: per_page
+          in: query
+          description: 'Номер страницы'
+          required: false
+          schema:
+            type: integer
+        -
+          name: search
+          in: query
+          description: пойск
+          required: false
+          schema:
+            type: string
+      responses:
+        200:
+          description: 'Успешный ответ'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FreeRecipient'
+                  links:
+                    $ref: '#/components/schemas/Link'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+security:
+  -
+    bearerAuth: {  }
+components:
+  schemas:
+    FullOrder:
+      type: object
+      allOf:
+        -
+          $ref: '#/components/schemas/Order'
+      properties:
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderProduct'
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 2832
+          nullable: false
+        status:
+          type: string
+          nullable: false
+          enum:
+            - created
+            - in_progress
+            - completed
+            - cancelled
+        created_at:
+          type: string
+          format: datetime
+          nullable: false
+          example: 1736858103
+        processing_expired_at:
+          type: string
+          format: datetime
+          nullable: true
+          example: 1736858103
+        count_items:
+          type: integer
+          example: 1
+        total:
+          type: object
+          properties:
+            amount:
+              type: integer
+              example: 80788
+            currency:
+              type: string
+              enum:
+                - BYN
+        payment_method:
+          type: string
+          enum:
+            - card
+            - erip
+            - transfer
+            - upon_receipt
+            - bank_loan
+            - gift_card
+        shipping_method:
+          type: string
+          enum:
+            - pickup_parcel_locker
+            - pickup_postal_office
+            - pickup_seller
+            - courier_belpost
+            - courier_seller
+        delivery_place:
+          type: string
+          nullable: true
+          example: '220025, ГОРОД МИНСК, ПРОЕЗД СЛОБОДСКОЙ ДОМ 128 КВАРТИРА 33'
+        buyer:
+          $ref: '#/components/schemas/Buyer'
+        payment:
+          type: string
+          enum:
+            - upon_receipt
+            - required
+            - paid
+            - cancelled
+        shipping_status:
+          type: string
+          enum:
+            - not_formed
+            - formed
+            - ready_for_pickup
+            - on_the_road
+            - issued
+            - in_progress
+            - returned
+            - cancelled
+        note:
+          type: string
+          nullable: true
+        processed_at:
+          type: string
+          nullable: true
+          example: '2024-03-01T00:00:00Z'
+        receipt_download_url:
+          type: string
+          nullable: false
+        finished_at:
+          type: string
+          format: datetime
+          nullable: true
+          example: 1736858103
+        customer_id:
+          type: integer
+          nullable: false
+        address_id:
+          type: integer
+          nullable: false
+        missed_at:
+          type: string
+          format: datetime
+          nullable: true
+          example: 1736858103
+    OrderListEntry:
+      type: object
+      description: 'Заказ в списке `GET /api/partner/v1/orders`.'
+      properties:
+        id:
+          type: integer
+          nullable: false
+          example: 25230
+        status:
+          type: string
+          nullable: false
+          enum:
+            - created
+            - in_progress
+            - completed
+            - cancelled
+        created_at:
+          type: string
+          format: date-time
+          nullable: false
+          example: '2026-07-22T10:18:10.000000Z'
+        processing_expired_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Срок, до которого продавец должен взять заказ в работу. Заполнен только для заказа в статусе `created`.'
+          example: '2026-07-22T11:18:10.000000Z'
+        count_items:
+          type: integer
+          nullable: false
+          description: 'Количество единиц товара во всех позициях заказа'
+          example: 4
+        unprocessed_count:
+          type: integer
+          nullable: false
+          description: 'Количество единиц товара в позициях, ещё не добавленных в отправление'
+          example: 0
+        total:
+          $ref: '#/components/schemas/Money'
+        shipping_cost:
+          $ref: '#/components/schemas/Money'
+        subtotal:
+          allOf:
+            -
+              $ref: '#/components/schemas/Money'
+          description: 'Стоимость товаров — `total` без `shipping_cost`'
+        payment_method:
+          type: string
+          nullable: false
+          enum:
+            - card
+            - erip
+            - transfer
+            - upon_receipt
+            - bank_loan
+            - gift_card
+            - oplati
+        shipping_method:
+          type: string
+          nullable: false
+          enum:
+            - pickup_parcel_locker
+            - pickup_postal_office
+            - pickup_seller
+            - courier_belpost
+            - courier_seller
+        delivery_place:
+          type: string
+          nullable: false
+          description: 'Адрес доставки; пустая строка, если адреса нет'
+          example: '220025, ГОРОД МИНСК, ПРОЕЗД СЛОБОДСКОЙ ДОМ 128 КВАРТИРА 33'
+        buyer:
+          allOf:
+            -
+              $ref: '#/components/schemas/Buyer'
+          nullable: true
+          description: 'Получатель заказа. Заполнен только для заказов в статусах `in_progress` и `completed`.'
+        product_attributes:
+          type: array
+          nullable: true
+          description: 'Различные `product_attribute` позиций заказа; `null`, если ни у одной позиции его нет'
+          items:
+            type: string
+          example:
+            - delivered_paid
+            - canceled_by_seller_no_refund
+        product_attributes_labels:
+          type: array
+          nullable: true
+          description: 'Подписи к `product_attributes` на языке из `Accept-Language`'
+          items:
+            type: string
+          example:
+            - 'Вручен, оплачен'
+        items:
+          type: array
+          nullable: false
+          description: "Позиции заказа, по одной записи на позицию, в порядке добавления в заказ.\nОдин товар может встречаться несколько раз, если позиция была разделена\n(например, часть количества отменена): у каждой записи своё количество\nи свой `product_attribute`.\n"
+          items:
+            $ref: '#/components/schemas/OrderListItem'
+        payment:
+          type: string
+          nullable: false
+          enum:
+            - upon_receipt
+            - required
+            - paid
+            - cancelled
+        shipping_status:
+          type: string
+          nullable: false
+          description: 'Статус последней отправки заказа; `not_formed`, если отправок нет'
+          enum:
+            - not_formed
+            - formed
+            - ready_for_pickup
+            - on_the_road
+            - issued
+            - in_progress
+            - returned
+            - cancelled
+        note:
+          type: string
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Когда продавец взял заказ в работу'
+          example: '2026-07-22T10:28:14.000000Z'
+        receipt_download_url:
+          type: string
+          nullable: true
+          description: 'Ссылка на чек; `null` для заказов в статусах `created` и `cancelled` и пока чека нет'
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-07-25T06:50:24.000000Z'
+        customer_id:
+          type: integer
+          nullable: false
+          description: 'ID покупателя'
+          example: 5751
+        address_id:
+          type: integer
+          nullable: true
+          description: 'ID адреса доставки'
+          example: 8680
+        missed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Когда заказ был пропущен продавцом (не взят в работу вовремя)'
+        payment_comment:
+          type: string
+          nullable: true
+          description: 'Комментарий к смене статуса оплаты'
+        invoice_note:
+          type: object
+          nullable: true
+          description: 'Счёт-фактура по заказу'
+          properties:
+            id:
+              type: integer
+            status:
+              type: string
+              enum:
+                - new
+                - in_progress
+                - done
+                - error
+        pickup_deadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Срок хранения в пункте выдачи по последней отправке'
+          example: '2026-07-27T10:18:10+00:00'
+        delivery_deadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Ожидаемая дата доставки по последней отправке'
+          example: '2026-07-24T10:18:10+00:00'
+        cancellation:
+          type: object
+          nullable: true
+          description: 'Данные отмены. Заполнены только для отменённого заказа.'
+          properties:
+            initiator:
+              type: string
+              enum:
+                - user
+                - seller
+                - admin
+            reason:
+              type: string
+              nullable: true
+              description: 'Название причины на языке из `Accept-Language`'
+            type:
+              type: string
+              enum:
+                - manual
+                - automatic
+            cancelled_at:
+              type: string
+              format: date-time
+              example: '2026-07-22T12:00:00+00:00'
+            comment:
+              type: string
+              nullable: true
+    Money:
+      type: object
+      description: 'Сумма в копейках'
+      properties:
+        amount:
+          type: integer
+          example: 34700
+        currency:
+          type: string
+          enum:
+            - BYN
+    OrderListItem:
+      type: object
+      description: 'Позиция заказа. Данные товара — на момент оформления заказа.'
+      properties:
+        id:
+          type: integer
+          nullable: false
+          description: 'ID товара'
+          example: 8095
+        name:
+          type: string
+          nullable: false
+          example: Тестовый
+        code:
+          type: string
+          nullable: true
+          description: 'Код товара на маркетплейсе'
+          example: '100008095'
+        sku:
+          type: string
+          nullable: true
+          description: 'Артикул; пустая строка, если продавец его не указал'
+          example: ''
+        barcode:
+          type: string
+          nullable: true
+          example: '5824389272'
+        model:
+          type: string
+          nullable: true
+          example: ART-TEST5360-0
+        quantity:
+          type: integer
+          nullable: false
+          example: 1
+        price:
+          allOf:
+            -
+              $ref: '#/components/schemas/Money'
+          description: 'Цена за единицу'
+        product_attribute:
+          type: string
+          nullable: true
+          description: 'Статус позиции с учётом оплаты и возврата'
+          example: on_the_road_paid
+          enum:
+            - created_unpaid
+            - created_paid
+            - in_progress_paid
+            - in_progress_unpaid
+            - on_the_road_paid
+            - on_the_road_unpaid
+            - ready_for_pickup_paid
+            - ready_for_pickup_unpaid
+            - delivered_paid
+            - canceled_by_user_no_refund
+            - canceled_by_user_refund_required
+            - canceled_by_user_refunded
+            - canceled_by_seller_no_refund
+            - canceled_by_seller_refund_required
+            - canceled_by_seller_refunded
+            - canceled_by_admin_no_refund
+            - canceled_by_admin_refund_required
+            - canceled_by_admin_refunded
+            - canceled_unpaid
+            - missed_by_seller_no_refund
+            - missed_by_seller_refund_required
+            - missed_by_seller_refunded
+            - unclaimed_no_refund
+            - unclaimed_refund_required
+            - unclaimed_refunded
+            - user_not_picked_up_no_refund
+            - user_not_picked_up_refund_required
+            - user_not_picked_up_refunded
+            - seller_not_delivered_no_refund
+            - seller_not_delivered_refund_required
+            - seller_not_delivered_refunded
+            - returned_no_payment_required
+            - returned_refund_required
+            - returned_refunded
+            - admin_completed_delivered_paid
+            - admin_completed_returned_no_payment_required
+            - admin_completed_returned_refund_required
+            - admin_completed_returned_refunded
+        product_attribute_label:
+          type: string
+          nullable: true
+          description: 'Подпись `product_attribute` на языке из `Accept-Language` (по умолчанию русский)'
+          example: 'В пути, оплачен'
+    Link:
+      type: object
+      properties:
+        first:
+          type: string
+          example: 'http://0.0.0.0/api/partner/v1/orders?per_page=2&status%5B0%5D=created&page=1'
+        last:
+          type: string
+          example: 'http://0.0.0.0/api/partner/v1/orders?per_page=2&status%5B0%5D=created&page=1'
+        prev:
+          type: string
+          nullable: true
+          example: 'http://0.0.0.0/api/partner/v1/orders?per_page=2&status%5B0%5D=created&page=1'
+        next:
+          type: string
+          nullable: true
+          example: 'http://0.0.0.0/api/partner/v1/orders?per_page=2&status%5B0%5D=created&page=1'
+    Meta:
+      type: object
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        from:
+          type: integer
+          nullable: true
+          example: 1
+        last_page:
+          type: integer
+          example: 1
+        links:
+          type: array
+          items:
+            properties:
+              url:
+                type: string
+                nullable: true
+                example: null
+              label:
+                type: string
+                example: pagination.previous
+              active:
+                type: boolean
+                example: false
+        path:
+          type: string
+          example: 'http://0.0.0.0/api/partner/v1/orders'
+        per_page:
+          type: integer
+          example: 15
+        to:
+          type: integer
+          nullable: true
+          example: null
+        total:
+          type: integer
+          example: 0
+    OrderProduct:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: false
+          example: 1
+        name:
+          type: string
+          nullable: false
+          example: держатель
+        code:
+          type: string
+          nullable: false
+          example: 100000541
+        sdo:
+          type: string
+          nullable: true
+          description: 'Код товара продавца на момент оформления заказа (у Белпочты — «Код СДО» из справочника). Берётся из снимка позиции и не меняется, если продавец потом изменил код у товара. `null`, если на момент оформления код не был задан.'
+          example: '2020327'
+        external_id:
+          type: string
+          nullable: true
+          description: 'Код товара в учетной системе продавца на момент оформления заказа (у Белпочты — «Код 1С»). По тому же правилу снимка, что и `sdo`. `null`, если код не был задан, а также у заказов, оформленных до появления поля в снимке.'
+          example: ART-10023
+        model:
+          type: string
+          nullable: false
+          example: vero
+        media:
+          type: array
+          items:
+            type: string
+        quantity:
+          type: integer
+          example: 1
+        price:
+          type: object
+          properties:
+            amount:
+              type: integer
+              example: 80788
+            currency:
+              type: string
+              enum:
+                - BYN
+        note:
+          type: string
+          nullable: true
+          example: null
+        status:
+          type: string
+          enum:
+            - pending
+            - issued
+            - canceled
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductParameters'
+        mailing:
+          anyOf:
+            -
+              $ref: '#/components/schemas/MailingOrder'
+            -
+              nullable: true
+        order_item_id:
+          type: integer
+          nullable: false
+        offer:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: integer
+            basic:
+              type: object
+              properties:
+                amount:
+                  type: integer
+                  example: 80788
+                currency:
+                  type: string
+                  enum:
+                    - BYN
+            total:
+              type: object
+              properties:
+                amount:
+                  type: integer
+                  example: 80788
+                currency:
+                  type: string
+                  enum:
+                    - BYN
+            discount:
+              type: integer
+            quantity:
+              type: integer
+            promotion_outline:
+              type: boolean
+            promotion_label_text:
+              type: string
+            promotion_label_style:
+              type: string
+    ProductParameters:
+      type: array
+      items:
+        properties:
+          c:
+            type: boolean
+            example: false
+          l:
+            type: boolean
+            example: false
+          key:
+            type: string
+            example: color
+          name:
+            type: string
+            example: Цвет
+          type:
+            type: string
+            example: single_select
+            enum:
+              - single_select
+              - multi_select
+              - boolean
+              - range
+          values:
+            type: array
+            properties:
+              v:
+                type: string
+                example: Бежевый
+              id:
+                type: integer
+                example: 12
+          description:
+            type: string
+            example: ''
+    UpdateOrder:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - not_formed
+            - formed
+            - ready_for_pickup
+            - on_the_road
+            - issued
+            - in_progress
+            - returned
+            - cancelled
+        payment:
+          type: string
+          enum:
+            - upon_receipt
+            - required
+            - paid
+            - cancelled
+    UpdateOrderItem:
+      type: object
+      properties:
+        note:
+          type: string
+          nullable: false
+          maxLength: 255
+          example: 'Тестовый товар'
+        status:
+          type: string
+          nullable: false
+          enum:
+            - canceled
+            - processing
+            - processing
+        quantity:
+          type: integer
+          nullable: false
+          minimum: 1
+    MailingOrder:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: false
+        s10code:
+          type: string
+          nullable: true
+        batch_id:
+          type: integer
+          nullable: true
+        weight:
+          type: integer
+          nullable: false
+        calculated_weight:
+          type: integer
+          nullable: false
+    StoreMailing:
+      type: object
+      properties:
+        mailings:
+          type: array
+          items:
+            properties:
+              payment_method:
+                type: string
+                nullable: false
+                required: true
+                enum:
+                  - card
+                  - erip
+                  - transfer
+                  - upon_receipt
+                  - bank_loan
+                  - gift_card
+                example: card
+              order_item_ids:
+                type: array
+                nullable: false
+                required: true
+                items:
+                  type: integer
+                example:
+                  - 1
+              address_id:
+                type: integer
+                nullable: false
+                required: true
+                example: 1204
+              customer_id:
+                type: integer
+                nullable: false
+                required: true
+                example: 12
+              recipient_id:
+                type: integer
+                nullable: false
+                required: true
+                example: 321
+            nullable: false
+            required: true
+    ShowMailing:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: false
+        belpost_id:
+          type: integer
+          nullable: false
+        batch_id:
+          type: integer
+          nullable: true
+        merchant_id:
+          type: integer
+          nullable: false
+        weight:
+          type: integer
+          nullable: false
+        calculated_weight:
+          type: integer
+          nullable: false
+        notification:
+          type: integer
+          nullable: false
+        category:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum:
+            - in_progress
+            - ready_for_pickup
+            - delivered
+            - returned
+            - cancelled
+        s10code:
+          type: string
+          nullable: true
+        notification_s10code:
+          type: string
+          nullable: true
+        recipient:
+          $ref: '#/components/schemas/Buyer'
+        address:
+          $ref: '#/components/schemas/Address'
+        order_items:
+          $ref: '#/components/schemas/OrderProduct'
+        addons:
+          $ref: '#/components/schemas/Addons'
+        tracking_data:
+          oneOf:
+            -
+              $ref: '#/components/schemas/TrackingData'
+            -
+              nullable: true
+        cost:
+          type: object
+          properties:
+            amount:
+              type: integer
+              nullable: false
+            currency:
+              type: string
+              enum:
+                - BYN
+        created_at:
+          type: string
+          format: datetime
+          example: 1744450090
+        count_items:
+          type: integer
+          nullable: false
+        pickup_expired_at:
+          type: string
+          format: datetime
+          nullable: true
+        finished_at:
+          type: string
+          format: datetime
+          nullable: true
+        back_track_code:
+          type: string
+          nullable: true
+    ShowListMailing:
+      type: object
+      properties:
+        mailings:
+          $ref: '#/components/schemas/ShowMailing'
+    Buyer:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+          nullable: false
+        type:
+          type: string
+          example: individual
+          nullable: false
+          enum:
+            - legal
+            - individual
+            - individual_entrepreneur
+        name:
+          type: string
+          example: null
+          nullable: true
+        tin:
+          type: string
+          nullable: true
+          example: '101178759'
+          description: "НОВОЕ. УНП покупателя, зафиксированный при оформлении заказа. Приходит у юридического лица и индивидуального предпринимателя, у физического лица — `null`.\n"
+        first_name:
+          type: string
+          example: Иван
+          nullable: true
+        last_name:
+          type: string
+          example: Иван
+          nullable: true
+        second_name:
+          type: string
+          example: null
+          nullable: true
+        email:
+          type: string
+          example: smart+1@gmail.com
+          nullable: true
+        phone:
+          type: string
+          example: 375446557321
+          nullable: true
+    Address:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: false
+        country_code:
+          type: string
+          nullable: false
+        post_code:
+          type: string
+          nullable: false
+        region:
+          type: string
+          nullable: true
+        district:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: false
+        city_type:
+          type: string
+          nullable: false
+        street:
+          type: string
+          nullable: false
+        street_type:
+          type: string
+          nullable: false
+        building:
+          type: string
+          nullable: false
+        address_type:
+          type: string
+          nullable: false
+          enum:
+            - address
+            - on_demand
+            - subscriber_box
+        apartment:
+          type: string
+          nullable: true
+        housing:
+          type: string
+          nullable: true
+        cell_number:
+          type: string
+          nullable: true
+        full_address:
+          type: string
+          nullable: false
+    Addons:
+      type: object
+      properties:
+        declared_value:
+          type: number
+          nullable: true
+        cash_on_delivery:
+          type: number
+          nullable: true
+        careful_fragile:
+          type: boolean
+          nullable: true
+        hand_over_personally:
+          type: boolean
+          nullable: true
+        subpoena:
+          type: boolean
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        bulky:
+          type: boolean
+          nullable: true
+        recipient_payment:
+          type: boolean
+          nullable: true
+        time_of_delivery:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - level1
+                - level4
+                - level3
+            time_interval:
+              type: object
+              nullable: true
+              properties:
+                from:
+                  type: string
+                to:
+                  type: string
+          nullable: true
+        free_return:
+          type: boolean
+          nullable: true
+        delivery_to_work:
+          type: boolean
+          nullable: true
+        is_paid:
+          type: boolean
+          nullable: false
+    TrackingData:
+      nullable: true
+      type: array
+      properties:
+        number:
+          type: string
+          nullable: false
+        comment:
+          type: string
+          nullable: true
+        last_event:
+          type: string
+          nullable: false
+        main_status:
+          type: string
+          nullable: false
+          enum:
+            - not_data
+            - rejected
+            - on_the_road
+            - awarded
+            - pickup
+        steps:
+          type: array
+          nullable: false
+    MailingListData:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: false
+        s10code:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - in_progress
+            - ready_for_pickup
+            - delivered
+            - returned
+        created_at:
+          type: string
+          format: datetime
+        count_items:
+          type: integer
+          nullable: false
+        weight:
+          type: integer
+          nullable: false
+        batch_id:
+          type: integer
+          nullable: true
+        batch_status:
+          type: string
+          nullable: true
+          enum:
+            - uncommitted
+            - committed
+    UpdateMailing:
+      type: object
+      properties:
+        weight:
+          type: integer
+          nullable: false
+    BatchList:
+      type: object
+      properties:
+        id:
+          type: integer
+        number:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: datetime
+        count_mailing:
+          type: integer
+        sum_weight:
+          type: integer
+        status:
+          type: string
+          enum:
+            - uncommitted
+            - committed
+    Batch:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: false
+        number:
+          type: integer
+          nullable: true
+        belpost_id:
+          type: integer
+          nullable: false
+        name:
+          type: string
+          nullable: false
+        status:
+          type: string
+          nullable: false
+          enum:
+            - uncommitted
+            - committed
+        postal_delivery_type:
+          type: string
+          nullable: false
+          enum:
+            - ordered_small_package
+            - letter_declare_value
+            - package
+            - ems
+            - ordered_parcel_post
+            - ordered_letter
+            - ordered_postcard
+            - small_package_declare_value
+            - ecommerce_economical
+            - ecommerce_standard
+            - ecommerce_elite
+            - ecommerce_express
+            - ecommerce_light
+            - ecommerce_optima
+            - marketplace
+        direction:
+          type: string
+          nullable: false
+          enum:
+            - internal
+            - CIS
+            - international
+        payment_type:
+          type: string
+          nullable: false
+          enum:
+            - not_specified
+            - cash
+            - payment_order
+            - electronic_personal_account
+            - 4
+            - 5
+            - commitment_letter
+        negotiated_type:
+          type: boolean
+          nullable: true
+        is_priority:
+          type: boolean
+          nullable: true
+        is_document:
+          type: boolean
+          nullable: true
+        postal_items_in_ops:
+          type: boolean
+          nullable: true
+        category:
+          type: integer
+          nullable: true
+        is_declared_value:
+          type: boolean
+          nullable: true
+        created_at:
+          type: string
+          nullable: true
+          format: datetime
+        mailings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShowMailing'
+        merchant:
+          $ref: '#/components/schemas/Merchant'
+        manifest_id:
+          type: integer
+          nullable: true
+        sum_weight:
+          type: integer
+        count_mailing:
+          type: integer
+    Merchant:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        salesCount:
+          type: integer
+        rating:
+          type: string
+        numberOfRatings:
+          type: integer
+        numberOfReviews:
+          type: integer
+        orderProcessingTime:
+          type: array
+          items:
+            properties:
+              day_name:
+                type: string
+                enum:
+                  - sunday
+                  - saturday
+                  - friday
+                  - thursday
+                  - wednesday
+                  - tuesday
+                  - monday
+              work_time:
+                type: object
+                nullable: true
+                properties:
+                  end_at:
+                    type: string
+                  start_at:
+                    type: string
+              timezone:
+                type: string
+              carNumber:
+                type: string
+              tim:
+                type: string
+    Document:
+      type: object
+      properties:
+        id:
+          type: integer
+        belpost_id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - done
+            - processing
+            - error
+        download_url:
+          type: string
+          nullable: true
+        expired_at:
+          type: string
+          nullable: true
+          format: datetime
+        created_at:
+          type: string
+          format: datetime
+    Мanifest:
+      type: object
+      properties:
+        id:
+          type: integer
+        belpost_id:
+          type: integer
+        merchant_id:
+          type: integer
+        serial_number:
+          type: integer
+        disk:
+          type: string
+          nullable: true
+        download_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: datetime
+        updated_at:
+          type: string
+          format: datetime
+        batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchList'
+    FreeRecipient:
+      type: object
+      properties:
+        recipient_id:
+          type: integer
+        customer_id:
+          type: integer
+        shipping_method:
+          type: string
+          enum:
+            - pickup_parcel_locker
+            - pickup_postal_office
+            - pickup_seller
+            - courier_belpost
+            - courier_seller
+        payment_method:
+          type: string
+          enum:
+            - card
+            - erip
+            - transfer
+            - upon_receipt
+            - bank_loan
+            - gift_card
+        full_address:
+          type: string
+        official_name:
+          type: string
+        type:
+          type: string
+          enum:
+            - legal
+            - individual
+            - individual_entrepreneur
+        phone:
+          type: string
+          nullable: true
+        unprocessed_items_count:
+          type: integer
+        address_id:
+          type: integer
+    ValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+          example: 'The mailing must be an integer.'
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            mailing:
+              - 'The mailing must be an integer.'
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

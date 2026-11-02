@@ -1,0 +1,235 @@
+openapi: 3.0.0
+info:
+  title: 'API отслеживания отправлений'
+  description: 'Данный раздел описывает работу с отслеживанием отправлений.'
+  version: 1.0.0
+servers:
+  -
+    url: 'https://api.belpost.by/api/v1/business'
+security:
+  -
+    bearerAuth: {  }
+paths:
+  /tracking:
+    put:
+      summary: 'Добавить номер для отслеживания отправления'
+      description: 'Позволяет добавить номер отправления в отслеживаемые отправления. При наличии изменений в статусе отправления - отправляет вебхук с измененным статусом. (Требуется подключенный вэбхук для событий отслеживания отправлений. см. Вэбхуки)'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/tracking_body'
+            example:
+              number: AB123456789CD
+              comment: 'текст комментария'
+      responses:
+        204:
+          description: 'Successful response'
+          content:
+            application/json: {  }
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+    post:
+      summary: 'Получение информации об одном отправлении.'
+      description: 'Предоставляет информацию об отправлении. Добавление номера в отслеживаемые - не обязательна.'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/tracking_request'
+            example:
+              number: AB123456789CD
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/tracking_response'
+              example:
+                data:
+                  number: BQ000002581BY
+                  steps: {  }
+                  uuid: 2b5413bb-afe1-4ae7-943d-cb419m5bcc47
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        404:
+          description: 'информация по указанному номеру не найдена'
+          content:
+            application/json:
+              example:
+                message: 'TRACKING_CODE_NOT_FOUND,'
+                errors: {  }
+        422:
+          description: 'Неверный формат поля number'
+          content:
+            application/json:
+              example:
+                errors:
+                  number: 'Поле number имеет ошибочный формат.'
+    delete:
+      summary: 'Удалить номер для отслеживания отправления'
+      description: 'Позволяет удалить номер отправления из отслеживаемых отправлений. При ненахождении отслеживания у клиента, будет возвращена ошибка 422'
+      parameters:
+        -
+          name: number
+          in: query
+          description: 'номер отправления'
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: string
+          example:
+            number: AB123456789CD
+      responses:
+        204:
+          description: 'Successful response'
+          content:
+            application/json: {  }
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        422:
+          description: 'код не найден"'
+          content:
+            application/json:
+              example:
+                number: 'S10Code не найден'
+  /tracking/range:
+    post:
+      summary: 'Получение информации о диапазоне отправлений'
+      description: 'Предоставляет информацию о текущем состоянии отправлений попадающих в диапазон указанных номеров. Массив steps содержит только последнее состояние для каждого из номеров. Добавление номеров в отслеживаемые - не обязательна.'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/tracking_range_request'
+            example:
+              number_min: AB123456789CD
+              number_max: AB234567890CD
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/tracking_response'
+              example:
+                data:
+                  -
+                    number: AA123456789BB
+                    steps:
+                      -
+                        system: internal
+                        created_at: 1641254400
+                        event: Вручено
+                    uuid: f67419c9-776a-4356-9085-a8c1d9308448
+                  -
+                    number: AA123456791BB
+                    steps:
+                      -
+                        system: internal
+                        created_at: 1641290400
+                        event: Вручено
+                    uuid: f67419c9-776a-4356-9085-a8c1d9308448
+        401:
+          description: 'требуется аутентификация (не передан токен или передан не валидный)'
+          content:
+            application/json:
+              example:
+                error: Unauthenticated.
+        404:
+          description: 'информация по указанному диапазону не найдена'
+          content:
+            application/json:
+              example:
+                message: 'TRACKING_RANGE_NOT_FOUND,'
+                errors: {  }
+        422:
+          description: 'Неверный формат полей number_min | number_max'
+          content:
+            application/json:
+              example:
+                message: 'The given data was invalid'
+                errors:
+                  number_min: 'Поле number min имеет ошибочный формат.'
+                  number_max: 'Поле number max имеет ошибочный формат.'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    tracking_request:
+      properties:
+        number:
+          type: string
+          description: 'номер отслеживания'
+          nullable: true
+      description: 'Запрос Отслеживания'
+    tracking_response:
+      properties:
+        data:
+          $ref: '#/components/schemas/tracking_response_data'
+      description: 'Ответ отслеживания'
+    tracking_steps:
+      properties:
+        system:
+          type: string
+          description: 'Система шага'
+          enum:
+            - internal
+            - external
+    tracking_range_request:
+      required:
+        - number_min
+        - number_max
+      properties:
+        number_min:
+          type: string
+          description: 'tracking номер с которого начинается диапазон'
+          nullable: false
+        number_max:
+          type: string
+          description: 'tracking номер с которым заканчивается диапазон'
+          nullable: false
+      description: 'Запрос диапазона отслеживания'
+    tracking_body:
+      type: object
+      required:
+        - number
+      properties:
+        number:
+          type: string
+          description: 'номер отправления'
+        comment:
+          type: string
+          maxLength: 180
+          nullable: true
+    tracking_response_data:
+      type: object
+      properties:
+        number:
+          type: string
+          description: 'Номер отслеживания'
+        steps:
+          type: array
+          description: 'шаги отправления'
+          items:
+            $ref: '#/components/schemas/tracking_steps'
+        uuid:
+          type: string
+          description: 'uuid отслеживания'
+      description: 'Дата ответа'
