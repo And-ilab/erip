@@ -422,24 +422,26 @@ import {
               <table class="journal" appGridResize="contract-history">
                 <thead>
                   <tr>
-                    <th>Когда</th>
-                    <th>Что</th>
-                    <th>Было</th>
-                    <th>Стало</th>
+                    <th>Дата и время</th>
+                    <th>Пользователь</th>
+                    <th>Параметр</th>
+                    <th>Текущее значение</th>
+                    <th>Новое значение</th>
                     <th>Основание</th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (row of historyRows(); track row.id) {
                     <tr>
-                      <td>{{ row.created_at | date: 'dd.MM.yyyy HH:mm' }}</td>
+                      <td>{{ row.created_at | date: 'dd.MM.yyyy HH:mm' : 'Europe/Minsk' }}</td>
+                      <td>{{ row.author_name || 'Система' }}</td>
                       <td>{{ historyKind(row.kind) }}</td>
                       <td>{{ historyValue(row.kind, row.old_value) }}</td>
                       <td>{{ historyValue(row.kind, row.new_value) }}</td>
-                      <td>{{ row.reason }}@if (row.author_name) { · {{ row.author_name }} }</td>
+                      <td>{{ row.reason || '—' }}</td>
                     </tr>
                   } @empty {
-                    <tr><td colspan="5" class="muted">Записей нет.</td></tr>
+                    <tr><td colspan="6" class="muted">Записей нет.</td></tr>
                   }
                 </tbody>
               </table>
@@ -583,7 +585,17 @@ export class ContractDetailComponent implements OnInit {
 
   protected historyRows(): HistoryRow[] {
     const rows = this.journal();
-    if (this.historyPane === 'rating') return rows.filter((row) => row.kind === 'group' || row.kind === 'rating');
+    if (this.historyPane === 'rating') {
+      const rank = (kind: string) => (kind === 'group' ? 0 : kind === 'rating' ? 1 : 2);
+      return rows
+        .filter((row) => row.kind === 'group' || row.kind === 'rating')
+        .slice()
+        .sort((a, b) => {
+          const byTime = String(a.created_at).localeCompare(String(b.created_at));
+          if (byTime) return byTime;
+          return rank(a.kind) - rank(b.kind);
+        });
+    }
     if (this.historyPane === 'measure') return rows.filter((row) => row.kind === 'measure');
     return rows.filter((row) => row.kind !== 'group' && row.kind !== 'rating' && row.kind !== 'measure');
   }

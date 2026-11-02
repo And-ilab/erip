@@ -342,10 +342,34 @@ def _lookup(meta, op, raw, spec):
         expr = "iexact" if kind == "text" else "exact"
         return ~Q(**{f"{lookup}__{expr}": value})
     if op == "contains":
-        return Q(**{f"{lookup}__icontains": value})
+        text = value if isinstance(value, str) else str(value)
+        tokens = [part for part in text.split() if part]
+        # «советская 17» и «ул. Советская, д. 17» — все слова в поле, не целиком подстрока.
+        if kind == "text" and len(tokens) > 1:
+            matched = Q()
+            for part in tokens:
+                matched &= _token_q(lookup, part)
+            return matched
+        return _token_q(lookup, text) if kind == "text" else Q(**{f"{lookup}__icontains": value})
     if op == "ncontains":
-        return ~Q(**{f"{lookup}__icontains": value})
+        text = value if isinstance(value, str) else str(value)
+        tokens = [part for part in text.split() if part]
+        if kind == "text" and len(tokens) > 1:
+            matched = Q()
+            for part in tokens:
+                matched &= _token_q(lookup, part)
+            return ~matched
+        return ~(_token_q(lookup, text) if kind == "text" else Q(**{f"{lookup}__icontains": value}))
     return Q(**{f"{lookup}__{op}": value})
+
+
+def _token_q(lookup: str, part: str) -> Q:
+    variants = {part, part.casefold(), part.lower(), part.upper(), part.capitalize(), part.title()}
+    matched = Q()
+    for item in variants:
+        if item:
+            matched |= Q(**{f"{lookup}__icontains": item})
+    return matched
 
 
 def _named(op, text, matched):

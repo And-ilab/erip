@@ -613,11 +613,12 @@ import { FunnelBarComponent } from './funnel-bar.component';
             } @else {
             <p class="muted tab-note">Группа и рейтинг — отдельно. Этап, сценарий, контакты и остальные изменения — на кнопке «Прочие».</p>
             <div class="list-pane"><table mat-table [dataSource]="historyRows()" appGridResize="account-history">
-              <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Когда</th><td mat-cell *matCellDef="let r">{{ r.created_at | date: 'dd.MM.yyyy HH:mm' }}</td></ng-container>
-              <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Что</th><td mat-cell *matCellDef="let r">{{ historyKind(r.kind) }}</td></ng-container>
-              <ng-container matColumnDef="old_value"><th mat-header-cell *matHeaderCellDef>Было</th><td mat-cell *matCellDef="let r">{{ historyValue(r.kind, r.old_value) }}</td></ng-container>
-              <ng-container matColumnDef="new_value"><th mat-header-cell *matHeaderCellDef>Стало</th><td mat-cell *matCellDef="let r">{{ historyValue(r.kind, r.new_value) }}</td></ng-container>
-              <ng-container matColumnDef="reason"><th mat-header-cell *matHeaderCellDef>Основание</th><td mat-cell *matCellDef="let r">{{ r.reason }}@if (r.author_name) { · {{ r.author_name }} }</td></ng-container>
+              <ng-container matColumnDef="created_at"><th mat-header-cell *matHeaderCellDef>Дата и время</th><td mat-cell *matCellDef="let r">{{ r.created_at | date: 'dd.MM.yyyy HH:mm' : 'Europe/Minsk' }}</td></ng-container>
+              <ng-container matColumnDef="author"><th mat-header-cell *matHeaderCellDef>Пользователь</th><td mat-cell *matCellDef="let r">{{ r.author_name || 'Система' }}</td></ng-container>
+              <ng-container matColumnDef="kind"><th mat-header-cell *matHeaderCellDef>Параметр</th><td mat-cell *matCellDef="let r">{{ historyKind(r.kind) }}</td></ng-container>
+              <ng-container matColumnDef="old_value"><th mat-header-cell *matHeaderCellDef>Текущее значение</th><td mat-cell *matCellDef="let r">{{ historyValue(r.kind, r.old_value) }}</td></ng-container>
+              <ng-container matColumnDef="new_value"><th mat-header-cell *matHeaderCellDef>Новое значение</th><td mat-cell *matCellDef="let r">{{ historyValue(r.kind, r.new_value) }}</td></ng-container>
+              <ng-container matColumnDef="reason"><th mat-header-cell *matHeaderCellDef>Основание</th><td mat-cell *matCellDef="let r">{{ r.reason || '—' }}</td></ng-container>
               <tr mat-header-row *matHeaderRowDef="historyColumns"></tr>
               <tr mat-row *matRowDef="let row; columns: historyColumns"></tr>
             </table></div>
@@ -850,7 +851,7 @@ export class AccountDetailComponent implements OnInit {
   protected readonly paymentColumns = ['pay_date', 'service_name', 'pay_service_summ', 'pay_mulct_summ', 'bank_name', 'payment_type_display'];
   protected readonly registrationColumns = ['full_name', 'debtor_role', 'birthday', 'relation_degree_name', 'reg_type_name', 'contacts'];
   protected readonly balanceColumns = ['period', 'service_name', 'principal', 'penalty'];
-  protected readonly historyColumns = ['created_at', 'kind', 'old_value', 'new_value', 'reason'];
+  protected readonly historyColumns = ['created_at', 'author', 'kind', 'old_value', 'new_value', 'reason'];
   protected readonly workColumns = ['kind_display', 'title', 'started_on', 'ended_on', 'principal', 'penalty', 'paid_principal'];
   protected readonly contactColumns = ['kind', 'value', 'source', 'priority', 'actions'];
   protected readonly fileColumns = ['doc_type', 'original_name'];
@@ -1916,14 +1917,36 @@ export class AccountDetailComponent implements OnInit {
 
   protected showDateTime(value: string | null | undefined): string {
     if (!value) return '—';
-    const day = this.showDate(value);
-    const time = value.length > 11 ? value.slice(11, 16) : '';
-    return time ? `${day} ${time}` : day;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      const day = this.showDate(value);
+      const time = value.length > 11 ? value.slice(11, 16) : '';
+      return time ? `${day} ${time}` : day;
+    }
+    return new Intl.DateTimeFormat('ru-RU', {
+      timeZone: 'Europe/Minsk',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(parsed).replace(',', '');
   }
 
   protected historyRows(): HistoryRow[] {
     const rows = this.history();
-    if (this.historyPane === 'rating') return rows.filter((row) => row.kind === 'group' || row.kind === 'rating');
+    if (this.historyPane === 'rating') {
+      const rank = (kind: string) => (kind === 'group' ? 0 : kind === 'rating' ? 1 : 2);
+      return rows
+        .filter((row) => row.kind === 'group' || row.kind === 'rating')
+        .slice()
+        .sort((a, b) => {
+          const byTime = String(a.created_at).localeCompare(String(b.created_at));
+          if (byTime) return byTime;
+          return rank(a.kind) - rank(b.kind);
+        });
+    }
     if (this.historyPane === 'measure') return rows.filter((row) => row.kind === 'measure');
     if (this.historyPane === 'other') return rows.filter((row) => row.kind !== 'group' && row.kind !== 'rating' && row.kind !== 'measure');
     return [];

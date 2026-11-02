@@ -11,6 +11,16 @@ from .models import Account, AccountService, ClaimCase, Measure, MeasureItem, Re
 from .services.registration_flags import active_q
 
 
+def _text_token(field: str, part: str) -> Q:
+    """Подстрока без учёта регистра ASCII; для кириллицы в SQLite — варианты регистра."""
+    variants = {part, part.casefold(), part.lower(), part.upper(), part.capitalize(), part.title()}
+    matched = Q()
+    for item in variants:
+        if item:
+            matched |= Q(**{f"{field}__icontains": item})
+    return matched
+
+
 def _count_by_account(model, extra=None):
     rows = model.objects.filter(account_id=OuterRef("pk"))
     if extra is not None:
@@ -110,10 +120,35 @@ class AccountRepository:
 
     @staticmethod
     def search(qs: QuerySet, term: str) -> QuerySet:
-        """Поиск по номеру ЛС (с ведущими нулями и без), ФИО и адресу."""
+        """Поиск по номеру ЛС (с ведущими нулями и без), ФИО и адресу.
+
+        Несколько слов («советская 17») — каждое должно встретиться в той же
+        строке адреса или ФИО; иначе «ул. Советская, д. 17» не находится.
+        """
         term = term.strip()
         if not term:
             return qs
+        tokens = [part for part in term.split() if part]
+        if len(tokens) > 1:
+            address = Q()
+            fio = Q()
+            for part in tokens:
+                address &= _text_token("account_address", part)
+                fio &= _text_token("short_fio", part)
+            condition = address | fio
+            for part in tokens:
+                condition |= (
+                    _text_token("client_account", part)
+                    | _text_token("payer_identifier", part)
+                    | _text_token("payer_unp", part)
+                    | _text_token("provider_short_name", part)
+                    | _text_token("schema_name", part)
+                )
+                if part.isdigit():
+                    condition |= Q(client_account__endswith=part.lstrip("0") or "0") | Q(
+                        unified_account=int(part),
+                    ) | Q(account_id=int(part))
+            return qs.filter(condition)
         condition = (
             Q(client_account__icontains=term)
             | Q(short_fio__icontains=term)

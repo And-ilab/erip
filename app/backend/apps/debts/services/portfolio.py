@@ -347,6 +347,7 @@ class PortfolioRefresher:
             account.refresh_from_db()
 
     def _rating(self, account: Account) -> None:
+        """Рейтинг после группы: пустой→A без группы в историю не пишем (замечание гл.4 §6)."""
         peers = self._peer_accounts(account)
         worst = max((item.effective_group or 0 for item in peers), default=0) or None
         aggravating = any(item.bankruptcy for item in peers) or Registration.objects.filter(
@@ -355,7 +356,9 @@ class PortfolioRefresher:
         if worst is None:
             if account.rating != "A" or account.rating_repeat is not None:
                 previous = self._rating_label(account)
-                self._log(account, StatusHistory.Kind.RATING, previous, "A")
+                # Стартовый A до первой группы путает журнал («сначала рейтинг, потом группа»).
+                if previous:
+                    self._log(account, StatusHistory.Kind.RATING, previous, "A", reason="нет группы задолженности")
                 account.rating = "A"
                 account.rating_repeat = None
                 account.save(update_fields=["rating", "rating_repeat", "updated_at"])
@@ -365,7 +368,10 @@ class PortfolioRefresher:
             return
         repeat = self._repeat(account, letter)
         label = letter if letter == "E" else f"{letter}/{repeat}"
-        self._log(account, StatusHistory.Kind.RATING, self._rating_label(account), label)
+        self._log(
+            account, StatusHistory.Kind.RATING, self._rating_label(account), label,
+            reason="по группе задолженности",
+        )
         account.rating = letter
         account.rating_repeat = None if letter == "E" else repeat
         account.save(update_fields=["rating", "rating_repeat", "updated_at"])

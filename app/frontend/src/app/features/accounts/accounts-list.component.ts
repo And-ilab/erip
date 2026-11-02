@@ -342,6 +342,8 @@ interface GroupSection {
           <p class="hint">
             @if (selectedCount()) {
               Мероприятие назначается по {{ selectedCount() }} выбранным лицевым счетам.
+            } @else if (measureKind.value === 'call') {
+              Отметьте лицевые счета. Без отметки автообзвон по всему фильтру не создаётся — иначе в партию попадут все строки выборки.
             } @else {
               Мероприятие назначается по всем лицевым счетам текущего фильтра.
             }
@@ -1330,9 +1332,11 @@ export class AccountsListComponent implements OnInit {
 
   protected submitCalendar(draft: CalendarDraft): void {
     const chosen = [...this.selected()];
-    const body: Record<string, unknown> = chosen.length
-      ? { kind: draft.kind, account_ids: chosen }
-      : { kind: draft.kind, filters: this.query(), all_matching: true };
+    if (!chosen.length) {
+      this.snack.open('Отметьте лицевые счета для мероприятия в календаре', 'OK');
+      return;
+    }
+    const body: Record<string, unknown> = { kind: draft.kind, account_ids: chosen };
     this.fillEvent(body, draft);
     this.api.createMeasure(body).subscribe({
       next: (measure) => this.afterCallLaunch(measure, () => this.loadCalendar()),
@@ -1846,6 +1850,10 @@ export class AccountsListComponent implements OnInit {
       return;
     }
     const chosen = [...this.selected()];
+    if (kind === 'call' && !chosen.length) {
+      this.snack.open('Отметьте лицевые счета для автообзвона', 'OK');
+      return;
+    }
     const body: Record<string, unknown> = chosen.length
       ? { kind, account_ids: chosen }
       : { kind, filters: this.query(), all_matching: true };

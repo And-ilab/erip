@@ -301,7 +301,7 @@ const DELIVERY_METHODS = [
                       @case ('notice') {
                         <td>{{ item.recipient || '—' }}</td>
                         <td>
-                          {{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm') : '—' }}
+                          {{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm' : 'Europe/Minsk') : '—' }}
                           @if (item.external_call === false) {
                             <div>{{ m.channel === 'sms' ? 'Сообщение не отправлялось' : 'Письмо не отправлялось' }}</div>
                           }
@@ -329,7 +329,7 @@ const DELIVERY_METHODS = [
                         <td>{{ (item.resumed_on | date: 'dd.MM.yyyy') || '—' }}</td>
                       }
                       @default {
-                        <td>{{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm') : '—' }}</td>
+                        <td>{{ item.acted_at ? (item.acted_at | date: 'dd.MM.yyyy HH:mm' : 'Europe/Minsk') : '—' }}</td>
                         <td>{{ item.note || '—' }}</td>
                       }
                     }

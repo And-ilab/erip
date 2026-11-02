@@ -1127,13 +1127,23 @@ class ContractViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModel
         from .services.measures import MeasureLaunchError, launch_measure
 
         visible = self._visible()
+        raw_ids = request.data.get("account_ids") or []
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValidationError({"account_ids": "Отметьте лицевые счета для мероприятия"})
+        try:
+            wanted = {int(item) for item in raw_ids}
+        except (TypeError, ValueError):
+            raise ValidationError({"account_ids": "Отметьте лицевые счета для мероприятия"}) from None
+        visible_ids = set(visible.values_list("account_id", flat=True))
+        if not wanted.issubset(visible_ids):
+            raise NotFound()
         accounts = list(
-            Account.objects.filter(pk__in=visible.values("account_id")).distinct().prefetch_related(
+            Account.objects.filter(pk__in=wanted).prefetch_related(
                 "contacts", "registrations", "services",
             )
         )
         catalog = request.data.get("catalog_service_ids") or []
-        services = list(visible.filter(service_id__in=catalog)) if catalog else []
+        services = list(visible.filter(account_id__in=wanted, service_id__in=catalog)) if catalog else []
         try:
             result = launch_measure(request.user, accounts, services, request.data)
         except MeasureLaunchError as exc:
@@ -1836,10 +1846,18 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         base = AccessScope(request.user).apply(
             Account.objects.all(), "organization", "provider_id", "services__provider_id",
         )
-        if request.data.get("all_matching"):
-            return list(AccountFilter(request.data.get("filters") or {}, queryset=base).qs)
         ids = request.data.get("account_ids") or []
-        return list(base.filter(pk__in=ids))
+        if ids:
+            return list(base.filter(pk__in=ids))
+        if request.data.get("all_matching"):
+            # Без явного флага массовый обзвон по пустому отбору не создаём — иначе
+            # «один ЛС» без галочки превращается в партию на весь фильтр (гл.4 §3).
+            if request.data.get("kind") == Measure.Kind.CALL and not request.data.get("confirm_bulk"):
+                raise ValidationError({
+                    "account_ids": "Отметьте лицевые счета или подтвердите назначение по всему фильтру",
+                })
+            return list(AccountFilter(request.data.get("filters") or {}, queryset=base).qs)
+        return []
 
 
 class SavedFilterViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
