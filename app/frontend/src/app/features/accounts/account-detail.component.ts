@@ -79,6 +79,10 @@ import { FunnelBarComponent } from './funnel-bar.component';
                 <span class="k">Плательщик</span>
                 <b>{{ personName() }}</b>
               </div>
+              <div class="meta">
+                <span class="k">Кол-во месяцев долга</span>
+                <b>{{ a.months_debt ?? '—' }}</b>
+              </div>
             </div>
             <div class="who-side">
               <div class="sum-block">
@@ -113,6 +117,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
               <mat-card><mat-card-content>
                 <dl>
                   <dt>Код ЛС</dt><dd>{{ a.account_id }}</dd>
+                  <dt>Кол-во месяцев долга</dt><dd>{{ a.months_debt ?? '—' }}</dd>
                   <dt>Обслуживающая организация</dt><dd>{{ a.provider_short_name || '—' }}</dd>
                   @if (auth.showSchema()) { <dt>Код схемы</dt><dd>{{ a.schema_name || a.schema_label || '—' }}</dd> }
                   <dt>ЧУП</dt><dd>{{ a.is_private_enterprise ? 'есть' : 'нет' }}</dd>
@@ -120,7 +125,6 @@ import { FunnelBarComponent } from './funnel-bar.component';
                   <dt>Кол-во комнат</dt><dd>{{ a.room_count ?? '—' }}</dd>
                   <dt>Кол-во проживающих</dt><dd>{{ a.subj_count ?? '—' }}</dd>
                   <dt>Кол-во льготников</dt><dd>{{ a.priv_acc_count ?? '—' }}</dd>
-                  <dt>Кол-во месяцев долга</dt><dd>{{ a.months_debt ?? '—' }}</dd>
                   <dt>Тип объекта</dt><dd>{{ a.acc_category_full || a.acc_category_short || '—' }}</dd>
                   <dt>Категория жилфонда</dt><dd>{{ a.category_name || a.category_short_name || '—' }}</dd>
                   <dt>Тип собственности</dt><dd>{{ a.ownership_type_name || '—' }}</dd>
@@ -2003,6 +2007,12 @@ export class AccountDetailComponent implements OnInit {
           if (byTime) return byTime;
           return rank(a.kind) - rank(b.kind);
         });
+      const firstGroup = filtered.findIndex((row) => row.kind === 'group');
+      if (firstGroup > 0) {
+        filtered = filtered.filter((row, index) => (
+          index >= firstGroup || row.kind !== 'rating' || Boolean((row.old_value || '').trim())
+        ));
+      }
     } else if (this.historyPane === 'measure') {
       filtered = rows.filter((row) => row.kind === 'measure');
     } else if (this.historyPane === 'other') {

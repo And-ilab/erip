@@ -137,25 +137,10 @@ def _with_detail(base: str, detail: str) -> str:
 
 
 def assigned_items(measure: Measure, visible_accounts, limit: int = 300):
-    """Счета, которым назначено это мероприятие.
-
-    Ручной запуск хранит их в одной записи. Сценарий заводит запись на каждый
-    лицевой счёт, поэтому здесь собираются счета того же шага и шаблона.
-    """
+    """Счета этой партии. Соседний автообзвон того же шага сюда не подмешивается."""
     from apps.debts.models import MeasureItem
 
-    rows = MeasureItem.objects.select_related("account")
-    if measure.source_scenario_id:
-        rows = rows.filter(
-            measure__organization_id=measure.organization_id,
-            measure__kind=measure.kind,
-            measure__source_scenario_id=measure.source_scenario_id,
-            measure__source_version=measure.source_version,
-            measure__source_step=measure.source_step,
-            measure__template_name=measure.template_name,
-        )
-    else:
-        rows = rows.filter(measure_id=measure.pk)
+    rows = MeasureItem.objects.select_related("account").filter(measure_id=measure.pk)
     if visible_accounts is not None:
         rows = rows.filter(account__in=visible_accounts)
     total = rows.count()
@@ -163,7 +148,9 @@ def assigned_items(measure: Measure, visible_accounts, limit: int = 300):
 
 
 def measure_title(measure: Measure) -> str:
-    if measure.kind == Measure.Kind.CALL:
+    if measure.kind == Measure.Kind.CALL and measure.source_action == "manual_call":
+        title = _with_detail("Ручной звонок", measure.template_name)
+    elif measure.kind == Measure.Kind.CALL:
         title = _with_detail("Автообзвон", measure.template_name)
     elif measure.kind == Measure.Kind.NOTICE:
         channel = _NOTICE_CHANNEL.get(measure.channel, measure.channel)

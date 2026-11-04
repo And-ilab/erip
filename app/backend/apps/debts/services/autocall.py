@@ -60,6 +60,8 @@ def dial_due_calls(at: datetime | None = None) -> dict:
     )
     for measure in parties:
         open_parties += 1
+        if measure.source_action == "manual_call":
+            continue
         if not _campaign_open(measure, moment):
             continue
         in_window += 1

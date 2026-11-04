@@ -217,6 +217,13 @@ def _advance_once(account: Account) -> bool:
             and _matches(step, account, previous)
         ]
         if not candidates:
+            # Незакрытый ранний шаг не даёт перескочить на надпись и «Подготовку пакета».
+            pending = [
+                step for step in steps
+                if step.get("order") == order and not _already_started(measures, step)
+            ]
+            if pending:
+                return False
             continue
         step = candidates[0]
         if not step.get("after_delivered") and not _wait_elapsed(account, run, previous, step):
@@ -269,13 +276,22 @@ def _wait_elapsed(account: Account, run: AccountScenarioRun, previous: Measure |
     return timezone.localdate() >= timezone.localtime(anchor).date() + timedelta(days=days)
 
 
+def account_months(account: Account) -> int:
+    """Месяцы долга карточки. Если поле ещё пустое — максимум DEBT_PERIOD услуг."""
+    if account.months_debt is not None:
+        return int(account.months_debt)
+    periods = [service.debt_period for service in account.services.all() if service.debt_period]
+    return max(periods) if periods else 0
+
+
 def _matches(step: dict, account: Account, previous: Measure | None) -> bool:
-    months = account.months_debt
+    months = account_months(account)
     minimum_months = step.get("months_from")
     if minimum_months not in (None, ""):
-        if (months if months is not None else 0) < int(minimum_months):
+        if months < int(minimum_months):
             return False
-    if step.get("action") == "call" and months is not None and months <= 1 and not _call_day_open(account):
+    stored_months = account.months_debt
+    if step.get("action") == "call" and stored_months is not None and stored_months <= 1 and not _call_day_open(account):
         return False
     if not _delivery_ready(account, step):
         return False

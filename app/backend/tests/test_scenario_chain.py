@@ -27,15 +27,22 @@ def _owing(org, number, group):
 
 
 @pytest.mark.django_db
+def _engage(account):
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    replace_accounts([account], default_scenario(account), None)
+
+
 def test_chain_starts_with_a_call_for_any_group(org_a):
     young = _owing(org_a, 9101, 1)
     senior = _owing(org_a, 9102, 5)
-    ensure_imported_run(young)
-    ensure_imported_run(senior)
+    _engage(young)
+    _engage(senior)
     for account in (young, senior):
         row = Measure.objects.get(accounts=account, kind=Measure.Kind.CALL)
         assert row.template_name == "Автообзвон"
-        assert Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE).exists()
+        assert row.source_action == "call"
+        assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION).exists()
 
 
 @pytest.mark.django_db
@@ -43,7 +50,7 @@ def test_org_wait_holds_the_next_step(org_a):
     account = _owing(org_a, 9103, 1)
     org_a.step_waits = {"email": 10}
     org_a.save(update_fields=["step_waits"])
-    ensure_imported_run(account)
+    _engage(account)
     assert Measure.objects.filter(accounts=account, kind=Measure.Kind.CALL).exists()
     assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE, channel="email").exists()
 
@@ -160,7 +167,7 @@ def test_admin_skip_continues_the_chain(api, admin_a, specialist_a, org_a):
         organization=org_a, account=account, registration_id=1, subj_id=1,
         fam="Иванов", im="Иван", subj_is_main=True, email="ivan@example.com",
     )
-    ensure_imported_run(account)
+    _engage(account)
     denied = api(specialist_a).post(
         f"/api/v1/accounts/{account.id}/skip-step/", {"reason": "Номер не отвечает"}, format="json",
     )
@@ -171,4 +178,4 @@ def test_admin_skip_continues_the_chain(api, admin_a, specialist_a, org_a):
     assert skipped.status_code == 200, skipped.content
     assert 1 in skipped.json()["skipped"]
     assert Measure.objects.filter(accounts=account, kind=Measure.Kind.CALL, status=Measure.Status.CANCELLED).exists()
-    assert Measure.objects.filter(accounts=account, kind=Measure.Kind.NOTICE).exists()
+    assert Measure.objects.filter(accounts=account, source_action="manual_call").exists()

@@ -23,23 +23,24 @@ def _mode(account, launch):
 
 
 def _debtor(org, number, months, balance="80"):
+    group = 3 if months >= 3 else 2 if months >= 2 else 1
     account = make_account(
         org, number, client_account=f"{number:08d}", contact_phone="+375291110000",
-        months_debt=months, debt_group=1 if months else 1, balance_out=Decimal(balance),
+        months_debt=months, debt_group=group, balance_out=Decimal(balance),
     )
     from apps.debts.models import AccountService
 
     AccountService.objects.create(
         organization=org, account=account, service_list_id=number, service_id=number,
         service_name="Отопление", balance_out=Decimal(balance), balance_mulct_out=Decimal("0"),
-        debt_period=months, debt_group=1,
+        debt_period=months, debt_group=group,
     )
     return account
 
 
 @pytest.mark.django_db
 def test_manual_org_assigns_scenario_and_waits_for_the_button(org_a):
-    account = _debtor(org_a, 9401, 1)
+    account = _debtor(org_a, 9401, 5)
     _mode(account, ServiceScenarioMode.Launch.MANUAL)
     ensure_imported_run(account)
     run = AccountScenarioRun.objects.get(account=account)
@@ -52,31 +53,38 @@ def test_manual_org_assigns_scenario_and_waits_for_the_button(org_a):
     start_accounts([account], None)
     run.refresh_from_db()
     assert run.awaiting_start is False
-    assert Measure.objects.filter(accounts=account, source_action="sms").exists()
+    assert Measure.objects.filter(accounts=account, source_action="call").exists()
+    assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION).exists()
 
 
 @pytest.mark.django_db
-def test_auto_org_starts_the_first_available_step(org_a):
-    account = _debtor(org_a, 9402, 1)
+def test_auto_org_waits_for_a_manual_assignment(org_a, admin_a):
+    account = _debtor(org_a, 9402, 5)
     _mode(account, ServiceScenarioMode.Launch.AUTO)
     ensure_imported_run(account)
+    assert not AccountScenarioRun.objects.filter(account=account).exists()
+    assert not Measure.objects.filter(accounts=account).exists()
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    replace_accounts([account], default_scenario(account), admin_a)
     run = AccountScenarioRun.objects.get(account=account)
     assert run.awaiting_start is False
     assert run.assigned_on == timezone.localdate()
-    assert Measure.objects.filter(accounts=account, source_action__in=["call", "sms", "email"]).exists()
+    assert Measure.objects.filter(accounts=account, source_action="call").exists()
+    assert not Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION).exists()
 
 
 @pytest.mark.django_db
 def test_replacing_a_scenario_closes_the_old_one(org_a, admin_a):
-    account = _debtor(org_a, 9403, 1)
+    account = _debtor(org_a, 9403, 5)
     _mode(account, ServiceScenarioMode.Launch.AUTO)
-    ensure_imported_run(account)
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    replace_accounts([account], default_scenario(account), admin_a)
     other = ScenarioDefinition.objects.create(
         organization=org_a, name="Свой", status=ScenarioDefinition.Status.ACTIVE, version=1,
         steps=[{"order": 1, "action": "sms", "wait_days": 0, "template": "Письмо", "terminal": True, "blocks_next": False}],
     )
-    from apps.debts.services.scenario_flow import replace_accounts
-
     replace_accounts([account], other, admin_a)
     run = AccountScenarioRun.objects.get(account=account)
     assert run.scenario_id == other.pk
@@ -88,10 +96,12 @@ def test_replacing_a_scenario_closes_the_old_one(org_a, admin_a):
 
 
 @pytest.mark.django_db
-def test_zero_debt_closes_measures_and_scenario(org_a):
-    account = _debtor(org_a, 9404, 1)
+def test_zero_debt_closes_measures_and_scenario(org_a, admin_a):
+    account = _debtor(org_a, 9404, 5)
     _mode(account, ServiceScenarioMode.Launch.AUTO)
-    ensure_imported_run(account)
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    replace_accounts([account], default_scenario(account), admin_a)
     account.balance_out = Decimal("0")
     account.save(update_fields=["balance_out"])
     account.services.update(balance_out=Decimal("0"), balance_mulct_out=Decimal("0"), overdue_debt=Decimal("0"))
@@ -109,25 +119,49 @@ def test_zero_debt_closes_measures_and_scenario(org_a):
 
 
 @pytest.mark.django_db
-def test_warning_opens_at_two_months_and_enforcement_five_days_after_delivery(org_a):
-    account = _debtor(org_a, 9405, 2)
-    _mode(account, ServiceScenarioMode.Launch.AUTO)
-    ensure_imported_run(account)
-    assert Measure.objects.filter(accounts=account, source_action="warning").exists()
-    assert not Measure.objects.filter(accounts=account, source_action="disconnect").exists()
-    assert not Measure.objects.filter(accounts=account, source_action="writ").exists()
-    warning = Measure.objects.get(accounts=account, source_action="warning")
-    MeasureItem.objects.filter(measure=warning).update(delivered_on=timezone.localdate() - timedelta(days=5))
-    advance_account(account)
-    assert Measure.objects.filter(accounts=account, source_action="disconnect").exists()
-    assert Measure.objects.filter(accounts=account, source_action="writ").exists()
+def test_two_months_stop_before_disconnect_and_five_months_reach_the_writ(org_a, admin_a):
+    short = _debtor(org_a, 9405, 2)
+    long = _debtor(org_a, 9415, 5)
+    _mode(short, ServiceScenarioMode.Launch.MANUAL)
+    _mode(long, ServiceScenarioMode.Launch.MANUAL)
+    ensure_imported_run(short)
+    ensure_imported_run(long)
+    from apps.debts.services.scenario_flow import start_accounts
+
+    start_accounts([short, long], admin_a)
+    assert Measure.objects.filter(accounts=short, source_action="call").exists()
+    assert not Measure.objects.filter(accounts=short, source_action__in=["warning", "disconnect", "writ"]).exists()
+    assert not Measure.objects.filter(accounts=long, kind=Measure.Kind.COLLECTION).exists()
+    for account in (short, long):
+        call = Measure.objects.get(accounts=account, source_action="call")
+        call.status = Measure.Status.DONE
+        call.save(update_fields=["status", "updated_at"])
+        call.items.update(status=MeasureItem.Status.DONE)
+        advance_account(account)
+        manual = Measure.objects.get(accounts=account, source_action="manual_call")
+        manual.status = Measure.Status.DONE
+        manual.save(update_fields=["status", "updated_at"])
+        manual.items.update(status=MeasureItem.Status.DONE)
+        advance_account(account)
+    assert Measure.objects.filter(accounts=short, source_action="warning").exists()
+    assert not Measure.objects.filter(accounts=short, source_action__in=["disconnect", "writ"]).exists()
+    assert Measure.objects.filter(accounts=long, source_action="warning").exists()
+    warning = Measure.objects.get(accounts=long, source_action="warning")
+    warning.status = Measure.Status.DONE
+    warning.save(update_fields=["status", "updated_at"])
+    warning.items.update(status=MeasureItem.Status.DONE)
+    advance_account(long)
+    assert Measure.objects.filter(accounts=long, source_action="disconnect").exists()
+    assert not Measure.objects.filter(accounts=long, source_action="writ").exists()
 
 
 @pytest.mark.django_db
-def test_measure_cannot_close_while_a_task_is_open(org_a, specialist_a):
-    account = _debtor(org_a, 9406, 1)
+def test_measure_cannot_close_while_a_task_is_open(org_a, specialist_a, admin_a):
+    account = _debtor(org_a, 9406, 5)
     _mode(account, ServiceScenarioMode.Launch.AUTO)
-    ensure_imported_run(account)
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    replace_accounts([account], default_scenario(account), admin_a)
     measure = Measure.objects.filter(accounts=account).exclude(status="failed").first()
     MeasureTask.objects.create(organization=org_a, measure=measure, title="Позвонить", status=MeasureTask.Status.OPEN)
     from apps.debts.services.measures import MeasureLaunchError

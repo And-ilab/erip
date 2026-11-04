@@ -463,11 +463,8 @@ def _work_kind(doc_kind: str) -> str:
     return DebtWorkItem.Kind.WARNING
 
 
-# Базовый ряд — по замечанию заказчика, не по шкале групп ТЗ.
-# 0–1 месяц: обзвон, СМС и уведомление параллельно. С 2 месяцев — предупреждение.
-# Через 5 дней после вручения, если долг не погашен: отключение, надпись, иск и ОПИ.
-# Другой порядок задаётся в конструкторе и этой заменой не затирается.
-STANDARD_STEPS = [
+# Прежний параллельный ряд (обзвон, СМС и письмо сразу). Неизменённая копия заменяется цепочкой.
+PARALLEL_STANDARD_STEPS = [
     {
         "order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False,
         "months_from": 0, "blocks_next": False, "repeat": copy.deepcopy(CALL_REPEAT),
@@ -500,6 +497,33 @@ STANDARD_STEPS = [
     {
         "order": 8, "action": "opi", "wait_days": 5, "after_delivered": "warning",
         "template": "ОПИ", "terminal": True,
+    },
+]
+
+# Базовый ряд — по замечанию заказчика: шаги идут по очереди и открываются месяцами долга.
+# 0–1 месяц: автообзвон, затем ручной звонок. С 2 месяцев добавляется предупреждение.
+# С 3 месяцев (группа 3), после предыдущих шагов: отключение и исполнительная надпись.
+# Правка администратора этой заменой не затирается. Загрузка сама надпись не открывает.
+STANDARD_STEPS = [
+    {
+        "order": 1, "action": "call", "wait_days": 0, "template": "Автообзвон", "terminal": False,
+        "months_from": 0, "blocks_next": True, "repeat": copy.deepcopy(CALL_REPEAT),
+    },
+    {
+        "order": 2, "action": "manual_call", "wait_days": 0, "template": "Ручной звонок", "terminal": False,
+        "months_from": 0, "blocks_next": True,
+    },
+    {
+        "order": 3, "action": "warning", "wait_days": 0, "template": "Предупреждение", "terminal": False,
+        "months_from": 2, "blocks_next": True,
+    },
+    {
+        "order": 4, "action": "disconnect", "wait_days": 0, "template": "Отключение", "terminal": False,
+        "months_from": 3, "blocks_next": True, "approval": True,
+    },
+    {
+        "order": 5, "action": "writ", "wait_days": 0, "template": "Исполнительная надпись", "terminal": True,
+        "months_from": 3, "blocks_next": True, "checklist": default_checklist(),
     },
 ]
 
@@ -564,6 +588,7 @@ def _is_stock_chain(steps) -> bool:
         bare == _without_repeat(LEGACY_STANDARD_STEPS)
         or bare == _without_repeat(GROUP_STANDARD_STEPS)
         or bare == _without_repeat(CHAIN_STANDARD_STEPS)
+        or bare == _without_repeat(PARALLEL_STANDARD_STEPS)
     )
 
 

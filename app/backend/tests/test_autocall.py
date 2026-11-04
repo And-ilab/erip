@@ -47,9 +47,10 @@ def test_uc_evt_01_stub_fills_statuses_without_manual_entry(api, admin_a, org_a,
     legal.payer_identifier = ""
     legal.save(update_fields=["payer_unp", "payer_identifier"])
     paused = _owing(org_a, 9303, 2, "+375291112255")
-    ensure_imported_run(person)
-    ensure_imported_run(legal)
-    ensure_imported_run(paused)
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    for row in (person, legal, paused):
+        replace_accounts([row], default_scenario(row), None)
     paused.inheritance_case = True
     paused.save(update_fields=["inheritance_case"])
 
@@ -272,7 +273,9 @@ def test_standard_window_replaces_the_office_hours_placeholder(org_a):
 
     ensure_standard_scenario()
     account = _owing(org_a, 9601, 1, "+375291112233")
-    ensure_imported_run(account)
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    replace_accounts([account], default_scenario(account), None)
     party = Measure.objects.get(accounts=account, kind=Measure.Kind.CALL)
     scenario = ScenarioDefinition.objects.get(pk=party.source_scenario_id)
     assert (party.time_from, party.time_to) == call_window(scenario, timezone.localdate())
@@ -354,7 +357,7 @@ def test_observer_and_supplier_cannot_dial(api, admin_a, observer_a, account_a, 
 
 
 @pytest.mark.django_db
-def test_measure_card_lists_every_account_of_the_step(api, admin_a, org_a):
+def test_measure_card_lists_only_its_own_account(api, admin_a, org_a):
     from apps.nsi.services.scenarios import assign_run
 
     first = _owing(org_a, 9801, 1, "+375291110301")
@@ -367,13 +370,12 @@ def test_measure_card_lists_every_account_of_the_step(api, admin_a, org_a):
     assert response.status_code == 200, response.content
     body = response.json()
     numbers = {row["client_account"] for row in body["items"]}
-    assert first.client_account in numbers
-    assert second.client_account in numbers
-    assert body["campaign_total"] == 2
-    assert {row["measure"] for row in body["items"]} == {
-        opened.pk,
-        Measure.objects.get(accounts=second, kind=Measure.Kind.CALL).pk,
-    }
+    assert numbers == {first.client_account}
+    assert body["campaign_total"] == 1
+    other = Measure.objects.get(accounts=second, kind=Measure.Kind.CALL)
+    assert other.pk != opened.pk
+    other_card = api(admin_a).get(f"/api/v1/measures/{other.pk}/")
+    assert {row["client_account"] for row in other_card.json()["items"]} == {second.client_account}
 
 
 @pytest.mark.django_db

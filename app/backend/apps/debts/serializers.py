@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.nsi.models import DebtGroupScale, ScenarioDefinition
@@ -297,6 +298,10 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         if not data.get("unified_account"):
             data["unified_account"] = unified_from_raw(instance) or None
+        if data.get("months_debt") in (None, ""):
+            periods = [service.debt_period for service in instance.services.all() if service.debt_period]
+            if periods:
+                data["months_debt"] = max(periods)
         return _supplier_totals(instance, data)
 
     def validate(self, attrs):
@@ -399,6 +404,7 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         if "legal_status" in validated_data:
             validated_data["bankruptcy"] = validated_data["legal_status"] in {"liquidation", "bankruptcy"}
         instance = super().update(instance, validated_data)
+        author = self.context["request"].user if self.context.get("request") else None
         if manual_notice and manual_notice[0] == 0:
             from .models import ClaimCase, Measure, MeasureItem
             from .services.measures import log_event, rollup
@@ -443,7 +449,6 @@ class AccountDetailSerializer(serializers.ModelSerializer):
 
             sync_inheritance(instance, was_inheritance, peers_for_user(user, instance))
             instance.refresh_from_db()
-        author = self.context["request"].user if self.context.get("request") else None
         if instance.debtor_category_id != old_category:
             StatusHistory.objects.create(
                 organization=instance.organization, account=instance, kind=StatusHistory.Kind.CATEGORY,

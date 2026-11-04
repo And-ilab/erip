@@ -263,34 +263,6 @@ class PortfolioRefresher:
         sync_ais_contacts(account)
 
 
-def sync_ais_contacts(account: Account) -> None:
-    """Подтягивает телефоны и e-mail из карточки ЛС и регистраций в Contact (source=ais)."""
-    now = timezone.now()
-    pairs: list[tuple[str, str, Registration | None]] = []
-    if account.contact_phone:
-        pairs.append((Contact.Kind.MOBILE, account.contact_phone, None))
-    if account.phone and account.phone != account.contact_phone:
-        pairs.append((Contact.Kind.CITY, account.phone, None))
-    for person in account.registrations.all():
-        if person.contact_phone:
-            pairs.append((Contact.Kind.MOBILE, person.contact_phone, person))
-        if person.email:
-            pairs.append((Contact.Kind.EMAIL, person.email, person))
-    for kind, value, person in pairs:
-        contact, created = Contact.objects.get_or_create(
-            account=account, kind=kind, value=value, source=Contact.Source.AIS,
-            defaults={
-                "organization": account.organization, "registration": person, "ais_updated_at": now, "priority": 0,
-            },
-        )
-        if not created:
-            contact.ais_updated_at = now
-            contact.registration = person
-            contact.save(update_fields=["ais_updated_at", "registration", "updated_at"])
-    from apps.debts.services.contacts import apply_call_priorities
-
-    apply_call_priorities(account)
-
     def _history_balances(self, account: Account) -> None:
         from apps.debts.models import ServiceDebtPeriod
 
@@ -440,6 +412,82 @@ def sync_ais_contacts(account: Account) -> None:
             organization=account.organization, account=account, service=service, kind=kind,
             old_value=old or "", new_value=new or "", reason=reason,
         )
+
+
+def _looks_like_phone(value: str) -> bool:
+    digits = "".join(ch for ch in value if ch.isdigit())
+    return 5 <= len(digits) <= 15
+
+
+def _phone_kind(value: str) -> str:
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if digits.startswith("375") and len(digits) >= 12 and digits[3:5] in {"25", "29", "33", "44"}:
+        return Contact.Kind.MOBILE
+    return Contact.Kind.CITY
+
+
+def _raw_values(raw, tokens: tuple[str, ...]) -> list[str]:
+    """Телефон из колонки, которую карта полей не забрала в карточку, остаётся в raw."""
+    if not isinstance(raw, dict):
+        return []
+    found = []
+    for key, value in raw.items():
+        label = str(key).casefold().replace("ё", "е")
+        if not any(token in label for token in tokens):
+            continue
+        text = str(value or "").strip()
+        if text:
+            found.append(text)
+    return found
+
+
+def sync_ais_contacts(account: Account) -> None:
+    """Подтягивает телефоны и e-mail из карточки ЛС и регистраций в Contact (source=ais)."""
+    now = timezone.now()
+    pairs: list[tuple[str, str, Registration | None]] = []
+    seen: set[str] = set()
+
+    def add(kind: str, value: str, person: Registration | None) -> None:
+        text = (value or "").strip()
+        if not text or text in seen:
+            return
+        if kind == Contact.Kind.EMAIL:
+            if "@" not in text:
+                return
+        elif not _looks_like_phone(text):
+            return
+        seen.add(text)
+        pairs.append((kind, text, person))
+
+    if account.contact_phone:
+        add(Contact.Kind.MOBILE, account.contact_phone, None)
+    if account.phone:
+        add(Contact.Kind.CITY, account.phone, None)
+    for value in _raw_values(getattr(account, "raw", None), ("телефон", "phone")):
+        add(_phone_kind(value), value, None)
+    for person in account.registrations.all():
+        if person.contact_phone:
+            add(Contact.Kind.MOBILE, person.contact_phone, person)
+        if person.email:
+            add(Contact.Kind.EMAIL, person.email, person)
+        for value in _raw_values(getattr(person, "raw", None), ("телефон", "phone")):
+            add(_phone_kind(value), value, person)
+        for value in _raw_values(getattr(person, "raw", None), ("e-mail", "email", "почт")):
+            add(Contact.Kind.EMAIL, value, person)
+    for kind, value, person in pairs:
+        contact, created = Contact.objects.get_or_create(
+            account=account, kind=kind, value=value, source=Contact.Source.AIS,
+            defaults={
+                "organization": account.organization, "registration": person, "ais_updated_at": now, "priority": 0,
+            },
+        )
+        if not created:
+            contact.ais_updated_at = now
+            contact.registration = person
+            contact.save(update_fields=["ais_updated_at", "registration", "updated_at"])
+    from apps.debts.services.contacts import apply_call_priorities
+
+    apply_call_priorities(account)
 
 
 def apply_rating_now() -> int:

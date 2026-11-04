@@ -63,9 +63,9 @@ def _finish_chain_prefix(org, account):
     today = timezone.localdate()
     steps = (
         (1, "call", Measure.Kind.CALL, "Автообзвон"),
-        (2, "sms", Measure.Kind.NOTICE, "Уведомление"),
-        (3, "email", Measure.Kind.NOTICE, "Уведомление"),
-        (4, "warning", Measure.Kind.WARNING, "Предупреждение"),
+        (2, "manual_call", Measure.Kind.CALL, "Ручной звонок"),
+        (3, "warning", Measure.Kind.WARNING, "Предупреждение"),
+        (4, "disconnect", Measure.Kind.DISCONNECT, "Отключение"),
     )
     for order, action, kind, title in steps:
         row = Measure.objects.create(
@@ -77,9 +77,15 @@ def _finish_chain_prefix(org, account):
         item = MeasureItem.objects.create(
             organization=org, measure=row, account=account, status=MeasureItem.Status.DONE,
         )
-        if action == "warning":
-            item.delivered_on = today - timedelta(days=5)
-            item.save(update_fields=["delivered_on"])
+    from apps.debts.models import AccountScenarioRun
+
+    AccountScenarioRun.objects.get_or_create(
+        account=account,
+        defaults={
+            "organization": org, "scenario": scenario, "version": scenario.version,
+            "assigned_on": today, "awaiting_start": False,
+        },
+    )
 
 
 def _with_group(org, number, group, period):
@@ -95,7 +101,9 @@ def _with_group(org, number, group, period):
 
 @pytest.mark.django_db
 def test_debt_group_opens_its_own_measure(org_a, specialist_a):
-    from apps.nsi.services.scenario_engine import ensure_imported_run
+    from apps.debts.models import AccountScenarioRun
+    from apps.debts.services.scenario_flow import default_scenario
+    from apps.nsi.services.scenario_engine import advance_account
 
     first = _with_group(org_a, 8101, 1, 1)
     second = _with_group(org_a, 8102, 2, 2)
@@ -103,10 +111,12 @@ def test_debt_group_opens_its_own_measure(org_a, specialist_a):
     fourth = _with_group(org_a, 8105, 6, 42)
     fourth.scenario_name = "Взыскание, безнадёжная задолженность"
     fourth.save(update_fields=["scenario_name"])
-    ensure_imported_run(first)
-    ensure_imported_run(second)
-    ensure_imported_run(third)
-    ensure_imported_run(fourth)
+    scenario = default_scenario(first)
+    for row in (first, second, third, fourth):
+        AccountScenarioRun.objects.create(
+            organization=org_a, account=row, scenario=scenario, version=scenario.version, awaiting_start=False,
+        )
+        advance_account(row)
 
     for account in (first, second, third, fourth):
         row = Measure.objects.get(accounts=account, kind=Measure.Kind.CALL)
@@ -157,7 +167,14 @@ def test_debt_account_without_a_claim_appears_in_measures(api, specialist_a, org
     account.save(update_fields=["debt_group"])
     listed = api(specialist_a).get("/api/v1/measures/registry/")
     assert listed.status_code == 200, listed.content
-    assert account.client_account in _accounts(listed.json())
+    assert account.client_account not in _accounts(listed.json())
+    from apps.debts.services.scenario_flow import default_scenario, replace_accounts
+
+    replace_accounts([account], default_scenario(account), None)
+    started = api(specialist_a).get("/api/v1/measures/registry/")
+    titles = [row["title"] for group in started.json()["groups"] for row in group["results"]]
+    assert any(title.startswith("Автообзвон") for title in titles)
+    assert not any("Подготовка пакета" in title for title in titles)
 
 
 @pytest.mark.django_db

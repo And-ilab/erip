@@ -47,11 +47,18 @@ def default_scenario(account: Account):
 
 
 def bind_imported_run(account: Account) -> None:
-    """Новый должник получает сценарий организации. Меры стартуют только в автоматическом режиме."""
-    from apps.nsi.services.scenario_engine import advance_account
+    """Ручной режим: при загрузке ставится сценарий по умолчанию и ждёт кнопку.
+
+    Автоматический режим сценарий при загрузке не ставит: специалист выбирает его сам,
+    и мероприятия начинаются в момент привязки, без кнопки «Запустить сценарий».
+    """
     from apps.nsi.services.scenarios import upgrade_legacy_scenario
 
     if _auto_blocked(account) or not account.effective_group:
+        return
+    existing = AccountScenarioRun.objects.filter(account=account).first()
+    # Автоматический режим: загрузка сценарий не назначает. Уже привязанный ряд продолжается.
+    if launch_mode(account) == ServiceScenarioMode.Launch.AUTO and (existing is None or existing.finished_on):
         return
     scenario = default_scenario(account)
     if scenario is None:
@@ -78,6 +85,8 @@ def bind_imported_run(account: Account) -> None:
         run.save(update_fields=["assigned_on", "updated_at"])
     if run.awaiting_start or run.paused or _auto_blocked(account):
         return
+    from apps.nsi.services.scenario_engine import advance_account
+
     advance_account(account)
 
 
