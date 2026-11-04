@@ -294,6 +294,63 @@ class HttpPrisClient(_TokenMixin, PrisClient):
             raise PrisError("ПРИС: справочник пришёл не массивом")
         return body
 
+    async def exchange(
+        self, method: str, path: str, *, headers: dict | None = None, body: bytes | None = None, timeout: float = 60.0,
+    ) -> dict:
+        """Сырой вызов контура: статус, тело и служебные заголовки. Ключ и токен наружу не отдаёт."""
+        try:
+            response = await self.http.request(
+                method, self.base_url + path, headers=headers, content=body, timeout=timeout,
+            )
+        except httpx.RequestError as exc:
+            return {"http_status": 0, "body": None, "headers": {}, "error": str(exc)}
+        parsed = None
+        try:
+            parsed = response.json()
+        except Exception:
+            parsed = None
+        kept = {
+            key.lower(): value
+            for key, value in response.headers.items()
+            if key.lower() in {"x-version", "x-responsetime"}
+        }
+        return {"http_status": response.status_code, "body": parsed, "headers": kept, "error": ""}
+
+    async def describe_session(self) -> dict:
+        """Тот же вход, что у рабочего клиента: logout прежней сессии, затем Authorizate, токен в кэш."""
+        await self._end_session()
+        raw = await self.exchange(
+            "POST", PrisEndpoints.AUTHORIZE,
+            headers={"x-user_id": self.settings.pris_user_id, "x-accesskey": self.settings.pris_access_key},
+            timeout=30.0,
+        )
+        body = raw["body"] if isinstance(raw["body"], dict) else {}
+        token = str(body.get("x-token") or "")
+        timestamp = str(body.get("x-timestamp") or "")
+        if raw["http_status"] == 200 and token and timestamp:
+            await self.cache.set(
+                PrisToken(token, timestamp), max(self.settings.pris_token_ttl_seconds - 60, 60),
+            )
+        return {
+            "http_status": raw["http_status"],
+            "message": str(body.get("message") or raw.get("error") or ""),
+            "timestamp": timestamp,
+            "token_present": bool(token),
+            "keys": sorted(body.keys()),
+        }
+
+    async def post_authed(self, path: str, body: bytes, *, timeout: float = 60.0) -> dict:
+        async def once() -> dict:
+            headers = await self._headers()
+            headers["Content-Type"] = "application/json"
+            return await self.exchange("POST", path, headers=headers, body=body, timeout=timeout)
+
+        result = await once()
+        if result["http_status"] == 401:
+            await self._end_session()
+            result = await once()
+        return result
+
 
 def _stub_accepted(cl_num: str) -> Envelope:
     return Envelope(

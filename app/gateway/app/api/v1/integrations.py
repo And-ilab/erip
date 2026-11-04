@@ -8,6 +8,7 @@ http ходит в контур Минюста по GW_PRIS_BASE_URL.
 from functools import lru_cache
 
 from fastapi import APIRouter, Body, Depends
+from pydantic import BaseModel, Field
 
 from ...core.config import Settings, get_settings
 from ...core.singletons import HttpClient
@@ -16,6 +17,7 @@ from ...integrations.bnp.client import BnpClient, StubBnpClient
 from ...integrations.bnp.dictionaries import load_dictionaries
 from ...integrations.bnp.schemas import BnpManifest
 from ...integrations.pris.channel import CHANNEL_BASE, channel_http, configure_channel
+from ...integrations.pris.checks import run_pris_check
 from ...integrations.pris.client import (
     HttpPrisClient,
     InMemoryTokenCache,
@@ -31,6 +33,7 @@ from ...integrations.pris.schemas import (
     SaveDataDebtWofeRequest,
     SaveRepayRequest,
 )
+from ...integrations.pris.tunnel import probe_pris_route
 from ..deps import require_internal_token
 
 router = APIRouter(prefix="/integrations", tags=["Интеграции"], dependencies=[Depends(require_internal_token)])
@@ -69,7 +72,7 @@ def get_bnp_client() -> BnpClient:
     return StubBnpClient()
 
 
-@router.get("/pris/status", summary="ПРИС: какой канал включён, без вызова Минюста")
+@router.get("/pris/status", summary="ПРИС: какой канал включён. В http проверяет порт контура")
 @api_response
 async def pris_status(settings: Settings = Depends(get_settings)):
     mode = settings.pris_mode
@@ -79,6 +82,7 @@ async def pris_status(settings: Settings = Depends(get_settings)):
             "system": "АИС ПРИС",
             "sends": True,
             "ministry": False,
+            "tunnel": False,
             "detail": "Тестовый канал шлюза: HttpPrisClient ходит во встроенный стенд. Контур Минюста не вызывается.",
         }
     if mode == "http":
@@ -87,14 +91,16 @@ async def pris_status(settings: Settings = Depends(get_settings)):
             missing.append("GW_PRIS_USER_ID")
         if not settings.pris_access_key.strip():
             missing.append("GW_PRIS_ACCESS_KEY")
-        detail = "Контур Минюста по GW_PRIS_BASE_URL. Канал itVPN приложение не поднимает."
+        route = await probe_pris_route(settings.pris_base_url)
+        detail = route["detail"]
         if missing:
-            detail = "Режим http, не задано: " + ", ".join(missing)
+            detail = "Режим http, не задано: " + ", ".join(missing) + ". " + detail
         return {
             "mode": "http",
             "system": "АИС ПРИС",
             "sends": not missing,
             "ministry": True,
+            "tunnel": route["up"],
             "base_url": settings.pris_base_url,
             "missing": missing,
             "detail": detail,
@@ -104,6 +110,7 @@ async def pris_status(settings: Settings = Depends(get_settings)):
         "system": "АИС ПРИС",
         "sends": False,
         "ministry": False,
+        "tunnel": False,
         "detail": "Заглушка ПРИС: пакет проверяется и не отправляется.",
     }
 
@@ -112,6 +119,20 @@ async def pris_status(settings: Settings = Depends(get_settings)):
 @api_response
 async def pris_echo(client: PrisClient = Depends(get_pris_client)):
     return {"result": await client.echo()}
+
+
+class PrisCheckIn(BaseModel):
+    step: str = Field(min_length=1, max_length=16)
+
+
+@router.post("/pris/checks", summary="ПРИС: сверка служебного ответа с прогоном 03–04.11.2026")
+@api_response
+async def pris_checks(
+    payload: PrisCheckIn,
+    client: PrisClient = Depends(get_pris_client),
+    settings: Settings = Depends(get_settings),
+):
+    return await run_pris_check(payload.step, client, settings)
 
 
 @router.get("/pris/nsi", summary="ПРИС: справочники GetNSIData")

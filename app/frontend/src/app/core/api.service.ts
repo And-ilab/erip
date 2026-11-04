@@ -882,6 +882,10 @@ export class ApiService {
     return this.http.get<IntegrationStatus>(`${this.base}/integrations/${code}/status/`);
   }
 
+  prisCheck(step: string): Observable<PrisCheckResult> {
+    return this.http.post<PrisCheckResult>(`${this.base}/integrations/pris/checks/`, { step });
+  }
+
   scenarioMail(): Observable<{
     mail_from: string;
     mail_from_name: string;
@@ -1488,4 +1492,16 @@ export interface IntegrationRow {
   settings: 'mail' | 'calling' | 'none' | string;
   stub_detail: string;
   status: IntegrationStatus;
+}
+
+export interface PrisCheckResult {
+  step: string;
+  title: string;
+  request: string;
+  expected: string;
+  mode: string;
+  http_status: number | null;
+  matched: boolean;
+  ministry: boolean;
+  summary: string;
 }

@@ -18,7 +18,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from .client import PrisEndpoints, STUB_NSI
+from .client import STUB_NSI, PrisEndpoints
 
 CHANNEL_BASE = "http://pris-channel"
 CHANNEL_USER = "channel"
@@ -150,6 +150,10 @@ async def version(_: Request) -> JSONResponse:
 
 async def get_ip(_: Request) -> JSONResponse:
     return _json({"result": "channel"})
+
+
+async def get_stat(_: Request) -> JSONResponse:
+    return _json({"result": "стенд"})
 
 
 def _sums(debtor: dict) -> list[dict]:
@@ -353,6 +357,7 @@ channel_app = Starlette(routes=[
     Route(PrisEndpoints.ECHO, echo, methods=["GET"]),
     Route(PrisEndpoints.VERSION, version, methods=["GET"]),
     Route(PrisEndpoints.GET_IP, get_ip, methods=["GET"]),
+    Route(PrisEndpoints.GET_STAT, get_stat, methods=["GET"]),
     Route(PrisEndpoints.BY_PROC_NUM, by_proc, methods=["POST"]),
     Route(PrisEndpoints.BY_NUM_DEBT, by_debt, methods=["POST"]),
     Route(PrisEndpoints.SAVE_DATA_DEBT, save_debt, methods=["POST"]),

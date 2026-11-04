@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from apps.core.permissions import RolePermission
 
-from .services.integrations import get_integration, integration_detail, list_integrations
+from .services.integrations import GatewayCallError, get_integration, integration_detail, list_integrations, pris_check
 
 
 class IntegrationViewSet(viewsets.ViewSet):
@@ -34,3 +34,16 @@ class IntegrationViewSet(viewsets.ViewSet):
             return Response({"detail": "Интеграция не найдена"}, status=status.HTTP_404_NOT_FOUND)
         row = integration_detail(str(pk or ""))
         return Response(row["status"] if row else {})
+
+    @action(detail=True, methods=["post"], url_path="checks")
+    def checks(self, request, pk=None):
+        """Один служебный запрос ПРИС и сверка ответа с прогоном 03–04.11.2026."""
+        if str(pk or "") != "pris":
+            return Response({"detail": "Для этого канала проверочных запросов нет"}, status=status.HTTP_404_NOT_FOUND)
+        step = str(request.data.get("step") or "").strip().lower()
+        if not step:
+            return Response({"detail": "Не указан шаг"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            return Response(pris_check(step))
+        except GatewayCallError as exc:
+            return Response({"detail": exc.detail}, status=exc.status)

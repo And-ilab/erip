@@ -172,3 +172,38 @@ def _gateway_get(path: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("unexpected gateway payload")
     return data
+
+
+class GatewayCallError(Exception):
+    def __init__(self, status: int, detail: str):
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+def pris_check(step: str) -> dict[str, Any]:
+    """Проверочный запрос ПРИС. Тело — сверка, без ключа и токена."""
+    url = settings.GATEWAY_URL.rstrip("/") + "/gw/v1/integrations/pris/checks"
+    headers = {REQUEST_ID_HEADER: get_request_id(), "X-Internal-Token": settings.INTERNAL_TOKEN}
+    try:
+        response = httpx.post(url, json={"step": step}, headers=headers, timeout=90.0)
+    except httpx.HTTPError as exc:
+        raise GatewayCallError(502, "Шлюз недоступен") from exc
+    if response.status_code >= 400:
+        message = "Шлюз не выполнил проверочный запрос"
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        if isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict) and error.get("message"):
+                message = str(error["message"])
+            elif body.get("detail"):
+                message = str(body["detail"])
+        raise GatewayCallError(response.status_code, message)
+    body = response.json()
+    data = body.get("data", body) if isinstance(body, dict) else body
+    if not isinstance(data, dict):
+        raise GatewayCallError(502, "Шлюз вернул неожиданный ответ")
+    return data

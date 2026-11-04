@@ -236,6 +236,42 @@ def test_pris_status_reports_stub_without_calling_out(client):
     assert data["system"] == "АИС ПРИС"
     assert data["sends"] is False
     assert data["ministry"] is False
+    assert data["tunnel"] is False
+
+
+def test_pris_route_probe_sees_an_open_port(monkeypatch):
+    import asyncio
+
+    from app.integrations.pris import tunnel
+
+    async def check():
+        server = await asyncio.start_server(lambda *_: None, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            return await tunnel.probe_pris_route(f"http://127.0.0.1:{port}", timeout=1)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    opened = asyncio.run(check())
+    assert opened["up"] is True
+    assert opened["port"]
+
+    async def refused(*_args, **_kwargs):
+        raise ConnectionRefusedError
+
+    monkeypatch.setattr(tunnel.asyncio, "open_connection", refused)
+    closed = asyncio.run(tunnel.probe_pris_route("http://192.0.2.1:10116", timeout=1))
+    assert closed["up"] is False
+    assert "Маршрута" in closed["detail"]
+
+    async def silent(*_args, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(tunnel.asyncio, "open_connection", silent)
+    quiet = asyncio.run(tunnel.probe_pris_route("http://192.0.2.1:10116", timeout=1))
+    assert quiet["up"] is False
+    assert "Нет ответа" in quiet["detail"]
 
 
 def test_prod_refuses_pris_test_channel():
@@ -323,6 +359,109 @@ async def test_pris_channel_rejects_unknown_user_and_logout():
     )
     with pytest.raises(PrisError, match="не найден"):
         await stranger.get_nsi()
+
+
+def _recorded_nsi():
+    from app.integrations.pris.checks import RECORDED_NSI_TYPES
+
+    return [
+        {
+            "type": code,
+            "type_name": f"Справочник {code}",
+            "content": {"data": [{"code": 1, "lex1": "пример"}]},
+        }
+        for code in RECORDED_NSI_TYPES
+    ]
+
+
+async def test_pris_checks_match_recorded_service_replies():
+    import json
+
+    from app.integrations.pris.checks import run_pris_check
+
+    tokens: dict[str, str] = {}
+    calls: list[tuple[str, str, str | None, bytes, int]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/authorizate"):
+            token = f"secret-token-{len(tokens) + 1}"
+            tokens[token] = "03.11.2026 19:09:31"
+            response = httpx.Response(200, json={
+                "message": "Добро пожаловать!",
+                "x-timestamp": tokens[token],
+                "x-token": token,
+            })
+        elif path.endswith("/logout"):
+            tokens.pop(request.headers.get("x-token"), None)
+            response = httpx.Response(200, json={"Response": "Всего доброго!"})
+        elif path.endswith("/GetIP"):
+            response = httpx.Response(200, json={"result": "10.198.128.209"})
+        elif path.endswith("/Echo"):
+            response = httpx.Response(200, json={"result": "Echo: Hello user! Время-дата сервера: 03.11.2026 19:09:31"})
+        elif path.endswith("/Version"):
+            response = httpx.Response(200, json={"result": "1.2.9735.20103"}, headers={"X-Version": "1.2.9735.20103"})
+        elif path.endswith("/getstat"):
+            response = httpx.Response(200, json={"result": "сервис 1: 1; сервис 2: 2"})
+        elif path.endswith("/GetNSIData"):
+            if request.headers.get("x-token") not in tokens:
+                response = httpx.Response(401, json={"message": "Доступ запрещен!"})
+            else:
+                response = httpx.Response(200, json=_recorded_nsi())
+        else:
+            response = httpx.Response(404, json={"message": path})
+        calls.append((
+            request.method, path, request.headers.get("x-token"), request.content, response.status_code,
+        ))
+        return response
+
+    settings = Settings(
+        pris_mode="http", pris_base_url="http://pris.test",
+        pris_user_id="807000268", pris_access_key="access-key",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = HttpPrisClient(settings, http)
+        for step in ("s06", "s01", "s02", "s03", "s04", "s05", "s07"):
+            result = await run_pris_check(step, client, settings)
+            assert result["matched"] is True, result
+            assert result["ministry"] is True
+            dumped = json.dumps(result, ensure_ascii=False)
+            assert "secret-token" not in dumped
+            assert "access-key" not in dumped
+
+    get_ip = [row for row in calls if row[1].endswith("/GetIP")]
+    assert get_ip[-1][0] == "GET" and get_ip[-1][2] is None
+    nsi = [row for row in calls if row[1].endswith("/GetNSIData")]
+    assert nsi[0][0] == "POST" and nsi[0][3] == b"{}" and nsi[0][2]
+    assert any(row[1].endswith("/GetNSIData") and row[4] == 401 for row in calls)
+
+
+async def test_pris_echo_check_rejects_other_text():
+    from app.integrations.pris.checks import run_pris_check
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": "Echo: тестовый канал"})
+
+    settings = Settings(pris_mode="http", pris_base_url="http://pris.test", pris_user_id="u", pris_access_key="k")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await run_pris_check("s02", HttpPrisClient(settings, http), settings)
+    assert result["matched"] is False
+    assert "тестовый канал" in result["summary"]
+
+
+def test_pris_check_stub_does_not_call_ministry(client):
+    from app.api.v1.integrations import get_pris_client
+
+    get_pris_client.cache_clear()
+    response = client.post("/gw/v1/integrations/pris/checks", json={"step": "s02"})
+    assert response.status_code == 200, response.json()
+    data = response.json()["data"]
+    assert data["step"] == "s02"
+    assert data["matched"] is False
+    assert data["ministry"] is False
+    assert "не отправлялся" in data["summary"]
+    missing = client.post("/gw/v1/integrations/pris/checks", json={"step": "q01"})
+    assert missing.status_code == 404
 
 
 async def test_http_pris_authorize_rejected():

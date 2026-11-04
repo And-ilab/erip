@@ -61,3 +61,38 @@ def test_status_action(gateway_ok, api, admin_a):
     response = api(admin_a).get("/api/v1/integrations/pris/status/")
     assert response.status_code == 200
     assert response.json()["mode"] == "stub"
+
+
+def test_pris_check_returns_gateway_summary(monkeypatch, api, admin_a):
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+        request = httpx.Request("POST", url)
+        return httpx.Response(200, json={"data": {
+            "step": "s02",
+            "title": "S-02 Echo",
+            "request": "GET /core/service/Echo",
+            "expected": "HTTP 200",
+            "mode": "http",
+            "http_status": 200,
+            "matched": True,
+            "ministry": True,
+            "summary": "HTTP 200. Echo: Hello user!",
+        }}, request=request)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    response = api(admin_a).post("/api/v1/integrations/pris/checks/", {"step": "s02"}, format="json")
+    assert response.status_code == 200, response.json()
+    assert response.json()["matched"] is True
+    assert response.json()["summary"].startswith("HTTP 200")
+    assert captured["json"] == {"step": "s02"}
+    assert str(captured["url"]).endswith("/gw/v1/integrations/pris/checks")
+    denied = api(admin_a).post("/api/v1/integrations/smtp/checks/", {"step": "s02"}, format="json")
+    assert denied.status_code == 404
+
+
+def test_pris_check_forbidden_for_observer(api, observer_a):
+    response = api(observer_a).post("/api/v1/integrations/pris/checks/", {"step": "s02"}, format="json")
+    assert response.status_code == 403
