@@ -46,7 +46,7 @@ GW_PRIS_USER_ID=...
 GW_PRIS_ACCESS_KEY=...
 ```
 
-Проверка маршрута без пакета: `GET /gw/v1/integrations/pris/status`, поле `tunnel`. Проверка сервиса: `GET /gw/v1/integrations/pris/echo` (ответ «Echo: Hello user!»). Те же служебные шаги, что прошли 3–4 ноября, нажимаются в «Настройка → Интеграции → АИС ПРИС»: `POST /gw/v1/integrations/pris/checks` (`step` `s06`, `s01`–`s05`, `s07`). В `stub` кнопка контур не вызывает. В prod для `http` нужны оба секрета. `channel` в prod не стартует.
+Проверка маршрута без пакета: `GET /gw/v1/integrations/pris/status`, поле `tunnel`. Проверка сервиса: `GET /gw/v1/integrations/pris/echo` (ответ «Echo: Hello user!»). Шаги методички, которые тестовый контур закрыл 3–4 ноября, нажимаются в «Настройка → Интеграции → АИС ПРИС»: `POST /gw/v1/integrations/pris/checks` (`step` `s06`, `s01`–`s05`, `s07`, `q02`, `q03`, `q01`, `n01`, `r03`). В `stub` кнопка контур не вызывает. Повтор пакета P-01 и погашений R-01/R-02 этой кнопкой не отправляется. В prod для `http` нужны оба секрета. `channel` в prod не стартует.
 
 ## 3. Белорусская нотариальная палата (ЛК БНП)
 
@@ -64,7 +64,7 @@ GW_PRIS_ACCESS_KEY=...
 
 - `GET /gw/v1/integrations/pris/status` — канал (`stub`, `channel`, `http`), Минюст не вызывается;
 - `GET /gw/v1/integrations/pris/echo`;
-- `POST /gw/v1/integrations/pris/checks` — сверка S-06, S-01–S-05 и S-07 с прогоном 3–4 ноября; в `stub` Минюст не вызывается, ключ и токен в ответ не пишутся;
+- `POST /gw/v1/integrations/pris/checks` — сверка шагов S-06, S-01–S-05, S-07, Q-02, Q-03, Q-01, N-01 и R-03 с прогоном 3–4 ноября; в `stub` Минюст не вызывается, ключ и токен в ответ не пишутся;
 - `GET /gw/v1/integrations/pris/nsi`;
 - `POST /gw/v1/integrations/pris/claimant-info`;
 - `POST /gw/v1/integrations/pris/save-data-debt/validate` — при `stub` только проверка; при `channel` пакет уходит на тестовый канал; при `http` пакет уходит в Минюст;

@@ -436,6 +436,83 @@ async def test_pris_checks_match_recorded_service_replies():
     assert any(row[1].endswith("/GetNSIData") and row[4] == 401 for row in calls)
 
 
+async def test_pris_checks_match_recorded_business_replies():
+    import json
+
+    from app.integrations.pris.checks import run_pris_check
+
+    def debt(proc: str, cred: str, doc: str) -> dict:
+        return {
+            "code": "1",
+            "data": [{
+                "p_ispdoc": [{
+                    "proc_num": proc,
+                    "crednum": cred,
+                    "doc_num": doc,
+                    "doc_date": "09.12.2025",
+                    "doc_name": "15",
+                    "doc_organ": "нотариус",
+                }],
+            }],
+        }
+
+    docs = {
+        "60126002755": ("124-2025", "FS-P04-04112026"),
+        "60126002757": ("125-2026", "FS-P01-04112026"),
+        "70417878885": ("15-407", ""),
+        "10317888450": ("7-945", ""),
+        "60217763613": ("6-1456", ""),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/authorizate"):
+            return httpx.Response(200, json={
+                "message": "Добро пожаловать!",
+                "x-timestamp": "04.11.2026 17:21:00",
+                "x-token": "secret-token",
+            })
+        if path.endswith("/logout"):
+            return httpx.Response(200, json={"Response": "Всего доброго!"})
+        if path.endswith("/GetClaimantInfoByNumDebt"):
+            if "x-token" not in request.headers:
+                return httpx.Response(400, json={
+                    "code": "0",
+                    "message": "Отсутствуют требуемые параметры в заголовке запроса! (Система)",
+                })
+            payload = json.loads(request.content)
+            cl_num = payload.get("p_cl_num")
+            proc = "60126002755" if cl_num == "FS-P04-04112026" else "60126002757"
+            doc, cred = docs[proc]
+            return httpx.Response(200, json=debt(proc, cred, doc))
+        if path.endswith("/GetClaimantInfoByProcNum"):
+            proc = json.loads(request.content)["p_proc_num"]
+            doc, cred = docs[proc]
+            return httpx.Response(200, json=debt(proc, cred, doc))
+        if path.endswith("/PutClaimantSaveRepayDebt"):
+            body = json.loads(request.content)
+            assert body["package"][0]["p_cl_num"] == "FS-R03-04112026"
+            return httpx.Response(200, json={
+                "code": "1",
+                "processStatus": 1004,
+                "processMessage": "ЗАДОЛЖЕННОСТЬ P_CL_NUM = FS-R03-04112026 ОТСУТСТВУЕТ",
+            })
+        return httpx.Response(404, json={"message": path})
+
+    settings = Settings(
+        pris_mode="http", pris_base_url="http://pris.test",
+        pris_user_id="807000268", pris_access_key="access-key",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = HttpPrisClient(settings, http)
+        for step in ("q02", "q03", "q01", "n01", "r03"):
+            result = await run_pris_check(step, client, settings)
+            assert result["matched"] is True, result
+            dumped = json.dumps(result, ensure_ascii=False)
+            assert "secret-token" not in dumped
+            assert "access-key" not in dumped
+
+
 async def test_pris_echo_check_rejects_other_text():
     from app.integrations.pris.checks import run_pris_check
 
@@ -460,7 +537,7 @@ def test_pris_check_stub_does_not_call_ministry(client):
     assert data["matched"] is False
     assert data["ministry"] is False
     assert "не отправлялся" in data["summary"]
-    missing = client.post("/gw/v1/integrations/pris/checks", json={"step": "q01"})
+    missing = client.post("/gw/v1/integrations/pris/checks", json={"step": "z99"})
     assert missing.status_code == 404
 
 

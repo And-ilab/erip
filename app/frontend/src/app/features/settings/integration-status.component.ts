@@ -33,23 +33,37 @@ import { AuthService } from '../../core/auth.service';
       </section>
       @if (isPris() && auth.canManageTemplates()) {
         <section class="card checks">
-          <h3>Проверочные запросы</h3>
-          <p class="hint">Проверка связи с АИС ПРИС. Ключ на экран не выводится.</p>
-          @for (step of prisSteps; track step.id) {
-            <div class="check">
+          <h3>Проверка по методичке</h3>
+          <p class="hint">
+            Сценарии, которые тестовый контур уже закрыл. Кнопка сценария идёт по шагам по порядку методички.
+            Ключ на экран не выводится. Повтор пакета и живое погашение отсюда не отправляются.
+          </p>
+          @for (scenario of prisScenarios; track scenario.id) {
+            <div class="scenario">
               <div class="check-head">
-                <button mat-stroked-button type="button" (click)="runCheck(step.id)" [disabled]="busy() === step.id">
-                  {{ busy() === step.id ? 'Запрос…' : step.label }}
+                <h4>{{ scenario.title }}</h4>
+                <button mat-flat-button color="primary" type="button" (click)="runScenario(scenario)" [disabled]="!!busy()">
+                  {{ chain() === scenario.id ? 'Запрос…' : 'Проверить сценарий' }}
                 </button>
-                @if (checks()[step.id]; as result) {
-                  <span class="pill" [class.on]="result.matched && result.ministry" [class.warn]="!(result.matched && result.ministry)">
-                    {{ checkLabel(result) }}
-                  </span>
-                }
               </div>
-              @if (checks()[step.id]; as result) {
-                <p class="detail"><b>Ожидание.</b> {{ result.expected }}</p>
-                <p class="detail"><b>Ответ.</b> {{ result.summary }}</p>
+              <p class="hint">{{ scenario.hint }}</p>
+              @for (step of scenario.steps; track step.id) {
+                <div class="check">
+                  <div class="check-head">
+                    <button mat-stroked-button type="button" (click)="runCheck(step.id)" [disabled]="!!busy()">
+                      {{ busy() === step.id ? 'Запрос…' : step.label }}
+                    </button>
+                    @if (checks()[step.id]; as result) {
+                      <span class="pill" [class.on]="result.matched && result.ministry" [class.warn]="!(result.matched && result.ministry)">
+                        {{ checkLabel(result) }}
+                      </span>
+                    }
+                  </div>
+                  @if (checks()[step.id]; as result) {
+                    <p class="detail"><b>Ожидание.</b> {{ result.expected }}</p>
+                    <p class="detail"><b>Ответ.</b> {{ result.summary }}</p>
+                  }
+                </div>
               }
             </div>
           }
@@ -66,7 +80,9 @@ import { AuthService } from '../../core/auth.service';
       background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 16px; max-width: 720px;
     }
     .checks { margin-top: 16px; max-width: 880px; }
-    .check { padding: 12px 0; border-top: 1px solid var(--erip-border); }
+    .scenario { margin-top: 18px; }
+    .scenario h4 { margin: 0; color: var(--erip-primary-dark); }
+    .check { padding: 12px 0 0 12px; border-top: 1px solid var(--erip-border); }
     .check-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .check .detail { margin: 8px 0 0; }
     .head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
@@ -96,15 +112,49 @@ export class IntegrationStatusComponent implements OnInit {
   protected readonly row = signal<IntegrationRow | null>(null);
   protected readonly failed = signal('');
   protected readonly busy = signal('');
+  protected readonly chain = signal('');
   protected readonly checks = signal<Record<string, PrisCheckResult>>({});
-  protected readonly prisSteps = [
-    { id: 's06', label: 'S-06 Вход', request: 'POST /core/auth/authorizate' },
-    { id: 's01', label: 'S-01 Адрес клиента', request: 'GET /core/service/GetIP' },
-    { id: 's02', label: 'S-02 Echo', request: 'GET /core/service/Echo' },
-    { id: 's03', label: 'S-03 Версия', request: 'GET /core/service/Version' },
-    { id: 's04', label: 'S-04 Метрика', request: 'GET /core/service/getstat' },
-    { id: 's05', label: 'S-05 Справочники', request: 'POST /core/BI/NSI/GetNSIData' },
-    { id: 's07', label: 'S-07 Выход', request: 'POST /core/auth/logout' },
+  protected readonly prisScenarios = [
+    {
+      id: 'entry',
+      title: 'Сценарий «Вход»',
+      hint: 'Методичка: при входе в обмен с ПРИС модуль сам вызывает вход, затем адрес, Echo, версию, метрику и справочники.',
+      steps: [
+        { id: 's06', label: 'S-06 Вход' },
+        { id: 's01', label: 'S-01 Адрес клиента' },
+        { id: 's02', label: 'S-02 Echo' },
+        { id: 's03', label: 'S-03 Версия' },
+        { id: 's04', label: 'S-04 Метрика' },
+        { id: 's05', label: 'S-05 Справочники' },
+      ],
+    },
+    {
+      id: 'token',
+      title: 'Сценарий «Обновление токена»',
+      hint: 'Отдельный выход методичка разрешает, чтобы проверить старый токен. Кнопка закрывает сессию и сразу открывает новую.',
+      steps: [
+        { id: 's07', label: 'S-07 Выход' },
+      ],
+    },
+    {
+      id: 'poll',
+      title: 'Сценарий «Подача» — автоопрос',
+      hint: 'Читает задолженности, которые контур уже принял. Новый пакет не создаёт. В совместном прогоне это расписание, не кнопка «Обновить ход».',
+      steps: [
+        { id: 'q02', label: 'Q-02 Номер задолженности' },
+        { id: 'q03', label: 'Q-03 и P-02 После подачи' },
+        { id: 'q01', label: 'Q-01 Номер производства' },
+      ],
+    },
+    {
+      id: 'negative',
+      title: 'Негативы, которые контур закрыл',
+      hint: 'Повтор этих двух шагов новую задолженность не создаёт.',
+      steps: [
+        { id: 'n01', label: 'N-01 Без токена' },
+        { id: 'r03', label: 'R-03 Чужой номер' },
+      ],
+    },
   ];
 
   ngOnInit(): void {
@@ -129,12 +179,30 @@ export class IntegrationStatusComponent implements OnInit {
     return 'Ответ другой';
   }
 
+  protected runScenario(scenario: { id: string; steps: { id: string }[] }): void {
+    if (this.busy()) return;
+    this.chain.set(scenario.id);
+    this.play(scenario.steps.map((step) => step.id), 0);
+  }
+
   protected runCheck(step: string): void {
+    if (this.busy()) return;
+    this.chain.set('');
+    this.play([step], 0);
+  }
+
+  private play(steps: string[], index: number): void {
+    if (index >= steps.length) {
+      this.busy.set('');
+      this.chain.set('');
+      return;
+    }
+    const step = steps[index];
     this.busy.set(step);
     this.api.prisCheck(step).subscribe({
       next: (result) => {
         this.checks.update((row) => ({ ...row, [step]: result }));
-        this.busy.set('');
+        this.play(steps, index + 1);
       },
       error: (err) => {
         const detail = (err?.error && typeof err.error.detail === 'string') ? err.error.detail : errorMessage(err);
@@ -152,8 +220,8 @@ export class IntegrationStatusComponent implements OnInit {
             summary: detail,
           },
         }));
-        this.busy.set('');
         this.snack.open(detail, 'OK');
+        this.play(steps, index + 1);
       },
     });
   }

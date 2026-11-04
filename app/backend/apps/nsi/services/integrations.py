@@ -186,7 +186,7 @@ def pris_check(step: str) -> dict[str, Any]:
     url = settings.GATEWAY_URL.rstrip("/") + "/gw/v1/integrations/pris/checks"
     headers = {REQUEST_ID_HEADER: get_request_id(), "X-Internal-Token": settings.INTERNAL_TOKEN}
     try:
-        response = httpx.post(url, json={"step": step}, headers=headers, timeout=90.0)
+        response = httpx.post(url, json={"step": step}, headers=headers, timeout=120.0)
     except httpx.HTTPError as exc:
         raise GatewayCallError(502, "Шлюз недоступен") from exc
     if response.status_code >= 400:
