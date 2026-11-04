@@ -22,6 +22,7 @@ const ACTIONS = [
   { id: 'disconnect', label: 'Отключение' },
   { id: 'writ', label: 'Исполнительная надпись' },
   { id: 'lawsuit', label: 'Иск' },
+  { id: 'opi', label: 'ОПИ' },
 ];
 
 const LOCKED_WRIT = ['warning', 'voluntary', 'package', 'tariff'];
@@ -50,20 +51,22 @@ function defaultWritChecklist(): WritChecklistItem[] {
           @for (step of steps; track $index) {
             <button type="button" [class.on]="sheet() === $index" (click)="openStep($index)">{{ stepTabLabel($index) }}</button>
           }
-          @if (callStepIndex() < 0) {
-            <button type="button" [class.on]="sheet() === 'dial'" (click)="sheet.set('dial')">Автообзвон</button>
-          }
         </nav>
       }
 
       @if (sheet() === 'scenario' || !current()) {
-        <p class="lead">Список сценариев и порядок шагов. Условия меры — на её подвкладке. Уже запущенный счёт остаётся на своей версии.</p>
+        <p class="lead">Список сценариев и порядок шагов. Подвкладка шага подписана его номером и мерой. Уже запущенный счёт остаётся на своей версии.</p>
         <div class="picker" id="scenario">
           @for (row of scenarios(); track row.id) {
-            <button type="button" [class.on]="current()?.id === row.id" (click)="select(row)">
-              {{ row.name }}
-              <small>{{ row.organization ? 'схема' : 'центр' }} · v{{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</small>
-            </button>
+            <div class="pick" [class.on]="current()?.id === row.id">
+              <button type="button" (click)="select(row)">
+                {{ row.name }}
+                <small>{{ row.organization ? 'схема' : 'центр' }} · v{{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</small>
+              </button>
+              @if (canDelete(row)) {
+                <button type="button" class="pick-del" title="Удалить сценарий" (click)="removeScenario(row, $event)">×</button>
+              }
+            </div>
           }
         </div>
         @if (!scenarios().length) {
@@ -80,6 +83,9 @@ function defaultWritChecklist(): WritChecklistItem[] {
               <button mat-flat-button color="primary" type="button" (click)="save()">Сохранить</button>
               <button mat-stroked-button type="button" (click)="publish()">Опубликовать</button>
               <button mat-stroked-button type="button" (click)="copy()">Копировать в схему</button>
+              @if (canDelete(row)) {
+                <button mat-stroked-button type="button" title="Снимает сценарий из списка. Запущенный на счетах не удаляется." (click)="removeScenario(row)">Удалить</button>
+              }
               <mat-checkbox [(ngModel)]="applyRunning">Перевести уже запущенные счета</mat-checkbox>
             </div>
             <p class="meta">{{ row.organization ? 'Схема' : 'Центр' }} · версия {{ row.version }} · {{ row.status === 'active' ? 'активный' : 'черновик' }}</p>
@@ -307,9 +313,6 @@ function defaultWritChecklist(): WritChecklistItem[] {
       }
 
       @if (showDial()) {
-        @if (sheet() === 'dial') {
-          <p class="lead">В этом сценарии нет шага «Автообзвон». Номера схемы и окно задаются здесь.</p>
-        }
         <section class="card">
           <h3>Номера схемы</h3>
           <p class="muted">Исходящие номера и признак обзвона ЮЛ перенесены в <a routerLink="/settings/integrations/asterisk">Настройка → Интеграции → Asterisk AMI</a>. Здесь остаётся окно сценария.</p>
@@ -387,9 +390,11 @@ function defaultWritChecklist(): WritChecklistItem[] {
     .hint { font-size: 13px; }
     a { color: var(--erip-primary-dark); font-weight: 600; }
     .picker { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
-    .picker button { border: 1px solid var(--erip-border); background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; text-align: left; font: inherit; }
-    .picker button.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
-    .picker small { display: block; color: var(--erip-muted); }
+    .pick { display: flex; align-items: stretch; border: 1px solid var(--erip-border); background: #fff; border-radius: 8px; }
+    .pick.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
+    .pick button { border: 0; background: transparent; padding: 6px 10px; cursor: pointer; text-align: left; font: inherit; }
+    .pick small { display: block; color: var(--erip-muted); }
+    .pick-del { color: var(--erip-muted); font-size: 16px; line-height: 1; padding: 0 8px; }
     .name { width: min(420px, 100%); }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
     .grid mat-form-field, .wide, .grow { width: 100%; }
@@ -683,15 +688,20 @@ export class ScenariosComponent implements OnInit {
     const step = this.steps[index];
     if (!step) return '';
     const short = this.actionLabel(step.action).replace(/ \(.*\)$/, '');
-    const count = this.steps.filter((item) => item.action === step.action).length;
-    return count > 1 ? `${step.order}. ${short}` : short;
+    return `${step.order || index + 1}. ${short}`;
   }
 
   protected showDial(): boolean {
-    const sheet = this.sheet();
-    if (sheet === 'dial') return true;
     const call = this.callStepIndex();
-    return call >= 0 && sheet === call;
+    const sheet = this.sheet();
+    if (call >= 0) return sheet === call;
+    return sheet === 'scenario' && this.current() != null;
+  }
+
+  protected canDelete(row: ScenarioRow): boolean {
+    if (!this.canEdit()) return false;
+    if (row.organization == null && !this.auth.isSuperadmin()) return false;
+    return !(row.organization == null && row.name === 'Стандартное взыскание');
   }
 
   protected showMail(): boolean {
@@ -708,13 +718,8 @@ export class ScenariosComponent implements OnInit {
       return;
     }
     if (this.sameScenario && sheet === 'dial') {
-      const call = this.callStepIndex();
-      if (call < 0) {
-        this.picked.set(0);
-        return;
-      }
-      this.sheet.set(call);
-      this.picked.set(call);
+      this.sheet.set('scenario');
+      this.picked.set(0);
       return;
     }
     if (this.sameScenario && sheet === 'scenario') {
@@ -839,6 +844,23 @@ export class ScenariosComponent implements OnInit {
     if (!row) return;
     this.api.copyScenario(row.id).subscribe({
       next: (copy) => this.reload(copy.id),
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected removeScenario(row: ScenarioRow, event?: Event): void {
+    event?.stopPropagation();
+    if (!this.canDelete(row)) return;
+    if (!window.confirm(`Удалить сценарий «${row.name}»?`)) return;
+    this.api.deleteScenario(row.id).subscribe({
+      next: () => {
+        if (this.current()?.id === row.id) {
+          this.current.set(null);
+          this.sheet.set('scenario');
+        }
+        this.snack.open('Сценарий удалён', 'OK', { duration: 2000 });
+        this.reload();
+      },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
   }

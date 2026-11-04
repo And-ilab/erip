@@ -36,7 +36,10 @@ def launch_mode(account: Account) -> str:
 
 def default_scenario(account: Account):
     row = _mode_row(account)
-    if row is not None and row.scenario_id and row.scenario.status == ScenarioDefinition.Status.ACTIVE:
+    if (
+        row is not None and row.scenario_id and row.scenario.is_active
+        and row.scenario.status == ScenarioDefinition.Status.ACTIVE
+    ):
         return row.scenario
     from apps.nsi.services.scenario_engine import _scenario_for_import
 
@@ -307,6 +310,6 @@ def service_org(account: Account) -> ServiceOrganization | None:
 
 
 def visible_scenarios(account: Account):
-    return ScenarioDefinition.objects.filter(status=ScenarioDefinition.Status.ACTIVE).filter(
+    return ScenarioDefinition.objects.filter(status=ScenarioDefinition.Status.ACTIVE, is_active=True).filter(
         Q(organization_id=account.organization_id) | Q(organization__isnull=True),
     )

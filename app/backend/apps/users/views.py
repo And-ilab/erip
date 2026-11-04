@@ -80,7 +80,7 @@ class ServiceOrganizationViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, views
                 row.scenario = None
             else:
                 scenario = ScenarioDefinition.objects.filter(
-                    pk=raw, status=ScenarioDefinition.Status.ACTIVE,
+                    pk=raw, status=ScenarioDefinition.Status.ACTIVE, is_active=True,
                 ).filter(Q(organization_id=org.organization_id) | Q(organization__isnull=True)).first()
                 if scenario is None:
                     raise ValidationError({"scenario": "Сценарий не найден в этой схеме"})

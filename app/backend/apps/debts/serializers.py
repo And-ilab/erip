@@ -79,13 +79,15 @@ def published_scenario(organization_id, cache: dict):
         return cache[organization_id]
     own = (
         ScenarioDefinition.objects.filter(
-            organization_id=organization_id, status=ScenarioDefinition.Status.ACTIVE,
+            organization_id=organization_id, status=ScenarioDefinition.Status.ACTIVE, is_active=True,
         )
         .order_by("id")
         .first()
     )
     shared = (
-        ScenarioDefinition.objects.filter(organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE)
+        ScenarioDefinition.objects.filter(
+            organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE, is_active=True,
+        )
         .order_by("id")
         .first()
     )

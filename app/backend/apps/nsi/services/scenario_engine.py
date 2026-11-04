@@ -56,7 +56,7 @@ def _scenario_for_import(account: Account):
 
     own = (
         ScenarioDefinition.objects.filter(
-            organization_id=account.organization_id, status=ScenarioDefinition.Status.ACTIVE,
+            organization_id=account.organization_id, status=ScenarioDefinition.Status.ACTIVE, is_active=True,
         )
         .order_by("id")
         .first()
@@ -68,7 +68,7 @@ def _scenario_for_import(account: Account):
     else:
         shared = (
             ScenarioDefinition.objects.filter(
-                organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE,
+                organization__isnull=True, status=ScenarioDefinition.Status.ACTIVE, is_active=True,
             )
             .order_by("id")
             .first()
@@ -77,7 +77,9 @@ def _scenario_for_import(account: Account):
             chosen = shared
         else:
             ensure_standard_scenario()
-            chosen = ScenarioDefinition.objects.filter(organization__isnull=True, name="Стандартное взыскание").first()
+            chosen = ScenarioDefinition.objects.filter(
+                organization__isnull=True, name="Стандартное взыскание", is_active=True,
+            ).first()
     upgrade_legacy_scenario(chosen)
     return chosen
 

@@ -179,7 +179,7 @@ class ScenarioDefinitionViewSet(NsiViewSet):
 
         ensure_standard_scenario()
         user = self.request.user
-        qs = self.queryset.prefetch_related("revisions__author")
+        qs = self.queryset.prefetch_related("revisions__author").filter(is_active=True)
         if user.is_superadmin:
             return qs
         return qs.filter(organization__isnull=True) | qs.filter(organization=user.organization)
@@ -199,8 +199,21 @@ class ScenarioDefinitionViewSet(NsiViewSet):
         super().perform_update(serializer)
 
     def perform_destroy(self, instance):
+        from apps.debts.models import AccountScenarioRun
+        from apps.nsi.models import ServiceScenarioMode
+
         self._admin_only()
         self._deny_central(instance)
+        if instance.organization_id is None and instance.name == "Стандартное взыскание":
+            raise ValidationError({
+                "scenario": "Типовой сценарий «Стандартное взыскание» не удаляется",
+            })
+        running = AccountScenarioRun.objects.filter(scenario=instance, finished_on__isnull=True).count()
+        if running:
+            raise ValidationError({
+                "scenario": "Сценарий ещё идёт на лицевых счетах. Сначала снимите его со счетов",
+            })
+        ServiceScenarioMode.objects.filter(scenario=instance).update(scenario=None)
         super().perform_destroy(instance)
 
     @action(detail=True, methods=["post"])

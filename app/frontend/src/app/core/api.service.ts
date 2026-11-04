@@ -838,6 +838,10 @@ export class ApiService {
     return this.http.post<ScenarioRow>(`${this.base}/nsi/scenarios/${id}/copy/`, {});
   }
 
+  deleteScenario(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/nsi/scenarios/${id}/`);
+  }
+
   assignScenario(id: number, body: object): Observable<ScenarioAssign> {
     return this.http.post<ScenarioAssign>(`${this.base}/nsi/scenarios/${id}/assign/`, body);
   }

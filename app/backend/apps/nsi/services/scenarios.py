@@ -603,7 +603,9 @@ def _fill_standard_repeat(scenario: ScenarioDefinition, steps: list[dict]) -> bo
 
 
 def ensure_standard_scenario() -> None:
-    scenario = ScenarioDefinition.objects.filter(organization=None, name="Стандартное взыскание").first()
+    scenario = ScenarioDefinition.objects.filter(
+        organization=None, name="Стандартное взыскание", is_active=True,
+    ).first()
     if scenario is None:
         scenario = ScenarioDefinition.objects.create(
             organization=None, name="Стандартное взыскание", status=ScenarioDefinition.Status.ACTIVE,

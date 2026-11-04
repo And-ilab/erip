@@ -814,7 +814,9 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         from .services.measures import MeasureLaunchError
         from .services.scenario_flow import replace_accounts
 
-        scenario = ScenarioDefinition.objects.filter(pk=request.data.get("scenario_id"), status=ScenarioDefinition.Status.ACTIVE).first()
+        scenario = ScenarioDefinition.objects.filter(
+            pk=request.data.get("scenario_id"), status=ScenarioDefinition.Status.ACTIVE, is_active=True,
+        ).first()
         if scenario is None:
             raise ValidationError({"scenario_id": "Выберите сценарий из справочника"})
         try:

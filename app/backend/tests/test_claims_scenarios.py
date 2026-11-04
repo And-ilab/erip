@@ -914,3 +914,51 @@ def test_opi_direction_needs_office_date_and_document(api, specialist_a, account
     assert case.lawsuit_filed_on == date(2026, 5, 2)
     assert _activity(done.json()["current"], "filed")["status"] == "done"
 
+
+@pytest.mark.django_db
+def test_scenario_delete_hides_the_row_and_keeps_a_running_account(api, admin_a, specialist_a, superadmin, account_a):
+    from apps.nsi.models import ScenarioDefinition, ServiceScenarioMode
+
+    created = api(admin_a).post(
+        "/api/v1/nsi/scenarios/",
+        {"name": "Лишний", "steps": [{"order": 1, "action": "warning", "wait_days": 0, "terminal": True}]},
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    scenario_id = created.json()["id"]
+    mode = ServiceScenarioMode.objects.filter(service_organization__organization=account_a.organization).first()
+    mode.scenario_id = scenario_id
+    mode.save(update_fields=["scenario"])
+
+    denied = api(specialist_a).delete(f"/api/v1/nsi/scenarios/{scenario_id}/")
+    assert denied.status_code == 403
+
+    removed = api(admin_a).delete(f"/api/v1/nsi/scenarios/{scenario_id}/")
+    assert removed.status_code == 204, removed.content
+    mode.refresh_from_db()
+    assert mode.scenario_id is None
+    listed = api(admin_a).get("/api/v1/nsi/scenarios/")
+    assert scenario_id not in {row["id"] for row in listed.json()["results"]}
+    stored = ScenarioDefinition.objects.get(pk=scenario_id)
+    assert stored.is_active is False
+
+    published = api(admin_a).post(
+        "/api/v1/nsi/scenarios/",
+        {"name": "На счетах", "steps": [{"order": 1, "action": "warning", "wait_days": 0, "terminal": True}]},
+        format="json",
+    )
+    assert published.status_code == 201, published.content
+    running_id = published.json()["id"]
+    assert api(admin_a).post(f"/api/v1/nsi/scenarios/{running_id}/publish/", {}, format="json").status_code == 200
+    assert api(admin_a).post(
+        f"/api/v1/nsi/scenarios/{running_id}/assign/", {"account": account_a.id}, format="json",
+    ).status_code == 200
+    blocked = api(admin_a).delete(f"/api/v1/nsi/scenarios/{running_id}/")
+    assert blocked.status_code == 400
+    assert "счетах" in blocked.content.decode()
+
+    standard = next(row for row in listed.json()["results"] if row["name"] == "Стандартное взыскание")
+    kept = api(superadmin).delete(f"/api/v1/nsi/scenarios/{standard['id']}/")
+    assert kept.status_code == 400
+    assert "Стандартное взыскание" in kept.content.decode()
+
