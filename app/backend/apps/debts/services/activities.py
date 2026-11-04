@@ -299,7 +299,7 @@ def perform_activity(account, user, activity_id: int, note: str, upload) -> dict
     elif row.kind == "email":
         mode = getattr(settings, "GW_EMAIL_MODE", "stub")
         if mode == "stub":
-            row.note = text or "Повтор зафиксирован. Почта в режиме заглушки, письмо не уходило."
+            row.note = text or "Повтор зафиксирован. Письмо не уходило."
         else:
             row.note = text or "Повтор отправки зафиксирован."
     elif row.kind == "call":

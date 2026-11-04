@@ -286,14 +286,14 @@ def send_to_notary(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
     require_formed_package(case)
     case.submission_mode = "stub"
     case.submission_id = f"stub-{case.pk}"
-    note = f"Заглушка БНП, номер {case.submission_id}"
+    note = f"Направление записано, номер {case.submission_id.removeprefix('stub-')}"
     if skip_reason.strip():
         note = f"{note}. Пропуск: {skip_reason.strip()}"
     case.save(update_fields=["submission_mode", "submission_id", "updated_at"])
     DebtWorkItem.objects.create(
         organization=case.organization, account=case.account, kind=DebtWorkItem.Kind.WRIT,
         title="Пакет на исполнительную надпись",
-        note="Пакет сформирован в ПМ. В личный кабинет БНП не отправлялся: канал-заглушка.",
+        note="Пакет сформирован. В личный кабинет БНП не отправлялся.",
         started_on=timezone.localdate(),
     )
     return move_case(case, ClaimCase.Stage.NOTARY, user, note, checklist_reason=skip_reason)

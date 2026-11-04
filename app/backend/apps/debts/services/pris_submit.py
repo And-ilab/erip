@@ -69,7 +69,7 @@ def pris_channel_status() -> dict:
         "sends": False,
         "ministry": False,
         "tunnel": False,
-        "detail": "Заглушка ПРИС: пакет проверяется и не отправляется.",
+        "detail": "Пакет проверяется и не отправляется.",
     }
 
 
@@ -187,7 +187,7 @@ def submit_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
         note = case.pris_process_message
     else:
         case.opi_mode = "stub"
-        case.pris_process_message = "Пакет прошёл проверку регламента. В АИС ПРИС не отправлен: канал-заглушка."
+        case.pris_process_message = "Пакет прошёл проверку. В АИС ПРИС не отправлен."
         note = case.pris_process_message
     case.pris_cl_num = _cl_num(case)
     from django.utils import timezone
@@ -228,7 +228,7 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
     if result.get("mode") not in _LIVE_MODES:
         from apps.debts.services.claims import _event
 
-        _event(case, user, case.stage, case.stage, "Заглушка ПРИС: ход производства не записывался")
+        _event(case, user, case.stage, case.stage, "Ход производства не записывался")
         case.opi_mode = case.opi_mode or "stub"
         case.save(update_fields=["opi_mode", "updated_at"])
         return case
@@ -279,7 +279,7 @@ def repay_pris(case: ClaimCase, user) -> ClaimCase:
         )[:500]
         note = case.pris_process_message
     else:
-        case.pris_process_message = "Погашение прошло проверку регламента. В АИС ПРИС не отправлено: канал-заглушка."
+        case.pris_process_message = "Погашение прошло проверку. В АИС ПРИС не отправлено."
         note = case.pris_process_message
         case.opi_mode = case.opi_mode or "stub"
     case.save(update_fields=["opi_mode", "pris_response_id", "pris_process_status", "pris_process_message", "updated_at"])
@@ -325,7 +325,7 @@ def _post_pris(case: ClaimCase, user, operation: str, path: str, payload: dict) 
     if mode not in _LIVE_MODES and operation == "refresh":
         stored = {"mode": mode or "stub", "applied": False, "note": "Ход производства не записывался"}
     elif mode not in _LIVE_MODES and operation in {"submit", "repay"}:
-        stored = {**result, "note": "В АИС ПРИС не отправлено: канал-заглушка"}
+        stored = {**result, "note": "В АИС ПРИС не отправлено"}
     elif mode == "channel":
         stored = {**result, "note": "Ответ тестового канала шлюза."}
     _store_exchange(case, user, operation, path, payload, stored)

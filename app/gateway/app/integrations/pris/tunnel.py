@@ -19,7 +19,7 @@ async def probe_pris_route(base_url: str, timeout: float = 3.0) -> dict:
             "up": False,
             "host": host,
             "port": 0,
-            "detail": "GW_PRIS_BASE_URL должен быть http-адресом контура.",
+            "detail": "Адрес контура не задан.",
         }
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
@@ -30,8 +30,7 @@ async def probe_pris_route(base_url: str, timeout: float = 3.0) -> dict:
             "host": host,
             "port": port,
             "detail": (
-                f"Нет ответа от {host}:{port}. "
-                "Туннель itVPN на сервере не пускает шлюз к контуру."
+                f"Нет ответа от {host}:{port}."
             ),
         }
     except OSError:
@@ -40,7 +39,7 @@ async def probe_pris_route(base_url: str, timeout: float = 3.0) -> dict:
             "host": host,
             "port": port,
             "detail": (
-                f"Маршрута до {host}:{port} нет. Туннель itVPN на сервере не поднят."
+                f"Маршрута до {host}:{port} нет."
             ),
         }
     writer.close()
@@ -52,8 +51,5 @@ async def probe_pris_route(base_url: str, timeout: float = 3.0) -> dict:
         "up": True,
         "host": host,
         "port": port,
-        "detail": (
-            f"Шлюз открыл порт {host}:{port}. "
-            "Маршрут itVPN с этой машины до контура есть."
-        ),
+        "detail": f"Связь с {host}:{port} есть.",
     }

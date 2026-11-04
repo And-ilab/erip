@@ -280,8 +280,7 @@ def sign_documents(case: ClaimCase, user, signatures) -> ClaimCase:
     rows = list(signatures or [])
     if not rows:
         raise ClaimBlocked(
-            "Подпись ставит плагин AvCMXWebP на компьютере с «Комплектом абонента АВЕСТ» и ключом AvPass. "
-            "Локальная отметка не записывается.",
+            "Сначала подпишите документы комплекта.",
         )
     saved = []
     for item in rows:

@@ -22,7 +22,7 @@ import { AuthService } from '../../core/auth.service';
       <section class="card status">
         <div class="head">
           <h3>Asterisk AMI</h3>
-          <span class="pill" [class.on]="item.status.ready">{{ item.status.mode === 'ami' ? 'AMI' : 'Заглушка' }}</span>
+          <span class="pill" [class.on]="item.status.ready">{{ item.status.mode === 'ami' ? 'Подключено' : 'Не подключено' }}</span>
         </div>
         <p class="muted">{{ item.status.detail || item.stub_detail }}</p>
         <button mat-stroked-button type="button" (click)="loadStatus()">Обновить статус</button>
@@ -32,7 +32,7 @@ import { AuthService } from '../../core/auth.service';
     @if (canEdit()) {
       <section class="card">
         <h3>Номера схемы</h3>
-        <p class="muted">Ротация уходит в адаптер. Хост и секрет AMI задаются в окружении шлюза (GW_VOICE_MODE, GW_AMI_*). Окно обзвона сценария остаётся в <a routerLink="/settings/work/scenario">Сценариях</a>.</p>
+        <p class="muted">Исходящие номера этой схемы. Окно обзвона задаётся в <a routerLink="/settings/work/scenario">сценарии</a>.</p>
         <div class="checks">
           <mat-checkbox [(ngModel)]="orgCallLegal">Звонить юридическим лицам в этой схеме</mat-checkbox>
         </div>
@@ -43,7 +43,7 @@ import { AuthService } from '../../core/auth.service';
           <mat-checkbox [checked]="false" disabled>Запись разговора</mat-checkbox>
           <mat-checkbox [checked]="false" disabled>Перевод на оператора</mat-checkbox>
         </div>
-        <p class="muted">Запись и перевод выключены, пока Asterisk их не отдаёт.</p>
+        <p class="muted">Запись разговора и перевод на оператора пока недоступны.</p>
         <button mat-flat-button color="primary" type="button" (click)="save()">Сохранить обзвон схемы</button>
       </section>
     } @else {

@@ -21,7 +21,7 @@ import { AuthService } from '../../core/auth.service';
         </div>
         <p class="muted">{{ item.summary }}</p>
         <dl class="meta">
-          <div><dt>Режим</dt><dd>{{ item.status.mode }}</dd></div>
+          <div><dt>Режим</dt><dd>{{ modeLabel(item.status.mode) }}</dd></div>
           <div><dt>Готовность</dt><dd>{{ item.status.ready ? 'готов к внешней отправке' : 'внешний контур не активен' }}</dd></div>
           <div><dt>Связь</dt><dd>{{ item.status.connected ? 'есть' : 'нет' }}</dd></div>
         </dl>
@@ -34,10 +34,7 @@ import { AuthService } from '../../core/auth.service';
       @if (isPris() && auth.canManageTemplates()) {
         <section class="card checks">
           <h3>Проверочные запросы</h3>
-          <p class="hint">
-            Те же служебные вызовы, что ответили на тестовом контуре 3–4 ноября.
-            Ключ и токен на экран не выводятся. S-05 сам берёт сессию. S-07 закрывает её и сразу открывает новую.
-          </p>
+          <p class="hint">Проверка связи с АИС ПРИС. Ключ на экран не выводится.</p>
           @for (step of prisSteps; track step.id) {
             <div class="check">
               <div class="check-head">
@@ -50,7 +47,6 @@ import { AuthService } from '../../core/auth.service';
                   </span>
                 }
               </div>
-              <p class="hint">{{ step.request }}</p>
               @if (checks()[step.id]; as result) {
                 <p class="detail"><b>Ожидание.</b> {{ result.expected }}</p>
                 <p class="detail"><b>Ответ.</b> {{ result.summary }}</p>
@@ -116,7 +112,7 @@ export class IntegrationStatusComponent implements OnInit {
   }
 
   protected modeLabel(mode: string): string {
-    if (mode === 'stub') return 'Заглушка';
+    if (mode === 'stub') return 'Не подключено';
     if (mode === 'unknown') return 'Нет связи';
     if (mode === 'smtp' || mode === 'ami' || mode === 'http' || mode === 'channel') return 'Включён';
     return mode;

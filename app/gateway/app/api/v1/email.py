@@ -22,9 +22,9 @@ async def email_status(settings: Settings = Depends(get_settings)):
     missing = settings.smtp_missing() if settings.email_mode == "smtp" else []
     places_mail = settings.email_mode == "smtp" and not missing
     connected = False
-    detail = "Заглушка SMTP: письмо не отправляется"
+    detail = "Письмо не отправляется"
     if settings.email_mode == "smtp" and missing:
-        detail = "Режим smtp, не задано: " + ", ".join(missing)
+        detail = "Почта не настроена"
     elif places_mail:
         try:
             await asyncio.to_thread(SmtpClient(settings).ping)

@@ -237,7 +237,7 @@ def test_submit_writes_exchange_without_file_body(api, specialist_a, org_a, pris
     assert "скрыто" in dumped
     assert "не отправлено" in row.response["note"]
     card = response.json()["pris"]["exchanges"]
-    assert card[0]["note"] == "В АИС ПРИС не отправлено: канал-заглушка"
+    assert card[0]["note"] == "В АИС ПРИС не отправлено"
 
 
 def test_draft_keeps_debtor_opf(api, specialist_a, org_a):

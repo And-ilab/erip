@@ -171,7 +171,7 @@ const GROUP_COLOR: Record<number, string> = {
         <span class="muted">Без адреса: {{ level()?.unplaced }}. Они остаются в списке.</span>
       }
     </div>
-    <p class="muted">Число в пузыре — лицевые счета, цвет — группа, которой в этом месте больше. Подложка — файл карты на этом сервере.</p>
+    <p class="muted">Число в пузыре — лицевые счета, цвет — группа, которой в этом месте больше.</p>
     @if (error()) { <p class="status-failed">{{ error() }}</p> }
     @if (mapFailed()) { <p class="status-failed">{{ mapFailed() }}</p> }
     <label class="street-search">Улица
@@ -304,7 +304,7 @@ export class AccountsMapComponent implements AfterViewInit, OnChanges, OnDestroy
         const detail = event.error as { message?: string; url?: string };
         const where = `${detail?.url ?? ''} ${detail?.message ?? ''}`;
         if (where.includes('/maps/') || where.includes('pmtiles')) {
-          this.mapFailed.set('Файл карты на сервере не открылся. Пузыри сверху всё равно открывают дерево.');
+          this.mapFailed.set('Карта не открылась. Список мест сверху работает.');
         }
       });
     } catch {

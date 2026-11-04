@@ -88,9 +88,9 @@ async def voice_status(settings: Settings = Depends(get_settings)):
     missing = settings.ami_missing()
     places_calls = settings.voice_mode == "ami" and not missing
     connected = False
-    detail = "Заглушка AMI: набор не выполняется"
+    detail = "Звонок не выполняется"
     if settings.voice_mode == "ami" and missing:
-        detail = "Режим ami, не задано: " + ", ".join(missing)
+        detail = "Обзвон не настроен"
     elif places_calls:
         client = AmiClient(
             settings.ami_host.strip(),

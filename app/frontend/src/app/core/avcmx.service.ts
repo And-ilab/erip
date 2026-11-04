@@ -111,20 +111,7 @@ export class AvcmxService {
   }
 
   missingText(): string {
-    if (this.chromiumBrowser()) {
-      return (
-        'Комплект АВЕСТ на компьютере может быть установлен, но этот браузер не загружает AvCMXWebP. ' +
-        'Плагин — NPAPI/ActiveX; Chrome и Edge его не поднимают (в демо АВЕСТ: Internet Explorer и Firefox; Chrome только до версии 45). ' +
-        'Откройте ПМ в Internet Explorer и нажмите «Подписать» снова. ' +
-        'Проверка плагина у АВЕСТ: http://dev.avest.by/avjceprovdemoweb/. ' +
-        'Дистрибутив: https://nces.by/pki/info/software'
-      );
-    }
-    return (
-      'Браузер не отдал API плагина AvCMXWebP (у объекта нет CreateBlob). ' +
-      'Установите «Комплект абонента АВЕСТ» для AvPass вместе с AvCMXWebP со страницы НЦЭУ и откройте ПМ в Internet Explorer ' +
-      '(или Firefox с NPAPI). Дистрибутив: https://nces.by/pki/info/software'
-    );
+    return 'Подпись в этом окне недоступна.';
   }
 
   async certificates(): Promise<EdsCertificate[]> {
@@ -228,11 +215,6 @@ export class AvcmxService {
     }
   }
 
-  private chromiumBrowser(): boolean {
-    const ua = navigator.userAgent;
-    return /Chrome\/|Edg\/|OPR\//.test(ua) && !/Firefox\//.test(ua);
-  }
-
   private connect(plugin: AvPlugin, params: AvParams, flags: number): Promise<AvConnection> {
     return this.asyncCall<AvConnection>((callback) => plugin.CreateConnectionAsync(params, flags, callback));
   }
@@ -253,7 +235,7 @@ export class AvcmxService {
             return;
           }
           if (value === undefined) {
-            reject(new Error('Плагин AvCMXWebP не вернул результат'));
+            reject(new Error('Подпись не выполнена'));
             return;
           }
           resolve(value);
@@ -275,7 +257,7 @@ export class AvcmxService {
       const cert = list.Item(index);
       if (String(cert.PublicKeyId.GetAsHex(0) || '').toLowerCase() === wanted) return cert;
     }
-    throw new Error('Сертификат не найден в личном справочнике. Вставьте AvPass и обновите список.');
+    throw new Error('Сертификат не найден. Вставьте ключ и обновите список.');
   }
 
   private hasUnp(plugin: AvPlugin, cert: AvCert): boolean {
@@ -289,9 +271,7 @@ export class AvcmxService {
       const certificate = list.Item(index);
       if (this.attributeHasUnp(plugin, certificate)) return certificate;
     }
-    throw new Error(
-      'В личном сертификате нет УНП, и в справочнике нет атрибутного сертификата с УНП. Импортируйте его в персональный менеджер сертификатов АВЕСТ.',
-    );
+    throw new Error('В сертификате нет УНП.');
   }
 
   private attributeHasUnp(plugin: AvPlugin, certificate: AvAttrCert): boolean {
@@ -327,17 +307,17 @@ export class AvcmxService {
     if (!text && error instanceof Error && error.message) text = error.message;
     const low = code & 0xFFFF;
     const known: Record<number, string> = {
-      0x0b: 'Неверный пароль к контейнеру AvPass',
-      0x15: 'Контейнер личного ключа на носителе не найден',
-      0x17: 'Нет списка отозванных сертификатов. Обновите СОС в персональном менеджере сертификатов АВЕСТ',
-      0x19: 'Носитель AvPass не найден',
+      0x0b: 'Неверный пароль ключа',
+      0x15: 'Ключ на носителе не найден',
+      0x17: 'Нет списка отозванных сертификатов',
+      0x19: 'Носитель ключа не найден',
       0x27: 'Подпись не прошла проверку',
-      0x30: 'Сертификат отозван. Проверьте список отозванных сертификатов',
-      0x32: 'Список отозванных сертификатов просрочен. Обновите СОС в персональном менеджере сертификатов АВЕСТ',
+      0x30: 'Сертификат отозван',
+      0x32: 'Список отозванных сертификатов просрочен',
       0x37: 'Подпись отменена',
-      0x4a: 'Вставьте носитель AvPass',
+      0x4a: 'Вставьте носитель ключа',
     };
-    return text || known[low] || 'Плагин AvCMXWebP не выполнил подпись';
+    return known[low] || text || 'Подпись не выполнена';
   }
 }
 

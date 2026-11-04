@@ -57,7 +57,7 @@ def test_status_reports_the_stub_without_calling_a_station(client):
     assert data["system"] == "Asterisk AMI"
     assert data["places_calls"] is False
     assert data["connected"] is False
-    assert "Заглушка" in data["detail"]
+    assert "не выполняется" in data["detail"]
     assert "GW_AMI_HOST" in data["missing"]
 
 

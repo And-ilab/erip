@@ -37,7 +37,7 @@ INTEGRATIONS: tuple[IntegrationDef, ...] = (
         summary="Письма организации через SMTP заказчика. Отправитель, тема и подпись — у схемы.",
         settings="mail",
         status_path="/gw/v1/email/status",
-        stub_detail="Пока GW_EMAIL_MODE=stub письмо во внешнюю почту не уходит.",
+        stub_detail="Письмо во внешнюю почту не уходит.",
     ),
     IntegrationDef(
         code="asterisk",
@@ -45,13 +45,13 @@ INTEGRATIONS: tuple[IntegrationDef, ...] = (
         summary="Автообзвон через Asterisk AMI. Исходящие номера и признак ЮЛ — у схемы.",
         settings="calling",
         status_path="/gw/v1/voice/status",
-        stub_detail="Пока GW_VOICE_MODE=stub набор не выполняется.",
+        stub_detail="Звонок на станцию не выполняется.",
     ),
     IntegrationDef(
         code="sms",
         title="SMS",
         summary="SMS-шлюз. В ТЗ канал упомянут, боевая интеграция не описана.",
-        stub_detail="Адаптер пишет лог и возвращает «доставлено», сообщение не уходит.",
+        stub_detail="Сообщение не уходит.",
     ),
     IntegrationDef(
         code="messengers",
@@ -68,15 +68,15 @@ INTEGRATIONS: tuple[IntegrationDef, ...] = (
     IntegrationDef(
         code="pris",
         title="АИС ПРИС",
-        summary="Сервисы ОАИС 3.11.01–3.11.05. Режим задаёт GW_PRIS_MODE.",
+        summary="Сервисы ОАИС 3.11.01–3.11.05.",
         status_path="/gw/v1/integrations/pris/status",
-        stub_detail="По умолчанию stub: пакет проверяется и в Минюст не уходит.",
+        stub_detail="Пакет проверяется и в Минюст не уходит.",
     ),
     IntegrationDef(
         code="bnp",
         title="ЛК БНП",
         summary="Пакет PDF до 15 МБ и ЭЦП для кабинета Белорусской нотариальной палаты.",
-        stub_detail="Пакет и zip собираются локально. В кабинет вызов не уходит.",
+        stub_detail="Пакет собирается в программе. В кабинет он не передаётся.",
     ),
     IntegrationDef(
         code="ais",

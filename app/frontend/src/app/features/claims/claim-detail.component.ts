@@ -98,9 +98,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 <div class="bar">
                   <button mat-flat-button color="primary" type="button" (click)="signAndAssemble()" [disabled]="signing || !kitReady(row)" [title]="signTitle(row)">Подписать и собрать архив</button>
                   <button mat-stroked-button type="button" (click)="downloadArchive()" [disabled]="!archiveReady(row)" [title]="archiveReady(row) ? 'Скачать zip комплекта' : 'Сначала подпишите комплект и соберите архив'">Скачать архив</button>
-                  <button mat-flat-button type="button" (click)="sendArchive()" [disabled]="!archiveReady(row)" [title]="archiveReady(row) ? 'Запись направления нотариусу. В кабинет БНП вызов не уходит.' : 'Сначала подпишите комплект и соберите архив'">Отправить</button>
+                  <button mat-flat-button type="button" (click)="sendArchive()" [disabled]="!archiveReady(row)" [title]="archiveReady(row) ? 'Записать направление нотариусу' : 'Сначала подпишите комплект и соберите архив'">Отправить</button>
                 </div>
-                <p class="muted">Подпись ставит плагин AvCMXWebP в Edge в режиме Internet Explorer: «Комплект абонента АВЕСТ», ключ AvPass, сертификат РУЦ ГосСУОК. Кнопка открывает страницу подписи, плагин один раз спрашивает пароль и подписывает заявление, расчёт и доверенность. На компьютере с AvPass один раз выполните <code>app/tools/edge-ie-mode.ps1</code> и перезапустите Edge. Дистрибутив — <a href="https://nces.by/pki/info/software" target="_blank" rel="noopener">НЦЭУ</a>. В кабинет БНП вызов не уходит.</p>
                 @if (shownGaps(row).length) {
                   <ul class="blockers">
                     @for (item of shownGaps(row); track $index) { <li>{{ item }}</li> }
@@ -127,7 +126,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   <mat-checkbox holdDraft [ngModel]="withdrawn" (ngModelChange)="setWithdrawn($event)">Заявление отозвано</mat-checkbox>
                 </div>
                 @if (row.submission_mode === 'stub') {
-                  <p class="banner">В кабинет БНП пакет не уходил. Номер заглушки: {{ row.submission_id }}.</p>
+                  <p class="banner">В кабинет БНП пакет не уходил. Номер направления: {{ directionNo(row.submission_id) }}.</p>
                 }
                 @if (sendGaps(row).length) {
                   <ul class="blockers">
@@ -226,9 +225,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               }
               @case ('opi') {
                 @if (prisStatus(); as st) {
-                  <p class="banner" [class.ok-banner]="st.sends">
-                    <b>Канал АИС ПРИС ({{ st.mode || 'stub' }}):</b> {{ st.detail }}
-                  </p>
+                  <p class="banner" [class.ok-banner]="st.sends">{{ st.detail }}</p>
                 }
                 @if (row.opi_mode === 'manual') {
                   <p class="banner">Статус ОПИ внесён вручную. Сервисы 3.11.01–3.11.05 не вызывались.</p>
@@ -240,7 +237,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   <p class="banner ok-banner">Пакет передан в АИС ПРИС. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
                 }
                 @if (row.opi_mode === 'channel') {
-                  <p class="banner ok-banner">Пакет принят тестовым каналом шлюза. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
+                  <p class="banner ok-banner">Пакет записан. В АИС ПРИС он не передавался. {{ row.pris_process_message }} {{ row.pris_response_id }}</p>
                 }
 
                 <div class="sums">
@@ -472,7 +469,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 
                 <details [open]="!!row.pris_cl_num || (row.pris?.problems?.length || 0) > 0">
                   <summary>Электронный обмен с АИС ПРИС (ОАИС 3.11.01–3.11.05)</summary>
-                  <p class="hint">Справочники 120, 201, 202, 204, 214, 217, 306, 308 и 309 доступны в выпадающих подсказках. Подпись — отсоединённый PKCS#7 (.p7s или .sgn) ключом AvPass. Если PDF выбран «из пакета», в ПРИС уходит подпись с вкладки «Комплект».</p>
+                  <p class="hint">Коды справочников выбираются из списка. Если документ взят из комплекта, для обмена берётся его подпись.</p>
                   @if (row.pris?.problems?.length) {
                     <p class="need">Не заполнено для отправки в ПРИС: {{ row.pris?.problems?.join('; ') }}</p>
                   } @else if (row.pris?.ready) {
@@ -556,15 +553,15 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </mat-form-field>
                     @if (edsCerts.length) {
                       <mat-form-field class="wide">
-                        <mat-label>Сертификат ГосСУОК на AvPass</mat-label>
+                        <mat-label>Сертификат</mat-label>
                         <mat-select [(ngModel)]="edsCert">
                           @for (cert of edsCerts; track cert.pubKeyId) {
-                            <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · УНП из атрибутного сертификата' }}</mat-option>
+                            <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · без УНП' }}</mat-option>
                           }
                         </mat-select>
                       </mat-form-field>
                     }
-                    <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF ключом AvPass</button>
+                    <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF</button>
                     <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
                     <mat-form-field [class.need]="!prisCountry.trim()"><mat-label>Страна адреса, справочник 306 *</mat-label>
                       <input matInput [(ngModel)]="prisCountry" [matAutocomplete]="autoCountry" />
@@ -1022,7 +1019,12 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected signTitle(row: ClaimCase): string {
     if (this.signing) return 'Подпись уже запущена';
     if (!this.kitReady(row)) return this.kitGaps(row)[0] || 'Комплект неполный';
-    return 'Откроет Edge в режиме Internet Explorer. Пароль спросит плагин AvPass.';
+    return 'Подписать документы и собрать архив';
+  }
+
+  protected directionNo(value: string | null | undefined): string {
+    const text = value || '';
+    return text.startsWith('stub-') ? text.slice(5) : text;
   }
 
   private kitGaps(row: ClaimCase): string[] {
@@ -1439,7 +1441,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       this.launchEdge(`${window.location.origin}${path}${sep}_=${Date.now()}`);
       this.watchArchive();
       this.snack.open(
-        'Открывается Edge в режиме Internet Explorer. Введите пароль AvPass в окне плагина.',
+        'Открывается окно подписи. Введите пароль ключа.',
         'OK',
         { duration: 8000 },
       );
@@ -1496,7 +1498,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
             this.prefetchSignTicket(saved.id);
             this.watchArchive();
             this.snack.open(
-              'Открывается Edge в режиме Internet Explorer. Введите пароль AvPass в окне плагина.',
+              'Открывается окно подписи. Введите пароль ключа.',
               'OK',
               { duration: 8000 },
             );
@@ -1627,8 +1629,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       const next = await firstValueFrom(this.api.claim(row.id));
       this.apply(next);
       this.prisSign = Number(saved.id);
-      const extra = signed.attributeCertificate ? ' В подпись включён атрибутный сертификат с УНП.' : '';
-      this.snack.open(`Подпись ${name} сохранена. Статус ключа проверил плагин по СОС.${extra}`, 'OK', { duration: 5000 });
+      const extra = signed.attributeCertificate ? ' В подпись включён УНП.' : '';
+      this.snack.open(`Подпись ${name} сохранена.${extra}`, 'OK', { duration: 5000 });
     } catch (err) {
       this.snack.open(this.failText(err), 'OK');
     } finally {
@@ -1643,12 +1645,12 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     }
     if (!this.edsCerts.length) this.edsCerts = await this.eds.certificates();
     if (!this.edsCerts.length) {
-      this.snack.open('В личном справочнике нет сертификата. Вставьте AvPass и откройте персональный менеджер сертификатов АВЕСТ.', 'OK');
+      this.snack.open('Нет сертификата для подписи. Вставьте ключ и повторите.', 'OK');
       return null;
     }
     if (this.edsCerts.length > 1 && !this.edsListed) {
       this.edsListed = true;
-      this.snack.open('Выберите сертификат ГосСУОК на AvPass и нажмите подпись ещё раз', 'OK');
+      this.snack.open('Выберите сертификат и нажмите подпись ещё раз', 'OK');
       return null;
     }
     return this.edsCerts[this.edsCert] || this.edsCerts[0];

@@ -5,7 +5,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
-  <title>ЕРИП — подпись комплекта (Internet Explorer)</title>
+  <title>ЕРИП — подпись комплекта</title>
   <link rel="stylesheet" href="ie-sign.css?v=20261102c" />
   <script type="text/javascript" src="avcmxwebp.js?v=20261102c"></script>
   <script type="text/javascript" src="ie-sign.js?v=20261102c"></script>
@@ -18,27 +18,19 @@
 
   <div class="page">
     <h1>Подпись комплекта для нотариата</h1>
-    <p class="lead">Страница сама подписывает комплект в режиме Internet Explorer. Пароль спрашивает плагин АВЕСТ. После архива вернитесь в ПМ.</p>
+    <p class="lead">Подпишите документы. Если спросят пароль ключа, введите его. Когда архив будет готов, вернитесь в программу.</p>
 
     <div id="status" class="status">Загрузка…</div>
-    <div id="diag" class="hint"></div>
-
-    <p class="hint">
-      <button type="button" onclick="reloadPlugin();">Проверить плагин</button>
-      В диагностике должна быть строка <b>сборка страницы: 20261102c</b>. Если её нет — IE держит старый JS: Ctrl+F5 или перезалейте файлы.
-      Сайт в «Надёжные узлы», ActiveX разрешён. IE x86:
-      <code>C:\Program Files (x86)\Internet Explorer\iexplore.exe</code>. AvPass вставьте заранее.
-    </p>
 
     <div id="meta" class="meta" style="display:none;">
       <div>Дело: <b id="claim-id"></b></div>
       <div>ЛС: <b id="account"></b></div>
       <div>Должник: <b id="debtor"></b></div>
-      <div>Пользователь ссылки: <b id="user"></b></div>
+      <div>Сотрудник: <b id="user"></b></div>
     </div>
 
     <div id="plugin-box" class="box" style="display:none;">
-      <label for="cert-select">Сертификат (заполнится после выбора в окне АВЕСТ)</label>
+      <label for="cert-select">Сертификат</label>
       <select id="cert-select"></select>
     </div>
 
@@ -49,7 +41,7 @@
           <tr>
             <th>Документ</th>
             <th>Кто подписывает</th>
-            <th>ЭЦП</th>
+            <th>Подпись</th>
           </tr>
         </thead>
         <tbody></tbody>

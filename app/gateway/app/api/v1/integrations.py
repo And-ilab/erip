@@ -83,7 +83,7 @@ async def pris_status(settings: Settings = Depends(get_settings)):
             "sends": True,
             "ministry": False,
             "tunnel": False,
-            "detail": "Тестовый канал шлюза: HttpPrisClient ходит во встроенный стенд. Контур Минюста не вызывается.",
+            "detail": "Контур Минюста не вызывается.",
         }
     if mode == "http":
         missing = []
@@ -94,7 +94,7 @@ async def pris_status(settings: Settings = Depends(get_settings)):
         route = await probe_pris_route(settings.pris_base_url)
         detail = route["detail"]
         if missing:
-            detail = "Режим http, не задано: " + ", ".join(missing) + ". " + detail
+            detail = "Не заданы учётные данные контура. " + detail
         return {
             "mode": "http",
             "system": "АИС ПРИС",
@@ -111,7 +111,7 @@ async def pris_status(settings: Settings = Depends(get_settings)):
         "sends": False,
         "ministry": False,
         "tunnel": False,
-        "detail": "Заглушка ПРИС: пакет проверяется и не отправляется.",
+        "detail": "Пакет проверяется и не отправляется.",
     }
 
 

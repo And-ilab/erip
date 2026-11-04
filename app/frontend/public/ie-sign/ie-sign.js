@@ -49,9 +49,7 @@
     var base = parts.length ? parts.join(" · ") : String(e);
     if (isProtectedModeError(e)) {
       base +=
-        " (Защищённый режим IE / Low Integrity блокирует доступ AvCryptMail.dll к %APPDATA%\\Avest: " +
-        "в «Надёжные узлы» снимите галочку «Для всех узлов этой зоны требуется проверка серверов (https:)», " +
-        "добавьте http-адрес сервера, отключите «Защищённый режим» и перезапустите IE)";
+        ". Не удалось обратиться к ключу. Повторите подпись.";
     }
     return base;
   }
@@ -225,7 +223,7 @@
         try {
           data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
         } catch (e) {
-          onErr("Ответ сервера не JSON");
+          onErr("Не удалось прочитать ответ");
           return;
         }
         onOk(data);
@@ -246,8 +244,7 @@
       } catch (e2) {}
       if (message === "Ошибка HTTP 400") {
         message =
-          "Ошибка HTTP 400: ссылка подписи истекла или попала на другой процесс сервера. " +
-          "В ПМ нажмите «Подписать и собрать архив» ещё раз.";
+          "Ссылка на подпись устарела. Вернитесь в программу и нажмите «Подписать и собрать архив» ещё раз.";
       }
       onErr(message);
     };
@@ -410,18 +407,17 @@
       return;
     }
     if (typeof avcmx !== "function") {
-      done("Скрипт avcmxwebp.js не загрузился. Обновите страницу Ctrl+F5 в IE.");
+      done("Не удалось подготовить подпись. Обновите страницу.");
       return;
     }
     if (!pluginAlive()) {
       done(
-        "Плагин AvCMXWebP не активен (нет CreateBlob). " +
-          "IE x86, сайт в «Надёжные узлы», ActiveX разрешён, AvPass вставлен."
+        "Подпись недоступна. Вставьте ключ и обновите страницу."
       );
       return;
     }
 
-    setStatus("Чтение сертификата из личного справочника АВЕСТ…");
+    setStatus("Чтение сертификата…");
 
     try {
       var pubSync = readMyCertsSync();
@@ -431,7 +427,7 @@
       }
     } catch (eSync) {
       if (isProtectedModeError(eSync)) {
-        done("Сессия АВЕСТ не открылась: " + errText(eSync));
+        done("Ключ не открылся: " + errText(eSync));
         return;
       }
     }
@@ -450,8 +446,8 @@
 
         try {
           conn.selectCertsDlgAsync(
-            "Выбор сертификата ГосСУОК",
-            "Выберите личный сертификат. AvPass должен быть вставлен.",
+            "Выбор сертификата",
+            "Выберите сертификат. Вставьте ключ.",
             allCertFlags(),
             function (e2, dlgCerts) {
               if (!e2 && dlgCerts) {
@@ -476,7 +472,7 @@
   }
 
   function tryAuthDialog(done, prevErr) {
-    setStatus("Открываю окно АВЕСТ — выберите сертификат и введите пароль AvPass…");
+    setStatus("Выберите сертификат и введите пароль ключа…");
     avcmx().connectionAsync(softFlags(), function (eAuth, connAuth) {
       if (!eAuth && connAuth) {
         try {
@@ -498,7 +494,7 @@
           }
         } catch (eOwn) {}
       }
-      done("Сессия АВЕСТ не открылась: " + errText(prevErr || eAuth));
+      done("Ключ не открылся: " + errText(prevErr || eAuth));
     });
   }
 
@@ -598,7 +594,7 @@
 
     diagnosePlugin();
     signingBusy = true;
-    setStatus("Подготовка: скачивание " + pending.length + " PDF с сервера…");
+    setStatus("Загрузка документов…");
 
     fetchPendingPdfs(pending, function (fetchErr, items) {
       if (fetchErr || !items) {
@@ -608,7 +604,7 @@
         return;
       }
 
-      setStatus("Шаг 1/" + items.length + ": выбор сертификата AvPass…");
+      setStatus("Выбор сертификата…");
       pickCertificate(function (pickErr, pub) {
         if (pickErr || !pub) {
           signingBusy = false;
@@ -616,12 +612,12 @@
           setStatus(pickErr || "Сертификат не выбран.", "err");
           return;
         }
-        setStatus("Авторизация на носителе AvPass (введите пароль в окне АВЕСТ)…", "ok");
+        setStatus("Введите пароль ключа…", "ok");
         openSignConnection(pub, function (connErr, conn) {
           if (connErr || !conn) {
             signingBusy = false;
             setWork("");
-            setStatus(connErr || "Не удалось открыть сессию подписи.", "err");
+            setStatus(connErr || "Не удалось начать подпись.", "err");
             return;
           }
 
@@ -636,7 +632,7 @@
               return;
             }
             if (index >= items.length) {
-              setWork("Сохраняю подписи на сервере…");
+              setWork("Сохраняю подписи…");
               api(
                 "POST",
                 "/api/v1/ie-sign/" + encodeURIComponent(token) + "/sign/",
@@ -725,24 +721,24 @@
   function checkPluginOnly() {
     diagnosePlugin();
     if (typeof avcmx !== "function") {
-      setStatus("Нет avcmxwebp.js. Ctrl+F5 или перезалейте /ie-sign/ на сервер.", "err");
+      setStatus("Не удалось подготовить подпись. Обновите страницу.", "err");
       return;
     }
     if (!pluginAlive()) {
       setStatus(
-        "CreateBlob нет — плагин в странице не активен. IE x86, надёжные узлы, ActiveX, AvPass.",
+        "Подпись недоступна. Вставьте ключ и обновите страницу.",
         "err"
       );
       return;
     }
     preloadCerts(function (err) {
       if (err) {
-        setStatus("Плагин виден, но сессия не открылась: " + errText(err), "err");
+        setStatus("Ключ не открылся: " + errText(err), "err");
         return;
       }
       var pub = selectedPubKeyId();
       setStatus(
-        "Плагин и справочник готовы (сборка " + BUILD + (pub ? ", сертификат найден" : "") + "). Можно подписывать.",
+        "Можно подписывать." + (pub ? " Сертификат найден." : ""),
         "ok"
       );
     });
@@ -783,11 +779,11 @@
     diagnosePlugin();
     preloadCerts(function (err) {
       if (err) {
-        setStatus("Плагин загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
+        setStatus("Ключ не открылся: " + errText(err), "err");
         return;
       }
       if (session && token) startAutoSign();
-      else setStatus("Плагин сообщил onload. Можно подписывать (сборка " + BUILD + ").", "ok");
+      else setStatus("Можно подписывать.", "ok");
     });
   };
 
@@ -800,7 +796,7 @@
     diagnosePlugin();
     preloadCerts();
     if (!token) {
-      setStatus("В ссылке нет ticket. В ПМ нажмите «Подписать и собрать архив».", "err");
+      setStatus("Ссылка на подпись неполная. Вернитесь в программу и нажмите «Подписать и собрать архив».", "err");
       return;
     }
     api(
@@ -816,7 +812,7 @@
           if (pluginAlive()) {
             preloadCerts(function (err) {
               if (err) {
-                setStatus("Комплект загружен, но сессия АВЕСТ не открылась: " + errText(err), "err");
+                setStatus("Ключ не открылся: " + errText(err), "err");
                 return;
               }
               startAutoSign();
@@ -825,14 +821,12 @@
           }
           tries += 1;
           if (tries <= 12) {
-            setStatus("Ожидание инициализации плагина AvCMXWebP (" + tries + "/12)…");
+            setStatus("Подготовка подписи…");
             window.setTimeout(waitForPlugin, 350);
             return;
           }
           setStatus(
-            "Комплект загружен, но CreateBlob нет. Выполните на ПК скрипт app/tools/edge-ie-mode.ps1 и перезапустите Edge (сборка " +
-              BUILD +
-              ").",
+            "Не удалось подписать документы. Вставьте ключ и обновите страницу.",
             "err"
           );
         }
