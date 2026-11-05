@@ -3,7 +3,7 @@ import { ActivatedRoute } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
-import { ApiService, IntegrationRow, PrisCheckResult, PrisPollState, errorMessage } from '../../core/api.service';
+import { ApiService, IntegrationRow, PrisCheckResult, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 
 @Component({
@@ -32,24 +32,9 @@ import { AuthService } from '../../core/auth.service';
         <button mat-stroked-button type="button" (click)="reload()">Обновить статус</button>
       </section>
       @if (isPris() && auth.canManageTemplates()) {
-        <section class="card schedule">
-          <h3>Рабочий обмен</h3>
-          <p class="hint">
-            Вход в программу сам открывает сессию. Ход принятых дел модуль спрашивает по периоду ниже.
-            Новая оплата из АИС «Расчет-ЖКУ» уходит в ПРИС сама. Пустой период опрос не запускает: в регламенте его нет.
-          </p>
-          @if (sessionSummary()) {
-            <p class="detail">{{ sessionSummary() }}</p>
-          }
-          <label class="period">
-            Период автоопроса, минуты
-            <input type="number" min="1" max="1440" [value]="pollMinutes()" (input)="onPollInput($event)" />
-          </label>
-          <button mat-flat-button color="primary" type="button" (click)="savePoll()" [disabled]="!!busy()">Сохранить период</button>
-          @if (pollNote()) {
-            <p class="hint">{{ pollNote() }}</p>
-          }
-        </section>
+        @if (sessionSummary()) {
+          <p class="detail session">{{ sessionSummary() }}</p>
+        }
         <section class="card checks">
           <h3>Проверка по методичке</h3>
           <p class="hint">
@@ -97,9 +82,8 @@ import { AuthService } from '../../core/auth.service';
     .card {
       background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 16px; max-width: 720px;
     }
-    .checks, .schedule { margin-top: 16px; max-width: 880px; }
-    .period { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; max-width: 240px; color: var(--erip-muted); font-size: 13px; }
-    .period input { padding: 8px 10px; border: 1px solid var(--erip-border); border-radius: 8px; font: inherit; color: inherit; }
+    .checks { margin-top: 16px; max-width: 880px; }
+    .session { margin: 12px 0 0; }
     .scenario { margin-top: 18px; }
     .scenario h4 { margin: 0; color: var(--erip-primary-dark); }
     .check { padding: 12px 0 0 12px; border-top: 1px solid var(--erip-border); }
@@ -135,8 +119,6 @@ export class IntegrationStatusComponent implements OnInit {
   protected readonly chain = signal('');
   protected readonly checks = signal<Record<string, PrisCheckResult>>({});
   protected readonly sessionSummary = signal('');
-  protected readonly pollMinutes = signal('');
-  protected readonly pollNote = signal('');
   protected readonly prisScenarios = [
     {
       id: 'entry',
@@ -162,7 +144,7 @@ export class IntegrationStatusComponent implements OnInit {
     {
       id: 'poll',
       title: 'Сценарий «Подача» — автоопрос',
-      hint: 'Кнопки ниже повторяют номера из журнала 3–4 ноября и новое дело не создают. Рабочий опрос карточек — период выше.',
+      hint: 'Кнопки ниже повторяют номера из журнала 3–4 ноября и новое дело не создают. Рабочий опрос карточек — поле «Период, минуты» выше.',
       steps: [
         { id: 'q02', label: 'Q-02 Номер задолженности' },
         { id: 'q03', label: 'Q-03 и P-02 После подачи' },
@@ -214,12 +196,6 @@ export class IntegrationStatusComponent implements OnInit {
     this.play([step], 0);
   }
 
-  private pollText(row: PrisPollState): string {
-    if (row.interval_minutes == null) return 'Автоопрос не идёт: период не задан.';
-    const when = row.last_tick_at ? ` Последний опрос: ${row.last_tick_at}.` : ' Опрос ещё не выполнялся.';
-    return `Период ${row.interval_minutes} мин.${when} ${row.last_summary || ''}`.trim();
-  }
-
   private play(steps: string[], index: number): void {
     if (index >= steps.length) {
       this.busy.set('');
@@ -255,40 +231,12 @@ export class IntegrationStatusComponent implements OnInit {
     });
   }
 
-  protected onPollInput(event: Event): void {
-    const input = event.target as HTMLInputElement | null;
-    this.pollMinutes.set(input?.value ?? '');
-  }
-
-  protected savePoll(): void {
-    const raw = this.pollMinutes().trim();
-    const minutes = raw === '' ? null : Number(raw);
-    if (minutes != null && !Number.isInteger(minutes)) {
-      this.snack.open('Период указывают целым числом минут', 'OK');
-      return;
-    }
-    this.api.savePrisPoll(minutes).subscribe({
-      next: (row) => {
-        this.pollNote.set(this.pollText(row));
-        this.snack.open(row.interval_minutes == null ? 'Автоопрос выключен' : 'Период сохранён', 'OK');
-      },
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
-  }
-
   protected reload(): void {
     const code = this.route.snapshot.data['code'] || this.route.snapshot.paramMap.get('code') || '';
     if (code === 'pris' && this.auth.canManageTemplates()) {
       this.api.openPrisSession().subscribe({
         next: (row) => this.sessionSummary.set(row.summary),
         error: () => this.sessionSummary.set(''),
-      });
-      this.api.prisPoll().subscribe({
-        next: (row) => {
-          this.pollMinutes.set(row.interval_minutes == null ? '' : String(row.interval_minutes));
-          this.pollNote.set(this.pollText(row));
-        },
-        error: () => undefined,
       });
     }
     this.api.integration(code).subscribe({

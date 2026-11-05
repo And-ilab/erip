@@ -527,9 +527,12 @@ def test_poll_tick_refreshes_accepted_case(api, specialist_a, org_a, pris_transp
     assert PrisPoll.load().last_tick_at is not None
 
 
-def test_admin_saves_pris_poll_period(api, admin_a, specialist_a):
-    denied = api(specialist_a).put("/api/v1/integrations/pris/poll/", {"interval_minutes": 15}, format="json")
+def test_admin_saves_pris_poll_period(api, admin_a, specialist_a, observer_a):
+    denied = api(observer_a).put("/api/v1/integrations/pris/poll/", {"interval_minutes": 15}, format="json")
     assert denied.status_code == 403
+    specialist = api(specialist_a).put("/api/v1/integrations/pris/poll/", {"interval_minutes": 20}, format="json")
+    assert specialist.status_code == 200, specialist.content
+    assert specialist.json()["interval_minutes"] == 20
     saved = api(admin_a).put("/api/v1/integrations/pris/poll/", {"interval_minutes": 15}, format="json")
     assert saved.status_code == 200, saved.content
     assert saved.json()["interval_minutes"] == 15

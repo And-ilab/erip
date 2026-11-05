@@ -28,6 +28,20 @@ class PrisSessionPermission(BasePermission):
         return bool(user and user.is_authenticated and user.role in roles)
 
 
+class PrisPollPermission(BasePermission):
+    """Период виден всем, кому виден каталог. Пишут те, кто ведёт обмен."""
+
+    write_roles = ("superadmin", "local_admin", "specialist", "legal")
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return user.role in getattr(view, "read_roles", ())
+        return user.role in self.write_roles
+
+
 class IntegrationViewSet(viewsets.ViewSet):
     """Список и статус каналов. Пишет только администратор схемы на связанных nsi-маршрутах."""
 
@@ -36,8 +50,11 @@ class IntegrationViewSet(viewsets.ViewSet):
     write_roles = ("superadmin", "local_admin")
 
     def get_permissions(self):
-        if getattr(self, "action", None) == "session":
+        action = getattr(self, "action", None)
+        if action == "session":
             return [IsAuthenticated(), PrisSessionPermission()]
+        if action == "poll":
+            return [IsAuthenticated(), PrisPollPermission()]
         return [permission() for permission in self.permission_classes]
 
     def list(self, request):
