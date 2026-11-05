@@ -183,6 +183,9 @@ def _case_extras(case: ClaimCase, tariff: str) -> dict:
 
 def generate_from_form(case: ClaimCase, user, form_id) -> ClaimPackageDocument:
     """PDF из печатной формы. В кабинет БНП не отправляется: это локальная сборка."""
+    from apps.users.scoping import bind_supplier_amounts
+
+    bind_supplier_amounts(case.account, user)
     from apps.nsi.services.form_layout import blocks_of, fill_blocks
     from apps.nsi.services.scenarios import fill_account_text, placeholder_values
 
@@ -532,6 +535,9 @@ def delete_document(case: ClaimCase, doc_id: int) -> None:
 
 
 def form_package(case: ClaimCase, user) -> ClaimPackage:
+    from apps.users.scoping import bind_supplier_amounts
+
+    bind_supplier_amounts(case.account, user)
     package = stored_package(case)
     if package is None:
         raise ClaimBlocked("Сначала сохраните состав пакета")
@@ -870,7 +876,9 @@ def _service_totals(account: Account) -> dict:
     cached = getattr(account, "_bnp_service_totals", None)
     if cached is not None:
         return cached
-    row = account.services.aggregate(
+    from apps.users.scoping import scoped_services
+
+    row = scoped_services(account).aggregate(
         count=Count("pk"),
         principal=Sum("balance_out"),
         penalty=Sum("balance_mulct_out"),

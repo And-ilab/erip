@@ -10,6 +10,7 @@ from apps.core.exceptions import ServiceError
 from apps.debts.models import Attachment, ClaimAct, ClaimApproval, ClaimCase, ClaimEvent, DebtWorkItem
 from apps.notifications.models import Channel, Notification
 from apps.users.models import User
+from apps.users.scoping import bind_supplier_amounts, scoped_services
 
 LAWSUIT_KINDS = {code for code, _label in ClaimCase.LawsuitKind.choices}
 EVICTION = {"notice", "lawsuit", "court", "enforced"}
@@ -593,7 +594,22 @@ def _cached(instance, name, fallback):
     return fallback
 
 
-def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
+def _shown_figures(account):
+    """Суммы, группа и рейтинг карточки дела. У поставщика — только его услуги."""
+    services = list(scoped_services(account))
+    penalty = sum((row.balance_mulct_out or Decimal("0")) for row in services)
+    if getattr(account, "_supplier_provider_ids", None) is None:
+        return account.balance_out, penalty, account.effective_group, account.rating
+    principal = sum((row.balance_out or Decimal("0")) for row in services)
+    groups = [row.effective_group for row in services if row.effective_group]
+    group = max(groups) if groups else None
+    from apps.debts.services.portfolio import rating_letter
+
+    aggravating = bool(account.bankruptcy) or account.registrations.filter(idler_val=True).exists()
+    return principal, penalty, group, rating_letter(group, aggravating)
+
+
+def case_payload(case: ClaimCase, *, with_choices: bool = False, user=None) -> dict:
     acts = [
         {
             "id": act.pk,
@@ -617,9 +633,8 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         for item in _cached(case, "approvals", case.approvals.select_related("approver"))
     ]
     account = case.account
-    penalty = sum(
-        (service.balance_mulct_out or Decimal("0")) for service in account.services.all()
-    )
+    bind_supplier_amounts(account, user)
+    principal, penalty, group, rating = _shown_figures(account)
     specialist = ""
     if account.assigned_to_id:
         specialist = account.assigned_to.display_name
@@ -629,11 +644,11 @@ def case_payload(case: ClaimCase, *, with_choices: bool = False) -> dict:
         "client_account": account.client_account,
         "short_fio": account.short_fio,
         "account_address": account.account_address,
-        "debt_group": account.effective_group,
-        "rating": account.rating,
+        "debt_group": group,
+        "rating": rating,
         "penalty": _money(penalty),
         "specialist": specialist,
-        "balance_out": _money(account.balance_out),
+        "balance_out": _money(principal),
         "stage": case.stage,
         "stage_label": case.get_stage_display(),
         "warning_delivered_on": _date(case.warning_delivered_on),

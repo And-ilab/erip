@@ -105,7 +105,7 @@ class IeSignSubmitView(APIView):
             "ok": True,
             "claim_id": case.pk,
             "session": session_payload(token),
-            "case": case_payload(case, with_choices=False),
+            "case": case_payload(case, with_choices=False, user=user),
         })
 
 

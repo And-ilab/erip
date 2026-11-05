@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from apps.audit.models import AuditLog
 from apps.audit.services import record_action
 from apps.core.permissions import RolePermission
-from apps.users.scoping import AccessScope, ScopedQuerysetMixin
+from apps.users.scoping import AccessScope, ScopedQuerysetMixin, bind_supplier_amounts
 
 from .models import Account, AccountService, Attachment, ClaimCase
 from .services.bnp_package import (
@@ -74,6 +74,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     queryset = ClaimCase.objects.select_related("account")
     scope_organization_field = "organization"
     scope_provider_field = "account__provider_id"
+    scope_supplier_field = "account__services__provider_id"
 
     def list(self, request):
         cases = list(
@@ -95,7 +96,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             )
         )
         return Response({
-            "results": [case_payload(case) for case in cases],
+            "results": [self._shown(case) for case in cases],
             "stages": [{"id": code, "label": label} for code, label in ClaimCase.Stage.choices],
             "assigned": self._assigned([case.account_id for case in cases]),
         })
@@ -105,20 +106,20 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         align_claim_with_funnel(case.account, request.user)
         case.refresh_from_db()
         record_action(request, AuditLog.Action.VIEW, case)
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     def create(self, request):
         account = self._account(request.data.get("account"))
         case = open_case(account, request.user)
         record_action(request, AuditLog.Action.CREATE, case)
-        return Response(case_payload(case, with_choices=True), status=201)
+        return Response(self._shown(case, with_choices=True), status=201)
 
     def partial_update(self, request, pk=None):
         case = self._case(pk)
         data = {key: request.data.get(key) for key in EDITABLE if key in request.data}
         update_case(case, data, request.user)
         record_action(request, AuditLog.Action.UPDATE, case)
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"])
     def move(self, request, pk=None):
@@ -131,31 +132,31 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
                 raise PermissionDenied("Пропуск этапа доступен администратору и специалисту с согласованием")
         case = move_case(case, stage, request.user, str(request.data.get("reason") or ""))
         record_action(request, AuditLog.Action.UPDATE, case, after={"stage": case.stage})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="package")
     def package(self, request, pk=None):
         save_package(self._case(pk), request.data)
         record_action(request, AuditLog.Action.UPDATE, self._case(pk))
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="package/application")
     def package_application(self, request, pk=None):
         generate_application(self._case(pk))
         record_action(request, AuditLog.Action.UPDATE, self._case(pk))
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="package/from-template")
     def package_from_template(self, request, pk=None):
         generate_from_form(self._case(pk), request.user, request.data.get("form"))
         record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"form": request.data.get("form")})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path=r"package/documents/(?P<doc_id>[0-9]+)/text")
     def package_document_text(self, request, pk=None, doc_id=None):
         update_document_text(self._case(pk), int(doc_id), str(request.data.get("body") or ""))
         record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"document": doc_id})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path=r"package/documents/(?P<doc_id>[0-9]+)/layout")
     def package_document_layout(self, request, pk=None, doc_id=None):
@@ -166,13 +167,13 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             service_rows=request.data.get("service_rows") or None,
         )
         record_action(request, AuditLog.Action.UPDATE, self._case(pk), after={"document": doc_id, "layout": True})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="package/form")
     def package_form(self, request, pk=None):
         case = form_package(self._case(pk), request.user)
         record_action(request, AuditLog.Action.UPDATE, case)
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="package/documents")
     def package_documents(self, request, pk=None):
@@ -186,13 +187,13 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             doc_id=int(doc_id) if doc_id else None,
         )
         record_action(request, AuditLog.Action.UPDATE, self._case(pk))
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["delete"], url_path=r"package/documents/(?P<doc_id>[0-9]+)")
     def package_document(self, request, pk=None, doc_id=None):
         delete_document(self._case(pk), int(doc_id))
         record_action(request, AuditLog.Action.UPDATE, self._case(pk))
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["get"], url_path="package/archive")
     def package_archive(self, request, pk=None):
@@ -224,7 +225,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         sign_documents(self._case(pk), request.user, request.data.get("signatures"))
         case = self._case(pk)
         record_action(request, AuditLog.Action.UPDATE, case, after={"signed": "gosuok", "format": "pkcs7-detached"})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="sign-and-send")
     def sign_send(self, request, pk=None):
@@ -234,14 +235,14 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             request, AuditLog.Action.UPDATE, case,
             after={"submission_id": case.submission_id, "mode": "stub"},
         )
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="send-notary")
     def send_notary(self, request, pk=None):
         send_to_notary(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
         case = self._case(pk)
         record_action(request, AuditLog.Action.UPDATE, case, after={"submission_id": case.submission_id, "mode": "stub"})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="notary-result")
     def result(self, request, pk=None):
@@ -250,7 +251,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             str(request.data.get("note") or ""), request.data.get("attachment_id") or None,
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"stage": case.stage})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"])
     def acts(self, request, pk=None):
@@ -266,13 +267,13 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             attachment_id=request.data.get("attachment_id") or None,
         )
         record_action(request, AuditLog.Action.UPDATE, case)
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["delete"], url_path=r"acts/(?P<act_id>[0-9]+)")
     def act_delete(self, request, pk=None, act_id=None):
         case = remove_act(self._case(pk), int(act_id), request.user)
         record_action(request, AuditLog.Action.UPDATE, case, after={"removed_act": act_id})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"])
     def opi(self, request, pk=None):
@@ -289,19 +290,19 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             note=request.data.get("note"),
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": "manual"})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="opi-measures")
     def opi_measures(self, request, pk=None):
         case = add_opi_measure(self._case(pk), request.user, request.data, upload=request.FILES.get("file"))
         record_action(request, AuditLog.Action.UPDATE, case, after={"opi_measure": True})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["delete"], url_path=r"opi-measures/(?P<measure_id>[0-9]+)")
     def opi_measure_delete(self, request, pk=None, measure_id=None):
         case = remove_opi_measure(self._case(pk), int(measure_id), request.user)
         record_action(request, AuditLog.Action.UPDATE, case, after={"removed_opi_measure": measure_id})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=False, methods=["get"], url_path="pris-dictionaries")
     def pris_dictionaries(self, request):
@@ -315,44 +316,44 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
     def pris_autofill(self, request, pk=None):
         case = autofill_pris_draft(self._case(pk))
         record_action(request, AuditLog.Action.UPDATE, case, after={"pris": "autofill"})
-        return Response(case_payload(self._case(pk), with_choices=True))
+        return Response(self._shown(self._case(pk), with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="pris/draft")
     def pris_draft(self, request, pk=None):
         case = save_pris_draft(self._case(pk), request.data)
         record_action(request, AuditLog.Action.UPDATE, case, after={"pris": "draft"})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="pris/submit")
     def pris_submit(self, request, pk=None):
         case = submit_pris(self._case(pk), request.user, request.data)
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": case.opi_mode, "pris": case.pris_response_id})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="pris/refresh")
     def pris_refresh(self, request, pk=None):
         case = refresh_pris(self._case(pk), request.user)
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": case.opi_mode, "opi": case.opi_number})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="pris/repay")
     def pris_repay(self, request, pk=None):
         case = repay_pris(self._case(pk), request.user)
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": case.opi_mode, "pris": case.pris_process_status})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="ais-receipt")
     def ais_receipt(self, request, pk=None):
         case = apply_ais_receipt(self._case(pk), request.user)
         record_action(request, AuditLog.Action.UPDATE, case, after={"mode": "stub"})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"])
     def writeoff(self, request, pk=None):
         ids = request.data.get("approver_ids") or []
         case = start_writeoff(self._case(pk), [int(item) for item in ids], request.user)
         record_action(request, AuditLog.Action.UPDATE, case)
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"])
     def decide(self, request, pk=None):
@@ -360,7 +361,7 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             self._case(pk), request.user, str(request.data.get("decision") or ""), str(request.data.get("reason") or ""),
         )
         record_action(request, AuditLog.Action.UPDATE, case, after={"decision": request.data.get("decision")})
-        return Response(case_payload(case, with_choices=True))
+        return Response(self._shown(case, with_choices=True))
 
     def _assigned(self, held: list[int]) -> list[dict]:
         """ЛС, которым назначена претензионная работа, но дело ещё не открыто."""
@@ -387,18 +388,23 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
             for account in queued
         ]
 
+    def _shown(self, case, *, with_choices: bool = False):
+        return case_payload(case, with_choices=with_choices, user=self.request.user)
+
     def _case(self, pk) -> ClaimCase:
-        return get_object_or_404(
+        case = get_object_or_404(
             self.get_queryset().select_related("account__assigned_to").prefetch_related(
                 "acts__attachment", "approvals__approver", "events__actor", "account__services", "account__attachments",
                 "account__registrations", "package__documents",
             ),
             pk=pk,
         )
+        bind_supplier_amounts(case.account, self.request.user)
+        return case
 
     def _account(self, account_id) -> Account:
         account = AccessScope(self.request.user).apply(
-            Account.objects.all(), "organization", "provider_id",
+            Account.objects.all(), "organization", "provider_id", "services__provider_id",
         ).filter(pk=account_id).first()
         if account is None:
             from rest_framework.exceptions import ValidationError

@@ -237,13 +237,19 @@ def placeholder_values(account, tariff: str = "", warning_date: str = "") -> dic
     from datetime import date
     from decimal import Decimal
 
-    service_rows = list(account.services.all())
+    from apps.users.scoping import scoped_services
+
+    service_rows = list(scoped_services(account))
     names = [row.service_name for row in service_rows if row.service_name][:8]
     penalty = sum((row.balance_mulct_out or Decimal("0")) for row in service_rows)
     out_sum = sum((row.balance_out or Decimal("0")) for row in service_rows)
+    supplier_scope = getattr(account, "_supplier_provider_ids", None) is not None
     # Сальдо ЛС и сумма услуг могут расходиться после выгрузки: в бланк берём большую.
-    account_out = account.balance_out if account.balance_out is not None else Decimal("0")
-    total = max(account_out, out_sum)
+    # У поставщика в бланк попадают только его услуги, сальдо всего счёта не подмешивается.
+    account_out = out_sum if supplier_scope else (
+        account.balance_out if account.balance_out is not None else Decimal("0")
+    )
+    total = account_out if supplier_scope else max(account_out, out_sum)
     if total > 0 and total >= penalty:
         principal = total - penalty
     elif out_sum > 0:
@@ -255,14 +261,17 @@ def placeholder_values(account, tariff: str = "", warning_date: str = "") -> dic
     last = account.payments.exclude(pay_date=None).order_by("-pay_date").values_list("pay_date", flat=True).first()
     started = account.debt_started_on
     op_date = account.operational_date or date.today()
-    periods = list(account.debt_periods.order_by("period").values_list("period", flat=True))
+    period_rows = account.debt_periods.order_by("period")
+    if supplier_scope:
+        period_rows = period_rows.filter(service__provider_id__in=account._supplier_provider_ids)
+    periods = list(period_rows.values_list("period", flat=True))
     period_from = periods[0].strftime("%d.%m.%Y") if periods else (started.strftime("%d.%m.%Y") if started else "—")
     period_to = periods[-1].strftime("%d.%m.%Y") if periods else op_date.strftime("%d.%m.%Y")
     profile = account.organization.pris_claimant or {}
     return {
         "fio": account.short_fio or "—",
         "account": account.client_account,
-        "amount": "" if account.balance_out is None else str(account.balance_out),
+        "amount": str(out_sum) if supplier_scope else ("" if account.balance_out is None else str(account.balance_out)),
         "principal": "" if principal is None else str(principal),
         "total": "" if total is None else str(total),
         "penalty": str(penalty),

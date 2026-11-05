@@ -528,7 +528,7 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         data = dict(request.data)
         data.setdefault("enforce_remarks_12", True)
         case = create_writ(account, request.user, data)
-        return Response(case_payload(case), status=status.HTTP_201_CREATED)
+        return Response(case_payload(case, user=request.user), status=status.HTTP_201_CREATED)
 
     @action(detail=True)
     def scenario(self, request, pk=None):

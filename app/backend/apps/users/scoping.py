@@ -46,11 +46,38 @@ class AccessScope:
         return qs
 
 
+def bind_supplier_amounts(account, user) -> None:
+    """Помечает счёт контуром поставщика: суммы дела и пакета берутся по его услугам.
+
+    Начисляющая организация метку не получает и видит все услуги счёта.
+    Пустой список организаций поставщика не раскрывает чужие суммы.
+    """
+    if user is None or getattr(user, "contour", "") != "supplier":
+        return
+    if hasattr(account, "_supplier_provider_ids"):
+        return
+    account._supplier_provider_ids = AccessScope(user).provider_ids() or [-1]
+
+
+def scoped_services(account):
+    """Услуги счёта. Для помеченного поставщика — только его provider_id.
+
+    У начисляющей организации остаётся уже загруженный список услуг.
+    У поставщика запрос идёт заново: предзагрузка карточки может не содержать
+    сальдо и группу, и фильтр по ней обрезал бы поля.
+    """
+    providers = getattr(account, "_supplier_provider_ids", None)
+    if providers is None:
+        return account.services.all()
+    return account.services.filter(provider_id__in=providers)
+
+
 class ScopedQuerysetMixin:
     """Миксин ViewSet: фильтрует queryset по контуру пользователя, в т.ч. для retrieve по id.
 
     scope_organization_field — путь к FK схемы (например, "organization" или "account__organization");
     scope_provider_field — путь к PROVIDER_ID обслуживающей организации (необязательно).
+    scope_supplier_field — путь к поставщику услуги, если у пользователя контур поставщика.
     """
 
     scope_organization_field: str | None = "organization"

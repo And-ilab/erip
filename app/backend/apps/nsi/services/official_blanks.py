@@ -206,7 +206,7 @@ def context_for_account(account, tariff: str = "", warning_date: str = "") -> di
         "total": money_text(total),
         "services": _clean(raw.get("services")),
         "due_days": _clean(raw.get("due_days")),
-        "months_debt": "" if account.months_debt is None else str(account.months_debt),
+        "months_debt": _own_months(account),
         "as_of": _date(account.operational_date) or _date(date.today()),
         "due_date": _date(account.warning_due),
         "area": measure_text(account.acc_total_space),
@@ -223,7 +223,7 @@ def context_for_account(account, tariff: str = "", warning_date: str = "") -> di
         "bik": bik,
         "bank_account": bank_account,
         "warning_date": _date(warning_date) or _clean(raw.get("warning_date")),
-        "debt_started": _date(account.debt_started_on),
+        "debt_started": _date(_own_started(account)),
         "total_sentence": "",
         "period_from": "",
         "period_to": "",
@@ -1296,9 +1296,37 @@ def _merge_service_rows(current: list, posted) -> list:
     ]
 
 
+def _own_months(account) -> str:
+    if getattr(account, "_supplier_provider_ids", None) is None:
+        return "" if account.months_debt is None else str(account.months_debt)
+    months = [row.debt_period for row in _own_services(account) if row.debt_period]
+    return str(max(months)) if months else ""
+
+
+def _own_started(account):
+    if getattr(account, "_supplier_provider_ids", None) is None:
+        return account.debt_started_on
+    started = [row.debt_started_on for row in _own_services(account) if row.debt_started_on]
+    return min(started) if started else None
+
+
+def _own_services(account):
+    from apps.users.scoping import scoped_services
+
+    return scoped_services(account)
+
+
+def _own_periods(account):
+    periods = account.debt_periods.all()
+    providers = getattr(account, "_supplier_provider_ids", None)
+    if providers is not None:
+        periods = periods.filter(service__provider_id__in=providers)
+    return periods
+
+
 def _service_lines(account) -> list[dict]:
     rows = []
-    for service in account.services.all():
+    for service in _own_services(account):
         penalty = service.balance_mulct_out or Decimal("0")
         outgoing = service.balance_out or Decimal("0")
         rows.append({
@@ -1310,7 +1338,7 @@ def _service_lines(account) -> list[dict]:
 
 
 def _debt_span(account) -> tuple[str, str]:
-    periods = list(account.debt_periods.order_by("period").values_list("period", flat=True))
+    periods = list(_own_periods(account).order_by("period").values_list("period", flat=True))
     if periods:
         return _date(periods[0]), _date(periods[-1])
     return _date(account.debt_started_on), _date(account.operational_date)
@@ -1338,7 +1366,7 @@ def _organization_bits(account) -> tuple[str, str, str, str, str, str]:
 
 def _period_groups(account) -> list[dict]:
     rows = list(
-        account.debt_periods.select_related("service").order_by("period", "service__sort_code", "service__service_name")
+        _own_periods(account).select_related("service").order_by("period", "service__sort_code", "service__service_name")
     )
     if rows:
         grouped: dict = {}
@@ -1373,7 +1401,7 @@ def _period_groups(account) -> list[dict]:
     lines = []
     principal_sum = Decimal("0")
     penalty_sum = Decimal("0")
-    for service in account.services.all():
+    for service in _own_services(account):
         if service.balance_out is None and service.balance_mulct_out is None:
             continue
         penalty = service.balance_mulct_out or Decimal("0")
@@ -1423,7 +1451,7 @@ def _residents(account) -> list[dict]:
 def _tko_amount(account) -> str:
     total = Decimal("0")
     found = False
-    for service in account.services.all():
+    for service in _own_services(account):
         name = (service.service_name or "").lower()
         if "отход" not in name and "тко" not in name:
             continue

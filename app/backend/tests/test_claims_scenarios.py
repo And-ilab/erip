@@ -1,17 +1,21 @@
 """Показательный контур ТЗ 4.2.4 и 4.2.5: дело взыскания и конструктор сценария."""
 
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 
-from apps.debts.models import AccountScenarioRun, Attachment, ClaimCase, ClaimEvent, DebtWorkItem, Measure
+from apps.debts.models import (
+    AccountScenarioRun, AccountService, Attachment, ClaimCase, ClaimEvent, ClaimPackage, DebtWorkItem, Measure,
+)
 from apps.debts.services.eds import sample_detached_pkcs7
 from apps.notifications.models import MessageTemplate
 from apps.nsi.services.scenario_engine import step_template_name
+from apps.users.models import ServiceOrganization, User
 
-from .conftest import make_account
+from .conftest import make_account, make_user
 
 
 def _formed_package(api, user, account, case_id):
@@ -172,6 +176,95 @@ def test_other_schema_does_not_see_claim(api, specialist_a, specialist_b, accoun
     case_id = _ready(api, specialist_a, account_a)
     hidden = api(specialist_b).get(f"/api/v1/claims/{case_id}/")
     assert hidden.status_code == 404
+
+
+def _supplier_user(org, provider_id, username):
+    organization = ServiceOrganization.objects.create(
+        organization=org, provider_id=provider_id, short_name=username, is_supplier=True,
+    )
+    user = make_user(username, User.Role.SPECIALIST, org, contour=User.Contour.SUPPLIER)
+    user.service_organizations.add(organization)
+    return user
+
+
+@pytest.mark.django_db
+def test_supplier_opens_claim_for_his_services(api, specialist_a, org_a, account_a):
+    water = AccountService.objects.create(
+        organization=org_a, account=account_a, service_list_id=2, service_id=11,
+        service_name="Вода", provider_id=900, balance_out=Decimal("40"),
+        balance_mulct_out=Decimal("4"), debt_group=3,
+    )
+    gas = account_a.services.exclude(pk=water.pk).get()
+    gas.provider_id = 800
+    gas.balance_out = Decimal("100")
+    gas.balance_mulct_out = Decimal("10")
+    gas.debt_group = 5
+    gas.save()
+    water_user = _supplier_user(org_a, 900, "claim_water")
+    gas_user = _supplier_user(org_a, 800, "claim_gas")
+    stranger = _supplier_user(org_a, 777, "claim_stranger")
+    empty = make_user("claim_empty", User.Role.SPECIALIST, org_a, contour=User.Contour.SUPPLIER)
+    case_id = _ready(api, specialist_a, account_a)
+
+    opened = api(water_user).get(f"/api/v1/claims/{case_id}/")
+    assert opened.status_code == 200, opened.content
+    body = opened.json()
+    assert Decimal(body["balance_out"]) == Decimal("40")
+    assert Decimal(body["penalty"]) == Decimal("4")
+    assert body["debt_group"] == 3
+    assert body["rating"] == "B"
+    assert body["package"]["debts"][0]["amount"] == "40.00"
+
+    gas_card = api(gas_user).get(f"/api/v1/claims/{case_id}/").json()
+    assert Decimal(gas_card["balance_out"]) == Decimal("100")
+    assert gas_card["debt_group"] == 5
+    assert gas_card["package"]["debts"][0]["amount"] == "100.00"
+
+    billing = api(specialist_a).get(f"/api/v1/claims/{case_id}/").json()
+    assert Decimal(billing["balance_out"]) == Decimal("150.00")
+    assert Decimal(billing["penalty"]) == Decimal("14")
+    assert billing["package"]["debts"][0]["amount"] == "140.00"
+
+    assert api(stranger).get(f"/api/v1/claims/{case_id}/").status_code == 404
+    assert api(empty).get(f"/api/v1/claims/{case_id}/").status_code == 404
+    listed = {row["id"] for row in api(water_user).get("/api/v1/claims/").json()["results"]}
+    assert case_id in listed
+    hidden = {row["id"] for row in api(stranger).get("/api/v1/claims/").json()["results"]}
+    assert case_id not in hidden
+
+    saved = api(water_user).post(
+        f"/api/v1/claims/{case_id}/package/",
+        {
+            "service_id": 572,
+            "contact_data": "+375291112233",
+            "notification_email": "ivan@example.com",
+            "user_message": "Прошу совершить исполнительную надпись",
+            "debtors": [{
+                "personType": "natural",
+                "personalId": "3230587H066PB5",
+                "secondName": "Иванов",
+                "firstName": "Иван",
+                "middleName": "Иванович",
+            }],
+            "debts": [{"source": "balance", "typeId": "dolg_9_3", "dateAt": "2026-03-01"}],
+        },
+        format="json",
+    )
+    assert saved.status_code == 200, saved.content
+    assert saved.json()["package"]["debts"][0]["amount"] == "40.00"
+    assert ClaimPackage.objects.get(case_id=case_id).debts[0]["amount"] == "40.00"
+
+    fresh = make_account(org_a, 4401, debt_group=1)
+    AccountService.objects.create(
+        organization=org_a, account=fresh, service_list_id=3, service_id=12,
+        service_name="Вода", provider_id=900, balance_out=Decimal("15"), debt_group=3,
+    )
+    created = api(water_user).post("/api/v1/claims/", {"account": fresh.id}, format="json")
+    assert created.status_code == 201, created.content
+    assert Decimal(created.json()["balance_out"]) == Decimal("15")
+    denied = api(stranger).post("/api/v1/claims/", {"account": fresh.id}, format="json")
+    assert denied.status_code == 400
+    assert "не найден" in denied.content.decode()
 
 
 @pytest.mark.django_db
