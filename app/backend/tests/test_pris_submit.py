@@ -216,7 +216,7 @@ def test_repay_uses_payment_date_and_amount(api, specialist_a, org_a, pris_trans
     assert "не отправлено" in case.pris_process_message
 
 
-def test_submit_rejects_local_bnp_mark_and_plain_pdf(api, specialist_a, org_a, pris_transport):
+def test_submit_rejects_local_bnp_mark(api, specialist_a, org_a, pris_transport):
     case, pdf, _signature = _ready_case(org_a)
     marked = Attachment.objects.create(
         organization=org_a, account=case.account, doc_type="отметка", original_name="writ.pdf.p7s",
@@ -227,15 +227,6 @@ def test_submit_rejects_local_bnp_mark_and_plain_pdf(api, specialist_a, org_a, p
     )
     assert response.status_code == 400
     assert "БНП" in response.json()["error"]["message"]
-    plain = Attachment.objects.create(
-        organization=org_a, account=case.account, doc_type="pdf", original_name="copy.pdf",
-        file=ContentFile(b"%PDF-1.4", name="copy.pdf"),
-    )
-    response = api(specialist_a).post(
-        f"/api/v1/claims/{case.pk}/pris/submit/", _body(pdf.pk, plain.pk), format="json",
-    )
-    assert response.status_code == 400
-    assert ".p7s" in response.json()["error"]["message"]
     assert pris_transport.calls == []
 
 
@@ -585,6 +576,22 @@ def test_poll_does_not_ask_a_debt_placed_today(api, specialist_a, org_a, pris_tr
     assert result["ran"] is True
     assert result["summary"].startswith("Ход: 0, на следующий день: 1")
     assert not any(str(item[0]).endswith("claimant-info-by-debt") for item in pris_transport.calls)
+
+
+def test_pdf_in_signature_slot_does_not_block_and_unp_is_saved(api, specialist_a, org_a, pris_transport):
+    case, pdf, _signature = _ready_case(org_a)
+    org_a.unp = ""
+    org_a.save(update_fields=["unp"])
+    body = _body(pdf.pk, pdf.pk)
+    body["claimant"] = {"unp": "123456789"}
+    response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/submit/", body, format="json")
+    assert response.status_code == 200, response.content
+    files = pris_transport.calls[0][1]["package"][0]["documents"][0]["p_files"][0]
+    assert files["file_ecp"] == ""
+    assert files["file_body"]
+    org_a.refresh_from_db()
+    assert org_a.unp == "123456789"
+    assert pris_transport.calls[0][1]["package"][0]["claimant"]["p_c_reg_num"] == "123456789"
 
 
 def test_submit_without_signature_sends_pdf_only(api, specialist_a, org_a, pris_transport):

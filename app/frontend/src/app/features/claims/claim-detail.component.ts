@@ -503,7 +503,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 }
                 <details open>
                   <summary>Электронный обмен с АИС ПРИС (ОАИС 3.11.01–3.11.05)</summary>
-                  <p class="hint">Коды справочников выбираются из списка. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно.</p>
+                  <p class="hint">Коды справочников выбираются из списка. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно. «УНП взыскателя» — УНП организации, от имени которой уходит пакет, общий для схемы. «УНП получателя» — УНП банка.</p>
                   @if (row.pris?.problems?.length) {
                     <p class="need">Не заполнено для отправки в ПРИС: {{ row.pris?.problems?.join('; ') }}</p>
                   } @else if (row.pris?.ready) {
@@ -600,6 +600,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                       </mat-form-field>
                     }
                     <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF</button>
+                    <mat-form-field [class.need]="!prisOrgUnp.trim()"><mat-label>УНП взыскателя *</mat-label><input matInput [(ngModel)]="prisOrgUnp" maxlength="9" /></mat-form-field>
                     <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
                     <mat-form-field [class.need]="!prisCountry.trim()"><mat-label>Страна адреса, справочник 306 *</mat-label>
                       <input matInput [(ngModel)]="prisCountry" [matAutocomplete]="autoCountry" />
@@ -931,6 +932,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected prisClaimCorp = '';
   protected prisClaimFlat = '';
   protected prisClaimIndex = '';
+  protected prisOrgUnp = '';
   protected prisBankUnp = '';
   protected prisCurr = '933';
   protected prisBudget = '';
@@ -1824,6 +1826,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
         corp: this.prisClaimCorp,
         flat: this.prisClaimFlat,
         post_index: this.prisClaimIndex,
+        unp: this.prisOrgUnp,
         bank_unp: this.prisBankUnp,
         bank_code: this.prisBank,
         acc_num: this.prisAccount,
@@ -2048,6 +2051,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.prisClaimCorp = String(claimant['corp'] || '');
     this.prisClaimFlat = String(claimant['flat'] || '');
     this.prisClaimIndex = String(claimant['post_index'] || '');
+    this.prisOrgUnp = String(claimant['unp'] || '');
     this.prisBankUnp = String(claimant['bank_unp'] || '');
     this.prisCurr = String(claimant['curr_code'] || '933');
     this.prisBudget = String(claimant['budget_code'] || '');

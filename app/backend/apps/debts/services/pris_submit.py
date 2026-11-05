@@ -71,7 +71,7 @@ def pris_card(case: ClaimCase) -> dict:
         "process_status": case.pris_process_status,
         "process_message": case.pris_process_message,
         "request": case.pris_request or {},
-        "claimant": case.organization.pris_claimant or {},
+        "claimant": _claimant_form(case),
         "inquiry": case.pris_inquiry or {},
         "exchanges": _exchanges(case),
     }
@@ -179,7 +179,9 @@ def save_pris_draft(case: ClaimCase, data: dict) -> ClaimCase:
             if key in claimant:
                 stored[key] = _clean(claimant.get(key))
         case.organization.pris_claimant = stored
-        case.organization.save(update_fields=["pris_claimant", "updated_at"])
+        if "unp" in claimant:
+            case.organization.unp = _text(claimant.get("unp"))[:9]
+        case.organization.save(update_fields=["pris_claimant", "unp", "updated_at"])
     case.save(update_fields=["pris_request", "updated_at"])
     return case
 
@@ -527,7 +529,7 @@ def _problems(case: ClaimCase) -> list[str]:
     pair = _pair(case)
     if pair is None:
         problems.append("нет PDF исполнительного документа")
-    elif pair[2]:
+    elif _is_signature(pair[2]):
         problems += _signature_problems(pair[2], pair[3])
     debtor, debtor_problems = _debtor(case)
     problems += debtor_problems
@@ -813,6 +815,16 @@ def _sum_row(amount: Decimal) -> dict:
     return {"p_price": text, "p_curr_code": "933", "p_rest_sum": text}
 
 
+def _is_signature(name: str) -> bool:
+    return bool(name) and name.lower().endswith(_SIGN_EXT)
+
+
+def _claimant_form(case: ClaimCase) -> dict:
+    profile = dict(case.organization.pris_claimant or {})
+    profile["unp"] = case.organization.unp
+    return profile
+
+
 def _attachment(case: ClaimCase, raw) -> Attachment | None:
     text = _text(raw)
     if not text or not text.isdigit() or text == "0":
@@ -827,18 +839,17 @@ def _pair(case: ClaimCase):
     request = case.pris_request or {}
     pdf = _attachment(case, request.get("pdf_id"))
     signature = _attachment(case, request.get("signature_id"))
-    if pdf is not None and signature is not None:
-        return pdf.original_name, pdf.file, signature.original_name, signature.file
+    sign_name = signature.original_name if signature is not None and _is_signature(signature.original_name) else ""
+    sign_field = signature.file if sign_name else None
+    if pdf is not None:
+        return pdf.original_name, pdf.file, sign_name, sign_field
     document = (
         ClaimPackageDocument.objects.filter(package__case=case).exclude(pdf="").order_by("-id").first()
     )
-    if pdf is None and document is not None and document.pdf:
-        if document.signature:
-            return document.file_name, document.pdf, document.signature_name, document.signature
-        return document.file_name, document.pdf, "", None
-    if pdf is not None:
-        return pdf.original_name, pdf.file, "", None
-    return None
+    if document is None or not document.pdf:
+        return None
+    doc_sign = document.signature_name if document.signature and _is_signature(document.signature_name) else ""
+    return document.file_name, document.pdf, doc_sign, document.signature if doc_sign else None
 
 
 def _registration(case: ClaimCase) -> Registration | None:
