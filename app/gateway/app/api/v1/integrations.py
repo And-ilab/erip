@@ -125,6 +125,12 @@ class PrisCheckIn(BaseModel):
     step: str = Field(min_length=1, max_length=16)
 
 
+@router.post("/pris/session", summary="ПРИС: вход модуля — сессия, служебные сервисы и справочники")
+@api_response
+async def pris_session(client: PrisClient = Depends(get_pris_client)):
+    return await client.open_entry()
+
+
 @router.post("/pris/checks", summary="ПРИС: сверка служебного ответа с прогоном 03–04.11.2026")
 @api_response
 async def pris_checks(

@@ -181,16 +181,52 @@ class GatewayCallError(Exception):
         self.detail = detail
 
 
-def pris_check(step: str) -> dict[str, Any]:
-    """Проверочный запрос ПРИС. Тело — сверка, без ключа и токена."""
-    url = settings.GATEWAY_URL.rstrip("/") + "/gw/v1/integrations/pris/checks"
+def pris_session() -> dict[str, Any]:
+    """Вход модуля: Authorizate и служебные сервисы. Повтор того же токена контур не вызывает."""
+    return _gateway_post("/gw/v1/integrations/pris/session", {}, timeout=150.0)
+
+
+def pris_poll_state() -> dict[str, Any]:
+    from apps.nsi.models import PrisPoll
+
+    return _poll_payload(PrisPoll.load())
+
+
+def save_pris_poll(raw) -> dict[str, Any]:
+    from apps.nsi.models import PrisPoll
+
+    if raw in (None, ""):
+        minutes = None
+    else:
+        try:
+            minutes = int(raw)
+        except (TypeError, ValueError):
+            raise ValueError("Период указывают целым числом минут") from None
+        if minutes < 1 or minutes > 1440:
+            raise ValueError("Период от 1 до 1440 минут")
+    row = PrisPoll.load()
+    row.interval_minutes = minutes
+    row.save(update_fields=["interval_minutes", "updated_at"])
+    return _poll_payload(row)
+
+
+def _poll_payload(row) -> dict[str, Any]:
+    return {
+        "interval_minutes": row.interval_minutes,
+        "last_tick_at": row.last_tick_at.isoformat() if row.last_tick_at else None,
+        "last_summary": row.last_summary,
+    }
+
+
+def _gateway_post(path: str, payload: dict, *, timeout: float) -> dict[str, Any]:
+    url = settings.GATEWAY_URL.rstrip("/") + path
     headers = {REQUEST_ID_HEADER: get_request_id(), "X-Internal-Token": settings.INTERNAL_TOKEN}
     try:
-        response = httpx.post(url, json={"step": step}, headers=headers, timeout=120.0)
+        response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
     except httpx.HTTPError as exc:
         raise GatewayCallError(502, "Шлюз недоступен") from exc
     if response.status_code >= 400:
-        message = "Шлюз не выполнил проверочный запрос"
+        message = "Шлюз не выполнил запрос"
         try:
             body = response.json()
         except ValueError:
@@ -207,3 +243,13 @@ def pris_check(step: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise GatewayCallError(502, "Шлюз вернул неожиданный ответ")
     return data
+
+
+def pris_check(step: str) -> dict[str, Any]:
+    """Проверочный запрос ПРИС. Тело — сверка, без ключа и токена."""
+    try:
+        return _gateway_post("/gw/v1/integrations/pris/checks", {"step": step}, timeout=120.0)
+    except GatewayCallError as exc:
+        if exc.detail == "Шлюз не выполнил запрос":
+            raise GatewayCallError(exc.status, "Шлюз не выполнил проверочный запрос") from exc
+        raise

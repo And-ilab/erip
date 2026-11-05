@@ -546,3 +546,64 @@ async def test_http_pris_authorize_rejected():
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(PrisError, match="не найден"):
             await HttpPrisClient(Settings(pris_base_url="http://pris.test"), http).token()
+
+
+def test_pris_session_stub_does_not_call_ministry(client):
+    import json
+
+    from app.api.v1.integrations import get_pris_client
+
+    get_pris_client.cache_clear()
+    response = client.post("/gw/v1/integrations/pris/session")
+    assert response.status_code == 200, response.json()
+    data = response.json()["data"]
+    assert data["ministry"] is False
+    assert data["opened"] is False
+    assert "не выполнялся" in data["summary"]
+    assert "token" not in json.dumps(data)
+
+
+async def test_http_pris_entry_runs_once_per_token():
+    import json
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        seen.append(path)
+        if path.endswith("/authorizate"):
+            return httpx.Response(200, json={
+                "message": "Добро пожаловать!",
+                "x-token": "secret-token-value",
+                "x-timestamp": "05.11.2026 10:00:00",
+            })
+        if path.endswith("/GetNSIData"):
+            return httpx.Response(200, json=[{
+                "type": "120",
+                "type_name": "ОПИ",
+                "content": {"code": "1", "data": []},
+            }])
+        return httpx.Response(200, json={"result": {
+            "/GetIP": "10.198.128.209",
+            "/Echo": "Echo: Hello user!",
+            "/Version": "1.2.9735.20103",
+            "/getstat": "ok",
+        }.get(path[path.rfind("/"):], "ok")})
+
+    settings = Settings(
+        pris_mode="http", pris_base_url="http://pris.test",
+        pris_user_id="807000268", pris_access_key="access-key",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = HttpPrisClient(settings, http)
+        first = await client.open_entry()
+        second = await client.open_entry()
+    assert first["opened"] is True
+    assert first["repeated"] is False
+    assert first["ip"] == "10.198.128.209"
+    assert first["nsi_ok"] is True
+    assert second["repeated"] is True
+    assert seen.count("/core/service/GetIP") == 1
+    dumped = json.dumps(first, ensure_ascii=False) + json.dumps(second, ensure_ascii=False)
+    assert "secret-token-value" not in dumped
+    assert "access-key" not in dumped

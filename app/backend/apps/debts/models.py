@@ -1093,6 +1093,35 @@ class PrisExchange(TimeStampedModel):
         verbose_name_plural = "Обмен с ПРИС"
 
 
+class PrisRepayment(TimeStampedModel):
+    """Оплата, которую контур уже принял по этому делу. Повторно не отправляется."""
+
+    case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="pris_repayments", verbose_name="Дело")
+    payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name="pris_repayments", verbose_name="Оплата")
+    amount = models.DecimalField("Сумма", max_digits=20, decimal_places=2)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["case", "payment"], name="uniq_pris_repayment"),
+        ]
+        verbose_name = "Погашение, принятое ПРИС"
+        verbose_name_plural = "Погашения, принятые ПРИС"
+
+
+class PrisRepayQueue(TimeStampedModel):
+    """Оплата из новой выгрузки, которую ещё нужно передать в ПРИС по делу."""
+
+    case = models.ForeignKey(ClaimCase, on_delete=models.CASCADE, related_name="pris_repay_queue", verbose_name="Дело")
+    payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name="pris_repay_queue", verbose_name="Оплата")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["case", "payment"], name="uniq_pris_repay_queue"),
+        ]
+        verbose_name = "Очередь погашения ПРИС"
+        verbose_name_plural = "Очередь погашения ПРИС"
+
+
 class ClaimEvent(TimeStampedModel):
     """Переход дела: кто, когда, откуда, куда, почему."""
 

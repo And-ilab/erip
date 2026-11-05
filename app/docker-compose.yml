@@ -44,9 +44,24 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # Читает период с экрана «АИС ПРИС» и обновляет ход принятых дел. Пустой период контур не вызывает.
+  pris-poll:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      backend:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    command: ["pris-poll"]
+    restart: unless-stopped
+
   gateway:
     build: ./gateway
     env_file: .env
+    # ПРИС ходит по маршруту хоста. itVPN поднимает заказчик на сервере:
+    # после NAT Docker адрес контура уходит в туннель. network_mode: host
+    # не включать — шлюз резолвит postgres, redis и backend по имени сервиса.
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,18 +77,30 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Один раз качает срез карты в том. Повторный старт и очистка кэша сборки загрузку не повторяют.
+  tiles:
+    build:
+      context: ./nginx
+    volumes:
+      - pmtiles:/maps
+    restart: "no"
+
   # Собранный Angular и прокси: /api/ и /admin/ -> Django, /gw/ -> шлюз, /media/ -> том вложений.
+  # Подложка — том pmtiles, не слой образа.
   nginx:
     build:
       context: .
       dockerfile: frontend/Dockerfile
     depends_on:
+      tiles:
+        condition: service_completed_successfully
       backend:
         condition: service_healthy
       gateway:
         condition: service_healthy
     volumes:
       - media:/var/media:ro
+      - pmtiles:/usr/share/nginx/html/maps:ro
     ports:
       - "8080:80"
     restart: unless-stopped
@@ -81,3 +108,4 @@ services:
 volumes:
   pgdata:
   media:
+  pmtiles:

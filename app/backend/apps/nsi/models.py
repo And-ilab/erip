@@ -393,6 +393,25 @@ class BnpDocType(TimeStampedModel, SoftDeleteModel):
         return self.name
 
 
+class PrisPoll(TimeStampedModel):
+    """Период автоопроса АИС ПРИС. Пустое значение опрос не запускает: срок в регламенте не задан."""
+
+    interval_minutes = models.PositiveSmallIntegerField(
+        "Период автоопроса, минуты", null=True, blank=True,
+    )
+    last_tick_at = models.DateTimeField("Последний опрос", null=True, blank=True)
+    last_summary = models.CharField("Итог последнего опроса", max_length=500, blank=True)
+
+    class Meta:
+        verbose_name = "Автоопрос АИС ПРИС"
+        verbose_name_plural = "Автоопрос АИС ПРИС"
+
+    @classmethod
+    def load(cls) -> "PrisPoll":
+        row, _created = cls.objects.get_or_create(pk=1)
+        return row
+
+
 class ExtraMeasureCatalog(TimeStampedModel, SoftDeleteModel):
     """Справочник дополнительных мероприятий. Ведёт локальный администратор."""
 

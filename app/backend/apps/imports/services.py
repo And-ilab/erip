@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 MAX_STORED_ERRORS = 1000
 WRITE_BATCH = 500
+_REPAY_FIELDS = {"pay_date", "pay_service_summ", "pay_mulct_summ", "pp_num"}
 
 
 class RowRejected(Exception):
@@ -46,6 +47,7 @@ class AisImporter:
         self.organization = organization
         self.user = user
         self._accounts: dict[int, Account] = {}
+        self._payment_ids: set[int] = set()
         self._max_lengths = {
             f.name: f.max_length for f in self.map.model._meta.fields if isinstance(f, models.CharField)
         }
@@ -245,6 +247,8 @@ class AisImporter:
                         if instance.pk:
                             to_update[instance.pk] = instance
                             update_fields.update(changed)
+                            if self.map.entity == "payment" and _REPAY_FIELDS.intersection(changed):
+                                self._payment_ids.add(instance.pk)
                 if self.map.parent:
                     touched.add(lookup["account"].pk)
             if to_create:
@@ -253,6 +257,8 @@ class AisImporter:
                 model.objects.bulk_update(
                     list(to_update.values()), [*update_fields, "import_job", "updated_at"], batch_size=WRITE_BATCH,
                 )
+            if self.map.entity == "payment":
+                self._payment_ids.update(row.pk for row in to_create if row.pk)
         if not self.map.parent:
             for instance in to_create:
                 touched.add(instance.pk)
@@ -282,6 +288,13 @@ class AisImporter:
     # ------------------------------------------------------------------ после импорта
 
     def _after_import(self, account_pks: set[int]) -> None:
+        if self.map.entity == "payment" and self._payment_ids:
+            try:
+                from apps.debts.services.pris_live import report_imported_payments
+
+                report_imported_payments(list(self._payment_ids))
+            except Exception:
+                logger.exception("Погашение ПРИС после импорта оплат не поставлено в очередь")
         if not account_pks:
             return
         pks = list(account_pks)

@@ -890,6 +890,18 @@ export class ApiService {
     return this.http.post<PrisCheckResult>(`${this.base}/integrations/pris/checks/`, { step });
   }
 
+  openPrisSession(): Observable<PrisSession> {
+    return this.http.post<PrisSession>(`${this.base}/integrations/pris/session/`, {});
+  }
+
+  prisPoll(): Observable<PrisPollState> {
+    return this.http.get<PrisPollState>(`${this.base}/integrations/pris/poll/`);
+  }
+
+  savePrisPoll(intervalMinutes: number | null): Observable<PrisPollState> {
+    return this.http.put<PrisPollState>(`${this.base}/integrations/pris/poll/`, { interval_minutes: intervalMinutes });
+  }
+
   scenarioMail(): Observable<{
     mail_from: string;
     mail_from_name: string;
@@ -1496,6 +1508,23 @@ export interface IntegrationRow {
   settings: 'mail' | 'calling' | 'none' | string;
   stub_detail: string;
   status: IntegrationStatus;
+}
+
+export interface PrisSession {
+  mode: string;
+  opened: boolean;
+  ministry: boolean;
+  repeated: boolean;
+  summary: string;
+  ip?: string;
+  version?: string;
+  nsi_ok?: boolean;
+}
+
+export interface PrisPollState {
+  interval_minutes: number | null;
+  last_tick_at: string | null;
+  last_summary: string;
 }
 
 export interface PrisCheckResult {

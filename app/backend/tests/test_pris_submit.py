@@ -7,11 +7,22 @@ import pytest
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from apps.debts.models import Attachment, ClaimCase, Payment, PrisExchange, Registration, Territory
+from apps.debts.models import (
+    Attachment,
+    ClaimCase,
+    Payment,
+    PrisExchange,
+    PrisRepayment,
+    PrisRepayQueue,
+    Registration,
+    Territory,
+)
 from apps.debts.services.eds import sample_detached_pkcs7
 from apps.debts.services.pris_gateway import RecordingPrisTransport, set_pris_transport
+from apps.debts.services.pris_live import enqueue_repayments, report_imported_payments, tick_pris_poll
 from apps.debts.services.pris_nsi import clear_pris_dictionary_cache
 from apps.debts.services.pris_submit import refresh_open_proceedings
+from apps.nsi.models import PrisPoll
 from apps.users.models import Organization
 
 from .conftest import make_account
@@ -185,12 +196,14 @@ def test_channel_keeps_its_proceeding_off_the_regulation_sample(api, specialist_
 def test_repay_uses_payment_date_and_amount(api, specialist_a, org_a, pris_transport):
     case, _pdf, _signature = _ready_case(org_a)
     case.pris_cl_num = "schema_a-00007701"
+    case.pris_process_status = "1000"
     case.pris_request = {"req_init": "205"}
-    case.save(update_fields=["pris_cl_num", "pris_request"])
-    Payment.objects.create(
+    case.save(update_fields=["pris_cl_num", "pris_process_status", "pris_request"])
+    payment = Payment.objects.create(
         organization=org_a, account=case.account, receipt_id=90, pay_date=date(2026, 3, 2),
         pp_num="333888", pay_service_summ=Decimal("10.50"), pay_mulct_summ=Decimal("1.25"),
     )
+    enqueue_repayments([payment.pk])
     response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/repay/", {}, format="json")
     assert response.status_code == 200, response.content
     item = pris_transport.calls[0][1]["package"][0]
@@ -425,4 +438,102 @@ def test_opi_module_registry_measures_acts_and_autofill(api, specialist_a, admin
     del_act = api(specialist_a).delete(f"/api/v1/claims/{case.pk}/acts/{act_id}/")
     assert del_act.status_code == 200
     assert del_act.json()["acts_count"] == 0
+
+
+def test_refresh_sends_response_id_until_proceeding_exists(api, specialist_a, org_a, pris_transport):
+    case, _pdf, _signature = _ready_case(org_a)
+    case.pris_cl_num = "schema_a-00007701"
+    case.pris_response_id = "1815ef51-485f-44fc-a5df-0ea3856e700f"
+    case.save(update_fields=["pris_cl_num", "pris_response_id"])
+    response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/refresh/", {}, format="json")
+    assert response.status_code == 200, response.content
+    assert pris_transport.calls[0][1] == {
+        "p_cl_num": "schema_a-00007701",
+        "p_response_id": "1815ef51-485f-44fc-a5df-0ea3856e700f",
+    }
+
+
+def test_http_repay_is_sent_once(api, specialist_a, org_a):
+    transport = RecordingPrisTransport(mode="http")
+    set_pris_transport(transport)
+    try:
+        case, _pdf, _signature = _ready_case(org_a)
+        case.pris_cl_num = "schema_a-00007701"
+        case.pris_process_status = "1000"
+        case.pris_request = {"req_init": "205"}
+        case.save(update_fields=["pris_cl_num", "pris_process_status", "pris_request"])
+        payment = Payment.objects.create(
+            organization=org_a, account=case.account, receipt_id=91, pay_date=date(2026, 4, 4),
+            pp_num="FS-NEW", pay_service_summ=Decimal("10.00"), pay_mulct_summ=Decimal("0"),
+        )
+        enqueue_repayments([payment.pk])
+        first = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/repay/", {}, format="json")
+        assert first.status_code == 200, first.content
+        assert PrisRepayment.objects.filter(case=case, payment=payment).count() == 1
+        assert PrisRepayQueue.objects.filter(case=case).count() == 0
+        second = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/repay/", {}, format="json")
+        assert second.status_code == 400
+        assert "Новых оплат" in second.json()["error"]["message"]
+        assert len(transport.calls) == 1
+    finally:
+        set_pris_transport(None)
+
+
+def test_imported_payment_is_reported_once(api, specialist_a, org_a):
+    transport = RecordingPrisTransport(mode="http")
+    set_pris_transport(transport)
+    try:
+        case, _pdf, _signature = _ready_case(org_a)
+        case.pris_cl_num = "schema_a-00007701"
+        case.pris_process_status = "1000"
+        case.pris_request = {"req_init": "205"}
+        case.save(update_fields=["pris_cl_num", "pris_process_status", "pris_request"])
+        payment = Payment.objects.create(
+            organization=org_a, account=case.account, receipt_id=92, pay_date=date(2026, 4, 5),
+            pp_num="FS-IMP", pay_service_summ=Decimal("5.00"), pay_mulct_summ=Decimal("0"),
+        )
+        first = report_imported_payments([payment.pk])
+        assert first["sent"] == 1
+        again = report_imported_payments([payment.pk])
+        assert again["queued"] == 0
+        repay_calls = [item for item in transport.calls if str(item[0]).endswith("save-repay-debt")]
+        assert len(repay_calls) == 1
+        assert repay_calls[0][1]["package"][0]["repayment"][0]["p_pay_num"] == "FS-IMP"
+    finally:
+        set_pris_transport(None)
+
+
+@pytest.mark.django_db
+def test_poll_waits_until_period_is_set(pris_transport):
+    result = tick_pris_poll()
+    assert result["ran"] is False
+    assert pris_transport.calls == []
+
+
+def test_poll_tick_refreshes_accepted_case(api, specialist_a, org_a, pris_transport, monkeypatch):
+    monkeypatch.setattr("apps.nsi.services.integrations.pris_session", lambda: {"opened": True})
+    case, _pdf, _signature = _ready_case(org_a)
+    case.pris_cl_num = "schema_a-00007701"
+    case.pris_response_id = "resp-1"
+    case.save(update_fields=["pris_cl_num", "pris_response_id"])
+    row = PrisPoll.load()
+    row.interval_minutes = 15
+    row.last_tick_at = None
+    row.save(update_fields=["interval_minutes", "last_tick_at", "updated_at"])
+    result = tick_pris_poll()
+    assert result["ran"] is True
+    debt = [item for item in pris_transport.calls if str(item[0]).endswith("claimant-info-by-debt")]
+    assert debt[0][1]["p_response_id"] == "resp-1"
+    assert PrisPoll.load().last_tick_at is not None
+
+
+def test_admin_saves_pris_poll_period(api, admin_a, specialist_a):
+    denied = api(specialist_a).put("/api/v1/integrations/pris/poll/", {"interval_minutes": 15}, format="json")
+    assert denied.status_code == 403
+    saved = api(admin_a).put("/api/v1/integrations/pris/poll/", {"interval_minutes": 15}, format="json")
+    assert saved.status_code == 200, saved.content
+    assert saved.json()["interval_minutes"] == 15
+    cleared = api(admin_a).put("/api/v1/integrations/pris/poll/", {"interval_minutes": None}, format="json")
+    assert cleared.status_code == 200, cleared.content
+    assert cleared.json()["interval_minutes"] is None
 

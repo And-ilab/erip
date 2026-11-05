@@ -8,6 +8,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
+import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { NotificationsPanelComponent } from '../features/notifications/notifications-panel.component';
 import { NotificationsStore } from '../features/notifications/notifications.store';
@@ -107,6 +108,7 @@ import { NotificationsStore } from '../features/notifications/notifications.stor
 })
 export class ShellComponent implements AfterViewInit, OnDestroy {
   protected readonly auth = inject(AuthService);
+  private readonly api = inject(ApiService);
   protected readonly store = inject(NotificationsStore);
   protected readonly navCompact = signal(false);
   @ViewChild('menu', { read: ElementRef }) private menu?: ElementRef<HTMLElement>;
@@ -114,6 +116,7 @@ export class ShellComponent implements AfterViewInit, OnDestroy {
   private menuSize?: ResizeObserver;
 
   ngAfterViewInit(): void {
+    this.api.openPrisSession().subscribe({ error: () => undefined });
     const node = this.menu?.nativeElement;
     const frame = this.frame;
     if (!node || !frame) return;

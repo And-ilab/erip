@@ -6,6 +6,8 @@ x-timestamp (живут 30 минут); далее каждый вызов пе�
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -126,6 +128,67 @@ class RedisTokenCache(TokenCache):
         await self.redis.delete(self.key, self.last_key)
 
 
+_ENTRY_KEY = "gateway:pris:entry"
+
+
+def _token_mark(token: PrisToken) -> str:
+    return hashlib.sha256(token.token.encode()).hexdigest()[:16]
+
+
+async def _read_entry(cache: TokenCache) -> dict | None:
+    if isinstance(cache, RedisTokenCache):
+        raw = await cache.redis.get(_ENTRY_KEY)
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+    stored = getattr(cache, "entry", None)
+    return stored if isinstance(stored, dict) else None
+
+
+async def _write_entry(cache: TokenCache, payload: dict, ttl: int) -> None:
+    if isinstance(cache, RedisTokenCache):
+        await cache.redis.set(_ENTRY_KEY, json.dumps(payload, ensure_ascii=False), ex=ttl)
+        return
+    cache.entry = payload
+
+
+def _public_entry(stored: dict, *, repeated: bool) -> dict:
+    return {
+        "mode": stored.get("mode") or "stub",
+        "opened": True,
+        "ministry": bool(stored.get("ministry")),
+        "repeated": repeated,
+        "ip": stored.get("ip") or "",
+        "echo": stored.get("echo") or "",
+        "version": stored.get("version") or "",
+        "stat": stored.get("stat") or "",
+        "nsi_ok": bool(stored.get("nsi_ok")),
+        "nsi_types": int(stored.get("nsi_types") or 0),
+        "summary": stored.get("summary") or "",
+    }
+
+
+def _entry_summary(ip: str, echo: str, version: str, nsi_ok: bool, nsi_types: int, *, alive: bool) -> str:
+    if not alive:
+        return "Служебные сервисы ПРИС не ответили."
+    parts = []
+    if ip:
+        parts.append(f"адрес {ip}")
+    if version:
+        parts.append(f"версия {version}")
+    if echo:
+        parts.append("Echo ответил")
+    if nsi_ok:
+        parts.append(f"справочников {nsi_types}")
+    else:
+        parts.append("справочники не прочитаны")
+    return "Сессия открыта: " + ", ".join(parts) + "."
+
+
 # ---------------------------------------------------------------- клиенты
 
 class PrisClient(ABC):
@@ -158,6 +221,23 @@ class PrisClient(ABC):
 
     @abstractmethod
     async def get_nsi(self) -> list[dict]: ...
+
+    async def open_entry(self) -> dict:
+        """Заглушка вход не выполняет. Боевой клиент вызывает служебные сервисы один раз на токен."""
+        mode = getattr(getattr(self, "settings", None), "pris_mode", "stub")
+        return {
+            "mode": mode,
+            "opened": False,
+            "ministry": False,
+            "repeated": False,
+            "ip": "",
+            "echo": "",
+            "version": "",
+            "stat": "",
+            "nsi_ok": False,
+            "nsi_types": 0,
+            "summary": "Вход в контур Минюста не выполнялся.",
+        }
 
 
 class _TokenMixin:
@@ -338,6 +418,50 @@ class HttpPrisClient(_TokenMixin, PrisClient):
             "token_present": bool(token),
             "keys": sorted(body.keys()),
         }
+
+    async def open_entry(self) -> dict:
+        """Authorizate (если токена нет), затем GetIP, Echo, Version, GetStat и GetNSIData. Повтор того же токена молчит."""
+        token = await self.token()
+        mark = _token_mark(token)
+        cached = await _read_entry(self.cache)
+        if cached and cached.get("mark") == mark:
+            return _public_entry(cached, repeated=True)
+        ip, ip_ok = await self._service_result(PrisEndpoints.GET_IP)
+        echo, echo_ok = await self._service_result(PrisEndpoints.ECHO)
+        version, version_ok = await self._service_result(PrisEndpoints.VERSION)
+        stat, stat_ok = await self._service_result(PrisEndpoints.GET_STAT)
+        nsi_ok = False
+        nsi_types = 0
+        try:
+            books = await self.get_nsi()
+            nsi_types = len(books)
+            nsi_ok = nsi_types > 0
+        except PrisError:
+            nsi_ok = False
+        alive = ip_ok or echo_ok or version_ok or stat_ok or nsi_ok
+        summary = _entry_summary(ip, echo, version, nsi_ok, nsi_types, alive=alive)
+        stored = {
+            "mark": mark,
+            "mode": self.settings.pris_mode,
+            "ministry": self.settings.pris_mode == "http",
+            "ip": ip[:80],
+            "echo": echo[:160],
+            "version": version[:80],
+            "stat": stat[:160],
+            "nsi_ok": nsi_ok,
+            "nsi_types": nsi_types,
+            "summary": summary,
+        }
+        if alive:
+            await _write_entry(self.cache, stored, max(self.settings.pris_token_ttl_seconds - 60, 60))
+        return _public_entry(stored, repeated=False)
+
+    async def _service_result(self, path: str) -> tuple[str, bool]:
+        raw = await self.exchange("GET", path, timeout=20.0)
+        body = raw["body"] if isinstance(raw["body"], dict) else {}
+        if raw["http_status"] != 200:
+            return "", False
+        return str(body.get("result") or "")[:160], True
 
     async def post_authed(self, path: str, body: bytes, *, timeout: float = 60.0) -> dict:
         async def once() -> dict:

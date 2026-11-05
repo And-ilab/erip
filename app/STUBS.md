@@ -46,7 +46,7 @@ GW_PRIS_USER_ID=...
 GW_PRIS_ACCESS_KEY=...
 ```
 
-Проверка маршрута без пакета: `GET /gw/v1/integrations/pris/status`, поле `tunnel`. Проверка сервиса: `GET /gw/v1/integrations/pris/echo` (ответ «Echo: Hello user!»). Шаги методички, которые тестовый контур закрыл 3–4 ноября, нажимаются в «Настройка → Интеграции → АИС ПРИС»: `POST /gw/v1/integrations/pris/checks` (`step` `s06`, `s01`–`s05`, `s07`, `q02`, `q03`, `q01`, `n01`, `r03`). В `stub` кнопка контур не вызывает. Повтор пакета P-01 и погашений R-01/R-02 этой кнопкой не отправляется. В prod для `http` нужны оба секрета. `channel` в prod не стартует.
+Проверка маршрута без пакета: `GET /gw/v1/integrations/pris/status`, поле `tunnel`. Проверка сервиса: `GET /gw/v1/integrations/pris/echo` (ответ «Echo: Hello user!»). Вход в программу и такт `pris-poll` сами вызывают сессию (`POST /gw/v1/integrations/pris/session`): в `stub` Минюст не вызывается. Период автоопроса хранится в ПМ и пока пуст, опрос не идёт. Шаги методички, которые тестовый контур закрыл 3–4 ноября, нажимаются в «Настройка → Интеграции → АИС ПРИС»: `POST /gw/v1/integrations/pris/checks` (`step` `s06`, `s01`–`s05`, `s07`, `q02`, `q03`, `q01`, `n01`, `r03`). В `stub` кнопка контур не вызывает. Повтор пакета P-01 и погашений R-01/R-02 этой кнопкой не отправляется. В prod для `http` нужны оба секрета. `channel` в prod не стартует.
 
 ## 3. Белорусская нотариальная палата (ЛК БНП)
 
@@ -64,6 +64,7 @@ GW_PRIS_ACCESS_KEY=...
 
 - `GET /gw/v1/integrations/pris/status` — канал (`stub`, `channel`, `http`), Минюст не вызывается;
 - `GET /gw/v1/integrations/pris/echo`;
+- `POST /gw/v1/integrations/pris/session` — вход модуля: Authorizate, GetIP, Echo, Version, GetStat, GetNSIData; повтор того же токена контур не вызывает, в `stub` запрос не уходит, ключ и токен в ответ не пишутся;
 - `POST /gw/v1/integrations/pris/checks` — сверка шагов S-06, S-01–S-05, S-07, Q-02, Q-03, Q-01, N-01 и R-03 с прогоном 3–4 ноября; в `stub` Минюст не вызывается, ключ и токен в ответ не пишутся;
 - `GET /gw/v1/integrations/pris/nsi`;
 - `POST /gw/v1/integrations/pris/claimant-info`;
@@ -108,7 +109,7 @@ GW_PRIS_ACCESS_KEY=...
 | Шаг | Как выглядит на показе | Куда заменить |
 |---|---|---|
 | Подписать и собрать архив / Скачать / Отправить | Одна кнопка открывает `/ie-sign/` в Edge (режим IE) через `microsoft-edge:`. Страница подписывает все PDF и собирает zip (`POST .../ie-sign/<token>/form/`). «Скачать архив» и «Отправить» включаются после zip. `sign-and-send` требует PKCS#7, пишет `stub-{id}`, в кабинет не ходит. Один раз: `app/tools/edge-ie-mode.ps1` | `StubBnpClient` в `gateway/app/integrations/bnp/client.py`, когда появится способ подачи |
-| Статус ОПИ | `POST .../pris/draft/`, `.../pris/submit/`, `.../pris/refresh/` и `.../pris/repay/` собирают пакет по регламенту. Справочники — `GET /api/v1/claims/pris-dictionaries/`. При `GW_PRIS_MODE=stub` пишется `opi_mode=stub`, номер и ход из примера на дело не записываются, в журнале обмена сказано, что в ПРИС не отправлено. `GW_PRIS_MODE=channel` пишет `opi_mode=channel` и номер тестового канала (`CH-…`), в Минюст пакет не уходит. Подпись только `.p7s` или `.sgn`. `POST .../opi/` по-прежнему ручной | `GW_PRIS_MODE=http` и канал itVPN: тот же пакет уходит в `HttpPrisClient` на контур Минюста, ход производства сохраняется на деле. Повторный опрос — `python manage.py refresh_pris` |
+| Статус ОПИ | `POST .../pris/draft/`, `.../pris/submit/`, `.../pris/refresh/` и `.../pris/repay/` собирают пакет по регламенту. Справочники — `GET /api/v1/claims/pris-dictionaries/`. При `GW_PRIS_MODE=stub` пишется `opi_mode=stub`, номер и ход из примера на дело не записываются, в журнале обмена сказано, что в ПРИС не отправлено. `GW_PRIS_MODE=channel` пишет `opi_mode=channel` и номер тестового канала (`CH-…`), в Минюст пакет не уходит. Подпись только `.p7s` или `.sgn`. `POST .../opi/` по-прежнему ручной | `GW_PRIS_MODE=http` и канал itVPN: тот же пакет уходит в `HttpPrisClient` на контур Минюста, ход производства сохраняется на деле. Автоопрос принятых дел — служба `pris-poll` (`python manage.py pris_poll`) по периоду с экрана «АИС ПРИС». Разовый опрос — `python manage.py refresh_pris`. Новая оплата из файла АИС уходит сама; в `stub` она ждёт в очереди и в Минюст не отправляется. Уже принятое погашение повторно не ставится. |
 | Погашение для статуса «Взыскано» | `POST .../ais-receipt/` ставит флаги тарифа и погашения. `balance_out` лицевого счёта не меняется | Ночная выгрузка АИС, когда в ней есть тариф и остаток |
 | Уведомление АИС о списании | После согласия всех согласующих в деле текст «файл статусов ещё не выгружен» | Обратный CSV статусов, ТЗ 4.2.10 |
 

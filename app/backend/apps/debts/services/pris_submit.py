@@ -12,7 +12,16 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from apps.core.exceptions import GatewayUnavailable
-from apps.debts.models import Attachment, ClaimCase, ClaimPackageDocument, Payment, PrisExchange, Registration
+from apps.debts.models import (
+    Attachment,
+    ClaimCase,
+    ClaimPackageDocument,
+    Payment,
+    PrisExchange,
+    PrisRepayment,
+    PrisRepayQueue,
+    Registration,
+)
 from apps.debts.services.claims import ClaimBlocked, move_case
 from apps.debts.services.eds import Pkcs7Error, inspect_detached_pkcs7
 from apps.debts.services.pris_gateway import get_pris_transport
@@ -222,6 +231,9 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
     elif case.pris_cl_num.strip():
         path = "/gw/v1/integrations/pris/claimant-info-by-debt"
         payload = {"p_cl_num": case.pris_cl_num.strip()}
+        response_id = (case.pris_response_id or "").strip()
+        if response_id:
+            payload["p_response_id"] = response_id
     else:
         raise ClaimBlocked("Сначала передайте задолженность в ПРИС или запишите номер производства")
     result = _post_pris(case, user, "refresh", path, payload)
@@ -265,7 +277,25 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
 def repay_pris(case: ClaimCase, user) -> ClaimCase:
     if not case.pris_cl_num.strip():
         raise ClaimBlocked("Погашение уходит в ПРИС после передачи задолженности")
-    payload, problems = _repay_payload(case)
+    updated = flush_repay_queue(case, user)
+    if updated is None:
+        raise ClaimBlocked("Новых оплат для ПРИС нет")
+    return updated
+
+
+def flush_repay_queue(case: ClaimCase, user) -> ClaimCase | None:
+    """Передаёт оплаты из очереди этого дела. None — очередь пуста. Принятые контуром из очереди снимаются."""
+    queued = list(PrisRepayQueue.objects.filter(case=case).select_related("payment"))
+    rows: list[tuple[Payment, Decimal]] = []
+    for item in queued:
+        payment = item.payment
+        amount = _amount(payment.pay_service_summ) + _amount(payment.pay_mulct_summ)
+        if amount <= 0 or payment.pay_date is None:
+            continue
+        rows.append((payment, amount))
+    if not rows:
+        return None
+    payload, problems = _repay_payload(case, rows)
     if problems:
         raise ClaimBlocked("Погашение ПРИС не собрано: " + "; ".join(problems))
     result = _post_pris(case, user, "repay", "/gw/v1/integrations/pris/save-repay-debt", payload)
@@ -282,6 +312,12 @@ def repay_pris(case: ClaimCase, user) -> ClaimCase:
         case.pris_process_message = "Погашение прошло проверку. В АИС ПРИС не отправлено."
         note = case.pris_process_message
         case.opi_mode = case.opi_mode or "stub"
+    if result.get("mode") in _LIVE_MODES and case.pris_process_status in _ACCEPTED:
+        PrisRepayment.objects.bulk_create(
+            [PrisRepayment(case=case, payment=payment, amount=amount) for payment, amount in rows],
+            ignore_conflicts=True,
+        )
+        PrisRepayQueue.objects.filter(case=case, payment_id__in=[payment.pk for payment, _amount in rows]).delete()
     case.save(update_fields=["opi_mode", "pris_response_id", "pris_process_status", "pris_process_message", "updated_at"])
     from apps.debts.services.claims import _event
 
@@ -633,16 +669,15 @@ def _profile_address(profile: dict) -> dict:
     return address
 
 
-def _repay_payload(case: ClaimCase) -> tuple[dict, list[str]]:
+def _repay_payload(case: ClaimCase, rows: list[tuple[Payment, Decimal]]) -> tuple[dict, list[str]]:
     problems = []
     request = case.pris_request or {}
     if not _text(request.get("req_init")):
         problems.append("нет типа требования (справочник 214)")
     sums = _sums(case.account)
     payments = []
-    for payment in Payment.objects.filter(account_id=case.account_id).exclude(pay_date=None).order_by("pay_date", "id"):
-        amount = _amount(payment.pay_service_summ) + _amount(payment.pay_mulct_summ)
-        if amount <= 0 or payment.pay_date is None:
+    for payment, amount in rows:
+        if payment.pay_date is None:
             continue
         number = _text(payment.pp_num) or str(payment.receipt_id)
         payments.append({
