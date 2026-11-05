@@ -19,11 +19,16 @@ def test_search_and_domain_match_address_tokens(api, specialist_a, org_a):
         org_a, 4102, client_account="00004102",
         account_address="г. Минск, ул. Ленина, д. 17",
     )
+    numbered = make_account(
+        org_a, 17, client_account="0000000017", unified_account=17017,
+        account_address="г. Минск, ул. Независимости, д. 4",
+    )
     listed = api(specialist_a).get("/api/v1/accounts/", {"q": "советская 17"})
     assert listed.status_code == 200, listed.content
     ids = {row["id"] for row in listed.json()["results"]}
     assert hit.id in ids
     assert miss.id not in ids
+    assert numbered.id not in ids
 
     domain = api(specialist_a).get("/api/v1/accounts/", {
         "domain": json.dumps({

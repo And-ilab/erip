@@ -532,9 +532,11 @@ class AccountViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
 
     @action(detail=True)
     def scenario(self, request, pk=None):
+        from apps.debts.services.extra_measures import release_expired_holds
         from apps.debts.services.scenario_board import scenario_outline
 
         account = self.get_object()
+        release_expired_holds(account)
         account = Account.objects.prefetch_related(
             "measures__tasks__checks", "measures__tasks__assignee",
             "measures__items__call_attempts",
@@ -1502,6 +1504,9 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
         return [found[pk] for pk in ids if pk in found]
 
     def list(self, request, *args, **kwargs):
+        from apps.debts.services.extra_measures import release_expired_holds
+
+        release_expired_holds()
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         rows = page if page is not None else list(queryset)
@@ -1526,7 +1531,9 @@ class MeasureViewSet(AuditedViewSetMixin, ScopedQuerysetMixin, mixins.ListModelM
     def registry(self, request):
         """Группы реестра по статусу. Порция — GROUP_LIMIT, продолжение — status и offset."""
         from apps.debts.services.claim_measures import backfill_visible_measures
+        from apps.debts.services.extra_measures import release_expired_holds
 
+        release_expired_holds()
         backfill_visible_measures(_visible_accounts(request.user))
         qs = self.filter_queryset(self.get_queryset())
         offset = _page_offset(request.query_params.get("offset"))

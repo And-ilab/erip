@@ -183,6 +183,11 @@ class PortfolioRefresher:
         from apps.debts.services.shares import sync_debt_shares
 
         sync_debt_shares(account)
+        if account.months_debt == 0 or account.debt_group_manual == 0:
+            from apps.debts.services.claims import drop_bare_claims
+
+            reason = "Месяцев долга 0" if account.months_debt == 0 else "Группа задолженности 0"
+            drop_bare_claims(account, None, reason)
         RefreshRequest.objects.filter(account=account, status=RefreshRequest.Status.PENDING).update(
             status=RefreshRequest.Status.DONE, updated_at=timezone.now(),
         )

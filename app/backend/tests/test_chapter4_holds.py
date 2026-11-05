@@ -6,7 +6,8 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 
-from apps.debts.models import AccountService, DebtWorkItem, Measure, MeasureItem, ServiceDebtPeriod
+from apps.debts.models import AccountService, ClaimCase, DebtWorkItem, Measure, MeasureItem, ServiceDebtPeriod, StatusHistory
+from apps.debts.services.autocall import dial_due_calls
 from apps.debts.services.extra_measures import ExtraMeasureError, hold_measure, release_expired_holds
 from apps.notifications.models import Channel, Notification
 from apps.users.models import ServiceOrganization, User
@@ -128,9 +129,88 @@ def test_contact_visibility_and_writ_gates(api, org_a, specialist_a, admin_a):
     assert "Создайте исполнительную надпись в АИС" in blocked_ais.content.decode("utf-8")
 
     DebtWorkItem.objects.create(organization=org_a, account=account, kind=DebtWorkItem.Kind.WRIT, title="ИН из АИС")
-    created = api(specialist_a).post(
+    still = api(specialist_a).post(
+        f"/api/v1/accounts/{account.id}/writ-draft/",
+        {"debt_from": "2026-05-01", "debt_to": "2026-07-01", "warning_delivered_on": "2026-08-01", "notary_office": "К1"},
+        format="json",
+    )
+    assert still.status_code == 400
+    assert "Создайте исполнительную надпись в АИС" in still.content.decode("utf-8")
+
+    created = api(supplier).post(
         f"/api/v1/accounts/{account.id}/writ-draft/",
         {"debt_from": "2026-05-01", "debt_to": "2026-07-01", "warning_delivered_on": "2026-08-01", "notary_office": "К1"},
         format="json",
     )
     assert created.status_code == 201, created.content
+
+
+@pytest.mark.django_db
+def test_status_history_shows_registry_name(api, specialist_a, account_a):
+    specialist_a.last_name = "Соколова"
+    specialist_a.save(update_fields=["last_name"])
+    StatusHistory.objects.create(
+        organization=account_a.organization, account=account_a, kind=StatusHistory.Kind.CATEGORY,
+        old_value="", new_value="1", reason="Категория должника", author=specialist_a,
+    )
+    response = api(specialist_a).get(f"/api/v1/accounts/{account_a.id}/status-history/")
+    assert response.status_code == 200, response.content
+    names = [row["author_name"] for row in response.json()["results"]]
+    assert "Соколова Анна Петровна" in names
+
+
+@pytest.mark.django_db
+def test_zero_debt_leaves_claims_without_notary_documents(api, specialist_a, admin_a, org_a):
+    bare = make_account(org_a, 4801, client_account="00004801", months_debt=0, funnel_stage="prep")
+    ClaimCase.objects.create(organization=org_a, account=bare, stage=ClaimCase.Stage.PREP)
+    kept = make_account(org_a, 4802, client_account="00004802", months_debt=0, funnel_stage="notary")
+    ClaimCase.objects.create(
+        organization=org_a, account=kept, stage=ClaimCase.Stage.NOTARY, notary_tariff=Decimal("10"),
+    )
+    manual = make_account(org_a, 4803, client_account="00004803", months_debt=4, debt_group=3, funnel_stage="prep")
+    opened = ClaimCase.objects.create(organization=org_a, account=manual, stage=ClaimCase.Stage.PREP)
+    party = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.COLLECTION, status=Measure.Status.ASSIGNED,
+    )
+    party.accounts.add(manual)
+
+    listed = api(specialist_a).get("/api/v1/accounts/", {"scope": "claims", "page_size": 50})
+    assert listed.status_code == 200, listed.content
+    ids = {row["id"] for row in listed.json()["results"]}
+    assert bare.id not in ids
+    assert kept.id in ids
+    assert manual.id in ids
+
+    patched = api(admin_a).patch(
+        f"/api/v1/accounts/{manual.id}/",
+        {"debt_group_manual": 0, "debt_group_manual_reason": "долга нет"},
+        format="json",
+    )
+    assert patched.status_code == 200, patched.content
+    assert not ClaimCase.objects.filter(pk=opened.pk).exists()
+    party.refresh_from_db()
+    assert party.status == Measure.Status.CANCELLED
+    manual.refresh_from_db()
+    assert manual.funnel_stage == "new"
+    again = {row["id"] for row in api(specialist_a).get("/api/v1/accounts/", {"scope": "claims", "page_size": 50}).json()["results"]}
+    assert manual.id not in again
+    assert kept.id in again
+
+
+@pytest.mark.django_db
+def test_expired_pause_resumes_from_dial_without_account_refresh(admin_a, org_a):
+    account = make_account(org_a, 4810, client_account="00004810")
+    account.assigned_to = admin_a
+    account.save(update_fields=["assigned_to"])
+    paused = Measure.objects.create(
+        organization=org_a, kind=Measure.Kind.WARNING, status=Measure.Status.PAUSED, stopped=True,
+        template_name="Предупреждение", pause_until=timezone.localdate() - timedelta(days=1), pause_reason="Отсрочка",
+    )
+    paused.accounts.add(account)
+    dial_due_calls()
+    paused.refresh_from_db()
+    assert paused.status == Measure.Status.ASSIGNED
+    assert paused.pause_until is None
+    assert Notification.objects.filter(
+        account=account, channel=Channel.INBOX, body__icontains="срок приостановки истёк",
+    ).exists()

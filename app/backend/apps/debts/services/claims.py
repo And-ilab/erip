@@ -29,13 +29,12 @@ def _claim_ready(account) -> bool:
 def claims_population(queryset: QuerySet) -> QuerySet:
     """Должники претензионно-исковой работы.
 
-    В реестр попадают только уже открытое дело, этап воронки взыскания
-    (надпись / иск / ОПИ) или открытое мероприятие «взыскание». Одна рассчитанная
-    группа ≥ 3 без запуска сценария и без дела карточку сюда не ставит —
-    иначе после загрузки АИС все такие ЛС оказывались в «подготовке пакета».
-    ЛС с ручной группой 0 без открытого дела из реестра ПИР исключается (§9).
+    В реестр попадают уже открытое дело, этап воронки взыскания или открытое
+    мероприятие «взыскание». Одна рассчитанная группа ≥ 3 без дела и без
+    взыскания карточку сюда не ставит. Ноль месяцев долга и ручная группа 0
+    убирают счёт, если по делу нет документов нотариуса.
     """
-    from apps.debts.models import Measure
+    from apps.debts.models import ClaimPackage, ClaimPackageDocument, Measure
 
     open_collection = Q(
         measures__kind="collection",
@@ -51,12 +50,80 @@ def claims_population(queryset: QuerySet) -> QuerySet:
             "lawsuit", "judgment", "opi", "opi_measures", "impossible", "writeoff",
         ],
     )
-    not_manual_zero = ~Q(debt_group_manual=0)
-    matched = queryset.model.objects.filter(
-        Q(pk=OuterRef("pk")),
-        Q(claim_case__isnull=False) | (not_manual_zero & (in_claim_funnel | open_collection)),
+    documented = Q(claim_case__isnull=False) & (
+        ~Q(claim_case__stage=ClaimCase.Stage.PREP)
+        | Q(claim_case__notary_tariff__isnull=False)
+        | Q(claim_case__package_filed_on__isnull=False)
+        | ~Q(claim_case__submission_id="")
+        | ~Q(claim_case__notary_note="")
+        | Q(claim_case__package__formed_at__isnull=False)
+        | Exists(ClaimPackageDocument.objects.filter(package__case__account_id=OuterRef("pk")))
+        | Exists(ClaimPackage.objects.filter(case__account_id=OuterRef("pk")).exclude(archive=""))
     )
+    zero = Q(months_debt=0) | Q(debt_group_manual=0)
+    shell = Q(claim_case__isnull=False) | in_claim_funnel | open_collection
+    matched = queryset.model.objects.filter(Q(pk=OuterRef("pk")), documented | (~zero & shell))
     return queryset.filter(Exists(matched))
+
+
+def case_has_notary_documents(case: ClaimCase) -> bool:
+    """Дело уже ушло дальше пустой подготовки или по нему есть след нотариуса."""
+    if case.stage != ClaimCase.Stage.PREP:
+        return True
+    if (
+        case.notary_tariff is not None
+        or case.package_filed_on
+        or (case.submission_id or "").strip()
+        or (case.notary_note or "").strip()
+    ):
+        return True
+    from apps.debts.models import ClaimPackage
+
+    try:
+        package = case.package
+    except ClaimPackage.DoesNotExist:
+        return False
+    if package.formed_at or package.archive:
+        return True
+    return package.documents.exists()
+
+
+def drop_bare_claims(account, author, reason: str) -> None:
+    """Снимает ошибочно открытое дело без документов нотариуса и открытое взыскание.
+
+    Дело с тарифом, подачей, пакетом или этапом дальше подготовки не трогает.
+    """
+    cases = list(ClaimCase.objects.filter(account=account))
+    if any(case_has_notary_documents(case) for case in cases):
+        return
+    from apps.debts.models import Measure, MeasureItem
+    from apps.debts.services.measures import log_event, rollup
+
+    reason_text = (reason or "Группа задолженности 0")[:500]
+    now = timezone.now()
+    today = timezone.localdate()
+    for measure in Measure.objects.filter(
+        accounts=account, kind=Measure.Kind.COLLECTION,
+    ).exclude(status__in=[Measure.Status.DONE, Measure.Status.CANCELLED]):
+        old_status = measure.status
+        measure.items.filter(account=account).exclude(
+            status__in=[MeasureItem.Status.DONE, MeasureItem.Status.CANCELLED],
+        ).update(status=MeasureItem.Status.CANCELLED, note=reason_text, updated_at=now)
+        if measure.items.exclude(status__in=[MeasureItem.Status.DONE, MeasureItem.Status.CANCELLED]).exists():
+            rollup(measure, respect_pause=False)
+        else:
+            measure.status = Measure.Status.CANCELLED
+            measure.finished_on = today
+            measure.finish_reason = reason_text
+            measure.stopped = True
+            measure.save(update_fields=["status", "finished_on", "finish_reason", "stopped", "updated_at"])
+        log_event(measure, None, author, old_status, measure.status, reason_text)
+    if account.funnel_stage in {"prep", "enforcement"}:
+        account.funnel_stage = "new"
+        account.funnel_locked = False
+        account.save(update_fields=["funnel_stage", "funnel_locked", "updated_at"])
+    for case in cases:
+        case.delete()
 
 
 NOTARY_STAGES = ("prep", "notary", "writ_done", "refused")

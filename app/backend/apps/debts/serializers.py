@@ -1,7 +1,6 @@
 from decimal import Decimal
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.utils import timezone
 from rest_framework import serializers
 
 from apps.nsi.models import DebtGroupScale, ScenarioDefinition
@@ -406,33 +405,9 @@ class AccountDetailSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
         author = self.context["request"].user if self.context.get("request") else None
         if manual_notice and manual_notice[0] == 0:
-            from .models import ClaimCase, Measure, MeasureItem
-            from .services.measures import log_event, rollup
+            from .services.claims import drop_bare_claims
 
-            if not ClaimCase.objects.filter(account=instance).exists():
-                now = timezone.now()
-                today = timezone.localdate()
-                reason_text = (manual_notice[1] or "Группа задолженности 0")[:500]
-                for measure in Measure.objects.filter(
-                    accounts=instance, kind=Measure.Kind.COLLECTION,
-                ).exclude(status__in=[Measure.Status.DONE, Measure.Status.CANCELLED]):
-                    old_status = measure.status
-                    measure.items.filter(account=instance).exclude(
-                        status__in=[MeasureItem.Status.DONE, MeasureItem.Status.CANCELLED],
-                    ).update(status=MeasureItem.Status.CANCELLED, note=reason_text, updated_at=now)
-                    if measure.items.exclude(status__in=[MeasureItem.Status.DONE, MeasureItem.Status.CANCELLED]).exists():
-                        rollup(measure, respect_pause=False)
-                    else:
-                        measure.status = Measure.Status.CANCELLED
-                        measure.finished_on = today
-                        measure.finish_reason = reason_text
-                        measure.stopped = True
-                        measure.save(update_fields=["status", "finished_on", "finish_reason", "stopped", "updated_at"])
-                    log_event(measure, None, author, old_status, measure.status, reason_text)
-                if instance.funnel_stage in {"prep", "enforcement"}:
-                    instance.funnel_stage = "new"
-                    instance.funnel_locked = False
-                    instance.save(update_fields=["funnel_stage", "funnel_locked", "updated_at"])
+            drop_bare_claims(instance, author, manual_notice[1] or "Группа задолженности 0")
         if manual_notice and instance.assigned_to_id:
             from apps.notifications.models import Channel, Notification
 
@@ -722,7 +697,7 @@ class BalanceHistorySerializer(serializers.ModelSerializer):
 
 
 class StatusHistorySerializer(serializers.ModelSerializer):
-    author_name = serializers.CharField(source="author.display_name", default="", read_only=True)
+    author_name = serializers.CharField(source="author.registry_name", default="", read_only=True)
     service_name = serializers.CharField(source="service.service_name", default="", read_only=True)
 
     class Meta:

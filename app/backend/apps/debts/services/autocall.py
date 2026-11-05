@@ -47,8 +47,12 @@ def dial_due_calls(at: datetime | None = None) -> dict:
     """Прозванивает открытые партии, чьё окно содержит этот момент.
 
     До дня старта сценария и вне окна строки не трогает. Утром в реестре
-    остаются результаты вечернего прогона.
+    остаются результаты вечернего прогона. Просроченная пауза снимается здесь
+    же, не дожидаясь пересчёта конкретного счёта.
     """
+    from apps.debts.services.extra_measures import release_expired_holds
+
+    release_expired_holds()
     moment = _local(at)
     dialed = 0
     open_parties = 0

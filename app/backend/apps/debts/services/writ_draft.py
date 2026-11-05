@@ -257,7 +257,7 @@ def _check_writ_gates(account, user) -> None:
 
 
 def _gate_messages(account, user) -> list[str]:
-    from apps.debts.models import AccountScenarioRun, DebtWorkItem
+    from apps.debts.models import AccountScenarioRun
     from apps.users.scoping import AccessScope
 
     messages: list[str] = []
@@ -295,15 +295,10 @@ def _gate_messages(account, user) -> list[str]:
                     ) | set(run.skipped_orders or [])
                     if any(int(step.get("order") or 0) not in done_orders for step in blocking_prev):
                         messages.append("Нарушена последовательность мероприятий настроенного сценария")
+    # Отдельного поля выгрузки «надпись создана» нет. Дело, этап и мероприятие ПМ
+    # этим полем не считаются: для ролей кроме поставщика кнопка остаётся закрытой.
     if not supplier and user is not None:
-        has_ais_writ = (
-            DebtWorkItem.objects.filter(account=account, kind=DebtWorkItem.Kind.WRIT).exists()
-            or ClaimCase.objects.filter(account=account).exists()
-            or account.funnel_stage in {"prep", "enforcement", "notary", "writ_done", "refused"}
-            or Measure.objects.filter(accounts=account, kind=Measure.Kind.COLLECTION).exists()
-        )
-        if not has_ais_writ:
-            messages.append(AIS_WRIT_WARNING)
+        messages.append(AIS_WRIT_WARNING)
     return messages
 
 

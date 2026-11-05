@@ -122,33 +122,34 @@ class AccountRepository:
     def search(qs: QuerySet, term: str) -> QuerySet:
         """Поиск по номеру ЛС (с ведущими нулями и без), ФИО и адресу.
 
-        Несколько слов («советская 17») — каждое должно встретиться в той же
-        строке адреса или ФИО; иначе «ул. Советская, д. 17» не находится.
+        Несколько слов («советская 17») должны все встретиться в одном поле:
+        адрес, ФИО, номер, УЕН. Число из фразы само по себе номер и id счёта не ищет.
         """
         term = term.strip()
         if not term:
             return qs
         tokens = [part for part in term.split() if part]
         if len(tokens) > 1:
-            address = Q()
-            fio = Q()
+            # Все слова — в одном поле. Отдельное «или» по числу из фразы
+            # подмешивало чужие счета, у которых 17 есть только в номере.
+            condition = Q()
+            for field in (
+                "account_address", "short_fio", "client_account", "payer_identifier",
+                "payer_unp", "provider_short_name", "schema_name", "ownership_type_name",
+                "acc_category_full", "scenario_name", "scenario_run__scenario__name",
+            ):
+                clause = Q()
+                for part in tokens:
+                    clause &= _text_token(field, part)
+                condition |= clause
+            assignee = Q()
             for part in tokens:
-                address &= _text_token("account_address", part)
-                fio &= _text_token("short_fio", part)
-            condition = address | fio
-            for part in tokens:
-                condition |= (
-                    _text_token("client_account", part)
-                    | _text_token("payer_identifier", part)
-                    | _text_token("payer_unp", part)
-                    | _text_token("provider_short_name", part)
-                    | _text_token("schema_name", part)
+                assignee &= (
+                    _text_token("assigned_to__last_name", part)
+                    | _text_token("assigned_to__first_name", part)
+                    | _text_token("assigned_to__middle_name", part)
                 )
-                if part.isdigit():
-                    condition |= Q(client_account__endswith=part.lstrip("0") or "0") | Q(
-                        unified_account=int(part),
-                    ) | Q(account_id=int(part))
-            return qs.filter(condition)
+            return qs.filter(condition | assignee)
         condition = (
             Q(client_account__icontains=term)
             | Q(short_fio__icontains=term)

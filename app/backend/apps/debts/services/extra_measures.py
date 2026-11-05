@@ -100,28 +100,42 @@ def release_measure(measure: Measure, user) -> Measure:
     return measure
 
 
-def release_expired_holds(account: Account) -> None:
+def release_expired_holds(account: Account | None = None) -> int:
+    """Снимает паузу с истёкшим сроком. Без счёта — по всем мероприятиям сразу.
+
+    Пауза «навсегда» (`pause_until` пустой) и пауза по смерти плательщика не снимаются.
+    """
     from apps.notifications.models import Channel, Notification
 
     today = timezone.localdate()
     rows = Measure.objects.filter(
-        accounts=account, status=Measure.Status.PAUSED, pause_until__isnull=False, pause_until__lt=today,
+        status=Measure.Status.PAUSED, pause_until__isnull=False, pause_until__lt=today,
     ).exclude(pause_reason=DEATH_REASON)
-    for measure in rows:
+    if account is not None:
+        rows = rows.filter(accounts=account)
+    released = 0
+    for measure in rows.distinct():
         release_measure(measure, None)
-        recipient_id = measure.assignee_id or account.assigned_to_id or measure.created_by_id
-        if recipient_id:
+        released += 1
+        linked = [account] if account is not None else list(measure.accounts.all())
+        for row in linked:
+            if row is None:
+                continue
+            recipient_id = measure.assignee_id or row.assigned_to_id or measure.created_by_id
+            if not recipient_id:
+                continue
             Notification.objects.create(
-                organization=account.organization,
+                organization=row.organization,
                 channel=Channel.INBOX,
-                account=account,
+                account=row,
                 recipient_user_id=recipient_id,
                 status=Notification.Status.SENT,
                 body=(
                     f"У вас запущено приостановленное мероприятие «{measure.template_name or measure.get_kind_display()}» "
-                    f"по ЛС {account.client_account}, так как срок приостановки истёк."
+                    f"по ЛС {row.client_account}, так как срок приостановки истёк."
                 ),
             )
+    return released
 
 
 def _service(scope: AccessScope, raw, accounts: list[Account]) -> AccountService | None:

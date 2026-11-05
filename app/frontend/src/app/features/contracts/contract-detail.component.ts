@@ -11,11 +11,13 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { Router, RouterLink } from '@angular/router';
 
-import { ApiService, errorMessage } from '../../core/api.service';
+import { ApiService, ColumnPrefs, errorMessage } from '../../core/api.service';
 import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 import { AuthService } from '../../core/auth.service';
 import { funnelTitle } from '../funnel-stages';
+import { ColumnDragDirective } from '../column-drag.directive';
 import { GridResizeDirective } from '../grid-resize.directive';
+import { REGISTRATION_COLUMNS, registrationCell, registrationLabel } from '../registration-sheet';
 import { MeasureTasksComponent } from '../measures/measure-tasks.component';
 import {
   AccountDetail,
@@ -39,6 +41,7 @@ import {
   imports: [
     DatePipe, FormsModule, RouterLink, MatCardModule, MatButtonModule, MatFormFieldModule, MoneyComponent, BynSignComponent,
     MatInputModule, MatSelectModule, MatCheckboxModule, MatSnackBarModule, MatTabsModule, GridResizeDirective,
+    ColumnDragDirective,
     MeasureTasksComponent,
   ],
   template: `
@@ -161,20 +164,42 @@ import {
           </mat-tab>
 
           <mat-tab label="Регистрация ({{ activeRegistrationCount() }})">
+            <div class="columns-wrap">
+              <button mat-stroked-button type="button" class="table-settings" (click)="toggleColumnMenu($event)">Настройки таблицы</button>
+              @if (columnMenu) {
+                <div class="picker-back" (click)="columnMenu = false"></div>
+                <div class="picker-menu" role="listbox" aria-label="Столбцы регистрации"
+                     [style.top.px]="columnMenuTop" [style.left.px]="columnMenuLeft"
+                     [style.max-height]="'calc(100vh - ' + (columnMenuTop + 12) + 'px)'">
+                  <div class="picker-actions">
+                    <button type="button" (click)="setRegColumns(true)">Отметить все</button>
+                    <button type="button" (click)="setRegColumns(false)">Снять все</button>
+                  </div>
+                  @for (col of regCatalog; track col; let i = $index) {
+                    <label>
+                      <input type="checkbox" [checked]="regVisible(col)" (change)="toggleRegColumn(col, $any($event.target).checked)" />
+                      <span>{{ regLabel(col) }}</span>
+                      <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, -1)">↑</button>
+                      <button type="button" (click)="$event.preventDefault(); moveRegColumn(i, 1)">↓</button>
+                    </label>
+                  }
+                </div>
+              }
+            </div>
             <div class="list-pane">
-              <table class="plain" appGridResize="contract-registrations">
+              <table class="plain" appGridResize="contract-registrations" appColumnDrag (columnMove)="dragReg($event)">
                 <thead>
                   <tr>
-                    @for (col of regColumns; track col) { <th [attr.data-col]="col">{{ regLabel(col) }}</th> }
+                    @for (col of visibleRegColumns(); track col) { <th [attr.data-col]="col">{{ regLabel(col) }}</th> }
                   </tr>
                 </thead>
                 <tbody>
                   @for (person of people(); track person.id) {
                     <tr>
-                      @for (col of regColumns; track col) { <td>{{ regCell(person, col) }}</td> }
+                      @for (col of visibleRegColumns(); track col) { <td>{{ regCell(person, col) }}</td> }
                     </tr>
                   } @empty {
-                    <tr><td [attr.colspan]="regColumns.length" class="muted">Зарегистрированных лиц нет.</td></tr>
+                    <tr><td [attr.colspan]="visibleRegColumns().length" class="muted">Зарегистрированных лиц нет.</td></tr>
                   }
                 </tbody>
               </table>
@@ -496,6 +521,19 @@ import {
     .tab-note { margin: 12px 0 8px; font-size: 13px; line-height: 1.45; max-width: 760px; }
     table.journal tr, table.plain tr { cursor: default; }
     .text-btn { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; font-size: 13px; padding: 0; }
+    .columns-wrap { position: relative; display: inline-block; margin: 8px 0; }
+    .table-settings { margin: 0 0 8px; }
+    .picker-back { position: fixed; inset: 0; z-index: 20; }
+    .picker-menu {
+      position: fixed; z-index: 21; width: 360px; overflow: auto; background: #fff;
+      border: 1px solid var(--erip-border, #e5e7eb); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(16, 42, 67, .16); padding: 6px 0;
+    }
+    .picker-actions { display: flex; gap: 8px; padding: 4px 12px 8px; }
+    .picker-actions button { border: 0; background: transparent; color: var(--erip-link); cursor: pointer; font: inherit; }
+    .picker-menu label { display: flex; gap: 8px; align-items: center; padding: 4px 12px; font-size: 13px; }
+    .picker-menu label span { flex: 1; }
+    .picker-menu label button { border: 0; background: transparent; cursor: pointer; }
   `,
 })
 export class ContractDetailComponent implements OnInit {
@@ -542,10 +580,11 @@ export class ContractDetailComponent implements OnInit {
   protected periodYear = '';
   protected periodMonth = '';
   protected historyPane: 'rating' | 'measure' | 'other' = 'other';
-  protected readonly regColumns = [
-    'payer', 'registered', 'fam', 'im', 'ot', 'debtor_role', 'legal', 'relation', 'family',
-    'birthday', 'check_in_date', 'check_out_date', 'address', 'work', 'phone', 'email',
-  ];
+  protected columnMenu = false;
+  protected columnMenuTop = 0;
+  protected columnMenuLeft = 0;
+  protected regHidden = new Set<string>();
+  protected regCatalog = [...REGISTRATION_COLUMNS];
   protected readonly months = [
     { id: '01', label: 'январь' }, { id: '02', label: 'февраль' }, { id: '03', label: 'март' },
     { id: '04', label: 'апрель' }, { id: '05', label: 'май' }, { id: '06', label: 'июнь' },
@@ -725,42 +764,79 @@ export class ContractDetailComponent implements OnInit {
   }
 
   protected regLabel(col: string): string {
-    const labels: Record<string, string> = {
-      payer: 'Плательщик', registered: 'Зарегистрирован', fam: 'Фамилия', im: 'Имя', ot: 'Отчество',
-      debtor_role: 'Роль', legal: 'Юр.лицо', relation: 'Родственные отношения', family: 'Является членом семьи',
-      birthday: 'Дата рождения', check_in_date: 'Дата прибытия', check_out_date: 'Дата убытия',
-      address: 'Адрес местожительства', work: 'Наименование предприятия', phone: 'Контактный телефон', email: 'E-mail',
-    };
-    return labels[col] || col;
+    return registrationLabel(col);
+  }
+
+  protected visibleRegColumns(): string[] {
+    const shown = this.regCatalog.filter((col) => !this.regHidden.has(col));
+    return shown.length ? shown : ['payer'];
+  }
+
+  protected regVisible(col: string): boolean {
+    return !this.regHidden.has(col);
+  }
+
+  protected toggleColumnMenu(event: Event): void {
+    if (this.columnMenu) {
+      this.columnMenu = false;
+      return;
+    }
+    const button = event.currentTarget as HTMLElement;
+    const box = button.getBoundingClientRect();
+    this.columnMenuTop = box.bottom + 4;
+    this.columnMenuLeft = Math.min(Math.max(8, box.left), window.innerWidth - 376);
+    this.columnMenu = true;
+  }
+
+  protected toggleRegColumn(col: string, on: boolean): void {
+    if (on) this.regHidden.delete(col);
+    else this.regHidden.add(col);
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
+  }
+
+  protected setRegColumns(on: boolean): void {
+    this.regHidden = on ? new Set() : new Set(this.regCatalog.filter((col) => col !== 'payer'));
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
+  }
+
+  protected moveRegColumn(index: number, shift: number): void {
+    const next = index + shift;
+    if (next < 0 || next >= this.regCatalog.length) return;
+    const [item] = this.regCatalog.splice(index, 1);
+    this.regCatalog.splice(next, 0, item);
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
+  }
+
+  protected dragReg(shift: { from: string; to: string }): void {
+    const from = this.regCatalog.indexOf(shift.from);
+    const to = this.regCatalog.indexOf(shift.to);
+    if (from < 0 || to < 0 || from === to) return;
+    const [item] = this.regCatalog.splice(from, 1);
+    this.regCatalog.splice(to, 0, item);
+    this.api.saveCardColumns('registration', this.visibleRegColumns(), this.regCatalog).subscribe();
   }
 
   protected regCell(person: Registration, col: string): string {
-    const yn = (value: boolean | number | null | undefined) => (value ? 'да' : 'нет');
-    const sheet = (label: string) =>
-      (person.sheet || []).find((field) => field.label.toLowerCase().includes(label.toLowerCase()))?.value || '';
-    if (col === 'payer') return yn(person.subj_is_main);
-    if (col === 'registered') {
-      const removed = person.subj_is_check_out || sheet('снят').startsWith('1') || sheet('снят') === 'да';
-      if (removed) return 'нет';
-      const status = sheet('статус регистрации');
-      if (status === '0' || status === 'нет') return 'нет';
-      return 'да';
+    const account = this.account();
+    return registrationCell(person, col, {
+      accountId: account?.account_id,
+      privCount: account?.priv_acc_count,
+      subjCount: account?.subj_count,
+      payerCount: this.people().filter((row) => row.subj_is_main).length,
+      showDate: (value) => this.showDate(value),
+    });
+  }
+
+  private applyRegistrationColumns(prefs: ColumnPrefs): void {
+    const catalog = this.regCatalog;
+    const known = new Set(catalog);
+    const order = (prefs.order || []).filter((name) => known.has(name));
+    for (const name of [...catalog]) {
+      if (!order.includes(name)) order.push(name);
     }
-    if (col === 'fam') return person.full_name.split(' ')[0] || sheet('фамилия') || '—';
-    if (col === 'im') return person.full_name.split(' ')[1] || '—';
-    if (col === 'ot') return person.full_name.split(' ').slice(2).join(' ') || '—';
-    if (col === 'debtor_role') return person.debtor_role || '—';
-    if (col === 'legal') return yn(person.subj_legal_entity);
-    if (col === 'relation') return person.relation_degree_name || '—';
-    if (col === 'family') return yn(person.is_close_relative);
-    if (col === 'birthday') return this.showDate(person.birthday) || '—';
-    if (col === 'check_in_date') return this.showDate(sheet('прибытия')) || '—';
-    if (col === 'check_out_date') return this.showDate(sheet('убытия')) || '—';
-    if (col === 'address') return person.registration_address || sheet('местожительства') || '—';
-    if (col === 'work') return person.work_place_name || sheet('предприятия') || '—';
-    if (col === 'phone') return person.contact_phone || '—';
-    if (col === 'email') return person.email || '—';
-    return '—';
+    catalog.splice(0, catalog.length, ...order);
+    const visible = new Set(prefs.columns?.length ? prefs.columns : catalog);
+    this.regHidden = new Set(catalog.filter((name) => !visible.has(name)));
   }
 
   protected askPause(row: ScenarioMeasure): void {
@@ -959,6 +1035,7 @@ export class ContractDetailComponent implements OnInit {
         this.account.set(dossier.account);
         this.services.set(dossier.services);
         this.people.set(dossier.people);
+        this.api.cardColumns('registration').subscribe((prefs) => this.applyRegistrationColumns(prefs));
         this.contacts.set(dossier.contacts);
         this.periods.set(dossier.periods);
         this.measures.set(dossier.measures);

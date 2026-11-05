@@ -406,7 +406,7 @@ const DELIVERY_METHODS = [
               <tbody>
                 @for (event of m.events; track event.id) {
                   <tr>
-                    <td>{{ event.created_at | date: 'dd.MM.yyyy HH:mm' }}</td>
+                    <td>{{ event.created_at | date: 'dd.MM.yyyy HH:mm' : 'Europe/Minsk' }}</td>
                     <td>{{ event.actor || 'Система' }}</td>
                     <td>{{ statusLabel(event.old_status) }} → {{ statusLabel(event.new_status) }}</td>
                     <td>{{ event.reason || '—' }}</td>
