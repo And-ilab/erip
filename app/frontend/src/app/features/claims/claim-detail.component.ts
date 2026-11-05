@@ -597,7 +597,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     <mat-form-field><mat-label>Валюта, ОКРБ</mat-label><input matInput [(ngModel)]="prisCurr" /></mat-form-field>
                     <mat-form-field><mat-label>Код платежа в бюджет</mat-label><input matInput [(ngModel)]="prisBudget" /></mat-form-field>
                   </div>
-                  <p class="hint">Ход принятого дела обновляется по периоду с экрана «АИС ПРИС». Новая оплата из АИС «Расчет-ЖКУ» уходит в ПРИС сама. «Передать погашения» повторяет только то, что ещё стоит в очереди.</p>
+                  <p class="hint">Судебный исполнитель принимает задолженность вручную. Запрос хода и отдельное погашение по делу, переданному сегодня, уходят на следующий день: в тот же момент контур ещё пуст. В пакете уходит остаток АИС на момент передачи. Новая оплата из АИС ждёт в очереди и уходит со следующего дня. «Передать погашения» повторяет только эту очередь.</p>
                   <div class="actions">
                     <button mat-stroked-button type="button" (click)="savePrisDraft()">Сохранить черновик</button>
                     <button mat-flat-button color="primary" type="button" (click)="sendPris()">Передать в ПРИС</button>

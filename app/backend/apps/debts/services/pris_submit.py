@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import base64
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from apps.core.exceptions import GatewayUnavailable
@@ -30,6 +30,18 @@ _DATE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 _SEND_STAGES = {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT, ClaimCase.Stage.OPI}
 _ACCEPTED = {"1000", "1001"}
 _LIVE_MODES = {"http", "channel"}
+_FOLLOWUP_EARLY = (
+    "Задолженность передана сегодня. Судебный исполнитель вносит решение вручную, "
+    "запрос хода и погашение уходят на следующий день."
+)
+
+
+class PrisFollowupEarly(ClaimBlocked):
+    """Контур Минюста в день передачи ещё пуст: решение о возбуждении вносят вручную."""
+
+    default_detail = _FOLLOWUP_EARLY
+
+
 REQUEST_KEYS = (
     "opi", "req_init", "doc_code", "doc_num", "doc_date", "doc_org_code", "doc_org", "doc_date_in",
     "debtor_np_type", "debtor_street_type", "debtor_country", "debtor_opf", "debtor_region", "debtor_area", "debtor_np",
@@ -236,6 +248,7 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
             payload["p_response_id"] = response_id
     else:
         raise ClaimBlocked("Сначала передайте задолженность в ПРИС или запишите номер производства")
+    _ensure_followup_day(case, repay=False)
     result = _post_pris(case, user, "refresh", path, payload)
     if result.get("mode") not in _LIVE_MODES:
         from apps.debts.services.claims import _event
@@ -295,6 +308,7 @@ def flush_repay_queue(case: ClaimCase, user) -> ClaimCase | None:
         rows.append((payment, amount))
     if not rows:
         return None
+    _ensure_followup_day(case, repay=True)
     payload, problems = _repay_payload(case, rows)
     if problems:
         raise ClaimBlocked("Погашение ПРИС не собрано: " + "; ".join(problems))
@@ -326,20 +340,56 @@ def flush_repay_queue(case: ClaimCase, user) -> ClaimCase | None:
 
 
 def refresh_open_proceedings() -> dict:
-    """Обновляет ход по делам, которые уже переданы в ПРИС или имеют номер производства."""
+    """Обновляет ход по делам, которые уже переданы в ПРИС или имеют номер производства.
+
+    Дело, отданное в Минюст сегодня, не спрашивается: исполнитель вносит решение вручную,
+    и в тот же день ответ пуст. Номер производства уже есть — ход можно читать сразу.
+    """
 
     stages = set(_SEND_STAGES) | {ClaimCase.Stage.OPI_MEASURES}
     refreshed = 0
+    waiting = 0
     blocked: list[dict] = []
+    placed_today = _ministry_submits_today()
     cases = ClaimCase.objects.select_related("organization", "account").filter(stage__in=stages)
     cases = cases.exclude(pris_cl_num="", opi_number="")
     for case in cases.iterator(chunk_size=100):
+        if case.pk in placed_today and not case.opi_number.strip():
+            waiting += 1
+            continue
         try:
             refresh_pris(case, None)
             refreshed += 1
+        except PrisFollowupEarly:
+            waiting += 1
         except (ClaimBlocked, GatewayUnavailable) as exc:
             blocked.append({"id": case.pk, "message": str(exc)[:300]})
-    return {"refreshed": refreshed, "blocked": blocked}
+    return {"refreshed": refreshed, "waiting": waiting, "blocked": blocked}
+
+
+def _ensure_followup_day(case: ClaimCase, *, repay: bool) -> None:
+    """В день передачи в Минюст запрос хода без номера и погашение контур не вызывают."""
+    if case.pk not in _ministry_submits_today():
+        return
+    if not repay and case.opi_number.strip():
+        return
+    raise PrisFollowupEarly(_FOLLOWUP_EARLY)
+
+
+def _ministry_submits_today() -> set[int]:
+    """Дела, чья задолженность ушла в контур Минюста сегодня. Канал-стенд сюда не входит."""
+    from django.utils import timezone
+
+    today = timezone.localdate()
+    start = timezone.make_aware(datetime.combine(today, time.min))
+    return set(
+        PrisExchange.objects.filter(
+            operation="submit",
+            mode="http",
+            created_at__gte=start,
+            created_at__lt=start + timedelta(days=1),
+        ).values_list("case_id", flat=True)
+    )
 
 
 def _remember_acceptance(case: ClaimCase, result: dict) -> None:

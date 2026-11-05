@@ -1,11 +1,12 @@
 """Сборка пакета АИС ПРИС из дела. Заглушка канала не записывает чужой номер производства."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
 
 from apps.debts.models import (
     Attachment,
@@ -525,6 +526,64 @@ def test_poll_tick_refreshes_accepted_case(api, specialist_a, org_a, pris_transp
     debt = [item for item in pris_transport.calls if str(item[0]).endswith("claimant-info-by-debt")]
     assert debt[0][1]["p_response_id"] == "resp-1"
     assert PrisPoll.load().last_tick_at is not None
+
+
+def test_ministry_followup_waits_until_the_next_day(api, specialist_a, org_a):
+    transport = RecordingPrisTransport(mode="http")
+    set_pris_transport(transport)
+    try:
+        case, _pdf, _signature = _ready_case(org_a)
+        case.pris_cl_num = "schema_a-00007701"
+        case.pris_process_status = "1000"
+        case.pris_request = {"req_init": "205"}
+        case.opi_mode = "pris"
+        case.save(update_fields=["pris_cl_num", "pris_process_status", "pris_request", "opi_mode"])
+        PrisExchange.objects.create(
+            case=case, operation="submit", mode="http", path="/gw/v1/integrations/pris/save-data-debt/validate",
+            process_status="1000",
+        )
+        payment = Payment.objects.create(
+            organization=org_a, account=case.account, receipt_id=93, pay_date=date(2026, 11, 5),
+            pp_num="FS-DAY", pay_service_summ=Decimal("4.00"), pay_mulct_summ=Decimal("0"),
+        )
+        enqueue_repayments([payment.pk])
+        refresh = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/refresh/", {}, format="json")
+        assert refresh.status_code == 400, refresh.content
+        assert "следующий день" in refresh.json()["error"]["message"]
+        repay = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/repay/", {}, format="json")
+        assert repay.status_code == 400, repay.content
+        assert "следующий день" in repay.json()["error"]["message"]
+        assert PrisRepayQueue.objects.filter(case=case, payment=payment).exists()
+        assert transport.calls == []
+        PrisExchange.objects.filter(case=case, operation="submit").update(
+            created_at=timezone.now() - timedelta(days=1),
+        )
+        refresh = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/refresh/", {}, format="json")
+        assert refresh.status_code == 200, refresh.content
+        repay = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/repay/", {}, format="json")
+        assert repay.status_code == 200, repay.content
+        assert PrisRepayQueue.objects.filter(case=case).count() == 0
+    finally:
+        set_pris_transport(None)
+
+
+def test_poll_does_not_ask_a_debt_placed_today(api, specialist_a, org_a, pris_transport, monkeypatch):
+    monkeypatch.setattr("apps.nsi.services.integrations.pris_session", lambda: {"opened": True})
+    case, _pdf, _signature = _ready_case(org_a)
+    case.pris_cl_num = "schema_a-00007701"
+    case.save(update_fields=["pris_cl_num"])
+    PrisExchange.objects.create(
+        case=case, operation="submit", mode="http", path="/gw/v1/integrations/pris/save-data-debt/validate",
+        process_status="1000",
+    )
+    row = PrisPoll.load()
+    row.interval_minutes = 15
+    row.last_tick_at = None
+    row.save(update_fields=["interval_minutes", "last_tick_at", "updated_at"])
+    result = tick_pris_poll()
+    assert result["ran"] is True
+    assert result["summary"].startswith("Ход: 0, на следующий день: 1")
+    assert not any(str(item[0]).endswith("claimant-info-by-debt") for item in pris_transport.calls)
 
 
 def test_admin_saves_pris_poll_period(api, admin_a, specialist_a, observer_a):

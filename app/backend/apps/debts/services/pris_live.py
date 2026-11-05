@@ -3,6 +3,8 @@
 Период опроса задаётся на экране интеграций. Пока он пуст, такт ничего не вызывает:
 срок в регламенте API не задан. В очередь попадают только новые и изменённые оплаты
 дела, которое контур уже принял. Уже принятая сумма повторно не ставится.
+Запрос хода без номера производства и погашение по задолженности, переданной в Минюст
+сегодня, не вызываются: исполнитель вносит решение вручную.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from django.utils import timezone
 from apps.debts.models import ClaimCase, Payment, PrisRepayment, PrisRepayQueue
 from apps.debts.services.pris_submit import (
     _ACCEPTED,
+    PrisFollowupEarly,
     _amount,
     flush_repay_queue,
     pris_channel_status,
@@ -80,22 +83,25 @@ def flush_pending() -> dict:
     status = pris_channel_status()
     mode = str(status.get("mode") or "stub")
     if mode not in _LIVE:
-        return {"sent": 0, "failed": 0, "mode": mode}
+        return {"sent": 0, "failed": 0, "waiting": 0, "mode": mode}
     from apps.core.exceptions import GatewayUnavailable
     from apps.debts.services.claims import ClaimBlocked
 
     sent = 0
     failed = 0
+    waiting = 0
     case_ids = PrisRepayQueue.objects.values_list("case_id", flat=True).distinct()
     cases = ClaimCase.objects.filter(pk__in=case_ids).select_related("organization", "account")
     for case in cases.iterator(chunk_size=50):
         try:
             if flush_repay_queue(case, None) is not None:
                 sent += 1
+        except PrisFollowupEarly:
+            waiting += 1
         except (ClaimBlocked, GatewayUnavailable) as exc:
             failed += 1
             logger.warning("Погашение дела %s не ушло: %s", case.pk, exc)
-    return {"sent": sent, "failed": failed, "mode": mode}
+    return {"sent": sent, "failed": failed, "waiting": waiting, "mode": mode}
 
 
 def tick_pris_poll(now: datetime | None = None) -> dict:
@@ -114,8 +120,9 @@ def tick_pris_poll(now: datetime | None = None) -> dict:
     repay = flush_pending()
     refreshed = refresh_open_proceedings()
     summary = (
-        f"Ход: {refreshed['refreshed']}, без ответа: {len(refreshed['blocked'])}. "
-        f"Погашения: {repay['sent']}."
+        f"Ход: {refreshed['refreshed']}, на следующий день: {refreshed['waiting']}, "
+        f"без ответа: {len(refreshed['blocked'])}. "
+        f"Погашения: {repay['sent']}, на следующий день: {repay['waiting']}."
     )[:500]
     row.last_tick_at = moment
     row.last_summary = summary
