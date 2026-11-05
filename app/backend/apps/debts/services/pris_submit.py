@@ -526,8 +526,8 @@ def _problems(case: ClaimCase) -> list[str]:
             problems.append(f"{label} нужна в формате ДД.ММ.ГГГГ")
     pair = _pair(case)
     if pair is None:
-        problems.append("нет PDF исполнительного документа и отдельного файла подписи (.p7s или .sgn)")
-    else:
+        problems.append("нет PDF исполнительного документа")
+    elif pair[2]:
         problems += _signature_problems(pair[2], pair[3])
     debtor, debtor_problems = _debtor(case)
     problems += debtor_problems
@@ -537,13 +537,49 @@ def _problems(case: ClaimCase) -> list[str]:
     return problems
 
 
+def mark_writ_for_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
+    """Отмечает надпись совершённой, не отправляя комплект в кабинет БНП.
+
+    Тестовый контур ПРИС подпись не проверяет. Для отметки нужны дата вручения,
+    нотариальный тариф и PDF исполнительной надписи.
+    """
+    from apps.debts.services.claims import update_case
+    from apps.debts.services.document_gate import document_present
+
+    payload = data or {}
+    fields = {}
+    if "warning_delivered_on" in payload:
+        fields["warning_delivered_on"] = payload.get("warning_delivered_on")
+    if "notary_tariff" in payload:
+        fields["notary_tariff"] = payload.get("notary_tariff")
+    if fields:
+        update_case(case, fields, user)
+        case.refresh_from_db()
+    if case.stage in _SEND_STAGES:
+        return case
+    if case.stage not in {ClaimCase.Stage.PREP, ClaimCase.Stage.NOTARY}:
+        raise ClaimBlocked("Надпись отмечается из подготовки пакета или статуса «Направлено нотариусу»")
+    if not case.warning_delivered_on:
+        raise ClaimBlocked("Нет даты вручения предупреждения")
+    if case.notary_tariff is None or case.notary_tariff <= 0:
+        raise ClaimBlocked("Нет нотариального тарифа")
+    if not document_present(case.account, "writ_done", "writ", "Исполнительная надпись"):
+        raise ClaimBlocked("Приложите PDF исполнительной надписи. Файл подписи не нужен.")
+    reason = "Кабинет БНП не подключён. Надпись отмечена для передачи в АИС ПРИС."
+    return move_case(case, ClaimCase.Stage.WRIT_DONE, user, reason, checklist_reason=reason)
+
+
 def _payload(case: ClaimCase) -> tuple[dict, bool]:
     request = case.pris_request or {}
     debtor, _problems_debtor = _debtor(case)
     pdf_name, pdf_field, sign_name, sign_field = _pair(case)
-    wofe = sign_name.lower().endswith(".sgn")
-    file_body = _b64(sign_field if wofe else pdf_field)
-    file_ecp = pdf_name if wofe else _b64(sign_field)
+    wofe = bool(sign_name) and sign_name.lower().endswith(".sgn")
+    if wofe:
+        file_body = _b64(sign_field)
+        file_ecp = pdf_name
+    else:
+        file_body = _b64(pdf_field)
+        file_ecp = _b64(sign_field) if sign_name else ""
     document = {
         "p_doc_code": _text(request.get("doc_code")),
         "p_doc_date": _pris_date(request.get("doc_date")),
@@ -756,8 +792,13 @@ def _repay_payload(case: ClaimCase, rows: list[tuple[Payment, Decimal]]) -> tupl
 
 
 def _sums(account) -> list[dict]:
-    penalty = sum((_amount(service.balance_mulct_out) for service in account.services.all()), Decimal("0"))
-    total = _amount(account.balance_out)
+    services = list(account.services.all())
+    if services:
+        penalty = sum((_amount(service.balance_mulct_out) for service in services), Decimal("0"))
+        total = sum((_amount(service.balance_out) for service in services), Decimal("0"))
+    else:
+        penalty = Decimal("0")
+        total = _amount(account.balance_out)
     principal = total - penalty if total >= penalty else total
     rows = []
     if principal > 0:
@@ -772,22 +813,32 @@ def _sum_row(amount: Decimal) -> dict:
     return {"p_price": text, "p_curr_code": "933", "p_rest_sum": text}
 
 
+def _attachment(case: ClaimCase, raw) -> Attachment | None:
+    text = _text(raw)
+    if not text or not text.isdigit() or text == "0":
+        return None
+    row = Attachment.objects.filter(account_id=case.account_id, pk=int(text)).first()
+    if row is None or not row.file:
+        return None
+    return row
+
+
 def _pair(case: ClaimCase):
     request = case.pris_request or {}
-    pdf_id = request.get("pdf_id")
-    signature_id = request.get("signature_id")
-    if pdf_id and signature_id:
-        pdf = Attachment.objects.filter(account_id=case.account_id, pk=pdf_id).first()
-        signature = Attachment.objects.filter(account_id=case.account_id, pk=signature_id).first()
-        if pdf is None or signature is None or not pdf.file or not signature.file:
-            return None
+    pdf = _attachment(case, request.get("pdf_id"))
+    signature = _attachment(case, request.get("signature_id"))
+    if pdf is not None and signature is not None:
         return pdf.original_name, pdf.file, signature.original_name, signature.file
     document = (
-        ClaimPackageDocument.objects.filter(package__case=case).exclude(pdf="").exclude(signature="").order_by("-id").first()
+        ClaimPackageDocument.objects.filter(package__case=case).exclude(pdf="").order_by("-id").first()
     )
-    if document is None or not document.pdf or not document.signature:
-        return None
-    return document.file_name, document.pdf, document.signature_name, document.signature
+    if pdf is None and document is not None and document.pdf:
+        if document.signature:
+            return document.file_name, document.pdf, document.signature_name, document.signature
+        return document.file_name, document.pdf, "", None
+    if pdf is not None:
+        return pdf.original_name, pdf.file, "", None
+    return None
 
 
 def _registration(case: ClaimCase) -> Registration | None:

@@ -9,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
 from apps.debts.models import (
+    AccountService,
     Attachment,
     ClaimCase,
     Payment,
@@ -584,6 +585,47 @@ def test_poll_does_not_ask_a_debt_placed_today(api, specialist_a, org_a, pris_tr
     assert result["ran"] is True
     assert result["summary"].startswith("Ход: 0, на следующий день: 1")
     assert not any(str(item[0]).endswith("claimant-info-by-debt") for item in pris_transport.calls)
+
+
+def test_submit_without_signature_sends_pdf_only(api, specialist_a, org_a, pris_transport):
+    case, pdf, _signature = _ready_case(org_a)
+    body = _body(pdf.pk, 0)
+    body.pop("signature_id")
+    response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/submit/", body, format="json")
+    assert response.status_code == 200, response.content
+    _path, payload = pris_transport.calls[0]
+    files = payload["package"][0]["documents"][0]["p_files"][0]
+    assert files["file_body"]
+    assert files["file_ecp"] == ""
+
+
+def test_pris_sum_comes_from_services_when_card_balance_is_zero(api, specialist_a, org_a, pris_transport):
+    case, pdf, signature = _ready_case(org_a)
+    case.account.balance_out = Decimal("0")
+    case.account.save(update_fields=["balance_out"])
+    AccountService.objects.create(
+        organization=org_a, account=case.account, service_list_id=1, service_id=1,
+        service_name="Капремонт", balance_out=Decimal("100.00"), balance_mulct_out=Decimal("10.00"),
+    )
+    response = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/pris/submit/", _body(pdf.pk, signature.pk), format="json",
+    )
+    assert response.status_code == 200, response.content
+    sums = pris_transport.calls[0][1]["package"][0]["debtor"]["p_arr_sum"]
+    assert [row["p_price"] for row in sums] == ["90.00", "10.00"]
+
+
+def test_mark_writ_for_pris_without_bnp_package(api, specialist_a, org_a):
+    case, _pdf, _signature = _ready_case(org_a)
+    case.stage = ClaimCase.Stage.PREP
+    case.warning_delivered_on = date(2026, 3, 1)
+    case.notary_tariff = Decimal("48.00")
+    case.save(update_fields=["stage", "warning_delivered_on", "notary_tariff"])
+    response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/writ/", {}, format="json")
+    assert response.status_code == 200, response.content
+    case.refresh_from_db()
+    assert case.stage == ClaimCase.Stage.WRIT_DONE
+    assert "БНП" in case.skip_reason
 
 
 def test_admin_saves_pris_poll_period(api, admin_a, specialist_a, observer_a):

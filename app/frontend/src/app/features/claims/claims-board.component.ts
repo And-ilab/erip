@@ -92,11 +92,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td [class.amount-danger]="+(row.mulct_total || 0) > 0"><app-money [value]="row.mulct_total" [blank]="false" /></td>
                       <td>{{ stageLabel(row.funnel_stage) }}</td>
                       <td>
-                        @for (claim of datedClaims(row); track claim.id) {
-                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: defaultClaimTab() }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
+                        @for (claim of claimsOf(row); track claim.id) {
+                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: 'pris' }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
                         } @empty {
-                          @if (isClaimFunnel(row.funnel_stage)) {
-                            <button type="button" class="pack-link" (click)="$event.stopPropagation(); openDebtor(row)">{{ stageLabel(row.funnel_stage) }}</button>
+                          @if (canAdd()) {
+                            <button type="button" class="pack-link" (click)="$event.stopPropagation(); startWrit(row)">Создать надпись</button>
                           } @else { не заведена }
                         }
                       </td>
@@ -839,28 +839,23 @@ export class ClaimsBoardComponent implements OnInit {
   }
 
   protected openDebtor(row: AccountRow): void {
-    const tab = this.tabForStage(row.claim_stage || row.funnel_stage, !row.claim_stage);
-    const go = (id: number): void => {
-      this.mode.set('list');
-      setTimeout(() => this.router.navigate(['/claims', id], { queryParams: { tab } }));
-    };
-    if (row.claim_id) {
-      go(row.claim_id);
-      return;
-    }
-    const claim = this.claimOf(row);
-    if (claim) {
-      go(claim.id);
+    const id = row.claim_id || this.claimsOf(row)[0]?.id;
+    if (id) {
+      this.router.navigate(['/claims', id], { queryParams: { tab: 'pris' } });
       return;
     }
     if (!this.canAdd()) {
       this.missingWrit();
       return;
     }
-    this.api.openClaim(row.id).subscribe({
-      next: (created) => go(created.id),
-      error: (err) => this.snack.open(errorMessage(err), 'OK'),
-    });
+    this.startWrit(row);
+  }
+
+  protected startWrit(row: AccountRow): void {
+    this.openCreate();
+    this.picked.set(row);
+    this.query.setValue(row.client_account || '', { emitEvent: false });
+    this.loadWrit(row.id, true);
   }
 
   private tabForStage(stage: string | undefined, fromFunnel = false): string {
@@ -1011,7 +1006,7 @@ export class ClaimsBoardComponent implements OnInit {
         this.busy.set(false);
         this.dialog.set(false);
         this.reload();
-        this.router.navigate(['/claims', created.id], { queryParams: { tab: 'pack', writ: null }, queryParamsHandling: 'merge' });
+        this.router.navigate(['/claims', created.id], { queryParams: { tab: 'pris', writ: null }, queryParamsHandling: 'merge' });
       },
       error: (err) => {
         this.busy.set(false);

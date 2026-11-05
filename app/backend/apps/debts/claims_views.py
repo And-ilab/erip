@@ -324,6 +324,14 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         record_action(request, AuditLog.Action.UPDATE, case, after={"pris": "draft"})
         return Response(self._shown(case, with_choices=True))
 
+    @action(detail=True, methods=["post"], url_path="pris/writ")
+    def pris_writ(self, request, pk=None):
+        from apps.debts.services.pris_submit import mark_writ_for_pris
+
+        case = mark_writ_for_pris(self._case(pk), request.user, request.data)
+        record_action(request, AuditLog.Action.UPDATE, case, after={"stage": case.stage, "pris": "writ"})
+        return Response(self._shown(case, with_choices=True))
+
     @action(detail=True, methods=["post"], url_path="pris/submit")
     def pris_submit(self, request, pk=None):
         case = submit_pris(self._case(pk), request.user, request.data)

@@ -55,6 +55,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
             @if (periodLine(row)) { <p class="muted">{{ periodLine(row) }}</p> }
           </div>
           <span class="stage">{{ row.stage_label }}</span>
+          <button mat-stroked-button type="button" (click)="setTab('pris')">ПРИС</button>
         </header>
         @if (packages().length > 1) {
           <nav class="packages" aria-label="Пакеты по периодам">
@@ -251,7 +252,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   <ul class="checks">
                     @for (slot of opiSlots; track slot.id) {
                       <li [class.on]="opiSlot() === slot.id" [class.done]="opiDone(slot.id, row)" [class.need]="slot.required && !opiDone(slot.id, row)">
-                        <button type="button" class="check-row" (click)="opiSlot.set(slot.id)">
+                        <button type="button" class="check-row" (click)="openOpiSlot(slot.id)">
                           <span class="box" [class.on]="opiDone(slot.id, row)"></span>
                           <span class="title">{{ slot.title }}</span>
                           <span class="state">{{ opiState(slot.id, row) }}</span>
@@ -441,7 +442,27 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </div>
                 </div>
 
-                <div [hidden]="opiSlot() !== 'pris'">
+                <div class="opi-card">
+                  <h4>Передача в АИС ПРИС</h4>
+                  <p class="hint">Форма на вкладке «ПРИС». Подпись к ней не прикладывается.</p>
+                  <button mat-stroked-button type="button" (click)="setTab('pris')">Открыть вкладку ПРИС</button>
+                </div>
+                @if (auth.canSkip()) {
+                  <mat-form-field class="wide"><mat-label>Причина перехода / пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
+                }
+                <div class="actions">
+                  <button mat-flat-button color="primary" type="button" (click)="saveOpiRecord()">Записать статус</button>
+                  @if (auth.canSkip()) {
+                    <button mat-stroked-button type="button" (click)="moveToOpi()">Направлено в ОПИ</button>
+                    <button mat-stroked-button type="button" (click)="moveToMeasures()">Меры приняты</button>
+                  }
+                  <button mat-stroked-button type="button" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
+                </div>
+                  </div>
+                </div>
+              }
+              @case ('pris') {
+
                 @if (row.pris?.inquiry?.applied) {
                   <div class="inquiry opi-card">
                     <h4>Сведения о ходе исполнительного производства из АИС ПРИС (3.11.04 / 3.11.05)</h4>
@@ -467,9 +488,22 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </div>
                 }
 
-                <details [open]="!!row.pris_cl_num || (row.pris?.problems?.length || 0) > 0">
+                @if (row.stage === 'prep' || row.stage === 'notary') {
+                  <div class="banner">
+                    Сначала отметьте «Надпись совершена». Нужны дата вручения, нотариальный тариф и PDF. В кабинет БНП этот шаг не отправляет. Файл подписи не нужен.
+                  </div>
+                  <div class="line">
+                    <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="setWarningDate($event)" />
+                    <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
+                      <input matInput holdDraft [ngModel]="tariff" (ngModelChange)="setTariff($event)" />
+                      <span matTextSuffix><app-byn-sign /></span>
+                    </mat-form-field>
+                    <button mat-flat-button color="primary" type="button" (click)="markWrit()">Надпись совершена</button>
+                  </div>
+                }
+                <details open>
                   <summary>Электронный обмен с АИС ПРИС (ОАИС 3.11.01–3.11.05)</summary>
-                  <p class="hint">Коды справочников выбираются из списка. Если документ взят из комплекта, для обмена берётся его подпись.</p>
+                  <p class="hint">Коды справочников выбираются из списка. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно.</p>
                   @if (row.pris?.problems?.length) {
                     <p class="need">Не заполнено для отправки в ПРИС: {{ row.pris?.problems?.join('; ') }}</p>
                   } @else if (row.pris?.ready) {
@@ -537,15 +571,19 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     <mat-form-field class="wide"><mat-label>Полный адрес должника</mat-label><input matInput [(ngModel)]="prisDebtorAddress" /></mat-form-field>
                     <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
                       <mat-select [(ngModel)]="prisPdf">
-                        <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
+                        <mat-option [value]="0">Не выбран</mat-option>
                         @for (file of row.files; track file.id) {
                           <mat-option [value]="file.id">{{ file.name }}</mat-option>
                         }
                       </mat-select>
                     </mat-form-field>
-                    <mat-form-field><mat-label>Файл подписи .p7s или .sgn</mat-label>
+                    <label class="file-pick">
+                      Приложить PDF
+                      <input type="file" accept="application/pdf,.pdf" (change)="uploadPrisPdf($event)" />
+                    </label>
+                    <mat-form-field><mat-label>Файл подписи, если контур начнёт её проверять</mat-label>
                       <mat-select [(ngModel)]="prisSign">
-                        <mat-option [value]="0">Из пакета, если подпись уже приложена</mat-option>
+                        <mat-option [value]="0">Не прикладывать</mat-option>
                         @for (file of row.files; track file.id) {
                           <mat-option [value]="file.id">{{ file.name }}</mat-option>
                         }
@@ -615,20 +653,6 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </details>
                   }
                 </details>
-                </div>
-                @if (auth.canSkip()) {
-                  <mat-form-field class="wide"><mat-label>Причина перехода / пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
-                }
-                <div class="actions">
-                  <button mat-flat-button color="primary" type="button" (click)="saveOpiRecord()">Записать статус</button>
-                  @if (auth.canSkip()) {
-                    <button mat-stroked-button type="button" (click)="moveToOpi()">Направлено в ОПИ</button>
-                    <button mat-stroked-button type="button" (click)="moveToMeasures()">Меры приняты</button>
-                  }
-                  <button mat-stroked-button type="button" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
-                </div>
-                  </div>
-                </div>
               }
               @case ('writeoff') {
                 <p class="hint">Актов о невозможности: {{ row.acts_count }} из 3. Списание в АИС делает учётная система. Здесь согласуется комплект.</p>
@@ -787,6 +811,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     { id: 'notary' as const, label: 'Нотариат' },
     { id: 'court' as const, label: 'Суд' },
     { id: 'opi' as const, label: 'ОПИ' },
+    { id: 'pris' as const, label: 'ПРИС' },
     { id: 'writeoff' as const, label: 'Списание' },
   ];
   protected readonly tab = signal<(typeof this.tabs)[number]['id']>('pack');
@@ -921,7 +946,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.route.queryParamMap.subscribe((params) => {
       const tab = params.get('tab');
-      if (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'writeoff') {
+      if (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'pris' || tab === 'writeoff') {
         this.tab.set(tab);
       }
       const slot = params.get('slot');
@@ -1192,6 +1217,42 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       return;
     }
     this.act('move', { stage: 'opi_measures', reason: this.skipReason || 'Меры ОПИ приняты' });
+  }
+
+  protected openOpiSlot(id: string): void {
+    if (id === 'pris') {
+      this.setTab('pris');
+      return;
+    }
+    this.opiSlot.set(id);
+  }
+
+  protected markWrit(): void {
+    this.act('pris/writ', {
+      warning_delivered_on: this.warningDate || null,
+      notary_tariff: this.tariff,
+    });
+  }
+
+  protected uploadPrisPdf(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const row = this.claim();
+    if (!file || !row) return;
+    this.api.uploadFile(row.account, 'Исполнительная надпись', file).subscribe({
+      next: (saved) => {
+        input.value = '';
+        this.prisPdf = Number(saved.id);
+        this.api.claimAction(row.id, 'pris/draft', this.prisPayload()).subscribe({
+          next: (next) => {
+            this.apply(next);
+            this.snack.open('PDF приложен', 'OK', { duration: 2000 });
+          },
+          error: (err) => this.snack.open(errorMessage(err), 'OK'),
+        });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
   }
 
   protected uploadEnforcement(event: Event): void {
@@ -1809,9 +1870,9 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.gate.set(null);
     if (!blocked) return;
     const here = this.claim()?.id;
-    if (blocked.claimId && here && blocked.claimId === here && (blocked.tab === 'pack' || blocked.tab === 'notary' || blocked.tab === 'court' || blocked.tab === 'opi' || blocked.tab === 'writeoff')) {
+    if (blocked.claimId && here && blocked.claimId === here && (blocked.tab === 'pack' || blocked.tab === 'notary' || blocked.tab === 'court' || blocked.tab === 'opi' || blocked.tab === 'pris' || blocked.tab === 'writeoff')) {
       if (blocked.focus) this.applySlot(blocked.focus);
-      this.setTab(blocked.tab as 'pack' | 'notary' | 'court' | 'opi' | 'writeoff');
+      this.setTab(blocked.tab as 'pack' | 'notary' | 'court' | 'opi' | 'pris' | 'writeoff');
       return;
     }
     const target = gateTarget(blocked);

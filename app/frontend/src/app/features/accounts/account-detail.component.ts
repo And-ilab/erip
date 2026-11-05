@@ -570,7 +570,7 @@ import { FunnelBarComponent } from './funnel-bar.component';
                 }
               </article>
             } @empty {
-              <p class="muted">Пакетов пока нет.</p>
+              <p class="muted">Пакетов пока нет. «Добавить исполнительную надпись» открывает период по этому счёту, затем дело и вкладку «ПРИС».</p>
             }
           </mat-tab>
 
