@@ -572,7 +572,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
                       <mat-select [(ngModel)]="prisPdf">
                         <mat-option [value]="0">Не выбран</mat-option>
-                        @for (file of row.files; track file.id) {
+                        @for (file of prisDocumentFiles(row); track file.id) {
                           <mat-option [value]="file.id">{{ file.name }}</mat-option>
                         }
                       </mat-select>
@@ -584,7 +584,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     <mat-form-field><mat-label>Файл подписи, если контур начнёт её проверять</mat-label>
                       <mat-select [(ngModel)]="prisSign">
                         <mat-option [value]="0">Не прикладывать</mat-option>
-                        @for (file of row.files; track file.id) {
+                        @for (file of prisSignatureFiles(row); track file.id) {
                           <mat-option [value]="file.id">{{ file.name }}</mat-option>
                         }
                       </mat-select>
@@ -1164,6 +1164,19 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected hasEnforcement(row: ClaimCase): boolean {
     if (row.opi_mode === 'pris' || row.opi_mode === 'channel' || row.opi_mode === 'stub') return true;
     return this.enforcementFiles(row).length > 0;
+  }
+
+  protected prisDocumentFiles(row: ClaimCase): ClaimCase['files'] {
+    return (row.files || []).filter((file) => !this.signFile(file.name));
+  }
+
+  protected prisSignatureFiles(row: ClaimCase): ClaimCase['files'] {
+    return (row.files || []).filter((file) => this.signFile(file.name));
+  }
+
+  private signFile(name: string): boolean {
+    const lower = (name || '').toLowerCase();
+    return lower.endsWith('.p7s') || lower.endsWith('.sgn');
   }
 
   protected enforcementFiles(row: ClaimCase): ClaimCase['files'] {

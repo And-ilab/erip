@@ -594,6 +594,27 @@ def test_pdf_in_signature_slot_does_not_block_and_unp_is_saved(api, specialist_a
     assert pris_transport.calls[0][1]["package"][0]["claimant"]["p_c_reg_num"] == "123456789"
 
 
+def test_signature_selected_as_pdf_sends_the_document(api, specialist_a, org_a, pris_transport):
+    case, pdf, signature = _ready_case(org_a)
+    response = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/pris/submit/", _body(signature.pk, pdf.pk), format="json",
+    )
+    assert response.status_code == 200, response.content
+    files = pris_transport.calls[0][1]["package"][0]["documents"][0]["p_files"][0]
+    assert files["file_body"].startswith("JVBER")
+    assert files["file_ecp"] == "bm90LWEtc2lnbmF0dXJl"
+
+
+def test_signature_alone_is_not_sent_as_pdf(api, specialist_a, org_a, pris_transport):
+    case, _pdf, signature = _ready_case(org_a)
+    body = _body(signature.pk, 0)
+    body.pop("signature_id")
+    response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/submit/", body, format="json")
+    assert response.status_code == 400
+    assert "файл подписи" in response.json()["error"]["message"]
+    assert pris_transport.calls == []
+
+
 def test_submit_without_signature_sends_pdf_only(api, specialist_a, org_a, pris_transport):
     case, pdf, _signature = _ready_case(org_a)
     body = _body(pdf.pk, 0)

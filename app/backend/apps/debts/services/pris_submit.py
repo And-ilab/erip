@@ -532,6 +532,8 @@ def _problems(case: ClaimCase) -> list[str]:
     pair = _pair(case)
     if pair is None:
         problems.append("нет PDF исполнительного документа")
+    elif _is_signature(pair[0]) or _looks_like_pkcs7(_head(pair[1])):
+        problems.append(f"в поле PDF выбран файл подписи {pair[0]}. Нужен сам документ")
     elif _is_signature(pair[2]):
         problems += _signature_problems(pair[2], pair[3])
     debtor, debtor_problems = _debtor(case)
@@ -822,6 +824,24 @@ def _is_signature(name: str) -> bool:
     return bool(name) and name.lower().endswith(_SIGN_EXT)
 
 
+def _head(field, size: int = 24) -> bytes:
+    with field.open("rb") as handle:
+        return handle.read(size)
+
+
+def _looks_like_pkcs7(head: bytes) -> bool:
+    return head.startswith(b"\x30") and b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07" in head[:24]
+
+
+def _usable_document(row: Attachment) -> bool:
+    if _is_signature(row.original_name) or _looks_like_pkcs7(_head(row.file)):
+        return False
+    head = _head(row.file)
+    if head.startswith((b"%PDF", b"{\\rtf", b"PK\x03\x04", b"\xd0\xcf\x11\xe0")):
+        return True
+    return row.original_name.lower().endswith((".pdf", ".rtf", ".doc", ".docx"))
+
+
 def _claimant_form(case: ClaimCase) -> dict:
     profile = dict(case.organization.pris_claimant or {})
     profile["unp"] = case.organization.unp
@@ -842,6 +862,9 @@ def _pair(case: ClaimCase):
     request = case.pris_request or {}
     pdf = _attachment(case, request.get("pdf_id"))
     signature = _attachment(case, request.get("signature_id"))
+    if pdf is not None and signature is not None and not _usable_document(pdf) and _usable_document(signature):
+        pdf = signature
+        signature = None
     sign_name = signature.original_name if signature is not None and _is_signature(signature.original_name) else ""
     sign_field = signature.file if sign_name else None
     if pdf is not None:
