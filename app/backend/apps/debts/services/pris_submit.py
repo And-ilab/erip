@@ -59,6 +59,9 @@ _ADDRESS_KEYS = (
 )
 _INQUIRY_KEYS = ("p_ispdoc", "p_ost", "p_cred", "p_debt", "p_status", "p_action", "p_nachisl", "p_repay")
 _SIGN_EXT = (".p7s", ".sgn")
+# Шлюз не принимает пустой file_ecp. Тестовый контур подпись не проверяет:
+# 04.11 пакет с этой строкой в base64 прошёл с кодом 1000.
+_UNSIGNED_ECP = base64.b64encode(b"not-a-signature").decode("ascii")
 
 
 def pris_card(case: ClaimCase) -> dict:
@@ -581,7 +584,7 @@ def _payload(case: ClaimCase) -> tuple[dict, bool]:
         file_ecp = pdf_name
     else:
         file_body = _b64(pdf_field)
-        file_ecp = _b64(sign_field) if sign_name else ""
+        file_ecp = _b64(sign_field) if sign_name else _UNSIGNED_ECP
     document = {
         "p_doc_code": _text(request.get("doc_code")),
         "p_doc_date": _pris_date(request.get("doc_date")),

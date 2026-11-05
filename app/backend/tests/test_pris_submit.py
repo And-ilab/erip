@@ -118,7 +118,7 @@ def test_stub_submit_keeps_regulation_package_and_does_not_open_proceeding(api, 
     assert item["debtor"]["p_d_adr_reg"]["house"] == "1"
     assert item["debtor"]["p_d_adr_reg"]["np_type"] == "1"
     assert item["debtor"]["p_arr_sum"][0]["p_curr_code"] == "933"
-    assert item["documents"][0]["p_files"][0]["file_ecp"] != "writ.pdf"
+    assert item["documents"][0]["p_files"][0]["file_ecp"] not in {"writ.pdf", "bm90LWEtc2lnbmF0dXJl"}
 
 
 def test_submit_without_opi_code_does_not_call_pris(api, specialist_a, org_a, pris_transport):
@@ -587,7 +587,7 @@ def test_pdf_in_signature_slot_does_not_block_and_unp_is_saved(api, specialist_a
     response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/submit/", body, format="json")
     assert response.status_code == 200, response.content
     files = pris_transport.calls[0][1]["package"][0]["documents"][0]["p_files"][0]
-    assert files["file_ecp"] == ""
+    assert files["file_ecp"] == "bm90LWEtc2lnbmF0dXJl"
     assert files["file_body"]
     org_a.refresh_from_db()
     assert org_a.unp == "123456789"
@@ -603,7 +603,7 @@ def test_submit_without_signature_sends_pdf_only(api, specialist_a, org_a, pris_
     _path, payload = pris_transport.calls[0]
     files = payload["package"][0]["documents"][0]["p_files"][0]
     assert files["file_body"]
-    assert files["file_ecp"] == ""
+    assert files["file_ecp"] == "bm90LWEtc2lnbmF0dXJl"
 
 
 def test_pris_sum_comes_from_services_when_card_balance_is_zero(api, specialist_a, org_a, pris_transport):
