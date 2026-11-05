@@ -472,7 +472,7 @@ def record_opi(
         m = __import__("re").match(r"^(\d{2,6})\b", case.opi_department)
         if m:
             req = dict(case.pris_request or {})
-            if not req.get("opi"):
+            if str(req.get("opi") or "") != m.group(1):
                 req["opi"] = m.group(1)
                 case.pris_request = req
                 fields.append("pris_request")

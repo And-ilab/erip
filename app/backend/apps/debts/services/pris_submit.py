@@ -97,6 +97,27 @@ def pris_channel_status() -> dict:
     }
 
 
+def _remember_office(case: ClaimCase, code) -> list[str]:
+    """Код органа в пакете и поле «Орган ОПИ» держат один и тот же подраздел."""
+    number = _text(code)
+    if not re.fullmatch(r"\d{2,6}", number):
+        return []
+    current = _text(case.opi_department)
+    if re.match(rf"^{re.escape(number)}\b", current):
+        return []
+    label = number
+    try:
+        from apps.nsi.models import OpiOffice
+
+        office = OpiOffice.objects.filter(code=number, is_active=True).first()
+        if office is not None:
+            label = f"{office.code} — {office.name}"
+    except Exception:
+        pass
+    case.opi_department = label[:250]
+    return ["opi_department"]
+
+
 def autofill_pris_draft(case: ClaimCase) -> ClaimCase:
     """Подставляет реквизиты из карточки дела, ЛС и справочника ОПИ, не затирая уже заполненные поля."""
     from django.utils import timezone
@@ -153,18 +174,17 @@ def autofill_pris_draft(case: ClaimCase) -> ClaimCase:
     full_adr = (person.registration_address if person else "") or case.account.account_address
     fill("debtor_full_adr", full_adr)
 
+    if not _text(request.get("pdf_id")) or _text(request.get("pdf_id")) == "0":
+        writ = (
+            Attachment.objects.filter(account_id=case.account_id, doc_type__icontains="исполнительн")
+            .exclude(file="")
+            .order_by("-id")
+            .first()
+        )
+        if writ is not None:
+            request["pdf_id"] = writ.pk
     case.pris_request = request
-    fields = ["pris_request", "updated_at"]
-    if _text(request.get("opi")) and not _text(case.opi_department):
-        try:
-            from apps.nsi.models import OpiOffice
-
-            off = OpiOffice.objects.filter(code=_text(request.get("opi")), is_active=True).first()
-            if off:
-                case.opi_department = f"{off.code} — {off.name}"[:250]
-                fields.append("opi_department")
-        except Exception:
-            pass
+    fields = ["pris_request", "updated_at", *_remember_office(case, request.get("opi"))]
     case.save(update_fields=fields)
     return case
 
@@ -185,7 +205,7 @@ def save_pris_draft(case: ClaimCase, data: dict) -> ClaimCase:
         if "unp" in claimant:
             case.organization.unp = _text(claimant.get("unp"))[:9]
         case.organization.save(update_fields=["pris_claimant", "unp", "updated_at"])
-    case.save(update_fields=["pris_request", "updated_at"])
+    case.save(update_fields=["pris_request", "updated_at", *_remember_office(case, request.get("opi"))])
     return case
 
 
@@ -220,16 +240,7 @@ def submit_pris(case: ClaimCase, user, data: dict | None = None) -> ClaimCase:
 
     if not case.opi_sent_on:
         case.opi_sent_on = timezone.localdate()
-    opi_code = _text((case.pris_request or {}).get("opi"))
-    if opi_code and not _text(case.opi_department):
-        try:
-            from apps.nsi.models import OpiOffice
-
-            off = OpiOffice.objects.filter(code=opi_code, is_active=True).first()
-            if off:
-                case.opi_department = f"{off.code} — {off.name}"[:250]
-        except Exception:
-            pass
+    _remember_office(case, (case.pris_request or {}).get("opi"))
     case.save(update_fields=[
         "opi_mode", "opi_sent_on", "opi_department", "pris_cl_num",
         "pris_response_id", "pris_process_status", "pris_process_message", "updated_at",

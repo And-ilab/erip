@@ -380,6 +380,27 @@ def test_opi_module_registry_measures_acts_and_autofill(api, specialist_a, admin
     assert req["doc_code"] == "15"
     assert req["debtor_country"] == "112"
     assert req["debtor_np"] == "Минск"
+    assert req["doc_num"]
+
+    kept = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/autofill/", {}, format="json")
+    assert kept.json()["pris"]["request"]["doc_num"] == req["doc_num"]
+
+    changed = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/opi/",
+        {"number": "70126000555", "status": "Возбуждено", "department": "702 — другое"},
+        format="json",
+    )
+    assert changed.status_code == 200, changed.content
+    assert changed.json()["pris"]["request"]["opi"] == "702"
+
+    drafted = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/pris/draft/",
+        {"opi": "701"},
+        format="json",
+    )
+    assert drafted.status_code == 200, drafted.content
+    assert drafted.json()["pris"]["request"]["opi"] == "701"
+    assert drafted.json()["opi_department"].startswith("701")
 
     # 4. Принятые меры ОПИ и автоматический переход на этап «Меры ОПИ»
     measured = api(specialist_a).post(

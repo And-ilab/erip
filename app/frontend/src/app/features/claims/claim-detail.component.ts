@@ -271,7 +271,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   <p class="hint">Без органа, даты направления и исполнительного документа статус «Направлено в ОПИ» не ставится. Если номер производства уже пришёл из АИС ПРИС, переход проходит по нему.</p>
                   <div class="fields">
                     <mat-form-field class="wide" [class.need]="!opiDepartment.trim()"><mat-label>Орган ОПИ (справочник 120) *</mat-label>
-                      <input matInput [(ngModel)]="opiDepartment" [matAutocomplete]="autoOpiDept" placeholder="Код или наименование подразделения ОПИ" />
+                      <input matInput [ngModel]="opiDepartment" (ngModelChange)="onOpiDepartmentInput($event)" [matAutocomplete]="autoOpiDept" placeholder="Код или наименование подразделения ОПИ" />
                       <mat-autocomplete #autoOpiDept="matAutocomplete" (optionSelected)="onPickOpiOffice($event.option.value)">
                         @for (item of filteredOpiOffices(); track item.code + item.name) {
                           <mat-option [value]="item.code + ' — ' + item.name">{{ item.code }} — {{ item.name }}@if (item.region) { ({{ item.region }}) }</mat-option>
@@ -492,7 +492,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   }
                   <details open>
                     <summary>Направление в ОПИ через АИС ПРИС (ОАИС 3.11.01–3.11.05)</summary>
-                    <p class="hint">Коды справочников выбираются из списка. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно. «УНП взыскателя» — УНП организации, от имени которой уходит пакет, общий для схемы. «УНП получателя» — УНП банка.</p>
+                    <p class="hint">Пустые реквизиты документа, адрес должника и код органа подставляются из карточки. Уже введённое не затирается. Реквизиты взыскателя берутся из карточки организации. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно.</p>
                     @if (row.pris?.problems?.length) {
                       <p class="need">Не заполнено для передачи в ОПИ: {{ row.pris?.problems?.join('; ') }}</p>
                     } @else if (row.pris?.ready) {
@@ -503,8 +503,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </div>
                     <p class="hint">Идентификатор задолженности: {{ row.pris?.cl_num || 'появится при передаче' }}</p>
                     <div class="fields">
-                      <mat-form-field [class.need]="!prisOpi.trim()"><mat-label>ОПИ, справочник 120 *</mat-label>
-                        <input matInput [(ngModel)]="prisOpi" [matAutocomplete]="autoOpi" />
+                    <mat-form-field [class.need]="!prisOpi.trim()"><mat-label>ОПИ, справочник 120 *</mat-label>
+                      <input matInput [ngModel]="prisOpi" (ngModelChange)="onPrisOpiInput($event)" [matAutocomplete]="autoOpi" />
+                      <mat-hint>Тот же орган, что в пункте «Орган и дата направления».</mat-hint>
                         <mat-autocomplete #autoOpi="matAutocomplete">
                           @for (item of dict('120'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
                         </mat-autocomplete>
@@ -1155,9 +1156,21 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   }
 
   protected onPickOpiOffice(val: string): void {
-    this.opiDepartment = val;
-    const match = val.match(/^(\d{2,6})\b/);
-    if (match && !this.prisOpi) this.prisOpi = match[1];
+    this.onOpiDepartmentInput(val);
+  }
+
+  protected onOpiDepartmentInput(value: string): void {
+    this.opiDepartment = value;
+    const match = (value || '').match(/^(\d{2,6})\b/);
+    if (match && this.prisOpi !== match[1]) this.prisOpi = match[1];
+  }
+
+  protected onPrisOpiInput(value: string): void {
+    const code = (value || '').trim();
+    this.prisOpi = code;
+    if (!/^\d{2,6}$/.test(code) || new RegExp(`^${code}\\b`).test(this.opiDepartment)) return;
+    const office = this.opiOffices().find((item) => item.code === code);
+    if (office) this.opiDepartment = `${office.code} — ${office.name}`;
   }
 
   protected saveOpiRecord(): void {
@@ -1262,6 +1275,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       queryParams: { tab: 'opi', slot: id },
       queryParamsHandling: 'merge',
     });
+    if (id === 'pris') this.pullPrisDraft();
   }
 
   protected markWrit(): void {
@@ -1442,13 +1456,32 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     });
   }
 
+  private prisPulledFor = 0;
+
+  private pullPrisDraft(): void {
+    const row = this.claim();
+    if (!row || this.prisPulledFor === row.id) return;
+    const request = row.pris?.request || {};
+    if (request['doc_num'] && request['doc_code'] && (request['opi'] || this.prisOpi) && (request['debtor_full_adr'] || request['debtor_np'])) return;
+    this.prisPulledFor = row.id;
+    this.api.autofillPris(row.id).subscribe({
+      next: (next) => {
+        if (this.alive && this.claim()?.id === row.id) this.apply(next);
+      },
+      error: () => {
+        if (this.prisPulledFor === row.id) this.prisPulledFor = 0;
+      },
+    });
+  }
+
   protected autofillPrisForm(): void {
     const row = this.claim();
     if (!row) return;
     this.api.autofillPris(row.id).subscribe({
       next: (next) => {
         this.apply(next);
-        this.snack.open('Реквизиты пакета ПРИС заполнены из карточки ЛС и дела', 'OK', { duration: 2500 });
+        this.prisPulledFor = row.id;
+        this.snack.open('Реквизиты для передачи в ОПИ заполнены из карточки', 'OK', { duration: 2500 });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -2088,6 +2121,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.prisClaimCorp = String(claimant['corp'] || '');
     this.prisClaimFlat = String(claimant['flat'] || '');
     this.prisClaimIndex = String(claimant['post_index'] || '');
+    if (this.opiSlot() === 'pris') this.pullPrisDraft();
     this.prisOrgUnp = String(claimant['unp'] || '');
     this.prisBankUnp = String(claimant['bank_unp'] || '');
     this.prisCurr = String(claimant['curr_code'] || '933');
