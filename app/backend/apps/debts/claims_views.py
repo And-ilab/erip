@@ -36,6 +36,7 @@ from .services.claims import (
     add_act,
     add_opi_measure,
     apply_ais_receipt,
+    apply_bnp_stub_result,
     case_payload,
     claims_population,
     decide_writeoff,
@@ -242,6 +243,16 @@ class ClaimCaseViewSet(ScopedQuerysetMixin, viewsets.GenericViewSet):
         send_to_notary(self._case(pk), request.user, str(request.data.get("skip_reason") or ""))
         case = self._case(pk)
         record_action(request, AuditLog.Action.UPDATE, case, after={"submission_id": case.submission_id, "mode": "stub"})
+        return Response(self._shown(case, with_choices=True))
+
+    @action(detail=True, methods=["post"], url_path="bnp-result")
+    def bnp_result(self, request, pk=None):
+        apply_bnp_stub_result(self._case(pk), request.user)
+        case = self._case(pk)
+        record_action(
+            request, AuditLog.Action.UPDATE, case,
+            after={"stage": case.stage, "mode": "stub", "bnp": "result-stub"},
+        )
         return Response(self._shown(case, with_choices=True))
 
     @action(detail=True, methods=["post"], url_path="notary-result")

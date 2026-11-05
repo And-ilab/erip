@@ -107,6 +107,39 @@ def test_notary_is_blocked_without_tariff_and_refusal_opens_lawsuit(api, special
 
 
 @pytest.mark.django_db
+def test_bnp_stub_result_marks_writ_without_cabinet(api, specialist_a, account_a):
+    opened = api(specialist_a).post("/api/v1/claims/", {"account": account_a.id}, format="json")
+    assert opened.status_code == 201, opened.content
+    case_id = opened.json()["id"]
+    early = api(specialist_a).post(f"/api/v1/claims/{case_id}/bnp-result/", {}, format="json")
+    assert early.status_code == 400
+    assert "Направлено нотариусу" in early.content.decode()
+
+    _ready(api, specialist_a, account_a)
+    _formed_package(api, specialist_a, account_a, case_id)
+    sent = api(specialist_a).post(f"/api/v1/claims/{case_id}/send-notary/", {}, format="json")
+    assert sent.status_code == 200, sent.content
+    assert sent.json()["stage"] == "notary"
+
+    answered = api(specialist_a).post(f"/api/v1/claims/{case_id}/bnp-result/", {}, format="json")
+    assert answered.status_code == 200, answered.content
+    body = answered.json()
+    assert body["stage"] == "writ_done"
+    assert body["submission_mode"] == "stub"
+    assert "Ответ БНП — заглушка. Кабинет не вызывался." in body["notary_note"]
+    assert any(event["reason"].startswith("Ответ БНП — заглушка") for event in body["events"])
+    stub = next(item for item in body["files"] if item["doc_type"] == "Исполнительная надпись")
+    assert stub["name"].startswith("zaglushka-bnp-")
+    assert body["pris"]["request"]["pdf_id"] == stub["id"]
+    stored = Attachment.objects.get(pk=stub["id"])
+    assert stored.file.read().startswith(b"%PDF")
+
+    again = api(specialist_a).post(f"/api/v1/claims/{case_id}/bnp-result/", {}, format="json")
+    assert again.status_code == 400
+    assert "Направлено нотариусу" in again.content.decode()
+
+
+@pytest.mark.django_db
 def test_writeoff_needs_three_acts_and_every_approval(api, specialist_a, admin_a, account_a, org_a):
     case_id = _ready(api, specialist_a, account_a)
     for index in range(3):

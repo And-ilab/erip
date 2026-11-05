@@ -300,6 +300,52 @@ def send_to_notary(case: ClaimCase, user, skip_reason: str = "") -> ClaimCase:
     return move_case(case, ClaimCase.Stage.NOTARY, user, note, checklist_reason=skip_reason)
 
 
+BNP_STUB_NOTE = (
+    "Ответ БНП — заглушка. Кабинет не вызывался. "
+    "Надпись отмечена совершённой для продолжения в ПМ. Это не документ нотариуса."
+)
+
+
+def apply_bnp_stub_result(case: ClaimCase, user) -> ClaimCase:
+    """Ответ личного кабинета БНП, пока кабинета нет.
+
+    Дело уже стоит в «Направлено нотариусу» после локального номера.
+    Кабинет, шлюз и StubBnpClient не вызываются. На счёт кладётся лист,
+    где прямо сказано, что это заглушка, и дело переходит в «Надпись совершена».
+    """
+    if case.stage != ClaimCase.Stage.NOTARY:
+        raise ClaimBlocked("Ответ БНП фиксируется со статуса «Направлено нотариусу»")
+    if case.submission_mode != "stub":
+        raise ClaimBlocked("Ответ заглушки доступен после локального направления, когда кабинет БНП не подключён")
+    from django.core.files.base import ContentFile
+
+    from apps.debts.services.artifacts import render_text_pdf
+
+    number = (case.submission_id or "").removeprefix("stub-")
+    payload = render_text_pdf([
+        "Заглушка ответа личного кабинета БНП",
+        "",
+        "Личный кабинет БНП не подключён.",
+        "Это не исполнительная надпись нотариуса.",
+        f"Лицевой счёт {case.account.client_account}",
+        f"Номер направления {number}",
+    ])
+    name = f"zaglushka-bnp-{case.pk}.pdf"
+    attachment = Attachment(
+        organization=case.organization,
+        account=case.account,
+        doc_type="Исполнительная надпись",
+        original_name=name,
+        uploaded_by=user,
+    )
+    attachment.file.save(name, ContentFile(payload), save=True)
+    request = dict(case.pris_request or {})
+    if not request.get("pdf_id"):
+        request["pdf_id"] = attachment.pk
+        case.pris_request = request
+    return notary_result(case, "done", user, BNP_STUB_NOTE)
+
+
 def notary_result(case: ClaimCase, result: str, user, note: str = "", attachment_id=None) -> ClaimCase:
     if case.stage != ClaimCase.Stage.NOTARY:
         raise ClaimBlocked("Результат нотариуса фиксируется со статуса «Направлено нотариусу»")

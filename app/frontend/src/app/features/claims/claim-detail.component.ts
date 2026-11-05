@@ -126,8 +126,11 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </mat-form-field>
                   <mat-checkbox holdDraft [ngModel]="withdrawn" (ngModelChange)="setWithdrawn($event)">Заявление отозвано</mat-checkbox>
                 </div>
-                @if (row.submission_mode === 'stub') {
-                  <p class="banner">В кабинет БНП пакет не уходил. Номер направления: {{ directionNo(row.submission_id) }}.</p>
+                @if (row.submission_mode === 'stub' && row.stage === 'notary') {
+                  <p class="banner">В кабинет БНП пакет не уходил. Номер направления: {{ directionNo(row.submission_id) }}. Ответ кабинета тоже заглушка: это не документ нотариуса.</p>
+                }
+                @if (stubAnswer(row)) {
+                  <p class="banner">Ответ БНП — заглушка. Кабинет не вызывался. Файл на счёте не является исполнительной надписью нотариуса.</p>
                 }
                 @if (sendGaps(row).length) {
                   <ul class="blockers">
@@ -151,6 +154,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 <div class="actions">
                   <button mat-stroked-button type="button" (click)="save()">Сохранить</button>
                   <button mat-flat-button type="button" disabled title="Обмен с БНП система-система не подключён">Отправить</button>
+                  @if (row.stage === 'notary' && row.submission_mode === 'stub') {
+                    <button mat-flat-button color="primary" type="button" (click)="act('bnp-result')">Ответ БНП (заглушка)</button>
+                  }
                   <button mat-stroked-button type="button" (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
                   <button mat-stroked-button type="button" (click)="refuse()">Отказ нотариуса</button>
                   @if (row.stage === 'notary' || row.stage === 'writ_done' || row.stage === 'refused') {
@@ -488,6 +494,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </div>
                 }
 
+                @if (stubAnswer(row)) {
+                  <p class="banner">PDF для ПРИС — заглушка ответа БНП, не исполнительная надпись нотариуса. В списке он уже выбран, если свой файл не указывали.</p>
+                }
                 @if (row.stage === 'prep' || row.stage === 'notary') {
                   <div class="banner">
                     Сначала отметьте «Надпись совершена». Нужны дата вручения, нотариальный тариф и PDF. В кабинет БНП этот шаг не отправляет. Файл подписи не нужен.
@@ -1048,6 +1057,10 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     if (this.signing) return 'Подпись уже запущена';
     if (!this.kitReady(row)) return this.kitGaps(row)[0] || 'Комплект неполный';
     return 'Подписать документы и собрать архив';
+  }
+
+  protected stubAnswer(row: ClaimCase): boolean {
+    return row.submission_mode === 'stub' && (row.notary_note || '').includes('заглушка') && row.stage !== 'notary';
   }
 
   protected directionNo(value: string | null | undefined): string {
