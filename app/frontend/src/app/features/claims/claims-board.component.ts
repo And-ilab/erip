@@ -93,7 +93,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
                       <td>{{ stageLabel(row.funnel_stage) }}</td>
                       <td>
                         @for (claim of claimsOf(row); track claim.id) {
-                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: 'pris' }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
+                          <a class="pack-link" [routerLink]="['/claims', claim.id]" [queryParams]="{ tab: 'opi', slot: 'pris' }" (click)="$event.stopPropagation()">{{ packageLabel(claim) }}</a>
                         } @empty {
                           @if (canAdd()) {
                             <button type="button" class="pack-link" (click)="$event.stopPropagation(); startWrit(row)">Создать надпись</button>
@@ -841,7 +841,7 @@ export class ClaimsBoardComponent implements OnInit {
   protected openDebtor(row: AccountRow): void {
     const id = row.claim_id || this.claimsOf(row)[0]?.id;
     if (id) {
-      this.router.navigate(['/claims', id], { queryParams: { tab: 'pris' } });
+      this.router.navigate(['/claims', id], { queryParams: { tab: 'opi', slot: 'pris' } });
       return;
     }
     if (!this.canAdd()) {
@@ -1006,7 +1006,7 @@ export class ClaimsBoardComponent implements OnInit {
         this.busy.set(false);
         this.dialog.set(false);
         this.reload();
-        this.router.navigate(['/claims', created.id], { queryParams: { tab: 'pris', writ: null }, queryParamsHandling: 'merge' });
+        this.router.navigate(['/claims', created.id], { queryParams: { tab: 'opi', slot: 'pris', writ: null }, queryParamsHandling: 'merge' });
       },
       error: (err) => {
         this.busy.set(false);

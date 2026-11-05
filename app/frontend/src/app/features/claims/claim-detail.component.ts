@@ -55,7 +55,6 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
             @if (periodLine(row)) { <p class="muted">{{ periodLine(row) }}</p> }
           </div>
           <span class="stage">{{ row.stage_label }}</span>
-          <button mat-stroked-button type="button" (click)="setTab('pris')">ПРИС</button>
         </header>
         @if (packages().length > 1) {
           <nav class="packages" aria-label="Пакеты по периодам">
@@ -448,10 +447,202 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   </div>
                 </div>
 
-                <div class="opi-card">
-                  <h4>Передача в АИС ПРИС</h4>
-                  <p class="hint">Форма на вкладке «ПРИС». Подпись к ней не прикладывается.</p>
-                  <button mat-stroked-button type="button" (click)="setTab('pris')">Открыть вкладку ПРИС</button>
+                <div class="opi-card" [hidden]="opiSlot() !== 'pris'">
+
+                  @if (row.pris?.inquiry?.applied) {
+                    <div class="inquiry opi-card">
+                      <h4>Сведения о ходе исполнительного производства из АИС ПРИС (3.11.04 / 3.11.05)</h4>
+                      <p class="hint">Идентификатор задолженности взыскателя: <b>{{ row.pris?.cl_num }}</b></p>
+                      @for (doc of row.pris?.inquiry?.p_ispdoc || []; track $index) {
+                        <p>Исполнительный производство № <b>{{ doc.proc_num }}</b> по документу № {{ doc.doc_num }}</p>
+                      }
+                      @for (sum of row.pris?.inquiry?.p_ost || []; track $index) {
+                        <p>Остаток долга: <b>{{ sum.ost_sum }}</b> (код валюты {{ sum.curr_code }}), первоначальное требование: {{ sum.req_sum }}</p>
+                      }
+                      @for (status of row.pris?.inquiry?.p_status || []; track $index) {
+                        <p>Статус ИП: <b>{{ status.status }}</b> от {{ status.date_status }}@if (status.actual === '1') { · актуальный }</p>
+                      }
+                      @for (action of row.pris?.inquiry?.p_action || []; track $index) {
+                        <p>Принятая мера: {{ actionLine(action) }}</p>
+                      }
+                      @for (pay of row.pris?.inquiry?.p_repay || []; track $index) {
+                        <p>Погашение: {{ pay['p_pay_sum'] || pay['pay_sum'] || actionLine(pay) }}</p>
+                      }
+                      @for (charge of row.pris?.inquiry?.p_nachisl || []; track $index) {
+                        <p>Начисление: {{ actionLine(charge) }}</p>
+                      }
+                    </div>
+                  }
+
+                  @if (stubAnswer(row)) {
+                    <p class="banner">PDF для передачи в ОПИ — заглушка ответа БНП, не исполнительная надпись нотариуса. В списке он уже выбран, если свой файл не указывали.</p>
+                  }
+                  @if (row.stage === 'prep' || row.stage === 'notary') {
+                    <div class="banner">
+                      Сначала отметьте «Надпись совершена». Нужны дата вручения, нотариальный тариф и PDF. В кабинет БНП этот шаг не отправляет. Файл подписи не нужен.
+                    </div>
+                    <div class="line">
+                      <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="setWarningDate($event)" />
+                      <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
+                        <input matInput holdDraft [ngModel]="tariff" (ngModelChange)="setTariff($event)" />
+                        <span matTextSuffix><app-byn-sign /></span>
+                      </mat-form-field>
+                      <button mat-flat-button color="primary" type="button" (click)="markWrit()">Надпись совершена</button>
+                    </div>
+                  }
+                  <details open>
+                    <summary>Направление в ОПИ через АИС ПРИС (ОАИС 3.11.01–3.11.05)</summary>
+                    <p class="hint">Коды справочников выбираются из списка. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно. «УНП взыскателя» — УНП организации, от имени которой уходит пакет, общий для схемы. «УНП получателя» — УНП банка.</p>
+                    @if (row.pris?.problems?.length) {
+                      <p class="need">Не заполнено для передачи в ОПИ: {{ row.pris?.problems?.join('; ') }}</p>
+                    } @else if (row.pris?.ready) {
+                      <p class="ready-line">Пакет 3.11.02 полностью заполнен и готов к передаче в АИС ПРИС.</p>
+                    }
+                    <div class="actions">
+                      <button mat-stroked-button type="button" (click)="autofillPrisForm()">Заполнить из карточки ЛС и дела</button>
+                    </div>
+                    <p class="hint">Идентификатор задолженности: {{ row.pris?.cl_num || 'появится при передаче' }}</p>
+                    <div class="fields">
+                      <mat-form-field [class.need]="!prisOpi.trim()"><mat-label>ОПИ, справочник 120 *</mat-label>
+                        <input matInput [(ngModel)]="prisOpi" [matAutocomplete]="autoOpi" />
+                        <mat-autocomplete #autoOpi="matAutocomplete">
+                          @for (item of dict('120'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field><mat-label>Требование, справочник 214</mat-label>
+                        <input matInput [(ngModel)]="prisReq" [matAutocomplete]="autoReq" />
+                        <mat-autocomplete #autoReq="matAutocomplete">
+                          @for (item of dict('214'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field [class.need]="!prisDocCode.trim()"><mat-label>Вид документа, справочник 201 *</mat-label>
+                        <input matInput [(ngModel)]="prisDocCode" [matAutocomplete]="autoDoc" />
+                        <mat-autocomplete #autoDoc="matAutocomplete">
+                          @for (item of dict('201'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field [class.need]="!prisDocNum.trim()"><mat-label>Номер документа *</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisDocDate.trim()"><mat-label>Дата документа *</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisOrgCode.trim()"><mat-label>Орган, справочник 217 *</mat-label>
+                        <input matInput [(ngModel)]="prisOrgCode" [matAutocomplete]="autoOrg" />
+                        <mat-autocomplete #autoOrg="matAutocomplete">
+                          @for (item of organDict(); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field class="wide" [class.need]="!prisOrg.trim()"><mat-label>Наименование органа *</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisDocDateIn.trim()"><mat-label>Дата вступления в силу *</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
+                      <mat-form-field><mat-label>ОПФ должника-юрлица</mat-label><input matInput [(ngModel)]="prisDebtorOpf" /></mat-form-field>
+                      <mat-form-field><mat-label>Страна должника, 306</mat-label>
+                        <input matInput [(ngModel)]="prisDebtorCountry" [matAutocomplete]="autoDebtorCountry" />
+                        <mat-autocomplete #autoDebtorCountry="matAutocomplete">
+                          @for (item of dict('306'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field><mat-label>Тип населённого пункта должника, 309</mat-label>
+                        <input matInput [(ngModel)]="prisNpType" [matAutocomplete]="autoNp" />
+                        <mat-autocomplete #autoNp="matAutocomplete">
+                          @for (item of dict('309'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field><mat-label>Населённый пункт должника</mat-label><input matInput [(ngModel)]="prisDebtorNp" /></mat-form-field>
+                      <mat-form-field><mat-label>Область должника</mat-label><input matInput [(ngModel)]="prisDebtorRegion" /></mat-form-field>
+                      <mat-form-field><mat-label>Район должника</mat-label><input matInput [(ngModel)]="prisDebtorArea" /></mat-form-field>
+                      <mat-form-field><mat-label>Тип улицы должника, 308</mat-label>
+                        <input matInput [(ngModel)]="prisDebtorStreetType" [matAutocomplete]="autoDebtorStreet" />
+                        <mat-autocomplete #autoDebtorStreet="matAutocomplete">
+                          @for (item of dict('308'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field><mat-label>Улица должника</mat-label><input matInput [(ngModel)]="prisDebtorStreet" /></mat-form-field>
+                      <mat-form-field><mat-label>Дом должника</mat-label><input matInput [(ngModel)]="prisDebtorHouse" /></mat-form-field>
+                      <mat-form-field><mat-label>Квартира должника</mat-label><input matInput [(ngModel)]="prisDebtorFlat" /></mat-form-field>
+                      <mat-form-field><mat-label>Индекс должника</mat-label><input matInput [(ngModel)]="prisDebtorIndex" /></mat-form-field>
+                      <mat-form-field class="wide"><mat-label>Полный адрес должника</mat-label><input matInput [(ngModel)]="prisDebtorAddress" /></mat-form-field>
+                      <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
+                        <mat-select [(ngModel)]="prisPdf">
+                          <mat-option [value]="0">Не выбран</mat-option>
+                          @for (file of prisDocumentFiles(row); track file.id) {
+                            <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                          }
+                        </mat-select>
+                      </mat-form-field>
+                      <label class="file-pick">
+                        Приложить PDF
+                        <input type="file" accept="application/pdf,.pdf" (change)="uploadPrisPdf($event)" />
+                      </label>
+                      <mat-form-field><mat-label>Файл подписи, если контур начнёт её проверять</mat-label>
+                        <mat-select [(ngModel)]="prisSign">
+                          <mat-option [value]="0">Не прикладывать</mat-option>
+                          @for (file of prisSignatureFiles(row); track file.id) {
+                            <mat-option [value]="file.id">{{ file.name }}</mat-option>
+                          }
+                        </mat-select>
+                      </mat-form-field>
+                      @if (edsCerts.length) {
+                        <mat-form-field class="wide">
+                          <mat-label>Сертификат</mat-label>
+                          <mat-select [(ngModel)]="edsCert">
+                            @for (cert of edsCerts; track cert.pubKeyId) {
+                              <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · без УНП' }}</mat-option>
+                            }
+                          </mat-select>
+                        </mat-form-field>
+                      }
+                      <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF</button>
+                      <mat-form-field [class.need]="!prisOrgUnp.trim()"><mat-label>УНП взыскателя *</mat-label><input matInput [(ngModel)]="prisOrgUnp" maxlength="9" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisCountry.trim()"><mat-label>Страна адреса, справочник 306 *</mat-label>
+                        <input matInput [(ngModel)]="prisCountry" [matAutocomplete]="autoCountry" />
+                        <mat-autocomplete #autoCountry="matAutocomplete">
+                          @for (item of dict('306'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field class="wide" [class.need]="!prisAddress.trim()"><mat-label>Полный адрес взыскателя *</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
+                      <mat-form-field><mat-label>Область взыскателя</mat-label><input matInput [(ngModel)]="prisClaimRegion" /></mat-form-field>
+                      <mat-form-field><mat-label>Район взыскателя</mat-label><input matInput [(ngModel)]="prisClaimArea" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisClaimNpType.trim()"><mat-label>Тип населённого пункта, 309 *</mat-label>
+                        <input matInput [(ngModel)]="prisClaimNpType" [matAutocomplete]="autoClaimNp" />
+                        <mat-autocomplete #autoClaimNp="matAutocomplete">
+                          @for (item of dict('309'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field [class.need]="!prisNp.trim()"><mat-label>Населённый пункт *</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
+                      <mat-form-field><mat-label>Тип улицы, 308</mat-label>
+                        <input matInput [(ngModel)]="prisClaimStreetType" [matAutocomplete]="autoClaimStreet" />
+                        <mat-autocomplete #autoClaimStreet="matAutocomplete">
+                          @for (item of dict('308'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
+                        </mat-autocomplete>
+                      </mat-form-field>
+                      <mat-form-field><mat-label>Улица взыскателя</mat-label><input matInput [(ngModel)]="prisClaimStreet" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisHouse.trim()"><mat-label>Дом *</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
+                      <mat-form-field><mat-label>Корпус</mat-label><input matInput [(ngModel)]="prisClaimCorp" /></mat-form-field>
+                      <mat-form-field><mat-label>Квартира</mat-label><input matInput [(ngModel)]="prisClaimFlat" /></mat-form-field>
+                      <mat-form-field><mat-label>Индекс</mat-label><input matInput [(ngModel)]="prisClaimIndex" /></mat-form-field>
+                      <mat-form-field><mat-label>УНП получателя</mat-label><input matInput [(ngModel)]="prisBankUnp" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisBank.trim()"><mat-label>SWIFT *</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisAccount.trim()"><mat-label>Счёт *</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
+                      <mat-form-field [class.need]="!prisAccType.trim()"><mat-label>Тип счёта *</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
+                      <mat-form-field><mat-label>Валюта, ОКРБ</mat-label><input matInput [(ngModel)]="prisCurr" /></mat-form-field>
+                      <mat-form-field><mat-label>Код платежа в бюджет</mat-label><input matInput [(ngModel)]="prisBudget" /></mat-form-field>
+                    </div>
+                    <p class="hint">Судебный исполнитель принимает задолженность вручную. Запрос хода и отдельное погашение по делу, переданному сегодня, уходят на следующий день: в тот же момент контур ещё пуст. В пакете уходит остаток АИС на момент передачи. Новая оплата из АИС ждёт в очереди и уходит со следующего дня. «Передать погашения» повторяет только эту очередь.</p>
+                    <div class="actions">
+                      <button mat-stroked-button type="button" (click)="savePrisDraft()">Сохранить черновик</button>
+                      <button mat-flat-button color="primary" type="button" (click)="sendPris()">Передать в ОПИ</button>
+                      <button mat-stroked-button type="button" (click)="act('pris/refresh')">Обновить ход</button>
+                      <button mat-stroked-button type="button" (click)="act('pris/repay')">Передать погашения</button>
+                      <button mat-stroked-button type="button" (click)="act('ais-receipt')">Имитация выгрузки АИС</button>
+                    </div>
+                    @if (row.pris?.exchanges?.length) {
+                      <details>
+                        <summary>Журнал обмена с ОПИ</summary>
+                        @for (item of row.pris?.exchanges || []; track item.id) {
+                          <p class="hint">{{ item.created_at }} · {{ item.operation }} · {{ item.mode || 'без канала' }} · {{ item.process_status }} · {{ item.note }}</p>
+                          <pre>{{ exchangeText(item) }}</pre>
+                        }
+                      </details>
+                    }
+                  </details>
                 </div>
                 @if (auth.canSkip()) {
                   <mat-form-field class="wide"><mat-label>Причина перехода / пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
@@ -466,203 +657,6 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </div>
                   </div>
                 </div>
-              }
-              @case ('pris') {
-
-                @if (row.pris?.inquiry?.applied) {
-                  <div class="inquiry opi-card">
-                    <h4>Сведения о ходе исполнительного производства из АИС ПРИС (3.11.04 / 3.11.05)</h4>
-                    <p class="hint">Идентификатор задолженности взыскателя: <b>{{ row.pris?.cl_num }}</b></p>
-                    @for (doc of row.pris?.inquiry?.p_ispdoc || []; track $index) {
-                      <p>Исполнительный производство № <b>{{ doc.proc_num }}</b> по документу № {{ doc.doc_num }}</p>
-                    }
-                    @for (sum of row.pris?.inquiry?.p_ost || []; track $index) {
-                      <p>Остаток долга: <b>{{ sum.ost_sum }}</b> (код валюты {{ sum.curr_code }}), первоначальное требование: {{ sum.req_sum }}</p>
-                    }
-                    @for (status of row.pris?.inquiry?.p_status || []; track $index) {
-                      <p>Статус ИП: <b>{{ status.status }}</b> от {{ status.date_status }}@if (status.actual === '1') { · актуальный }</p>
-                    }
-                    @for (action of row.pris?.inquiry?.p_action || []; track $index) {
-                      <p>Принятая мера: {{ actionLine(action) }}</p>
-                    }
-                    @for (pay of row.pris?.inquiry?.p_repay || []; track $index) {
-                      <p>Погашение: {{ pay['p_pay_sum'] || pay['pay_sum'] || actionLine(pay) }}</p>
-                    }
-                    @for (charge of row.pris?.inquiry?.p_nachisl || []; track $index) {
-                      <p>Начисление: {{ actionLine(charge) }}</p>
-                    }
-                  </div>
-                }
-
-                @if (stubAnswer(row)) {
-                  <p class="banner">PDF для ПРИС — заглушка ответа БНП, не исполнительная надпись нотариуса. В списке он уже выбран, если свой файл не указывали.</p>
-                }
-                @if (row.stage === 'prep' || row.stage === 'notary') {
-                  <div class="banner">
-                    Сначала отметьте «Надпись совершена». Нужны дата вручения, нотариальный тариф и PDF. В кабинет БНП этот шаг не отправляет. Файл подписи не нужен.
-                  </div>
-                  <div class="line">
-                    <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="setWarningDate($event)" />
-                    <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
-                      <input matInput holdDraft [ngModel]="tariff" (ngModelChange)="setTariff($event)" />
-                      <span matTextSuffix><app-byn-sign /></span>
-                    </mat-form-field>
-                    <button mat-flat-button color="primary" type="button" (click)="markWrit()">Надпись совершена</button>
-                  </div>
-                }
-                <details open>
-                  <summary>Электронный обмен с АИС ПРИС (ОАИС 3.11.01–3.11.05)</summary>
-                  <p class="hint">Коды справочников выбираются из списка. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно. «УНП взыскателя» — УНП организации, от имени которой уходит пакет, общий для схемы. «УНП получателя» — УНП банка.</p>
-                  @if (row.pris?.problems?.length) {
-                    <p class="need">Не заполнено для отправки в ПРИС: {{ row.pris?.problems?.join('; ') }}</p>
-                  } @else if (row.pris?.ready) {
-                    <p class="ready-line">Пакет 3.11.02 полностью заполнен и готов к передаче в АИС ПРИС.</p>
-                  }
-                  <div class="actions">
-                    <button mat-stroked-button type="button" (click)="autofillPrisForm()">Заполнить из карточки ЛС и дела</button>
-                  </div>
-                  <p class="hint">Идентификатор задолженности: {{ row.pris?.cl_num || 'появится при передаче' }}</p>
-                  <div class="fields">
-                    <mat-form-field [class.need]="!prisOpi.trim()"><mat-label>ОПИ, справочник 120 *</mat-label>
-                      <input matInput [(ngModel)]="prisOpi" [matAutocomplete]="autoOpi" />
-                      <mat-autocomplete #autoOpi="matAutocomplete">
-                        @for (item of dict('120'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field><mat-label>Требование, справочник 214</mat-label>
-                      <input matInput [(ngModel)]="prisReq" [matAutocomplete]="autoReq" />
-                      <mat-autocomplete #autoReq="matAutocomplete">
-                        @for (item of dict('214'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field [class.need]="!prisDocCode.trim()"><mat-label>Вид документа, справочник 201 *</mat-label>
-                      <input matInput [(ngModel)]="prisDocCode" [matAutocomplete]="autoDoc" />
-                      <mat-autocomplete #autoDoc="matAutocomplete">
-                        @for (item of dict('201'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field [class.need]="!prisDocNum.trim()"><mat-label>Номер документа *</mat-label><input matInput [(ngModel)]="prisDocNum" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisDocDate.trim()"><mat-label>Дата документа *</mat-label><input matInput [(ngModel)]="prisDocDate" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisOrgCode.trim()"><mat-label>Орган, справочник 217 *</mat-label>
-                      <input matInput [(ngModel)]="prisOrgCode" [matAutocomplete]="autoOrg" />
-                      <mat-autocomplete #autoOrg="matAutocomplete">
-                        @for (item of organDict(); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field class="wide" [class.need]="!prisOrg.trim()"><mat-label>Наименование органа *</mat-label><input matInput [(ngModel)]="prisOrg" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisDocDateIn.trim()"><mat-label>Дата вступления в силу *</mat-label><input matInput [(ngModel)]="prisDocDateIn" placeholder="ДД.ММ.ГГГГ" /></mat-form-field>
-                    <mat-form-field><mat-label>ОПФ должника-юрлица</mat-label><input matInput [(ngModel)]="prisDebtorOpf" /></mat-form-field>
-                    <mat-form-field><mat-label>Страна должника, 306</mat-label>
-                      <input matInput [(ngModel)]="prisDebtorCountry" [matAutocomplete]="autoDebtorCountry" />
-                      <mat-autocomplete #autoDebtorCountry="matAutocomplete">
-                        @for (item of dict('306'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field><mat-label>Тип населённого пункта должника, 309</mat-label>
-                      <input matInput [(ngModel)]="prisNpType" [matAutocomplete]="autoNp" />
-                      <mat-autocomplete #autoNp="matAutocomplete">
-                        @for (item of dict('309'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field><mat-label>Населённый пункт должника</mat-label><input matInput [(ngModel)]="prisDebtorNp" /></mat-form-field>
-                    <mat-form-field><mat-label>Область должника</mat-label><input matInput [(ngModel)]="prisDebtorRegion" /></mat-form-field>
-                    <mat-form-field><mat-label>Район должника</mat-label><input matInput [(ngModel)]="prisDebtorArea" /></mat-form-field>
-                    <mat-form-field><mat-label>Тип улицы должника, 308</mat-label>
-                      <input matInput [(ngModel)]="prisDebtorStreetType" [matAutocomplete]="autoDebtorStreet" />
-                      <mat-autocomplete #autoDebtorStreet="matAutocomplete">
-                        @for (item of dict('308'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field><mat-label>Улица должника</mat-label><input matInput [(ngModel)]="prisDebtorStreet" /></mat-form-field>
-                    <mat-form-field><mat-label>Дом должника</mat-label><input matInput [(ngModel)]="prisDebtorHouse" /></mat-form-field>
-                    <mat-form-field><mat-label>Квартира должника</mat-label><input matInput [(ngModel)]="prisDebtorFlat" /></mat-form-field>
-                    <mat-form-field><mat-label>Индекс должника</mat-label><input matInput [(ngModel)]="prisDebtorIndex" /></mat-form-field>
-                    <mat-form-field class="wide"><mat-label>Полный адрес должника</mat-label><input matInput [(ngModel)]="prisDebtorAddress" /></mat-form-field>
-                    <mat-form-field><mat-label>PDF исполнительного документа</mat-label>
-                      <mat-select [(ngModel)]="prisPdf">
-                        <mat-option [value]="0">Не выбран</mat-option>
-                        @for (file of prisDocumentFiles(row); track file.id) {
-                          <mat-option [value]="file.id">{{ file.name }}</mat-option>
-                        }
-                      </mat-select>
-                    </mat-form-field>
-                    <label class="file-pick">
-                      Приложить PDF
-                      <input type="file" accept="application/pdf,.pdf" (change)="uploadPrisPdf($event)" />
-                    </label>
-                    <mat-form-field><mat-label>Файл подписи, если контур начнёт её проверять</mat-label>
-                      <mat-select [(ngModel)]="prisSign">
-                        <mat-option [value]="0">Не прикладывать</mat-option>
-                        @for (file of prisSignatureFiles(row); track file.id) {
-                          <mat-option [value]="file.id">{{ file.name }}</mat-option>
-                        }
-                      </mat-select>
-                    </mat-form-field>
-                    @if (edsCerts.length) {
-                      <mat-form-field class="wide">
-                        <mat-label>Сертификат</mat-label>
-                        <mat-select [(ngModel)]="edsCert">
-                          @for (cert of edsCerts; track cert.pubKeyId) {
-                            <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · без УНП' }}</mat-option>
-                          }
-                        </mat-select>
-                      </mat-form-field>
-                    }
-                    <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF</button>
-                    <mat-form-field [class.need]="!prisOrgUnp.trim()"><mat-label>УНП взыскателя *</mat-label><input matInput [(ngModel)]="prisOrgUnp" maxlength="9" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisCountry.trim()"><mat-label>Страна адреса, справочник 306 *</mat-label>
-                      <input matInput [(ngModel)]="prisCountry" [matAutocomplete]="autoCountry" />
-                      <mat-autocomplete #autoCountry="matAutocomplete">
-                        @for (item of dict('306'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field class="wide" [class.need]="!prisAddress.trim()"><mat-label>Полный адрес взыскателя *</mat-label><input matInput [(ngModel)]="prisAddress" /></mat-form-field>
-                    <mat-form-field><mat-label>Область взыскателя</mat-label><input matInput [(ngModel)]="prisClaimRegion" /></mat-form-field>
-                    <mat-form-field><mat-label>Район взыскателя</mat-label><input matInput [(ngModel)]="prisClaimArea" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisClaimNpType.trim()"><mat-label>Тип населённого пункта, 309 *</mat-label>
-                      <input matInput [(ngModel)]="prisClaimNpType" [matAutocomplete]="autoClaimNp" />
-                      <mat-autocomplete #autoClaimNp="matAutocomplete">
-                        @for (item of dict('309'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field [class.need]="!prisNp.trim()"><mat-label>Населённый пункт *</mat-label><input matInput [(ngModel)]="prisNp" /></mat-form-field>
-                    <mat-form-field><mat-label>Тип улицы, 308</mat-label>
-                      <input matInput [(ngModel)]="prisClaimStreetType" [matAutocomplete]="autoClaimStreet" />
-                      <mat-autocomplete #autoClaimStreet="matAutocomplete">
-                        @for (item of dict('308'); track item.code) { <mat-option [value]="item.code">{{ item.code }} — {{ item.name }}</mat-option> }
-                      </mat-autocomplete>
-                    </mat-form-field>
-                    <mat-form-field><mat-label>Улица взыскателя</mat-label><input matInput [(ngModel)]="prisClaimStreet" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisHouse.trim()"><mat-label>Дом *</mat-label><input matInput [(ngModel)]="prisHouse" /></mat-form-field>
-                    <mat-form-field><mat-label>Корпус</mat-label><input matInput [(ngModel)]="prisClaimCorp" /></mat-form-field>
-                    <mat-form-field><mat-label>Квартира</mat-label><input matInput [(ngModel)]="prisClaimFlat" /></mat-form-field>
-                    <mat-form-field><mat-label>Индекс</mat-label><input matInput [(ngModel)]="prisClaimIndex" /></mat-form-field>
-                    <mat-form-field><mat-label>УНП получателя</mat-label><input matInput [(ngModel)]="prisBankUnp" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisBank.trim()"><mat-label>SWIFT *</mat-label><input matInput [(ngModel)]="prisBank" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisAccount.trim()"><mat-label>Счёт *</mat-label><input matInput [(ngModel)]="prisAccount" /></mat-form-field>
-                    <mat-form-field [class.need]="!prisAccType.trim()"><mat-label>Тип счёта *</mat-label><input matInput [(ngModel)]="prisAccType" /></mat-form-field>
-                    <mat-form-field><mat-label>Валюта, ОКРБ</mat-label><input matInput [(ngModel)]="prisCurr" /></mat-form-field>
-                    <mat-form-field><mat-label>Код платежа в бюджет</mat-label><input matInput [(ngModel)]="prisBudget" /></mat-form-field>
-                  </div>
-                  <p class="hint">Судебный исполнитель принимает задолженность вручную. Запрос хода и отдельное погашение по делу, переданному сегодня, уходят на следующий день: в тот же момент контур ещё пуст. В пакете уходит остаток АИС на момент передачи. Новая оплата из АИС ждёт в очереди и уходит со следующего дня. «Передать погашения» повторяет только эту очередь.</p>
-                  <div class="actions">
-                    <button mat-stroked-button type="button" (click)="savePrisDraft()">Сохранить черновик</button>
-                    <button mat-flat-button color="primary" type="button" (click)="sendPris()">Передать в ПРИС</button>
-                    <button mat-stroked-button type="button" (click)="act('pris/refresh')">Обновить ход</button>
-                    <button mat-stroked-button type="button" (click)="act('pris/repay')">Передать погашения</button>
-                    <button mat-stroked-button type="button" (click)="act('ais-receipt')">Имитация выгрузки АИС</button>
-                  </div>
-                  @if (row.pris?.exchanges?.length) {
-                    <details>
-                      <summary>Журнал обмена ПРИС</summary>
-                      @for (item of row.pris?.exchanges || []; track item.id) {
-                        <p class="hint">{{ item.created_at }} · {{ item.operation }} · {{ item.mode || 'без канала' }} · {{ item.process_status }} · {{ item.note }}</p>
-                        <pre>{{ exchangeText(item) }}</pre>
-                      }
-                    </details>
-                  }
-                </details>
               }
               @case ('writeoff') {
                 <p class="hint">Актов о невозможности: {{ row.acts_count }} из 3. Списание в АИС делает учётная система. Здесь согласуется комплект.</p>
@@ -821,7 +815,6 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     { id: 'notary' as const, label: 'Нотариат' },
     { id: 'court' as const, label: 'Суд' },
     { id: 'opi' as const, label: 'ОПИ' },
-    { id: 'pris' as const, label: 'ПРИС' },
     { id: 'writeoff' as const, label: 'Списание' },
   ];
   protected readonly tab = signal<(typeof this.tabs)[number]['id']>('pack');
@@ -861,7 +854,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     { id: 'fullness', title: 'Полнота: долг, пеня и тариф', required: false },
     { id: 'acts', title: 'Акт о невозможности взыскания', required: false },
     { id: 'acts3', title: 'Три акта для списания', required: false },
-    { id: 'pris', title: 'Обмен с АИС ПРИС', required: false },
+    { id: 'pris', title: 'Направление через АИС ПРИС', required: false },
   ];
   protected readonly opiSlot = signal('register');
   protected readonly prisStatus = signal<PrisChannelStatus | null>(null);
@@ -957,11 +950,26 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.route.queryParamMap.subscribe((params) => {
       const tab = params.get('tab');
-      if (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'pris' || tab === 'writeoff') {
+      if (tab === 'pris') {
+        this.tab.set('opi');
+        this.opiSlot.set('pris');
+        this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: { tab: 'opi', slot: 'pris' },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+        return;
+      }
+      if (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'writeoff') {
         this.tab.set(tab);
       }
       const slot = params.get('slot');
-      if (slot) this.applySlot(slot);
+      if (slot === 'pris' || this.opiSlots.some((item) => item.id === slot)) {
+        this.opiSlot.set(slot || 'register');
+      } else if (slot) {
+        this.applySlot(slot);
+      }
     });
     this.route.paramMap.subscribe((params) => this.load(Number(params.get('id'))));
     this.api.prisDictionaries().subscribe({
@@ -1248,11 +1256,12 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   }
 
   protected openOpiSlot(id: string): void {
-    if (id === 'pris') {
-      this.setTab('pris');
-      return;
-    }
     this.opiSlot.set(id);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: 'opi', slot: id },
+      queryParamsHandling: 'merge',
+    });
   }
 
   protected markWrit(): void {
@@ -1899,9 +1908,11 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.gate.set(null);
     if (!blocked) return;
     const here = this.claim()?.id;
-    if (blocked.claimId && here && blocked.claimId === here && (blocked.tab === 'pack' || blocked.tab === 'notary' || blocked.tab === 'court' || blocked.tab === 'opi' || blocked.tab === 'pris' || blocked.tab === 'writeoff')) {
+    const tab = blocked.tab === 'pris' ? 'opi' : blocked.tab;
+    if (blocked.claimId && here && blocked.claimId === here && (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'writeoff')) {
+      if (blocked.tab === 'pris') this.opiSlot.set('pris');
       if (blocked.focus) this.applySlot(blocked.focus);
-      this.setTab(blocked.tab as 'pack' | 'notary' | 'court' | 'opi' | 'pris' | 'writeoff');
+      this.setTab(tab as 'pack' | 'notary' | 'court' | 'opi' | 'writeoff');
       return;
     }
     const target = gateTarget(blocked);
