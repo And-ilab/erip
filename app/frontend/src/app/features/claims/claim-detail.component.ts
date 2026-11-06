@@ -785,7 +785,6 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .packages small { color: var(--erip-muted); }
     .work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; }
     .work:not(:has(aside)) { grid-template-columns: minmax(0, 1fr); }
-    .work:not(:has(app-claim-checklist.file-open)) { align-items: start; }
     .pane { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; }
     .sums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
     .sums div { background: var(--erip-bg); border-radius: 8px; padding: 8px 10px; }
