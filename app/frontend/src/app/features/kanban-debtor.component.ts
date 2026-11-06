@@ -49,16 +49,17 @@ import { ratingMark, ratingMarkClass, ratingMarkTitle } from './rating-mark';
         }
       </div>
     }
-    <ng-content />
     @if (when() || showMoney() || specialist()) {
       <div class="foot">
         @if (showMoney()) {
           <div class="money">
             <span tabindex="0" title="Сумма задолженности"><app-money [value]="total()" [blank]="false" [sign]="false" /></span>
-            <small>
-              <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="principal()" [blank]="false" [sign]="false" /></span>
-              · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="penalty()" [blank]="false" [sign]="false" /></span>
-            </small>
+            @if (moneyDetail()) {
+              <small>
+                <span class="principal" tabindex="0" title="Сумма основного долга"><app-money [value]="principal()" [blank]="false" [sign]="false" /></span>
+                · <span class="amount-danger" tabindex="0" title="Сумма пени"><app-money [value]="penalty()" [blank]="false" [sign]="false" /></span>
+              </small>
+            }
           </div>
         }
         @if (when()) {
@@ -72,6 +73,7 @@ import { ratingMark, ratingMarkClass, ratingMarkTitle } from './rating-mark';
         }
       </div>
     }
+    <ng-content />
   `,
   styles: `
     :host { display: block; }
@@ -119,6 +121,7 @@ export class KanbanDebtorComponent {
   readonly residents = input<number | null | undefined>(null);
   readonly registered = input<number | null | undefined>(null);
   readonly showMoney = input(true);
+  readonly moneyDetail = input(true);
   readonly total = input<string | number | null | undefined>(null);
   readonly principal = input<string | number | null | undefined>(null);
   readonly penalty = input<string | number | null | undefined>(null);

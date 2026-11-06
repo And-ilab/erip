@@ -14,6 +14,7 @@ import { CalendarBoardComponent, CalendarMode } from '../calendar/calendar-board
 import { RegistryFilterComponent, RegistryFilterQuery } from '../registry-filter.component';
 import { briefText } from '../group-title';
 import { GridResizeDirective } from '../grid-resize.directive';
+import { DateFieldComponent } from '../../core/date-field.component';
 import { KanbanDebtorComponent } from '../kanban-debtor.component';
 import { KanbanDragDirective } from '../kanban-drag.directive';
 import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
@@ -29,7 +30,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
   imports: [
     FormsModule, ReactiveFormsModule, RouterLink, RouterLinkActive, RouterOutlet, MatButtonModule, MatSnackBarModule,
     RegistryViewsComponent, AnalyticsComponent, CalendarBoardComponent, RegistryFilterComponent, MoneyComponent, BynSignComponent,
-    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, FunnelGateDialogComponent,
+    KanbanDebtorComponent, KanbanDragDirective, GridResizeDirective, FunnelGateDialogComponent, DateFieldComponent,
   ],
   template: `
     <div class="page" [class.dim]="dialog()" [class.case]="caseOpen()" [class.board]="!caseOpen() && mode() === 'kanban'">
@@ -126,21 +127,11 @@ import { RegistryViewsComponent } from '../registry-views.component';
                          (click)="openCard($event, card)">
                   <app-kanban-debtor
                     [name]="card.short_fio || 'Без ФИО'"
-                    [rating]="card.rating_label"
-                    [group]="card.effective_group"
                     [account]="card.client_account"
-                    [address]="card.account_address ? short(street(card.account_address)) : ''"
-                    [scenario]="scenarioLine(card)"
-                    [ownership]="card.ownership_type_name ? short(card.ownership_type_name) : ''"
-                    [housing]="card.acc_category_full ? short(card.acc_category_full) : ''"
-                    [months]="card.months_debt"
-                    [residents]="card.subj_count"
-                    [registered]="card.registered_count"
-                    [total]="card.obligation_total"
-                    [principal]="card.debt_total"
-                    [penalty]="card.mulct_total"
-                    [when]="mark(card)"
-                    [specialist]="card.assigned_name">
+                    [showScenario]="false"
+                    [showPeople]="false"
+                    [moneyDetail]="false"
+                    [total]="card.obligation_total">
                     <div class="stage" [attr.data-stage]="card.claim_stage || 'queue'">{{ stageName(card) }}</div>
                     @if (module() === 'notary' && canMove() && courtFrom(card)) {
                       <button type="button" class="court" (click)="toCourt($event, card)">{{ courtFrom(card) }}</button>
@@ -203,18 +194,12 @@ import { RegistryViewsComponent } from '../registry-views.component';
                 <p class="hint">Группа {{ groupOf(row) }}: после надписи доступны иск о выселении и отчуждении жилья.</p>
               }
               <div class="writ-form">
-                <label>Период с
-                  <input type="date" name="writFrom" [(ngModel)]="writFrom" (change)="refreshWritWindow()" />
-                </label>
-                <label>Период по
-                  <input type="date" name="writTo" [(ngModel)]="writTo" (change)="refreshWritWindow()" />
-                </label>
-                <label>Дата вручения предупреждения
-                  <input type="date" name="writWarning" [(ngModel)]="writWarning" (change)="refreshWritWindow()" />
-                </label>
-                <label>Дата акта о невручении
-                  <input type="date" name="writAct" [(ngModel)]="writAct" (change)="refreshWritWindow()" />
-                </label>
+                <div class="writ-dates">
+                  <app-date-field label="Период с" [value]="writFrom" (valueChange)="setWritDate('from', $event)" />
+                  <app-date-field label="Период по" [value]="writTo" (valueChange)="setWritDate('to', $event)" />
+                  <app-date-field label="Дата вручения предупреждения" [value]="writWarning" (valueChange)="setWritDate('warning', $event)" />
+                  <app-date-field label="Дата акта о невручении" [value]="writAct" (valueChange)="setWritDate('act', $event)" />
+                </div>
                 <label>Дней на погашение
                   <input type="number" name="writDays" min="1" [(ngModel)]="writDays" />
                 </label>
@@ -251,7 +236,9 @@ import { RegistryViewsComponent } from '../registry-views.component';
               <p class="hint">Сначала выберите лицевой счёт.</p>
             }
             <div class="actions">
-              <button type="submit" class="primary" [disabled]="busy() || !picked()">Сохранить и открыть пакет документов</button>
+              <span class="tip" [attr.data-tip]="writSaveTitle() || null">
+                <button type="submit" class="primary" [disabled]="busy() || !writCanSave()">Сохранить и открыть пакет документов</button>
+              </span>
               <button type="button" class="ghost" (click)="closeDialog()">Отмена</button>
             </div>
           </form>
@@ -303,7 +290,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
       display: flex; gap: 14px; align-items: stretch; overflow: visible;
     }
     .k-col {
-      width: 268px; flex: 0 0 268px; align-self: stretch;
+      width: 220px; flex: 0 0 220px; align-self: stretch;
       display: flex; flex-direction: column;
     }
     .k-cards {
@@ -436,6 +423,7 @@ import { RegistryViewsComponent } from '../registry-views.component';
       .writ-sheet { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     .writ-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px; }
+    .writ-dates { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; flex: 1 1 100%; }
     .modal .writ-form label {
       display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 1 1 170px;
       margin: 0; grid-template-columns: none; font-size: 12px; color: var(--erip-muted);
@@ -482,6 +470,15 @@ import { RegistryViewsComponent } from '../registry-views.component';
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
     .actions button { border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
     .actions button:disabled { opacity: .55; cursor: default; }
+    .tip { position: relative; display: inline-flex; }
+    .tip > button:disabled { pointer-events: none; }
+    .tip[data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 8;
+      width: max-content; max-width: 320px; padding: 6px 8px; border-radius: 6px;
+      background: #243044; color: #fff; font-size: 12px; font-weight: 500; line-height: 1.35;
+      white-space: normal; pointer-events: none;
+    }
     .primary { border: 0; background: var(--erip-primary); color: #fff; font-weight: 600; }
     .ghost { border: 1px solid var(--erip-border); background: #fff; }
     @media (max-width: 900px) {
@@ -926,11 +923,6 @@ export class ClaimsBoardComponent implements OnInit {
     return briefText(text || '');
   }
 
-  protected scenarioLine(card: AccountRow): string {
-    const text = this.short(card.scenario_brief);
-    return text === '—' ? 'Сценарий не назначен' : text;
-  }
-
   protected street(address: string): string {
     const lower = address.toLowerCase();
     const marks = ['ул.', 'ул ', 'пр-т', 'пр.', 'просп', 'пер.', 'б-р', 'тракт', 'пл.', 'ш.'];
@@ -940,29 +932,6 @@ export class ClaimsBoardComponent implements OnInit {
       if (index >= 0 && (cut < 0 || index < cut)) cut = index;
     }
     return (cut >= 0 ? address.slice(cut) : address).replace(/\s+/g, ' ').trim();
-  }
-
-  protected mark(card: AccountRow): string {
-    const stage = card.funnel_stage || 'new';
-    if (stage === 'warning' && card.warning_handed_on) return `Вручено ${this.dayMonth(card.warning_handed_on)}`;
-    if (stage === 'disconnect' && card.order_on) return `Наряд от ${this.dayMonth(card.order_on)}`;
-    const filed = card.filed_on || card.package_on;
-    if (stage === 'enforcement' && filed) return `Подано ${this.dayMonth(filed)}`;
-    if (stage === 'court' && filed) return `Передано ${this.dayMonth(filed)}`;
-    const due = stage === 'enforcement' || stage === 'court' ? (card.claim_due || card.warning_due) : (card.warning_due || card.claim_due);
-    return due ? this.relative(due) : '';
-  }
-
-  protected initials(name: string): string {
-    const parts = (name || '').split(/\s+/).filter(Boolean);
-    return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
-  }
-
-  protected avatarColor(name: string): string {
-    const palette = ['#2e7d32', '#7c3aed', '#ea580c', '#c62828', '#1d4ed8', '#0f766e'];
-    let hash = 0;
-    for (const char of name) hash = (hash + char.charCodeAt(0)) % palette.length;
-    return palette[hash];
   }
 
   protected openCreate(): void {
@@ -998,6 +967,27 @@ export class ClaimsBoardComponent implements OnInit {
     const row = this.picked();
     if (!row) return;
     this.loadWrit(row.id, false);
+  }
+
+  protected setWritDate(field: 'from' | 'to' | 'warning' | 'act', value: string): void {
+    const current = field === 'from' ? this.writFrom : field === 'to' ? this.writTo : field === 'warning' ? this.writWarning : this.writAct;
+    if (value === current) return;
+    if (field === 'from') this.writFrom = value;
+    else if (field === 'to') this.writTo = value;
+    else if (field === 'warning') this.writWarning = value;
+    else this.writAct = value;
+    this.refreshWritWindow();
+  }
+
+  protected writSaveTitle(): string {
+    if (!this.picked()) return 'Сначала выберите лицевой счёт';
+    const parts = [...(this.writ()?.blockers || [])];
+    if (!this.office.trim()) parts.push('Выберите нотариальную контору');
+    return parts.join('. ');
+  }
+
+  protected writCanSave(): boolean {
+    return !!this.picked() && !this.writSaveTitle();
   }
 
   protected saveWrit(): void {
@@ -1160,33 +1150,6 @@ export class ClaimsBoardComponent implements OnInit {
       next: (rows) => this.events.set(rows),
       error: (err) => this.error.set(errorMessage(err)),
     });
-  }
-
-  private dayMonth(iso: string): string {
-    const parts = iso.slice(0, 10).split('-');
-    return parts.length === 3 ? `${parts[2]}.${parts[1]}` : iso;
-  }
-
-  private relative(iso: string): string {
-    const due = new Date(`${iso.slice(0, 10)}T00:00:00`);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
-    if (Number.isNaN(diff)) return '';
-    if (diff === 0) return 'Сегодня';
-    if (diff === 1) return 'Завтра';
-    if (diff === -1) return 'Вчера';
-    if (diff > 1) return `Через ${diff} ${this.dayWord(diff)}`;
-    const past = Math.abs(diff);
-    return `${past} ${this.dayWord(past)} назад`;
-  }
-
-  private dayWord(count: number): string {
-    const mod10 = count % 10;
-    const mod100 = count % 100;
-    if (mod10 === 1 && mod100 !== 11) return 'день';
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дня';
-    return 'дней';
   }
 
   private trackCase(): void {

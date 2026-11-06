@@ -95,15 +95,16 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 </mat-form-field>
                 <p class="muted">Адрес, на который нотариус пришлёт уведомление. Несколько адресов — через запятую. Контакт должника сюда не подставляется.</p>
                 <div class="bar">
-                  <button mat-flat-button color="primary" type="button" (click)="signAndAssemble()" [disabled]="signing || !kitReady(row)" [title]="signTitle(row)">Подписать и собрать архив</button>
-                  <button mat-stroked-button type="button" (click)="downloadArchive()" [disabled]="!archiveReady(row)" [title]="archiveReady(row) ? 'Скачать zip комплекта' : 'Сначала подпишите комплект и соберите архив'">Скачать архив</button>
-                  <button mat-flat-button type="button" (click)="sendArchive()" [disabled]="!archiveReady(row)" [title]="archiveReady(row) ? 'Записать направление нотариусу' : 'Сначала подпишите комплект и соберите архив'">Отправить</button>
+                  <span class="tip" [attr.data-tip]="signing || !kitReady(row) ? signTitle(row) : null">
+                    <button mat-flat-button color="primary" type="button" (click)="signAndAssemble()" [disabled]="signing || !kitReady(row)">Подписать и собрать архив</button>
+                  </span>
+                  <span class="tip" [attr.data-tip]="archiveReady(row) ? null : 'Сначала подпишите комплект и соберите архив'">
+                    <button mat-stroked-button type="button" (click)="downloadArchive()" [disabled]="!archiveReady(row)">Скачать архив</button>
+                  </span>
+                  <span class="tip" [attr.data-tip]="archiveReady(row) ? null : 'Сначала подпишите комплект и соберите архив'">
+                    <button mat-flat-button type="button" (click)="sendArchive()" [disabled]="!archiveReady(row)">Отправить</button>
+                  </span>
                 </div>
-                @if (shownGaps(row).length) {
-                  <ul class="blockers">
-                    @for (item of shownGaps(row); track $index) { <li>{{ item }}</li> }
-                  </ul>
-                }
                 @if (needsSkip(row)) {
                   <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="checklistSkip" /></mat-form-field>
                 }
@@ -118,9 +119,8 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 <p class="hint">Долг и пеня из АИС. «Взыскано» — после погашения долга, пени и тарифа.</p>
                 <div class="line">
                   <app-date-field label="Дата вручения предупреждения" [required]="true" [value]="warningDate" (valueChange)="setWarningDate($event)" />
-                  <mat-form-field [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
+                  <mat-form-field class="tariff" subscriptSizing="dynamic" [class.need]="!(Number(tariff) > 0)"><mat-label>Нотариальный тариф *</mat-label>
                     <input matInput holdDraft [ngModel]="tariff" (ngModelChange)="setTariff($event)" />
-                    <span matTextSuffix><app-byn-sign /></span>
                   </mat-form-field>
                   <mat-checkbox holdDraft [ngModel]="withdrawn" (ngModelChange)="setWithdrawn($event)">Заявление отозвано</mat-checkbox>
                 </div>
@@ -129,11 +129,6 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 }
                 @if (stubAnswer(row)) {
                   <p class="banner">Ответ БНП — заглушка. Кабинет не вызывался. Файл на счёте не является исполнительной надписью нотариуса.</p>
-                }
-                @if (sendGaps(row).length) {
-                  <ul class="blockers">
-                    @for (item of sendGaps(row); track $index) { <li>{{ item }}</li> }
-                  </ul>
                 }
                 @if (needsSkip(row)) {
                   <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="checklistSkip" /></mat-form-field>
@@ -151,7 +146,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 }
                 <div class="actions">
                   <button mat-stroked-button type="button" (click)="save()">Сохранить</button>
-                  <button mat-flat-button type="button" disabled title="Обмен с БНП система-система не подключён">Отправить</button>
+                  <span class="tip" [attr.data-tip]="notarySendTitle(row)">
+                    <button mat-flat-button type="button" disabled>Отправить</button>
+                  </span>
                   @if (row.stage === 'notary' && row.submission_mode === 'stub') {
                     <button mat-flat-button color="primary" type="button" (click)="act('bnp-result')">Ответ БНП (заглушка)</button>
                   }
@@ -160,10 +157,10 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                       <input type="file" accept="application/pdf,.pdf" (change)="uploadWrit($event)" />
                     </label>
                   }
-                  <span [title]="notaryAnswerTitle(row)">
+                  <span class="tip" [attr.data-tip]="notaryDoneOpen(row) ? null : notaryAnswerTitle(row)">
                     <button mat-stroked-button type="button" [disabled]="!notaryDoneOpen(row)" (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
                   </span>
-                  <span [title]="refusalTitle(row)">
+                  <span class="tip" [attr.data-tip]="refusalOpen(row) ? null : refusalTitle(row)">
                     <button mat-stroked-button type="button" [disabled]="!refusalOpen(row)" (click)="refuse()">Отказ нотариуса</button>
                   </span>
                   @if (row.stage === 'notary' || row.stage === 'writ_done' || row.stage === 'refused') {
@@ -729,19 +726,19 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
               }
             }
           </div>
-          <aside>
-            <h3>История</h3>
-            <ul>
-              @for (event of journal(row); track $index) {
-                <li>
-                  <time>{{ event.at | date: 'dd.MM.yyyy HH:mm' }}</time>
-                  <span><b>{{ event.actor }}</b> {{ event.reason || event.new_stage }}</span>
-                </li>
-              } @empty {
-                <li class="muted">Записей пока нет</li>
-              }
-            </ul>
-          </aside>
+          @if (journal(row).length) {
+            <aside>
+              <h3>История</h3>
+              <ul>
+                @for (event of journal(row); track $index) {
+                  <li>
+                    <time>{{ event.at | date: 'dd.MM.yyyy HH:mm' }}</time>
+                    <span><b>{{ event.actor }}</b> {{ event.reason || event.new_stage }}</span>
+                  </li>
+                }
+              </ul>
+            </aside>
+          }
         </div>
       }
       <app-funnel-gate-dialog [gate]="gate()" (go)="openGate()" (closed)="gate.set(null)" />
@@ -769,13 +766,16 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     }
     .tabs button.on { color: var(--erip-primary-dark); border-bottom-color: var(--erip-primary); }
     .tabs button:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
-    .tabs .tab[data-tip]:hover::after {
+    .tabs .tab[data-tip]:hover::after, .tip[data-tip]:hover::after {
       content: attr(data-tip);
       position: absolute; left: 0; top: calc(100% + 6px); z-index: 8;
       width: max-content; max-width: 280px; padding: 6px 8px; border-radius: 6px;
       background: #243044; color: #fff; font-size: 12px; font-weight: 500; line-height: 1.35;
       white-space: normal; pointer-events: none;
     }
+    .tip { position: relative; display: inline-flex; }
+    .tip > button:disabled { pointer-events: none; }
+    .bar .tip[data-tip]:hover::after, .actions .tip[data-tip]:hover::after { top: auto; bottom: calc(100% + 6px); }
     .packages { display: flex; flex-wrap: wrap; gap: 8px; }
     .packages a {
       display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit;
@@ -784,12 +784,16 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .packages a.on { border-color: var(--erip-primary); background: var(--erip-primary-soft); }
     .packages small { color: var(--erip-muted); }
     .work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; }
+    .work:not(:has(aside)) { grid-template-columns: minmax(0, 1fr); }
+    .work:not(:has(app-claim-checklist.file-open)) { align-items: start; }
     .pane { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; background: #fff; border: 1px solid var(--erip-border); border-radius: 12px; padding: 12px; }
     .sums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
     .sums div { background: var(--erip-bg); border-radius: 8px; padding: 8px 10px; }
     .sums span { display: block; color: var(--erip-muted); font-size: 12px; }
     .sums .total { background: var(--erip-primary-soft); }
-    .line, .actions, .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .line, .actions, .bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+    .line > mat-form-field.tariff { flex: 0 0 260px; width: 260px; }
+    .line mat-checkbox { align-self: center; margin-top: 8px; }
     .fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
     .inquiry { margin: 8px 0; }
     pre { white-space: pre-wrap; font-size: 12px; background: #f6f8fa; padding: 8px; border-radius: 8px; max-height: 240px; overflow: auto; }
@@ -1101,16 +1105,17 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.router.navigate([], { relativeTo: this.route, queryParams: { tab }, queryParamsHandling: 'merge' });
   }
 
+  protected notarySendTitle(row: ClaimCase): string {
+    return [...this.sendGaps(row), 'Обмен с БНП система-система не подключён'].join('. ');
+  }
+
   protected sendGaps(row: ClaimCase): string[] {
     const fromList = (row.writ_checklist || [])
       .filter((item) => item.mandatory && !item.met)
       .map((item) => item.gap || item.name);
-    if (fromList.length) return fromList;
-    return (row.blockers || []).filter((item) => item.includes('вручения') || item.includes('тариф'));
-  }
-
-  protected shownGaps(row: ClaimCase): string[] {
-    const items = [...this.kitGaps(row), ...this.sendGaps(row)];
+    const items = fromList.length
+      ? fromList
+      : (row.blockers || []).filter((item) => item.includes('вручения') || item.includes('тариф'));
     return items.filter((item, index) => item && items.indexOf(item) === index);
   }
 
@@ -1125,7 +1130,7 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
 
   protected signTitle(row: ClaimCase): string {
     if (this.signing) return 'Подпись уже запущена';
-    if (!this.kitReady(row)) return this.kitGaps(row)[0] || 'Комплект неполный';
+    if (!this.kitReady(row)) return this.kitGaps(row).join('. ') || 'Комплект неполный';
     return 'Подписать документы и собрать архив';
   }
 

@@ -117,6 +117,8 @@ const COURT: Slot[] = [
   `,
   styles: `
     :host { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; max-width: 100%; }
+    :host:not(.file-open) { flex: 0 1 auto; }
+    :host:not(.file-open) .split { flex: none; align-items: start; }
     .upload {
       border: 0; background: transparent; color: var(--erip-link); font: inherit; font-size: 13px; cursor: pointer;
     }

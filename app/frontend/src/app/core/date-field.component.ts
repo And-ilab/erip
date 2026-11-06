@@ -19,8 +19,8 @@ import { MatInputModule } from '@angular/material/input';
     </mat-form-field>
   `,
   styles: `
-    :host { display: inline-block; }
-    .compact { width: 210px; }
+    :host { display: inline-block; vertical-align: top; max-width: 100%; }
+    .compact { width: 340px; max-width: 100%; }
     .need { --mdc-outlined-text-field-outline-color: #c62828; --mdc-outlined-text-field-label-text-color: #c62828; }
   `,
 })
