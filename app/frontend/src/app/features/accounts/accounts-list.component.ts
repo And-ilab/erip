@@ -9,7 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
 import { Router } from '@angular/router';
-import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
+import { debounceTime, forkJoin } from 'rxjs';
 
 import { ApiService, ColumnPrefs, FunnelGateInfo, errorMessage, funnelGate, gateTarget } from '../../core/api.service';
 import { hideColumn, moveColumn, resolveColumnOrder, showColumn } from '../column-layout';
@@ -185,8 +185,10 @@ interface GroupSection {
               #searchBox
               [formControl]="search"
               placeholder="Поиск по ФИО плательщиков, лицевому счёту, адресу, идентификационному номеру…"
+              autocomplete="off"
               (focus)="holdSearchFocus()"
               (blur)="releaseSearchFocus()"
+              (keydown.enter)="submitSearch($event)"
             />
             <button type="button" class="chevron" aria-label="Фильтры" [attr.aria-expanded]="panelOpen()" (click)="togglePanel($event)">▾</button>
           </div>
@@ -647,7 +649,7 @@ interface GroupSection {
     }
     .search input {
       flex: 1; min-width: 80px; border: 0; outline: none; background: transparent;
-      font: inherit; font-size: 13px; color: #1f2933;
+      font: inherit; font-size: 13px; color: #1f2933; caret-color: #1f2933;
     }
     .fchip {
       border: 0; background: var(--erip-primary-soft); color: var(--erip-primary);
@@ -975,7 +977,6 @@ export class AccountsListComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.search.valueChanges.pipe(debounceTime(300), distinctUntilChanged()).subscribe(() => this.onFilter());
     this.groupsSelected.valueChanges.subscribe(() => this.onFilter());
     this.rating.valueChanges.subscribe(() => this.onFilter());
     this.stage.valueChanges.subscribe(() => this.onFilter());
@@ -1147,6 +1148,13 @@ export class AccountsListComponent implements OnInit {
     this.openFilters();
   }
 
+  protected submitSearch(event: Event): void {
+    event.preventDefault();
+    this.searchHeld = true;
+    this.openFilters();
+    this.onFilter();
+  }
+
   protected releaseSearchFocus(): void {
     setTimeout(() => {
       const active = document.activeElement;
@@ -1157,7 +1165,14 @@ export class AccountsListComponent implements OnInit {
 
   private restoreSearchFocus(): void {
     if (!this.searchHeld) return;
-    queueMicrotask(() => this.searchBox?.nativeElement.focus({ preventScroll: true }));
+    const input = this.searchBox?.nativeElement;
+    if (!input || document.activeElement === input) return;
+    setTimeout(() => {
+      if (!this.searchHeld || !input.isConnected) return;
+      input.focus({ preventScroll: true });
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }, 0);
   }
 
   togglePanel(event: Event): void {
@@ -1274,8 +1289,14 @@ export class AccountsListComponent implements OnInit {
     this.dropGrouping();
     this.view.set('kanban');
     this.api.kanban(this.query()).subscribe({
-      next: (columns) => this.board.set(columns),
-      error: (e) => this.error.set(errorMessage(e)),
+      next: (columns) => {
+        this.board.set(columns);
+        this.restoreSearchFocus();
+      },
+      error: (e) => {
+        this.error.set(errorMessage(e));
+        this.restoreSearchFocus();
+      },
     });
   }
 
