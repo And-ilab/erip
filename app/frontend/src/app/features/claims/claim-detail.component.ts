@@ -236,6 +236,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         <span [title]="decisionMoveTitle(row)">
                           <button mat-stroked-button type="button" [disabled]="row.stage !== 'lawsuit' || !decisionReady(row)" (click)="act('move', { stage: 'court' })">Решение суда</button>
                         </span>
+                        <span [title]="courtSignTitle(row)">
+                          <button mat-stroked-button type="button" [disabled]="signing || !courtSignOpen(row)" (click)="signCourtPackage()">Подписать ЭЦП</button>
+                        </span>
                       }
                       @if (row.stage === 'refused' || row.stage === 'lawsuit' || row.stage === 'court') {
                         <p class="hint">Отказ нотариуса ведёт в суд. В ОПИ дело переходит только после совершённой надписи.</p>
@@ -1363,6 +1366,22 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     return row.stage === 'refused' ? 'Перейти к исковому заявлению' : 'К иску переходят после отказа нотариуса';
   }
 
+  protected courtSignOpen(row: ClaimCase): boolean {
+    return this.courtDocs(row).some((doc) => doc.has_pdf && !doc.has_signature);
+  }
+
+  protected courtSignTitle(row: ClaimCase): string {
+    const docs = this.courtDocs(row).filter((doc) => doc.has_pdf);
+    if (!docs.length) return 'Сначала создайте или загрузите исковое заявление';
+    if (!docs.some((doc) => !doc.has_signature)) return 'Исковые документы уже подписаны';
+    return 'Подписать исковые документы тем же ключом, что комплект нотариусу';
+  }
+
+  private courtDocs(row: ClaimCase): ClaimPackage['documents'] {
+    const kinds = new Set(['lawsuit', 'eviction', 'alienation']);
+    return (row.package?.documents || []).filter((doc) => kinds.has(doc.doc_type));
+  }
+
   protected decisionMoveTitle(row: ClaimCase): string {
     if (row.stage !== 'lawsuit') return 'Решение суда фиксируют после искового заявления';
     if (!this.decisionReady(row)) return 'Сначала приложите PDF «Судебное решение»';
@@ -1837,6 +1856,25 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
         this.act('sign-and-send', { skip_reason: this.checklistSkip.trim() });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected signCourtPackage(): void {
+    const row = this.claim();
+    if (!row || this.signing || !this.courtSignOpen(row)) return;
+    this.signing = true;
+    this.api.ieSignTicket(row.id, 'all').subscribe({
+      next: (issued) => {
+        this.signing = false;
+        const sep = issued.path.includes('?') ? '&' : '?';
+        this.launchEdge(`${window.location.origin}${issued.path}${sep}_=${Date.now()}`);
+        this.watchArchive();
+        this.snack.open('Открывается окно подписи. Введите пароль ключа.', 'OK', { duration: 8000 });
+      },
+      error: (err) => {
+        this.signing = false;
+        this.snack.open(errorMessage(err), 'OK');
+      },
     });
   }
 
