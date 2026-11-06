@@ -1,5 +1,6 @@
 """Сборка пакета АИС ПРИС из дела. Заглушка канала не записывает чужой номер производства."""
 
+import base64
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -613,20 +614,18 @@ def test_poll_does_not_ask_a_debt_placed_today(api, specialist_a, org_a, pris_tr
     assert not any(str(item[0]).endswith("claimant-info-by-debt") for item in pris_transport.calls)
 
 
-def test_pdf_in_signature_slot_does_not_block_and_unp_is_saved(api, specialist_a, org_a, pris_transport):
+def test_pdf_in_signature_slot_does_not_replace_the_specialist_signature(api, specialist_a, org_a, pris_transport):
     case, pdf, _signature = _ready_case(org_a)
     org_a.unp = ""
     org_a.save(update_fields=["unp"])
     body = _body(pdf.pk, pdf.pk)
     body["claimant"] = {"unp": "123456789"}
     response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/submit/", body, format="json")
-    assert response.status_code == 200, response.content
-    files = pris_transport.calls[0][1]["package"][0]["documents"][0]["p_files"][0]
-    assert files["file_ecp"] == "bm90LWEtc2lnbmF0dXJl"
-    assert files["file_body"]
+    assert response.status_code == 400
+    assert "подписи специалиста" in response.json()["error"]["message"]
+    assert pris_transport.calls == []
     org_a.refresh_from_db()
     assert org_a.unp == "123456789"
-    assert pris_transport.calls[0][1]["package"][0]["claimant"]["p_c_reg_num"] == "123456789"
 
 
 def test_signature_selected_as_pdf_sends_the_document(api, specialist_a, org_a, pris_transport):
@@ -637,7 +636,7 @@ def test_signature_selected_as_pdf_sends_the_document(api, specialist_a, org_a, 
     assert response.status_code == 200, response.content
     files = pris_transport.calls[0][1]["package"][0]["documents"][0]["p_files"][0]
     assert files["file_body"].startswith("JVBER")
-    assert files["file_ecp"] == "bm90LWEtc2lnbmF0dXJl"
+    assert files["file_ecp"] not in {"writ.pdf", "bm90LWEtc2lnbmF0dXJl"}
 
 
 def test_signature_alone_is_not_sent_as_pdf(api, specialist_a, org_a, pris_transport):
@@ -650,16 +649,44 @@ def test_signature_alone_is_not_sent_as_pdf(api, specialist_a, org_a, pris_trans
     assert pris_transport.calls == []
 
 
-def test_submit_without_signature_sends_pdf_only(api, specialist_a, org_a, pris_transport):
+def test_submit_without_signature_is_refused(api, specialist_a, org_a, pris_transport):
     case, pdf, _signature = _ready_case(org_a)
     body = _body(pdf.pk, 0)
     body.pop("signature_id")
     response = api(specialist_a).post(f"/api/v1/claims/{case.pk}/pris/submit/", body, format="json")
-    assert response.status_code == 200, response.content
-    _path, payload = pris_transport.calls[0]
-    files = payload["package"][0]["documents"][0]["p_files"][0]
-    assert files["file_body"]
-    assert files["file_ecp"] == "bm90LWEtc2lnbmF0dXJl"
+    assert response.status_code == 400
+    assert "подписи специалиста" in response.json()["error"]["message"]
+    assert pris_transport.calls == []
+
+
+def test_received_pdf_is_signed_in_the_same_window(api, specialist_a, org_a, client):
+    case, pdf, _signature = _ready_case(org_a)
+    issued = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/ie-sign-ticket/",
+        {"role": "pris", "attachment_id": pdf.pk},
+        format="json",
+    )
+    assert issued.status_code == 200, issued.content
+    token = issued.json()["token"]
+    session = client.get(f"/api/v1/ie-sign/{token}/")
+    assert session.status_code == 200, session.content
+    body = session.json()
+    assert body["purpose"] == "pris"
+    assert body["documents"][0]["file_name"] == "writ.pdf"
+    assert body["documents"][0]["has_signature"] is False
+    signed = client.post(
+        f"/api/v1/ie-sign/{token}/sign/",
+        {"signatures": [{"doc_id": pdf.pk, "pkcs7": base64.b64encode(sample_detached_pkcs7()).decode()}]},
+        content_type="application/json",
+    )
+    assert signed.status_code == 200, signed.content
+    formed = client.post(f"/api/v1/ie-sign/{token}/form/", {}, content_type="application/json")
+    assert formed.status_code == 200, formed.content
+    assert formed.json()["purpose"] == "pris"
+    assert formed.json()["formed"] is False
+    case.refresh_from_db()
+    assert case.pris_request["pdf_id"] == pdf.pk
+    assert Attachment.objects.filter(pk=case.pris_request["signature_id"], original_name="writ.pdf.p7s").exists()
 
 
 def test_pris_sum_comes_from_services_when_card_balance_is_zero(api, specialist_a, org_a, pris_transport):

@@ -587,7 +587,7 @@
       if (!session.documents[i].has_signature) pending.push(session.documents[i]);
     }
     if (!pending.length) {
-      setStatus("Все документы уже подписаны. Собираю архив…", "ok");
+      setStatus(session && session.purpose === "pris" ? "Документ уже подписан." : "Все документы уже подписаны. Собираю архив…", "ok");
       formArchive();
       return;
     }
@@ -673,7 +673,7 @@
   function formArchive() {
     if (forming) return;
     forming = true;
-    setWork("Собираю архив…");
+    setWork(session && session.purpose === "pris" ? "Сохраняю подпись…" : "Собираю архив…");
     api(
       "POST",
       "/api/v1/ie-sign/" + encodeURIComponent(token) + "/form/",
@@ -684,6 +684,13 @@
         signingBusy = false;
         setWork("");
         if (data.session) showSession(data.session);
+        if (data.purpose === "pris") {
+          setStatus("Подпись сохранена. Вернитесь в ПМ.", "ok");
+          try {
+            window.alert("Документ подписан электронной подписью. Вернитесь в ПМ.");
+          } catch (ePris) {}
+          return;
+        }
         setStatus("Архив собран. Вернитесь в ПМ.", "ok");
         try {
           window.alert("Архив документов собран и доступен для скачивания/отправки, пожалуйста вернитесь в ПМ");

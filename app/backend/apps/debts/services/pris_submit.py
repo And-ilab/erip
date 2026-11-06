@@ -59,9 +59,6 @@ _ADDRESS_KEYS = (
 )
 _INQUIRY_KEYS = ("p_ispdoc", "p_ost", "p_cred", "p_debt", "p_status", "p_action", "p_nachisl", "p_repay")
 _SIGN_EXT = (".p7s", ".sgn")
-# Шлюз не принимает пустой file_ecp. Тестовый контур подпись не проверяет:
-# 04.11 пакет с этой строкой в base64 прошёл с кодом 1000.
-_UNSIGNED_ECP = base64.b64encode(b"not-a-signature").decode("ascii")
 
 
 def pris_card(case: ClaimCase) -> dict:
@@ -547,6 +544,8 @@ def _problems(case: ClaimCase) -> list[str]:
         problems.append(f"в поле PDF выбран файл подписи {pair[0]}. Нужен сам документ")
     elif _is_signature(pair[2]):
         problems += _signature_problems(pair[2], pair[3])
+    else:
+        problems.append("нет подписи специалиста на документе для АИС ПРИС")
     debtor, debtor_problems = _debtor(case)
     problems += debtor_problems
     if debtor is not None and not debtor["p_arr_sum"]:
@@ -596,8 +595,10 @@ def _payload(case: ClaimCase) -> tuple[dict, bool]:
         file_body = _b64(sign_field)
         file_ecp = pdf_name
     else:
+        if not sign_name or sign_field is None:
+            raise ClaimBlocked("Нет подписи специалиста на документе для АИС ПРИС")
         file_body = _b64(pdf_field)
-        file_ecp = _b64(sign_field) if sign_name else _UNSIGNED_ECP
+        file_ecp = _b64(sign_field)
     document = {
         "p_doc_code": _text(request.get("doc_code")),
         "p_doc_date": _pris_date(request.get("doc_date")),
@@ -859,6 +860,63 @@ def _claimant_form(case: ClaimCase) -> dict:
     return profile
 
 
+def received_pdf(case: ClaimCase, raw) -> Attachment | None:
+    """PDF, который специалист подписывает перед передачей в АИС ПРИС."""
+    row = _attachment(case, raw)
+    if row is None or not _usable_document(row):
+        return None
+    return row
+
+
+def specialist_signed(case: ClaimCase, pdf_id) -> bool:
+    request = case.pris_request or {}
+    if _text(request.get("pdf_id")) != _text(pdf_id):
+        return False
+    signature = _attachment(case, request.get("signature_id"))
+    if signature is None or not _is_signature(signature.original_name):
+        return False
+    try:
+        with signature.file.open("rb") as handle:
+            inspect_detached_pkcs7(handle.read())
+    except (OSError, Pkcs7Error):
+        return False
+    return True
+
+
+def save_received_signature(case: ClaimCase, user, attachment_id, pkcs7) -> ClaimCase:
+    """Кладёт ЭЦП специалиста рядом с полученным PDF и связывает её с пакетом ПРИС."""
+    from django.core.files.base import ContentFile
+
+    from apps.debts.services.claims import _event
+
+    pdf = received_pdf(case, attachment_id)
+    if pdf is None:
+        raise ClaimBlocked("PDF для АИС ПРИС не найден")
+    payload = pkcs7.encode() if isinstance(pkcs7, str) else bytes(pkcs7 or b"")
+    try:
+        checked = inspect_detached_pkcs7(payload)
+    except Pkcs7Error as exc:
+        raise ClaimBlocked(str(exc)) from exc
+    name = pdf.original_name if pdf.original_name.lower().endswith(".p7s") else f"{pdf.original_name}.p7s"
+    name = name[-250:]
+    row = Attachment(
+        organization=case.organization,
+        account=case.account,
+        doc_type="подпись",
+        original_name=name,
+        uploaded_by=user if getattr(user, "is_authenticated", False) else None,
+    )
+    row.file.save(name, ContentFile(checked.der), save=False)
+    row.save()
+    request = dict(case.pris_request or {})
+    request["pdf_id"] = pdf.pk
+    request["signature_id"] = row.pk
+    case.pris_request = request
+    case.save(update_fields=["pris_request", "updated_at"])
+    _event(case, user, case.stage, case.stage, f"ЭЦП специалиста на {pdf.original_name}: {checked.subject}"[:500])
+    return case
+
+
 def _attachment(case: ClaimCase, raw) -> Attachment | None:
     text = _text(raw)
     if not text or not text.isdigit() or text == "0":
@@ -874,8 +932,7 @@ def _pair(case: ClaimCase):
     pdf = _attachment(case, request.get("pdf_id"))
     signature = _attachment(case, request.get("signature_id"))
     if pdf is not None and signature is not None and not _usable_document(pdf) and _usable_document(signature):
-        pdf = signature
-        signature = None
+        pdf, signature = signature, pdf
     sign_name = signature.original_name if signature is not None and _is_signature(signature.original_name) else ""
     sign_field = signature.file if sign_name else None
     if pdf is not None:

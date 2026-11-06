@@ -17,10 +17,12 @@ from apps.debts.services.ie_sign import (
     form_signed_archive,
     ie_mode_site_list,
     issue_ticket,
+    load_ticket,
     session_payload,
     ticket_case,
     ticket_user,
 )
+from apps.debts.services.pris_submit import received_pdf, save_received_signature
 
 
 class IeSignTicketView(APIView):
@@ -35,7 +37,12 @@ class IeSignTicketView(APIView):
         view.action = "ie_sign_ticket"
         case = view._case(pk)
         role = str(request.data.get("role") or "all")
-        issued = issue_ticket(case=case, user=request.user, role=role)
+        issued = issue_ticket(
+            case=case,
+            user=request.user,
+            role=role,
+            attachment_id=request.data.get("attachment_id"),
+        )
         record_action(
             request,
             AuditLog.Action.VIEW,
@@ -63,10 +70,16 @@ class IeSignPdfView(APIView):
 
     def get(self, request, token: str, doc_id: int):
         case = ticket_case(token)
+        ticket = load_ticket(token)
         session = session_payload(token)
         allowed = {int(row["id"]) for row in session["documents"] if row.get("id") is not None}
         if int(doc_id) not in allowed:
             raise ClaimBlocked("Документ недоступен по этой ссылке подписи")
+        if ticket.get("role") == "pris":
+            pdf = received_pdf(case, ticket.get("attachment_id"))
+            if pdf is None or pdf.pk != int(doc_id):
+                raise ClaimBlocked("Документ недоступен по этой ссылке подписи")
+            return FileResponse(pdf.file.open("rb"), as_attachment=False, filename=pdf.original_name, content_type="application/pdf")
         field, name = open_document(case, int(doc_id), "pdf")
         return FileResponse(field.open("rb"), as_attachment=False, filename=name, content_type="application/pdf")
 
@@ -92,7 +105,12 @@ class IeSignSubmitView(APIView):
                 raise ClaimBlocked("Укажите документ комплекта") from exc
             if doc_id not in allowed:
                 raise ClaimBlocked("Документ недоступен по этой ссылке подписи")
-        sign_documents(case, user, rows)
+        if ticket.get("role") == "pris":
+            if len(rows) != 1:
+                raise ClaimBlocked("Подпись передаётся вместе с документом для АИС ПРИС")
+            save_received_signature(case, user, ticket.get("attachment_id"), rows[0].get("pkcs7"))
+        else:
+            sign_documents(case, user, rows)
         case = ticket_case(token)
         request.user = user
         record_action(
@@ -118,6 +136,15 @@ class IeSignFormView(APIView):
     def post(self, request, token: str):
         user, ticket = ticket_user(token)
         case = ticket_case(token)
+        if ticket.get("role") == "pris":
+            request.user = user
+            return Response({
+                "ok": True,
+                "formed": False,
+                "purpose": "pris",
+                "claim_id": case.pk,
+                "session": session_payload(token),
+            })
         form_signed_archive(case, user)
         case = ticket_case(token)
         request.user = user
@@ -130,6 +157,7 @@ class IeSignFormView(APIView):
         return Response({
             "ok": True,
             "formed": True,
+            "purpose": "package",
             "claim_id": case.pk,
             "session": session_payload(token),
         })

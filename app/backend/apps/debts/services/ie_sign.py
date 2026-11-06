@@ -27,13 +27,11 @@ CACHE_PREFIX = "ie-sign:"
 SIGN_SALT = "erip.ie-sign.v1"
 
 
-def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
-    """Создаёт ticket на подпись комплекта. role: applicant | head | all."""
-    if stored_package(case) is None:
-        raise ClaimBlocked("Сначала соберите документы комплекта")
+def issue_ticket(*, case: ClaimCase, user, role: str = "all", attachment_id=None) -> dict[str, Any]:
+    """Создаёт ticket на подпись. role: applicant | head | all | pris."""
     normalized = str(role or "all").strip().lower()
-    if normalized not in {"applicant", "head", "all"}:
-        raise ClaimBlocked("Роль подписи: applicant, head или all")
+    if normalized not in {"applicant", "head", "all", "pris"}:
+        raise ClaimBlocked("Роль подписи: applicant, head, all или pris")
     nonce = secrets.token_hex(8)
     data = {
         "claim_id": case.pk,
@@ -41,6 +39,15 @@ def issue_ticket(*, case: ClaimCase, user, role: str = "all") -> dict[str, Any]:
         "role": normalized,
         "nonce": nonce,
     }
+    if normalized == "pris":
+        from apps.debts.services.pris_submit import received_pdf
+
+        pdf = received_pdf(case, attachment_id)
+        if pdf is None:
+            raise ClaimBlocked("Сначала выберите PDF, который пойдёт в АИС ПРИС")
+        data["attachment_id"] = pdf.pk
+    elif stored_package(case) is None:
+        raise ClaimBlocked("Сначала соберите документы комплекта")
     signed = signing.dumps(data, salt=SIGN_SALT, compress=True)
     token = signed.replace(":", ".")
     cache.set(CACHE_PREFIX + token, data, timeout=TICKET_TTL)
@@ -76,8 +83,33 @@ def session_payload(token: str) -> dict[str, Any]:
     if case is None:
         raise ClaimBlocked("Дело по ссылке подписи не найдено")
     user = User.objects.filter(pk=ticket["user_id"]).first()
-    package = package_payload(case)
     role = ticket.get("role") or "all"
+    if role == "pris":
+        from apps.debts.services.pris_submit import received_pdf, specialist_signed
+
+        pdf = received_pdf(case, ticket.get("attachment_id"))
+        if pdf is None:
+            raise ClaimBlocked("PDF для АИС ПРИС не найден")
+        account = case.account
+        return {
+            "token": token,
+            "claim_id": case.pk,
+            "role": role,
+            "purpose": "pris",
+            "account": account.client_account or account.pk,
+            "debtor": account.short_fio or "",
+            "user": getattr(user, "username", "") if user else "",
+            "documents": [{
+                "id": pdf.pk,
+                "file_name": pdf.original_name,
+                "doc_type": "enforcement",
+                "doc_type_label": "Документ для АИС ПРИС",
+                "signer": "applicant",
+                "signer_label": "ЭЦП специалиста",
+                "has_signature": specialist_signed(case, pdf.pk),
+            }],
+        }
+    package = package_payload(case)
     documents = []
     for doc in package.get("documents") or []:
         if not doc.get("has_pdf"):
@@ -104,6 +136,7 @@ def session_payload(token: str) -> dict[str, Any]:
         "account": account.client_account or account.pk,
         "debtor": account.short_fio or "",
         "user": getattr(user, "username", "") if user else "",
+        "purpose": "package",
         "documents": documents,
     }
 

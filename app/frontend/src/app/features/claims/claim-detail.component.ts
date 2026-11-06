@@ -1,7 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
 import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
@@ -28,7 +26,6 @@ import {
   funnelGate,
   gateTarget,
 } from '../../core/api.service';
-import { AvcmxService, EdsCertificate } from '../../core/avcmx.service';
 import { WritRecord } from '../../core/models';
 import { FunnelGateDialogComponent } from '../funnel-gate-dialog.component';
 import { ClaimChecklistComponent } from './claim-checklist.component';
@@ -525,7 +522,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   }
                   <details open>
                     <summary>Направление в ОПИ через АИС ПРИС (ОАИС 3.11.01–3.11.05)</summary>
-                    <p class="hint">Пустые реквизиты документа, адрес должника и код органа подставляются из карточки. Уже введённое не затирается. Реквизиты взыскателя берутся из карточки организации. На тестовом контуре подпись не проверяется: файл .p7s или .sgn прикладывать не нужно.</p>
+                    <p class="hint">Пустые реквизиты документа, адрес должника и код органа подставляются из карточки. Уже введённое не затирается. Реквизиты взыскателя берутся из карточки организации. Документ для передачи специалист подписывает тем же ключом, что комплект нотариусу. Без этой подписи пакет не собирается.</p>
                     @if (row.pris?.problems?.length) {
                       <p class="need">Не заполнено для передачи в ОПИ: {{ row.pris?.problems?.join('; ') }}</p>
                     } @else if (row.pris?.ready) {
@@ -604,26 +601,16 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         Приложить PDF
                         <input type="file" accept="application/pdf,.pdf" (change)="uploadPrisPdf($event)" />
                       </label>
-                      <mat-form-field><mat-label>Файл подписи, если контур начнёт её проверять</mat-label>
+                      <mat-form-field><mat-label>Подпись специалиста</mat-label>
                         <mat-select [(ngModel)]="prisSign">
-                          <mat-option [value]="0">Не прикладывать</mat-option>
+                          <mat-option [value]="0">Нет подписи</mat-option>
                           @for (file of prisSignatureFiles(row); track file.id) {
                             <mat-option [value]="file.id">{{ file.name }}</mat-option>
                           }
                         </mat-select>
                       </mat-form-field>
-                      @if (edsCerts.length) {
-                        <mat-form-field class="wide">
-                          <mat-label>Сертификат</mat-label>
-                          <mat-select [(ngModel)]="edsCert">
-                            @for (cert of edsCerts; track cert.pubKeyId) {
-                              <mat-option [value]="$index">{{ cert.subject }}{{ cert.hasUnp ? '' : ' · без УНП' }}</mat-option>
-                            }
-                          </mat-select>
-                        </mat-form-field>
-                      }
-                      <span [title]="prisPdf ? 'Подписать выбранный PDF' : 'Сначала выберите PDF'">
-                        <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing || !prisPdf">Подписать PDF</button>
+                      <span [title]="prisSignTitle()">
+                        <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing || !prisPdf">Подписать ЭЦП</button>
                       </span>
                       <mat-form-field [class.need]="!prisOrgUnp.trim()"><mat-label>УНП взыскателя *</mat-label><input matInput [(ngModel)]="prisOrgUnp" maxlength="9" /></mat-form-field>
                       <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
@@ -851,7 +838,6 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 })
 export class ClaimDetailComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
-  private readonly eds = inject(AvcmxService);
   protected readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -967,10 +953,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected prisPdf = 0;
   protected prisSign = 0;
   protected signing = false;
-  protected edsCerts: EdsCertificate[] = [];
-  protected edsCert = 0;
-  private edsListed = false;
   private archiveWatch: ReturnType<typeof setInterval> | null = null;
+  private watchingPris = false;
   private signAttempt = 0;
   private readonly emailProblem = 'Нужен e-mail для уведомлений. Несколько адресов — через запятую';
   private readonly serviceProblem = 'Выберите услугу исполнительной надписи из справочника БНП';
@@ -2017,6 +2001,11 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     link.remove();
   }
 
+  private watchPrisSignature(): void {
+    this.watchingPris = true;
+    this.watchArchive();
+  }
+
   private watchArchive(): void {
     this.stopArchiveWatch();
     const started = Date.now();
@@ -2042,6 +2031,13 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       next: (next) => {
         if (!this.alive || this.viewedId !== row.id) return;
         this.apply(next);
+        if (this.watchingPris) {
+          if (this.prisSign) {
+            this.watchingPris = false;
+            this.stopArchiveWatch();
+          }
+          return;
+        }
         if (this.archiveReady(next)) this.stopArchiveWatch();
       },
     });
@@ -2057,65 +2053,28 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.act('sign-and-send', { skip_reason: this.checklistSkip.trim() });
   }
 
+  protected prisSignTitle(): string {
+    if (!this.prisPdf) return 'Сначала выберите PDF, который пойдёт в АИС ПРИС';
+    return 'Подписать документ тем же ключом, что комплект нотариусу';
+  }
+
   protected signPrisPdf(): void {
     const row = this.claim();
-    if (!row || this.signing) return;
-    if (!this.prisPdf) {
-      this.snack.open('PDF не выбран. Подпись комплекта ставится на вкладке «Комплект», и тогда ПРИС берёт её из пакета.', 'OK');
-      return;
-    }
-    void this.signAttachment(row, this.prisPdf);
-  }
-
-  private async signAttachment(row: ClaimCase, fileId: number): Promise<void> {
-    const file = row.files.find((item) => item.id === fileId);
-    if (!file) {
-      this.snack.open('Файл PDF не найден среди вложений', 'OK');
-      return;
-    }
+    if (!row || this.signing || !this.prisPdf) return;
     this.signing = true;
-    try {
-      const cert = await this.pickCertificate();
-      if (!cert) return;
-      const blob = await firstValueFrom(this.api.downloadAttachment(file.id));
-      const signed = await this.eds.signDetached(new Uint8Array(await blob.arrayBuffer()), cert);
-      const name = file.name.toLowerCase().endsWith('.pdf') ? `${file.name}.p7s` : `${file.name}.pdf.p7s`;
-      const upload = new File([bytesFromBase64(signed.pkcs7)], name, { type: 'application/pkcs7-signature' });
-      const saved = await firstValueFrom(this.api.uploadFile(row.account, 'подпись', upload));
-      const next = await firstValueFrom(this.api.claim(row.id));
-      this.apply(next);
-      this.prisSign = Number(saved.id);
-      const extra = signed.attributeCertificate ? ' В подпись включён УНП.' : '';
-      this.snack.open(`Подпись ${name} сохранена.${extra}`, 'OK', { duration: 5000 });
-    } catch (err) {
-      this.snack.open(this.failText(err), 'OK');
-    } finally {
-      this.signing = false;
-    }
-  }
-
-  private async pickCertificate(): Promise<EdsCertificate | null> {
-    if (!this.eds.installed()) {
-      this.snack.open(this.eds.missingText(), 'OK', { duration: 8000 });
-      return null;
-    }
-    if (!this.edsCerts.length) this.edsCerts = await this.eds.certificates();
-    if (!this.edsCerts.length) {
-      this.snack.open('Нет сертификата для подписи. Вставьте ключ и повторите.', 'OK');
-      return null;
-    }
-    if (this.edsCerts.length > 1 && !this.edsListed) {
-      this.edsListed = true;
-      this.snack.open('Выберите сертификат и нажмите подпись ещё раз', 'OK');
-      return null;
-    }
-    return this.edsCerts[this.edsCert] || this.edsCerts[0];
-  }
-
-  private failText(error: unknown): string {
-    if (error instanceof HttpErrorResponse) return errorMessage(error);
-    if (error instanceof Error && error.message) return error.message;
-    return errorMessage(error);
+    this.api.ieSignTicket(row.id, 'pris', this.prisPdf).subscribe({
+      next: (issued) => {
+        this.signing = false;
+        const sep = issued.path.includes('?') ? '&' : '?';
+        this.launchEdge(`${window.location.origin}${issued.path}${sep}_=${Date.now()}`);
+        this.watchPrisSignature();
+        this.snack.open('Открывается окно подписи. Введите пароль ключа.', 'OK', { duration: 8000 });
+      },
+      error: (err) => {
+        this.signing = false;
+        this.snack.open(errorMessage(err), 'OK');
+      },
+    });
   }
 
   protected downloadArchive(): void {
@@ -2487,11 +2446,4 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
       },
     });
   }
-}
-
-function bytesFromBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
 }
