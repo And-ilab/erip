@@ -41,8 +41,7 @@ interface QueuedFile {
   error: string;
 }
 
-function classify(name: string): { entity: string; schemaCode: string } {
-  const schema = name.match(/\b([A-Z]{2}\d{4})\b/);
+function classify(name: string, schemas: string[] = []): { entity: string; schemaCode: string } {
   let entity = '';
   for (const [prefix, kind] of PREFIXES) {
     if (name.startsWith(prefix)) {
@@ -50,7 +49,16 @@ function classify(name: string): { entity: string; schemaCode: string } {
       break;
     }
   }
-  return { entity, schemaCode: schema?.[1] ?? '' };
+  const coded = name.match(/\b([A-Z]{2}\d{4})\b/);
+  if (coded) return { entity, schemaCode: coded[1] };
+  const known = [...schemas].sort((left, right) => right.length - left.length);
+  for (const schema of known) {
+    const escaped = schema.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(^|[^A-Za-z0-9_])${escaped}([^A-Za-z0-9_]|$)`).test(name)) {
+      return { entity, schemaCode: schema };
+    }
+  }
+  return { entity, schemaCode: '' };
 }
 
 @Component({
@@ -201,7 +209,7 @@ export class ImportsComponent implements OnInit {
     for (const file of files) {
       const key = `${file.name}:${file.size}:${file.lastModified}`;
       if (next.some((row) => row.key === key)) continue;
-      const detected = classify(file.name);
+      const detected = classify(file.name, this.organizations().map((org) => org.schema_name));
       next.push({
         key,
         file,
@@ -224,6 +232,8 @@ export class ImportsComponent implements OnInit {
     this.queue.update((rows) => rows.map((row) => {
       if (row.state === 'running' || row.state === 'done') return row;
       const copy = { ...row, note: '', error: row.state === 'failed' ? row.error : '' };
+      const detected = classify(copy.file.name, orgs.map((org) => org.schema_name));
+      if (detected.schemaCode) copy.schemaCode = detected.schemaCode;
       if (!copy.entity) {
         copy.state = 'blocked';
         copy.note = 'Выберите тип выгрузки';
