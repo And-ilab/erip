@@ -27,7 +27,7 @@ from apps.debts.services.eds import Pkcs7Error, inspect_detached_pkcs7
 from apps.debts.services.pris_gateway import get_pris_transport
 
 _DATE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
-_SEND_STAGES = {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT, ClaimCase.Stage.OPI}
+_SEND_STAGES = {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.OPI}
 _ACCEPTED = {"1000", "1001"}
 _LIVE_MODES = {"http", "channel"}
 _FOLLOWUP_EARLY = (
@@ -289,7 +289,7 @@ def refresh_pris(case: ClaimCase, user) -> ClaimCase:
     case.pris_inquiry = _inquiry(info)
     case.save(update_fields=["opi_number", "opi_status", "opi_mode", "pris_inquiry", "updated_at"])
     source = "ПРИС" if result.get("mode") == "http" else "Тестовый канал"
-    if proc and case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT}:
+    if proc and case.stage == ClaimCase.Stage.WRIT_DONE:
         case = move_case(case, ClaimCase.Stage.OPI, user, f"{source}: производство {proc}, статус {status}")
     actions = info.get("p_action") or []
     if actions and case.stage == ClaimCase.Stage.OPI:
@@ -524,7 +524,7 @@ def _signature_problems(name: str, field) -> list[str]:
 def _problems(case: ClaimCase) -> list[str]:
     problems: list[str] = []
     if case.stage not in _SEND_STAGES:
-        problems.append("исполнительный документ направляется после надписи или решения суда")
+        problems.append("пакет в ОПИ собирается после совершённой исполнительной надписи")
     request = case.pris_request or {}
     if not _text(request.get("opi")):
         problems.append("нет кода ОПИ (справочник 120)")

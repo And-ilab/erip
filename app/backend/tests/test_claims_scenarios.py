@@ -1042,6 +1042,65 @@ def test_opi_direction_needs_office_date_and_document(api, specialist_a, account
 
 
 @pytest.mark.django_db
+def test_opi_opens_only_after_a_completed_writ(api, admin_a, account_a):
+    case_id = _ready(api, admin_a, account_a)
+    case = ClaimCase.objects.get(pk=case_id)
+    case.stage = ClaimCase.Stage.REFUSED
+    case.save(update_fields=["stage"])
+
+    blocked = api(admin_a).post(
+        f"/api/v1/claims/{case_id}/move/", {"stage": "opi", "reason": "Сразу в ОПИ"}, format="json",
+    )
+    assert blocked.status_code == 400
+    assert "суд" in blocked.content.decode().lower()
+    case.refresh_from_db()
+    assert case.stage == ClaimCase.Stage.REFUSED
+
+    lawsuit = api(admin_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "lawsuit"}, format="json")
+    assert lawsuit.status_code == 200, lawsuit.content
+    jumped = api(admin_a).post(
+        f"/api/v1/claims/{case_id}/move/", {"stage": "opi", "reason": "С листа"}, format="json",
+    )
+    assert jumped.status_code == 400
+    assert "надпись" in jumped.content.decode().lower()
+
+    case.stage = ClaimCase.Stage.COURT
+    case.save(update_fields=["stage"])
+    from_court = api(admin_a).post(
+        f"/api/v1/claims/{case_id}/move/", {"stage": "opi", "reason": "Исполнительный лист"}, format="json",
+    )
+    assert from_court.status_code == 400
+    assert "надпись" in from_court.content.decode().lower()
+    case.refresh_from_db()
+    assert case.stage == ClaimCase.Stage.COURT
+
+    case.stage = ClaimCase.Stage.WRIT_DONE
+    case.save(update_fields=["stage"])
+    account_a.funnel_stage = "writ_done"
+    account_a.save(update_fields=["funnel_stage"])
+    checklist = api(admin_a).post(f"/api/v1/claims/{case_id}/move/", {"stage": "opi"}, format="json")
+    assert checklist.status_code == 400
+    text = checklist.content.decode().lower()
+    assert "исполнительн" in text
+    assert "отказа" not in text
+    case.refresh_from_db()
+    assert case.stage == ClaimCase.Stage.WRIT_DONE
+
+    case.stage = ClaimCase.Stage.REFUSED
+    case.save(update_fields=["stage"])
+    dragged = api(admin_a).patch(
+        f"/api/v1/accounts/{account_a.id}/",
+        {"funnel_stage": "opi", "funnel_reason": "Перенос колонки"},
+        format="json",
+    )
+    assert dragged.status_code == 400
+    assert dragged.json()["error"]["code"] == "funnel_gate"
+    assert dragged.json()["error"]["details"]["tab"] == "court"
+    account_a.refresh_from_db()
+    assert account_a.funnel_stage == "writ_done"
+
+
+@pytest.mark.django_db
 def test_scenario_delete_hides_the_row_and_keeps_a_running_account(api, admin_a, specialist_a, superadmin, account_a):
     from apps.nsi.models import ScenarioDefinition, ServiceScenarioMode
 

@@ -121,6 +121,20 @@ def test_stub_submit_keeps_regulation_package_and_does_not_open_proceeding(api, 
     assert item["documents"][0]["p_files"][0]["file_ecp"] not in {"writ.pdf", "bm90LWEtc2lnbmF0dXJl"}
 
 
+def test_court_branch_does_not_submit_to_opi(api, specialist_a, org_a, pris_transport):
+    case, pdf, signature = _ready_case(org_a)
+    case.stage = ClaimCase.Stage.COURT
+    case.save(update_fields=["stage"])
+    response = api(specialist_a).post(
+        f"/api/v1/claims/{case.pk}/pris/submit/", _body(pdf.pk, signature.pk), format="json",
+    )
+    assert response.status_code == 400
+    assert "совершённой" in response.json()["error"]["message"]
+    assert pris_transport.calls == []
+    case.refresh_from_db()
+    assert case.stage == ClaimCase.Stage.COURT
+
+
 def test_submit_without_opi_code_does_not_call_pris(api, specialist_a, org_a, pris_transport):
     case, pdf, signature = _ready_case(org_a)
     response = api(specialist_a).post(

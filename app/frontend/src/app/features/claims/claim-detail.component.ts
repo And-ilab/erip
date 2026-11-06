@@ -222,14 +222,17 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         <button mat-stroked-button type="button" (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
                         <button mat-stroked-button type="button" (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
                       }
-                      @if (row.stage === 'court' || court === 'granted') {
-                        <button mat-stroked-button type="button" (click)="setTab('opi')">Исполнительный лист в ОПИ</button>
+                      @if (row.stage === 'refused' || row.stage === 'lawsuit' || row.stage === 'court') {
+                        <p class="hint">Отказ нотариуса ведёт в суд. В ОПИ дело переходит только после совершённой надписи.</p>
                       }
                     </div>
                   </div>
                 </app-claim-checklist>
               }
               @case ('opi') {
+                @if (courtBranch(row)) {
+                  <p class="banner">После отказа нотариуса дело ведётся в суде. В ОПИ оно переходит только после совершённой исполнительной надписи.</p>
+                }
                 @if (prisStatus(); as st) {
                   <p class="banner" [class.ok-banner]="st.sends">{{ st.detail }}</p>
                 }
@@ -303,7 +306,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
 
                 <div class="opi-card" [hidden]="opiSlot() !== 'document'">
                   <h4>Исполнительный документ</h4>
-                  <p class="hint">Надпись или исполнительный лист кладётся в карточку и направляется в ОПИ. Пакет, уже принятый или проверенный ПРИС, этот пункт закрывает.</p>
+                  <p class="hint">В ОПИ уходит исполнительный документ совершённой надписи. Пакет, уже принятый или проверенный ПРИС, этот пункт закрывает.</p>
                   @if (hasEnforcement(row) && (row.opi_mode === 'pris' || row.opi_mode === 'channel' || row.opi_mode === 'stub')) {
                     <p class="ready-line">Документ учтён в пакете ПРИС.</p>
                   }
@@ -629,7 +632,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     <p class="hint">В пакете уходит остаток АИС на момент передачи.</p>
                     <div class="actions">
                       <button mat-stroked-button type="button" (click)="savePrisDraft()">Сохранить черновик</button>
-                      <button mat-flat-button color="primary" type="button" (click)="sendPris()">Передать в ОПИ</button>
+                      <button mat-flat-button color="primary" type="button" (click)="sendPris()" [disabled]="!opiSendOpen(row)">Передать в ОПИ</button>
                     </div>
                     @if (prisSent(row)) {
                       <p class="hint">Судебный исполнитель принимает задолженность вручную. Запрос хода и погашение по делу, переданному сегодня, уходят на следующий день. Новая оплата из АИС ждёт в очереди. «Передать погашения» повторяет только эту очередь.</p>
@@ -654,8 +657,10 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                 }
                 <div class="actions">
                   <button mat-flat-button color="primary" type="button" (click)="saveOpiRecord()">Записать статус</button>
-                  @if (auth.canSkip()) {
+                  @if (auth.canSkip() && row.stage === 'writ_done') {
                     <button mat-stroked-button type="button" (click)="moveToOpi()">Направлено в ОПИ</button>
+                  }
+                  @if (auth.canSkip() && row.stage === 'opi') {
                     <button mat-stroked-button type="button" (click)="moveToMeasures()">Меры приняты</button>
                   }
                   <button mat-stroked-button type="button" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
@@ -1233,6 +1238,14 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   protected pickMeasureKind(kind: { id: string; label: string }): void {
     this.newMeasureKind = kind.id;
     this.newMeasureTitle = kind.label;
+  }
+
+  protected courtBranch(row: ClaimCase): boolean {
+    return row.stage === 'refused' || row.stage === 'lawsuit' || row.stage === 'court';
+  }
+
+  protected opiSendOpen(row: ClaimCase): boolean {
+    return row.stage === 'writ_done' || row.stage === 'opi' || row.stage === 'opi_measures';
   }
 
   protected moveToOpi(): void {

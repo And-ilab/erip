@@ -511,11 +511,10 @@ export class ClaimsBoardComponent implements OnInit {
   protected readonly courtLanes = [
     { id: 'lawsuit', label: 'Исковое заявление', stages: ['lawsuit'], entry: 'lawsuit' },
     { id: 'decision', label: 'Судебное решение', stages: ['court'], entry: 'court' },
-    { id: 'opi', label: 'Дальше: ОПИ', stages: ['opi', 'opi_measures'], entry: 'opi' },
     { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'], entry: 'recovered' },
   ];
   protected readonly opiLanes = [
-    { id: 'opi_ready', label: 'К направлению в ОПИ', stages: ['writ_done', 'court'], entry: 'opi' },
+    { id: 'opi_ready', label: 'К направлению в ОПИ', stages: ['writ_done'], entry: 'opi' },
     { id: 'opi_sent', label: 'Направлено в ОПИ', stages: ['opi'], entry: 'opi' },
     { id: 'opi_measures', label: 'Меры ОПИ приняты', stages: ['opi_measures'], entry: 'opi_measures' },
     { id: 'recovered', label: 'Взыскано', stages: ['recovered'], entry: 'recovered' },
@@ -662,6 +661,10 @@ export class ClaimsBoardComponent implements OnInit {
     const known = this.board().flatMap((column) => column.cards);
     const card = known.find((item) => item.id === id);
     if (card && lane.stages.includes(card.claim_stage || 'queue')) return;
+    if (lane.entry === 'opi' && (card?.claim_stage || 'queue') !== 'writ_done') {
+      this.snack.open('В ОПИ карточка переходит только после совершённой надписи. Отказ нотариуса ведёт в суд.', 'OK');
+      return;
+    }
     const ids = this.selected().has(id) ? [...this.selected()] : [id];
     const moving = ids.filter((item) => {
       const row = known.find((candidate) => candidate.id === item);

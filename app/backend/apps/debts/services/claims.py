@@ -129,7 +129,8 @@ def drop_bare_claims(account, author, reason: str) -> None:
 NOTARY_STAGES = ("prep", "notary", "writ_done", "refused")
 COURT_STAGES = ("lawsuit", "court")
 SHARED_STAGES = ("opi", "opi_measures", "recovered", "impossible", "writeoff")
-OPI_MODULE_STAGES = ("writ_done", "court", *SHARED_STAGES)
+# В ОПИ попадают после совершённой надписи. Отказ остаётся на ветке суда.
+OPI_MODULE_STAGES = ("writ_done", *SHARED_STAGES)
 
 OPI_MEASURE_KINDS = (
     ("asset_arrest", "Арест имущества"),
@@ -159,13 +160,14 @@ def claims_on_module(queryset: QuerySet, module: str) -> QuerySet:
 
     ОПИ и итог есть и у надписи, и у иска, но карточка остаётся на той ветке,
     которая до них дошла. Вход в иск или решение суда уводит дело из нотариата.
-    Модуль «opi» показывает все дела, готовые к передаче в ОПИ или проходящие через ОПИ.
+    Модуль «opi» показывает дела с совершённой надписью и те, что уже направлены в ОПИ.
+    Отказ нотариуса, иск и решение суда остаются в модуле суда.
     """
     if module == "opi":
         return queryset.filter(
             Q(claim_case__stage__in=OPI_MODULE_STAGES)
             | Q(funnel_stage__in=[
-                "writ_done", "judgment", "court", "opi", "opi_measures", "recovered", "impossible", "writeoff",
+                "writ_done", "opi", "opi_measures", "recovered", "impossible", "writeoff",
             ]),
         ).distinct()
     if module not in {"notary", "court"}:
@@ -293,11 +295,12 @@ ADJACENT = {
     ClaimCase.Stage.WRIT_DONE: {ClaimCase.Stage.OPI},
     ClaimCase.Stage.REFUSED: {ClaimCase.Stage.LAWSUIT},
     ClaimCase.Stage.LAWSUIT: {ClaimCase.Stage.COURT},
-    ClaimCase.Stage.COURT: {ClaimCase.Stage.OPI},
+    ClaimCase.Stage.COURT: set(),
     ClaimCase.Stage.OPI: {ClaimCase.Stage.OPI_MEASURES},
     ClaimCase.Stage.OPI_MEASURES: {ClaimCase.Stage.RECOVERED, ClaimCase.Stage.IMPOSSIBLE},
     ClaimCase.Stage.IMPOSSIBLE: {ClaimCase.Stage.WRITEOFF},
 }
+COURT_BRANCH = {ClaimCase.Stage.REFUSED, ClaimCase.Stage.LAWSUIT, ClaimCase.Stage.COURT}
 
 
 def stage_is_skip(case: ClaimCase, stage: str) -> bool:
@@ -314,6 +317,7 @@ def move_case(case: ClaimCase, stage: str, user, reason: str = "", *, checklist_
         return case
     skipping = stage_is_skip(case, stage)
     supplied = reason if checklist_reason is None else checklist_reason
+    _assert_notary_fork(case, stage)
     from apps.debts.services.document_gate import claim_gate
 
     claim_gate(case, stage, supplied or "")
@@ -609,8 +613,8 @@ def add_opi_measure(case: ClaimCase, user, data: dict, upload=None) -> ClaimCase
     case.save(update_fields=["opi_measures_taken", "updated_at"])
     _sync_opi_activity(case, "opi_act", f"{title} ({measure_date.strftime('%d.%m.%Y')})")
     _event(case, user, case.stage, case.stage, f"Мера ОПИ: {title}" + (f" (постановление № {doc_number})" if doc_number else ""))
-    if data.get("move_stage") and case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT, ClaimCase.Stage.OPI}:
-        if case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.COURT}:
+    if data.get("move_stage") and case.stage in {ClaimCase.Stage.WRIT_DONE, ClaimCase.Stage.OPI}:
+        if case.stage == ClaimCase.Stage.WRIT_DONE:
             case = move_case(case, ClaimCase.Stage.OPI, user, "Направлено в ОПИ")
         if case.stage == ClaimCase.Stage.OPI:
             case = move_case(case, ClaimCase.Stage.OPI_MEASURES, user, f"Принята мера ОПИ: {title}")
@@ -1007,6 +1011,30 @@ def stage_marks(case: ClaimCase) -> list[tuple[str, str, bool, str]]:
         ("writeoff", "route", approved, "Согласовали все" if approved else ""),
         ("recovered", "paid", paid, paid_note),
     ]
+
+
+def opi_entry_block(case: ClaimCase | None) -> str:
+    """Пустая строка — дело уже на совершённой надписи и может идти в ОПИ."""
+    if case is not None and case.stage == ClaimCase.Stage.WRIT_DONE:
+        return ""
+    if case is not None and case.stage in COURT_BRANCH:
+        return (
+            "После отказа нотариуса дело идёт в суд. "
+            "В ОПИ оно переходит только со статуса «Исполнительная надпись совершена»."
+        )
+    return "В ОПИ дело переходит только после положительного ответа нотариуса: «Исполнительная надпись совершена»."
+
+
+def _assert_notary_fork(case: ClaimCase, stage: str) -> None:
+    """Положительный ответ нотариуса открывает ОПИ. Отрицательный — только иск."""
+    if stage == ClaimCase.Stage.OPI_MEASURES and case.stage != ClaimCase.Stage.OPI:
+        raise ClaimBlocked("Меры ОПИ доступны после статуса «Направлено в ОПИ».")
+    if stage == ClaimCase.Stage.OPI:
+        message = opi_entry_block(case)
+        if message:
+            raise ClaimBlocked(message)
+    if case.stage == ClaimCase.Stage.REFUSED and stage != ClaimCase.Stage.LAWSUIT:
+        raise ClaimBlocked("После отказа нотариуса доступен переход к исковому заявлению.")
 
 
 def _guard(case: ClaimCase, stage: str, reason: str, checklist_reason: str | None = None) -> None:

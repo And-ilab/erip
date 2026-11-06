@@ -169,9 +169,32 @@ def warning_handed(account) -> bool:
 
 
 def assert_transition(account, stage: str) -> None:
-    """Дата вручения и документы этапа. Пустой перечень документов переход не держит."""
+    """Дата вручения и документы этапа. Пустой перечень документов переход не держит.
+
+    Колонка «Направлено в ОПИ» открывается только с совершённой надписи.
+    """
     from apps.debts.services.document_gate import stage_gate
 
+    target = normalize(stage)
+    if target in {"opi", "opi_measures"}:
+        from apps.debts.models import ClaimCase
+        from apps.debts.services.claims import opi_entry_block
+
+        case = ClaimCase.objects.filter(account=account).order_by("id").first()
+        court = case is not None and case.stage in {"refused", "lawsuit", "court"}
+        if target == "opi_measures" and (case is None or case.stage != "opi"):
+            message = "Меры ОПИ доступны после статуса «Направлено в ОПИ»."
+        else:
+            message = "" if target == "opi_measures" else opi_entry_block(case)
+        if message:
+            raise FunnelGate(
+                message,
+                actions=["Открыть иск"] if court else ["Зафиксировать совершённую надпись"],
+                tab="court" if court else "notary",
+                tab_label="Суд" if court else "Нотариат",
+                account_id=account.pk,
+                claim_id=case.pk if case is not None else None,
+            )
     date_missing = stage in GATED and not warning_handed(account)
     stage_gate(account, account.funnel_stage or "new", stage, date_missing=date_missing)
 
