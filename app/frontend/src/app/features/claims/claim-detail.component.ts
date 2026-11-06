@@ -68,7 +68,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
         }
         <nav class="tabs">
           @for (item of tabs; track item.id) {
-            <button type="button" [class.on]="tab() === item.id" [disabled]="!tabOpen(item.id, row)" [title]="tabTitle(item.id, row)" (click)="setTab(item.id)">{{ item.label }}</button>
+            <span class="tab" [attr.data-tip]="tabTitle(item.id, row) || null">
+              <button type="button" [class.on]="tab() === item.id" [disabled]="!tabOpen(item.id, row)" (click)="setTab(item.id)">{{ item.label }}</button>
+            </span>
           }
         </nav>
         <div class="work">
@@ -760,12 +762,20 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
     .muted, .hint { color: var(--erip-muted); font-size: 13px; margin: 0; }
     .stage { background: var(--erip-claim-soft); color: var(--erip-claim); border-radius: 999px; padding: 4px 10px; font-size: 13px; white-space: nowrap; }
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--erip-border); }
+    .tabs .tab { position: relative; display: inline-flex; }
     .tabs button {
       border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; font-weight: 600;
       color: var(--erip-muted); padding: 8px 12px; cursor: pointer;
     }
     .tabs button.on { color: var(--erip-primary-dark); border-bottom-color: var(--erip-primary); }
-    .tabs button:disabled { opacity: 0.45; cursor: default; }
+    .tabs button:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+    .tabs .tab[data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute; left: 0; top: calc(100% + 6px); z-index: 8;
+      width: max-content; max-width: 280px; padding: 6px 8px; border-radius: 6px;
+      background: #243044; color: #fff; font-size: 12px; font-weight: 500; line-height: 1.35;
+      white-space: normal; pointer-events: none;
+    }
     .packages { display: flex; flex-wrap: wrap; gap: 8px; }
     .packages a {
       display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit;
@@ -1307,13 +1317,13 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
 
   protected tabTitle(id: string, row: ClaimCase): string {
     if (this.tabOpen(id, row)) return '';
-    if (id === 'court') return 'Откроется после отказа нотариуса';
+    if (id === 'court') return 'Не хватает отказа нотариуса';
     if (id === 'opi') {
       return this.courtBranch(row)
-        ? 'После отказа дело идёт в суд. ОПИ открывается только с совершённой надписи'
-        : 'Откроется после совершённой исполнительной надписи';
+        ? 'После отказа дело идёт в суд. Для ОПИ не хватает совершённой надписи'
+        : 'Не хватает совершённой исполнительной надписи';
     }
-    if (id === 'writeoff') return 'Откроется, когда есть три акта о невозможности взыскания';
+    if (id === 'writeoff') return 'Не хватает трёх актов о невозможности взыскания';
     return '';
   }
 
