@@ -121,7 +121,8 @@ import { RegistryViewsComponent } from '../registry-views.component';
               <div class="k-cards">
               @for (card of laneCards(lane); track card.id) {
                 <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
-                         [appKanbanDrag]="card.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                         [appKanbanDrag]="card.id" [dragDisabled]="!canMove() || !dropTargets(card).length"
+                         [dragTargets]="dropTargets(card)" (kanbanDrop)="onKanbanDrop($event)"
                          (click)="openCard($event, card)">
                   <app-kanban-debtor
                     [name]="card.short_fio || 'Без ФИО'"
@@ -514,7 +515,7 @@ export class ClaimsBoardComponent implements OnInit {
     { id: 'finish', label: 'Итог', stages: ['recovered', 'impossible', 'writeoff'], entry: 'recovered' },
   ];
   protected readonly opiLanes = [
-    { id: 'opi_ready', label: 'К направлению в ОПИ', stages: ['writ_done'], entry: 'opi' },
+    { id: 'opi_ready', label: 'К направлению в ОПИ', stages: ['writ_done'], entry: 'writ_done' },
     { id: 'opi_sent', label: 'Направлено в ОПИ', stages: ['opi'], entry: 'opi' },
     { id: 'opi_measures', label: 'Меры ОПИ приняты', stages: ['opi_measures'], entry: 'opi_measures' },
     { id: 'recovered', label: 'Взыскано', stages: ['recovered'], entry: 'recovered' },
@@ -649,6 +650,16 @@ export class ClaimsBoardComponent implements OnInit {
     return this.auth.canSkip() && !!me && me.contour !== 'supplier';
   }
 
+  /** Колонка принимает карточку только на следующий шаг, который не требует полей дела. */
+  protected dropTargets(card: AccountRow): string[] {
+    const stage = card.claim_stage || 'queue';
+    const next: Record<string, string[]> = {
+      refused: ['lawsuit'],
+    };
+    const wanted = next[stage] || [];
+    return wanted.filter((entry) => this.shownLanes().some((lane) => lane.entry === entry && !lane.stages.includes(stage)));
+  }
+
   protected isSelected(id: number): boolean {
     return this.selected().has(id);
   }
@@ -661,10 +672,7 @@ export class ClaimsBoardComponent implements OnInit {
     const known = this.board().flatMap((column) => column.cards);
     const card = known.find((item) => item.id === id);
     if (card && lane.stages.includes(card.claim_stage || 'queue')) return;
-    if (lane.entry === 'opi' && (card?.claim_stage || 'queue') !== 'writ_done') {
-      this.snack.open('В ОПИ карточка переходит только после совершённой надписи. Отказ нотариуса ведёт в суд.', 'OK');
-      return;
-    }
+    if (card && !this.dropTargets(card).includes(lane.entry)) return;
     const ids = this.selected().has(id) ? [...this.selected()] : [id];
     const moving = ids.filter((item) => {
       const row = known.find((candidate) => candidate.id === item);

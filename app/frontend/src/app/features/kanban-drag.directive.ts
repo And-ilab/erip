@@ -12,6 +12,8 @@ export class KanbanDragDirective implements OnDestroy {
   private readonly host = inject(ElementRef<HTMLElement>);
   readonly dragId = input.required<string | number>({ alias: 'appKanbanDrag' });
   readonly dragDisabled = input(false);
+  /** Колонки, которые принимают эту карточку. Пустой список — ни одна. Без значения — любая. */
+  readonly dragTargets = input<readonly string[] | null>(null);
   readonly kanbanDrop = output<{ id: string; stage: string }>();
 
   private ghost: HTMLElement | null = null;
@@ -211,6 +213,19 @@ export class KanbanDragDirective implements OnDestroy {
   }
 
   private columnAt(x: number, y: number): HTMLElement | null {
+    const column = this.columnUnder(x, y);
+    if (!column || !this.accepts(column)) return null;
+    return column;
+  }
+
+  private accepts(column: HTMLElement): boolean {
+    const targets = this.dragTargets();
+    if (!targets) return true;
+    const stage = column.getAttribute('data-kanban-stage') || '';
+    return targets.includes(stage);
+  }
+
+  private columnUnder(x: number, y: number): HTMLElement | null {
     if (this.ghost) this.ghost.style.visibility = 'hidden';
     const node = document.elementFromPoint(x, y);
     if (this.ghost) this.ghost.style.visibility = '';

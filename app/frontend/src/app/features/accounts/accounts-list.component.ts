@@ -552,7 +552,8 @@ interface GroupSection {
                 <div class="k-cards">
                 @for (card of column.cards; track card.id) {
                   <article class="k-card g{{ card.effective_group ?? 0 }}" [class.picked]="isSelected(card.id)"
-                           [appKanbanDrag]="card.id" [dragDisabled]="!canMove()" (kanbanDrop)="onKanbanDrop($event)"
+                           [appKanbanDrag]="card.id" [dragDisabled]="!canMove() || !dropTargets(card).length"
+                           [dragTargets]="dropTargets(card)" (kanbanDrop)="onKanbanDrop($event)"
                            (click)="openCard($event, card)">
                     <app-kanban-debtor
                       [name]="card.client_account"
@@ -1385,6 +1386,19 @@ export class AccountsListComponent implements OnInit {
     return this.auth.canSkip() && !!me && me.contour !== 'supplier';
   }
 
+  /** Соседний ранний шаг. Надпись, суд и ОПИ переводятся с карточки дела, не перетаскиванием. */
+  protected dropTargets(card: AccountRow): string[] {
+    const next: Record<string, string[]> = {
+      new: ['call'],
+      call: ['notice'],
+      notice: ['disconnect'],
+      disconnect: ['prep'],
+      prep: ['notary'],
+      refused: ['lawsuit'],
+    };
+    return next[funnelId(card.funnel_stage)] || [];
+  }
+
   protected shownColumns(): string[] {
     return ['select', ...this.columns()];
   }
@@ -1541,6 +1555,7 @@ export class AccountsListComponent implements OnInit {
     if (!id || !this.canMove()) return;
     const card = this.board().flatMap((column) => column.cards).find((item) => item.id === id);
     if (card && funnelId(card.funnel_stage) === event.stage) return;
+    if (card && !this.dropTargets(card).includes(event.stage)) return;
     const ids = this.selected().has(id) ? [...this.selected()] : [id];
     this.moveIds(ids, event.stage);
   }

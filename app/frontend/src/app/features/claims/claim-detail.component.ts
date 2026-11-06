@@ -71,7 +71,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
         }
         <nav class="tabs">
           @for (item of tabs; track item.id) {
-            <button type="button" [class.on]="tab() === item.id" (click)="setTab(item.id)">{{ item.label }}</button>
+            <button type="button" [class.on]="tab() === item.id" [disabled]="!tabOpen(item.id, row)" [title]="tabTitle(item.id, row)" (click)="setTab(item.id)">{{ item.label }}</button>
           }
         </nav>
         <div class="work">
@@ -156,8 +156,17 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                   @if (row.stage === 'notary' && row.submission_mode === 'stub') {
                     <button mat-flat-button color="primary" type="button" (click)="act('bnp-result')">Ответ БНП (заглушка)</button>
                   }
-                  <button mat-stroked-button type="button" (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
-                  <button mat-stroked-button type="button" (click)="refuse()">Отказ нотариуса</button>
+                  @if (row.stage === 'notary' && !writFileReady(row)) {
+                    <label class="file-pick">PDF надписи
+                      <input type="file" accept="application/pdf,.pdf" (change)="uploadWrit($event)" />
+                    </label>
+                  }
+                  <span [title]="notaryAnswerTitle(row)">
+                    <button mat-stroked-button type="button" [disabled]="!notaryDoneOpen(row)" (click)="act('notary-result', { result: 'done', note: note })">Надпись совершена</button>
+                  </span>
+                  <span [title]="refusalTitle(row)">
+                    <button mat-stroked-button type="button" [disabled]="!refusalOpen(row)" (click)="refuse()">Отказ нотариуса</button>
+                  </span>
                   @if (row.stage === 'notary' || row.stage === 'writ_done' || row.stage === 'refused') {
                     <button mat-stroked-button type="button" (click)="rework()">На доработку пакета</button>
                   }
@@ -213,14 +222,20 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         <mat-option value="denied">Отказано в иске</mat-option>
                       </mat-select>
                     </mat-form-field>
-                    @if (auth.canSkip()) {
-                      <mat-form-field class="wide"><mat-label>Причина пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
-                    }
                     <div class="actions">
                       <button mat-stroked-button type="button" (click)="save()">Сохранить иск</button>
-                      @if (auth.canSkip()) {
-                        <button mat-stroked-button type="button" (click)="act('move', { stage: 'lawsuit', reason: skipReason })">К иску</button>
-                        <button mat-stroked-button type="button" (click)="act('move', { stage: 'court', reason: skipReason })">Решение суда</button>
+                      @if (canAdvance()) {
+                        <span [title]="lawsuitMoveTitle(row)">
+                          <button mat-stroked-button type="button" [disabled]="row.stage !== 'refused'" (click)="act('move', { stage: 'lawsuit', reason: 'Отказ нотариуса' })">К иску</button>
+                        </span>
+                        @if (row.stage === 'lawsuit' && !decisionReady(row)) {
+                          <label class="file-pick">PDF решения
+                            <input type="file" accept="application/pdf,.pdf" (change)="uploadDecision($event)" />
+                          </label>
+                        }
+                        <span [title]="decisionMoveTitle(row)">
+                          <button mat-stroked-button type="button" [disabled]="row.stage !== 'lawsuit' || !decisionReady(row)" (click)="act('move', { stage: 'court' })">Решение суда</button>
+                        </span>
                       }
                       @if (row.stage === 'refused' || row.stage === 'lawsuit' || row.stage === 'court') {
                         <p class="hint">Отказ нотариуса ведёт в суд. В ОПИ дело переходит только после совершённой надписи.</p>
@@ -372,8 +387,12 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </label>
                   </div>
                   <div class="actions">
-                    <button mat-stroked-button type="button" (click)="submitOpiMeasure(false)">Добавить меру ОПИ</button>
-                    <button mat-stroked-button type="button" (click)="submitOpiMeasure(true)">Добавить меру и перевести в «Меры ОПИ»</button>
+                    <span [title]="measureDraftTitle()">
+                      <button mat-stroked-button type="button" [disabled]="!measureDraftReady()" (click)="submitOpiMeasure(false)">Добавить меру ОПИ</button>
+                    </span>
+                    <span [title]="measureMoveTitle(row)">
+                      <button mat-stroked-button type="button" [disabled]="!measureMoveOpen(row)" (click)="submitOpiMeasure(true)">Добавить меру и перевести в «Меры ОПИ»</button>
+                    </span>
                   </div>
                 </div>
 
@@ -442,8 +461,14 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     </label>
                   </div>
                   <div class="actions">
-                    <button mat-stroked-button type="button" (click)="submitAct()">Приложить акт</button>
-                    <button mat-stroked-button type="button" [disabled]="row.acts_count < 1" (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
+                    <span [title]="actDraftTitle()">
+                      <button mat-stroked-button type="button" [disabled]="!actDraftReady()" (click)="submitAct()">Приложить акт</button>
+                    </span>
+                    @if (canAdvance()) {
+                      <span [title]="impossibleTitle(row)">
+                        <button mat-stroked-button type="button" [disabled]="!impossibleOpen(row)" (click)="act('move', { stage: 'impossible' })">Невозможность взыскания</button>
+                      </span>
+                    }
                     @if (row.acts_count >= 3) {
                       <button mat-stroked-button type="button" (click)="setTab('writeoff')">Перейти к согласованию списания</button>
                     }
@@ -490,7 +515,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                         <input matInput holdDraft [ngModel]="tariff" (ngModelChange)="setTariff($event)" />
                         <span matTextSuffix><app-byn-sign /></span>
                       </mat-form-field>
-                      <button mat-flat-button color="primary" type="button" (click)="markWrit()">Надпись совершена</button>
+                      <span [title]="writMarkTitle(row)">
+                        <button mat-flat-button color="primary" type="button" [disabled]="!writMarkOpen(row)" (click)="markWrit()">Надпись совершена</button>
+                      </span>
                     </div>
                   }
                   <details open>
@@ -592,7 +619,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                           </mat-select>
                         </mat-form-field>
                       }
-                      <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing">Подписать PDF</button>
+                      <span [title]="prisPdf ? 'Подписать выбранный PDF' : 'Сначала выберите PDF'">
+                        <button mat-stroked-button type="button" (click)="signPrisPdf()" [disabled]="signing || !prisPdf">Подписать PDF</button>
+                      </span>
                       <mat-form-field [class.need]="!prisOrgUnp.trim()"><mat-label>УНП взыскателя *</mat-label><input matInput [(ngModel)]="prisOrgUnp" maxlength="9" /></mat-form-field>
                       <mat-form-field [class.need]="!prisOpf.trim()"><mat-label>ОПФ взыскателя *</mat-label><input matInput [(ngModel)]="prisOpf" /></mat-form-field>
                       <mat-form-field [class.need]="!prisCountry.trim()"><mat-label>Страна адреса, справочник 306 *</mat-label>
@@ -632,7 +661,9 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     <p class="hint">В пакете уходит остаток АИС на момент передачи.</p>
                     <div class="actions">
                       <button mat-stroked-button type="button" (click)="savePrisDraft()">Сохранить черновик</button>
-                      <button mat-flat-button color="primary" type="button" (click)="sendPris()" [disabled]="!opiSendOpen(row)">Передать в ОПИ</button>
+                      <span [title]="opiSendTitle(row)">
+                        <button mat-flat-button color="primary" type="button" (click)="sendPris()" [disabled]="!opiSendOpen(row)">Передать в ОПИ</button>
+                      </span>
                     </div>
                     @if (prisSent(row)) {
                       <p class="hint">Судебный исполнитель принимает задолженность вручную. Запрос хода и погашение по делу, переданному сегодня, уходят на следующий день. Новая оплата из АИС ждёт в очереди. «Передать погашения» повторяет только эту очередь.</p>
@@ -652,18 +683,23 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     }
                   </details>
                 </div>
-                @if (auth.canSkip()) {
-                  <mat-form-field class="wide"><mat-label>Причина перехода / пропуска этапа</mat-label><input matInput [(ngModel)]="skipReason" /></mat-form-field>
-                }
                 <div class="actions">
                   <button mat-flat-button color="primary" type="button" (click)="saveOpiRecord()">Записать статус</button>
-                  @if (auth.canSkip() && row.stage === 'writ_done') {
-                    <button mat-stroked-button type="button" (click)="moveToOpi()">Направлено в ОПИ</button>
+                  @if (canAdvance() && row.stage === 'writ_done') {
+                    <span [title]="opiDirectionTitle(row)">
+                      <button mat-stroked-button type="button" [disabled]="!opiDirectionReady(row)" (click)="moveToOpi()">Направлено в ОПИ</button>
+                    </span>
                   }
-                  @if (auth.canSkip() && row.stage === 'opi') {
-                    <button mat-stroked-button type="button" (click)="moveToMeasures()">Меры приняты</button>
+                  @if (canAdvance() && row.stage === 'opi') {
+                    <span [title]="measuresMoveTitle(row)">
+                      <button mat-stroked-button type="button" [disabled]="!measuresKnown(row)" (click)="moveToMeasures()">Меры приняты</button>
+                    </span>
                   }
-                  <button mat-stroked-button type="button" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
+                  @if (canAdvance()) {
+                    <span [title]="recoveredTitle(row)">
+                      <button mat-stroked-button type="button" [disabled]="!recoveredOpen(row)" (click)="act('move', { stage: 'recovered' })">Взыскано</button>
+                    </span>
+                  }
                 </div>
                   </div>
                 </div>
@@ -682,15 +718,21 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
                     }
                   </mat-select>
                 </mat-form-field>
-                <button mat-flat-button color="primary" type="button" (click)="act('writeoff', { approver_ids: approvers })">На согласование</button>
+                <span [title]="writeoffTitle(row)">
+                  <button mat-flat-button color="primary" type="button" [disabled]="!writeoffOpen(row)" (click)="act('writeoff', { approver_ids: approvers })">На согласование</button>
+                </span>
                 <p class="hint">Маршрут: {{ row.writeoff_status || 'не запущен' }}. {{ row.writeoff_note }}</p>
                 @for (vote of row.approvals; track vote.id) {
                   <p>{{ vote.approver_name }}: {{ vote.decision }} {{ vote.reason }}</p>
                 }
                 <mat-form-field class="wide"><mat-label>Ваше решение</mat-label><input matInput [(ngModel)]="decisionReason" /></mat-form-field>
                 <div class="actions">
-                  <button mat-stroked-button type="button" (click)="act('decide', { decision: 'yes', reason: decisionReason })">Согласовать</button>
-                  <button mat-stroked-button type="button" (click)="act('decide', { decision: 'no', reason: decisionReason })">Отказать</button>
+                  <span [title]="decideTitle(row, 'yes')">
+                    <button mat-stroked-button type="button" [disabled]="!myPending(row)" (click)="act('decide', { decision: 'yes', reason: decisionReason })">Согласовать</button>
+                  </span>
+                  <span [title]="decideTitle(row, 'no')">
+                    <button mat-stroked-button type="button" [disabled]="!myPending(row) || !decisionReason.trim()" (click)="act('decide', { decision: 'no', reason: decisionReason })">Отказать</button>
+                  </span>
                 </div>
               }
             }
@@ -733,6 +775,7 @@ import { BynSignComponent, MoneyComponent } from '../../core/money.component';
       color: var(--erip-muted); padding: 8px 12px; cursor: pointer;
     }
     .tabs button.on { color: var(--erip-primary-dark); border-bottom-color: var(--erip-primary); }
+    .tabs button:disabled { opacity: 0.45; cursor: default; }
     .packages { display: flex; flex-wrap: wrap; gap: 8px; }
     .packages a {
       display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit;
@@ -961,8 +1004,13 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     this.route.queryParamMap.subscribe((params) => {
       const tab = params.get('tab');
       if (tab === 'pris') {
-        this.tab.set('opi');
         this.opiSlot.set('pris');
+        const row = this.claim();
+        if (row && !this.tabOpen('opi', row)) {
+          this.settleTab(row);
+          return;
+        }
+        this.tab.set('opi');
         this.router.navigate([], {
           relativeTo: this.route,
           queryParams: { tab: 'opi', slot: 'pris' },
@@ -972,6 +1020,11 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
         return;
       }
       if (tab === 'pack' || tab === 'notary' || tab === 'court' || tab === 'opi' || tab === 'writeoff') {
+        const row = this.claim();
+        if (row && !this.tabOpen(tab, row)) {
+          this.settleTab(row);
+          return;
+        }
         this.tab.set(tab);
       }
       const slot = params.get('slot');
@@ -1045,6 +1098,8 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
   }
 
   protected setTab(tab: (typeof this.tabs)[number]['id']): void {
+    const row = this.claim();
+    if (row && !this.tabOpen(tab, row)) return;
     this.tab.set(tab);
     this.router.navigate([], { relativeTo: this.route, queryParams: { tab }, queryParamsHandling: 'merge' });
   }
@@ -1244,8 +1299,199 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     return row.stage === 'refused' || row.stage === 'lawsuit' || row.stage === 'court';
   }
 
+  protected canAdvance(): boolean {
+    const me = this.auth.me();
+    return this.auth.canWrite() && !!me && me.contour !== 'supplier';
+  }
+
+  private opiTabOpen(row: ClaimCase): boolean {
+    if (this.courtBranch(row)) return false;
+    return row.stage === 'writ_done' || row.stage === 'opi' || row.stage === 'opi_measures'
+      || row.stage === 'recovered' || row.stage === 'impossible' || row.stage === 'writeoff';
+  }
+
+  protected tabOpen(id: string, row: ClaimCase): boolean {
+    if (id === 'pack' || id === 'notary') return true;
+    if (id === 'court') return this.courtBranch(row);
+    if (id === 'opi') return this.opiTabOpen(row);
+    if (id === 'writeoff') return row.stage === 'impossible' || row.stage === 'writeoff' || row.acts_count >= 3;
+    return false;
+  }
+
+  protected tabTitle(id: string, row: ClaimCase): string {
+    if (this.tabOpen(id, row)) return '';
+    if (id === 'court') return 'Откроется после отказа нотариуса';
+    if (id === 'opi') {
+      return this.courtBranch(row)
+        ? 'После отказа дело идёт в суд. ОПИ открывается только с совершённой надписи'
+        : 'Откроется после совершённой исполнительной надписи';
+    }
+    if (id === 'writeoff') return 'Откроется, когда есть три акта о невозможности взыскания';
+    return '';
+  }
+
+  protected writFileReady(row: ClaimCase): boolean {
+    return (row.files || []).some((file) => /исполнительн/i.test(`${file.doc_type} ${file.name}`));
+  }
+
+  protected decisionReady(row: ClaimCase): boolean {
+    return (row.files || []).some((file) => /судебное решение/i.test(`${file.doc_type} ${file.name}`));
+  }
+
+  protected notaryDoneOpen(row: ClaimCase): boolean {
+    return row.stage === 'notary' && this.writFileReady(row);
+  }
+
+  protected notaryAnswerTitle(row: ClaimCase): string {
+    if (row.stage === 'notary' && !this.writFileReady(row)) return 'Сначала приложите PDF исполнительной надписи';
+    if (row.stage === 'notary') return 'Зафиксировать положительный ответ нотариуса';
+    if (row.stage === 'writ_done' || row.stage === 'refused' || this.courtBranch(row)) return 'Ответ нотариуса уже зафиксирован';
+    return 'Сначала направьте пакет нотариусу';
+  }
+
+  protected refusalOpen(row: ClaimCase): boolean {
+    return row.stage === 'notary' && (!!this.note.trim() || !!this.refusalFile);
+  }
+
+  protected refusalTitle(row: ClaimCase): string {
+    if (row.stage !== 'notary') return this.notaryAnswerTitle(row);
+    if (!this.note.trim() && !this.refusalFile) return 'Нужен комментарий или файл постановления об отказе';
+    return 'Зафиксировать отказ нотариуса';
+  }
+
+  protected lawsuitMoveTitle(row: ClaimCase): string {
+    return row.stage === 'refused' ? 'Перейти к исковому заявлению' : 'К иску переходят после отказа нотариуса';
+  }
+
+  protected decisionMoveTitle(row: ClaimCase): string {
+    if (row.stage !== 'lawsuit') return 'Решение суда фиксируют после искового заявления';
+    if (!this.decisionReady(row)) return 'Сначала приложите PDF «Судебное решение»';
+    return 'Зафиксировать решение суда';
+  }
+
+  protected writMarkOpen(row: ClaimCase): boolean {
+    return (row.stage === 'prep' || row.stage === 'notary')
+      && !!this.warningDate
+      && Number(this.tariff) > 0
+      && this.writFileReady(row);
+  }
+
+  protected writMarkTitle(row: ClaimCase): string {
+    if (row.stage !== 'prep' && row.stage !== 'notary') return 'Надпись отмечается из подготовки пакета или статуса «Направлено нотариусу»';
+    const gaps: string[] = [];
+    if (!this.warningDate) gaps.push('дату вручения');
+    if (!(Number(this.tariff) > 0)) gaps.push('нотариальный тариф');
+    if (!this.writFileReady(row)) gaps.push('PDF надписи');
+    return gaps.length ? `Сначала укажите: ${gaps.join(', ')}` : 'Отметить надпись совершённой';
+  }
+
+  protected opiDirectionReady(row: ClaimCase): boolean {
+    const integrated = (row.opi_mode === 'pris' || row.opi_mode === 'channel') && !!(row.opi_number || this.opiNumber).trim();
+    if (integrated) return true;
+    return !!this.opiDepartment.trim() && !!this.opiSentOn && this.hasEnforcement(row);
+  }
+
+  protected opiDirectionTitle(row: ClaimCase): string {
+    if (this.opiDirectionReady(row)) return 'Поставить статус «Направлено в ОПИ»';
+    const gaps: string[] = [];
+    if (!this.opiDepartment.trim()) gaps.push('орган ОПИ');
+    if (!this.opiSentOn) gaps.push('дату направления');
+    if (!this.hasEnforcement(row)) gaps.push('исполнительный документ');
+    return `Сначала заполните: ${gaps.join(', ')}`;
+  }
+
+  protected measuresMoveTitle(row: ClaimCase): string {
+    return this.measuresKnown(row) ? 'Поставить статус «Меры ОПИ приняты»' : 'Сначала добавьте принятую меру ОПИ';
+  }
+
+  protected recoveredOpen(row: ClaimCase): boolean {
+    return row.stage === 'opi_measures' && !!row.tariff_received && !!row.ais_debt_cleared;
+  }
+
+  protected recoveredTitle(row: ClaimCase): string {
+    if (row.stage !== 'opi_measures') return '«Взыскано» ставится после статуса «Меры ОПИ приняты»';
+    if (!row.tariff_received || !row.ais_debt_cleared) return 'Ждёт выгрузку АИС: погашены долг, пеня и тариф';
+    return 'Поставить статус «Взыскано»';
+  }
+
+  protected impossibleOpen(row: ClaimCase): boolean {
+    return row.stage === 'opi_measures' && row.acts_count >= 1;
+  }
+
+  protected impossibleTitle(row: ClaimCase): string {
+    if (row.stage !== 'opi_measures') return 'Статус ставится после «Меры ОПИ приняты»';
+    if (row.acts_count < 1) return 'Сначала приложите акт о невозможности взыскания';
+    return 'Поставить статус «Невозможность взыскания»';
+  }
+
+  protected measureDraftReady(): boolean {
+    return !!this.newMeasureTitle.trim() && !!this.newMeasureDate;
+  }
+
+  protected measureDraftTitle(): string {
+    return this.measureDraftReady() ? 'Записать меру ОПИ' : 'Нужны наименование и дата постановления';
+  }
+
+  protected measureMoveOpen(row: ClaimCase): boolean {
+    if (!this.measureDraftReady() || this.courtBranch(row)) return false;
+    if (row.stage === 'opi') return true;
+    return row.stage === 'writ_done' && this.opiDirectionReady(row);
+  }
+
+  protected measureMoveTitle(row: ClaimCase): string {
+    if (this.courtBranch(row)) return 'После отказа дело идёт в суд, не в меры ОПИ';
+    if (!this.measureDraftReady()) return 'Нужны наименование и дата постановления';
+    if (row.stage === 'writ_done' && !this.opiDirectionReady(row)) return this.opiDirectionTitle(row);
+    if (row.stage !== 'writ_done' && row.stage !== 'opi') return 'Перевод в «Меры ОПИ» доступен после направления в ОПИ';
+    return 'Добавить меру и перевести дело';
+  }
+
+  protected actDraftReady(): boolean {
+    return !!this.actTitle.trim() && !!this.actNumber.trim() && !!this.actDate && !!this.actReason.trim() && !!this.actFile;
+  }
+
+  protected actDraftTitle(): string {
+    return this.actDraftReady() ? 'Приложить акт' : 'Нужны наименование, номер, дата, основание и файл';
+  }
+
+  protected writeoffOpen(row: ClaimCase): boolean {
+    return this.canAdvance() && row.stage === 'impossible' && row.acts_count >= 3 && this.approvers.length > 0;
+  }
+
+  protected myPending(row: ClaimCase): boolean {
+    const me = this.auth.me();
+    if (!me) return false;
+    return row.approvals.some((vote) => vote.approver_id === me.id && vote.decision === 'pending');
+  }
+
+  protected decideTitle(row: ClaimCase, decision: 'yes' | 'no'): string {
+    if (!this.myPending(row)) return 'Решение доступно согласующему, пока маршрут ждёт его ответ';
+    if (decision === 'no' && !this.decisionReason.trim()) return 'Отказ записывается с причиной';
+    return decision === 'yes' ? 'Согласовать списание' : 'Отказать в списании';
+  }
+
+  protected writeoffTitle(row: ClaimCase): string {
+    if (!this.canAdvance()) return '';
+    if (row.stage !== 'impossible') return 'Согласование запускается из статуса «Невозможность взыскания»';
+    if (row.acts_count < 3) return 'Нужны три акта о невозможности взыскания';
+    if (!this.approvers.length) return 'Выберите хотя бы одного согласующего';
+    return 'Отправить на согласование';
+  }
+
   protected opiSendOpen(row: ClaimCase): boolean {
-    return row.stage === 'writ_done' || row.stage === 'opi' || row.stage === 'opi_measures';
+    if (row.stage !== 'writ_done' && row.stage !== 'opi' && row.stage !== 'opi_measures') return false;
+    return !(row.pris?.problems || []).length && !!row.pris?.ready;
+  }
+
+  protected opiSendTitle(row: ClaimCase): string {
+    if (this.courtBranch(row)) return 'После отказа нотариуса дело идёт в суд, не в ОПИ';
+    if (row.stage !== 'writ_done' && row.stage !== 'opi' && row.stage !== 'opi_measures') {
+      return 'Передача в ОПИ включается после совершённой надписи';
+    }
+    const problems = row.pris?.problems || [];
+    if (problems.length) return `Сначала заполните: ${problems.join('; ')}`;
+    if (!row.pris?.ready) return 'Сначала заполните пакет для передачи в ОПИ';
+    return 'Передать пакет в ОПИ';
   }
 
   protected moveToOpi(): void {
@@ -1318,6 +1564,29 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
           },
           error: (err) => this.snack.open(errorMessage(err), 'OK'),
         });
+      },
+      error: (err) => this.snack.open(errorMessage(err), 'OK'),
+    });
+  }
+
+  protected uploadWrit(event: Event): void {
+    this.uploadAccountFile(event, 'Исполнительная надпись', 'PDF надписи приложен');
+  }
+
+  protected uploadDecision(event: Event): void {
+    this.uploadAccountFile(event, 'Судебное решение', 'PDF решения приложен');
+  }
+
+  private uploadAccountFile(event: Event, docType: string, done: string): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const row = this.claim();
+    if (!file || !row) return;
+    this.api.uploadFile(row.account, docType, file).subscribe({
+      next: () => {
+        input.value = '';
+        this.reloadClaim();
+        this.snack.open(done, 'OK', { duration: 2000 });
       },
       error: (err) => this.snack.open(errorMessage(err), 'OK'),
     });
@@ -2154,6 +2423,18 @@ export class ClaimDetailComponent implements OnInit, OnDestroy {
     if (row.package?.persisted && (this.readySignClaimId !== row.id || !this.readySignPath)) {
       this.prefetchSignTicket(row.id);
     }
+    this.settleTab(row);
+  }
+
+  private settleTab(row: ClaimCase): void {
+    if (this.tabOpen(this.tab(), row)) return;
+    this.tab.set('pack');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: 'pack' },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   private prefetchSignTicket(claimId: number): void {
